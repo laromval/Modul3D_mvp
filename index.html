@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="ru" data-theme="light">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+<meta name="color-scheme" content="light dark" />
+<title>Modul3D — параметрический конструктор корпусной мебели</title>
+
+<link rel="icon" type="image/svg+xml" href="favicon.svg" />
+<link rel="stylesheet" href="style.css?v200" />
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+</head>
+<body>
+
+<!-- ====================== ШАПКА ====================== -->
+<header class="topbar" id="topbar">
+  <div class="brand">
+    <svg class="brand-mark" viewBox="0 0 64 64" aria-hidden="true">
+      <path class="bm-wire" d="M32 12 52 22v20L32 52 12 42V22z"/>
+      <path class="bm-wire" d="M12 22l20 10 20-10M32 32v20"/>
+      <path class="bm-fill" d="M32 32 52 22v20L32 52z"/>
+    </svg>
+    <span class="brand-name">Modul<b>3D</b></span>
+    <span class="ver" id="appVersion"></span>
+    <span class="brand-sub">параметрический конструктор корпусной мебели</span>
+  </div>
+
+  <div class="header-actions">
+    <div class="project-btns" id="projectBtns">
+      <button id="saveProjectBtn" class="btn" type="button" title="Сохранить проект в файл .json (Ctrl+S)">
+        <span aria-hidden="true">↓</span> Сохранить
+      </button>
+      <input id="openProjectFile" type="file" accept="application/json,.json" style="display:none" />
+      <button id="openProjectBtn" class="btn" type="button" title="Открыть проект из файла .json (Ctrl+O)">
+        <span aria-hidden="true">↑</span> Открыть
+      </button>
+    </div>
+
+    <button id="focusHintBtn" class="icon-btn tip tip-down" type="button"
+            data-tip="Горячие клавиши: Ctrl+S · Ctrl+O · Ctrl+Z · 1–4 виды · D документы · P параметры"
+            aria-label="Подсказки">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="9"/><path d="M9.5 9.2a2.6 2.6 0 1 1 3.3 2.5c-.7.2-1 .8-1 1.5v.4"/><circle cx="12" cy="17" r=".6" fill="currentColor"/>
+      </svg>
+    </button>
+
+    <button id="themeToggle" class="icon-btn tip tip-down" type="button" data-tip="Светлая / тёмная тема" aria-label="Сменить тему">
+      <svg class="ic-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+        <circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>
+      </svg>
+      <svg class="ic-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="display:none">
+        <path d="M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5z"/>
+      </svg>
+    </button>
+  </div>
+</header>
+
+<!-- ====================== СЦЕНА ====================== -->
+<main class="stage" id="stage">
+
+  <div id="viewer3d"></div>
+  <div id="viewOverlay" class="view-overlay" style="display:none"></div>
+  <div class="warnings" id="warnings"></div>
+
+  <div class="scrim" id="scrim"></div>
+
+  <!-- Рейка триггеров: панели прячутся за экран, на холсте только иконки -->
+  <nav class="rail" id="rail" aria-label="Панели">
+    <button class="rail-btn tip" type="button" data-panel="params" data-tip="Параметры (P)" aria-label="Параметры">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+        <path d="M4 7h10M18 7h2M4 12h4M12 12h8M4 17h9M17 17h3"/>
+        <circle cx="16" cy="7" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="15" cy="17" r="2"/>
+      </svg>
+    </button>
+
+    <button class="rail-btn tip" type="button" data-panel="params" data-scroll="Материалы" data-tip="Материалы" aria-label="Материалы">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round">
+        <path d="M12 3 3 7.5l9 4.5 9-4.5z"/><path d="M3 12.5 12 17l9-4.5"/><path d="M3 17 12 21.5 21 17"/>
+      </svg>
+    </button>
+
+    <button class="rail-btn tip" type="button" data-panel="studio" data-tip="Студия — виды и проверка" aria-label="Студия">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round">
+        <path d="M12 2.5 21 7v10l-9 4.5L3 17V7z"/><path d="M3 7l9 4.5L21 7M12 11.5V21.5"/>
+      </svg>
+    </button>
+
+    <div class="rail-sep"></div>
+
+    <button class="rail-btn tip" type="button" data-panel="docs" data-tip="Документы: чертежи, деталировка, спецификация (D)" aria-label="Документы">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M6 2.5h8l4 4V21a.5.5 0 0 1-.5.5h-11A.5.5 0 0 1 6 21z"/><path d="M14 2.5V7h4"/><path d="M9 12h6M9 15.5h6M9 8.5h2"/>
+      </svg>
+    </button>
+  </nav>
+
+  <!-- Нижняя плавающая панель: виды камеры -->
+  <div class="stage-dock" id="stageDock">
+    <div class="view-btns" id="viewBtns">
+      <button class="view-btn" data-view="front" type="button">Спереди</button>
+      <button class="view-btn" data-view="side" type="button">Сбоку</button>
+      <button class="view-btn" data-view="top" type="button">Сверху</button>
+      <button class="view-btn active" data-view="iso" type="button">3D</button>
+    </div>
+  </div>
+
+  <!-- ---------- Панель: Параметры ---------- -->
+  <aside class="drawer drawer-left" id="drawer-params" data-drawer-panel="params" aria-hidden="true">
+    <div class="drawer-head">
+      <h2 class="drawer-title">Параметры проекта</h2>
+      <button class="drawer-close" type="button" data-close aria-label="Закрыть">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
+      </button>
+    </div>
+    <div class="drawer-body">
+      <div class="drawer-search">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="6"/><path d="M15.5 15.5 20 20"/></svg>
+        <input type="search" id="paramSearch" placeholder="Поиск по параметрам и материалам…" autocomplete="off" />
+      </div>
+      <div class="panel" id="paramsPanel"><!-- заполняется app.js --></div>
+    </div>
+  </aside>
+
+  <!-- ---------- Панель: Студия ---------- -->
+  <aside class="drawer drawer-right" id="drawer-studio" data-drawer-panel="studio" aria-hidden="true">
+    <div class="drawer-head">
+      <h2 class="drawer-title">Студия</h2>
+      <button class="drawer-close" type="button" data-close aria-label="Закрыть">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
+      </button>
+    </div>
+    <div class="drawer-body">
+      <h3 class="drawer-section">Отображение</h3>
+      <div class="studio-list">
+        <button id="hideFacadesBtn" class="btn" type="button">Скрыть фасады</button>
+        <button id="drillCheckBtn" class="btn" type="button"
+                title="Полупрозрачный корпус, присадка подсвечена по назначению">Проверка присадки</button>
+      </div>
+
+      <h3 class="drawer-section">Эскиз → 3D</h3>
+      <input id="sketchFile" type="file" accept="image/jpeg,image/png" style="display:none" />
+      <div class="studio-list">
+        <button id="sketchUploadBtn" class="btn" type="button">Загрузить эскиз (ИИ)</button>
+      </div>
+      <div id="sketchPopover" class="popover" style="display:none">
+        <img id="sketchPreview" class="sketch-preview" style="display:none" alt="" />
+        <button id="recognizeBtn" class="btn btn-primary" type="button">Распознать эскиз</button>
+        <div id="sketchStatus" class="sketch-status"></div>
+      </div>
+
+      <h3 class="drawer-section">Доступ</h3>
+      <div class="studio-list">
+        <button id="apiKeyToggle" class="btn" type="button" title="Anthropic API-ключ">API-ключ Anthropic</button>
+      </div>
+      <div id="apiKeyPopover" class="popover" style="display:none">
+        <label for="apiKey">Ключ хранится только в этом браузере</label>
+        <input id="apiKey" type="password" placeholder="sk-ant-…" />
+      </div>
+    </div>
+  </aside>
+
+  <!-- ---------- Панель: Документы ---------- -->
+  <section class="drawer drawer-bottom" id="drawer-docs" data-drawer-panel="docs" aria-hidden="true">
+    <div class="drawer-head">
+      <h2 class="drawer-title">Документы</h2>
+      <button class="drawer-close" type="button" data-close aria-label="Закрыть">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
+      </button>
+    </div>
+    <div class="drawer-body">
+      <div class="results">
+        <div class="tabs">
+          <button class="tab-btn active" data-tab="drawings" type="button">Чертежи</button>
+          <button class="tab-btn" data-tab="detailing" type="button">Деталировка</button>
+          <button class="tab-btn" data-tab="spec" type="button">Спецификация</button>
+          <div class="spacer"></div>
+          <button id="printDrawings" class="btn" type="button">Печать чертежей</button>
+          <button id="exportDetailing" class="btn" type="button">Деталировка .xlsx</button>
+          <button id="exportSpec" class="btn" type="button">Спецификация .xlsx</button>
+          <button id="exportDrillCsv" class="btn" type="button">Присадка .csv</button>
+          <button id="exportDrillDxf" class="btn btn-primary" type="button">Присадка .dxf (ЧПУ)</button>
+        </div>
+        <div class="tab-panel" id="tab-drawings"></div>
+        <div class="tab-panel" id="tab-detailing"></div>
+        <div class="tab-panel" id="tab-spec"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ---------- HUD: контекстное меню прямо на детали ---------- -->
+  <div class="hud" id="partHud" aria-hidden="true"></div>
+
+  <!-- ---------- Мобильная шторка 40 px ---------- -->
+  <div class="mobile-sheet-bar" id="mobileBar">
+    <button class="rail-btn" type="button" data-panel="params" aria-label="Параметры">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+        <path d="M4 7h10M18 7h2M4 12h4M12 12h8M4 17h9M17 17h3"/>
+        <circle cx="16" cy="7" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="15" cy="17" r="2"/>
+      </svg>
+    </button>
+    <button class="rail-btn" type="button" data-panel="params" data-scroll="Материалы" aria-label="Материалы">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round">
+        <path d="M12 3 3 7.5l9 4.5 9-4.5z"/><path d="M3 12.5 12 17l9-4.5"/><path d="M3 17 12 21.5 21 17"/>
+      </svg>
+    </button>
+    <button class="rail-btn" type="button" data-panel="studio" aria-label="Студия">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round">
+        <path d="M12 2.5 21 7v10l-9 4.5L3 17V7z"/><path d="M3 7l9 4.5L21 7M12 11.5V21.5"/>
+      </svg>
+    </button>
+    <button class="rail-btn" type="button" data-panel="docs" aria-label="Документы">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M6 2.5h8l4 4V21a.5.5 0 0 1-.5.5h-11A.5.5 0 0 1 6 21z"/><path d="M14 2.5V7h4"/><path d="M9 12h6M9 15.5h6M9 8.5h2"/>
+      </svg>
+    </button>
+  </div>
+
+</main>
+
+<script src="src/catalog.js?v200"></script>
+<script src="src/presets.js?v200"></script>
+<script src="src/engine.js?v200"></script>
+<script src="src/specification.js?v200"></script>
+<script src="src/legMeshes.js?v200"></script>
+<script src="src/viewer.js?v200"></script>
+<script src="src/ui-shell.js?v200"></script>
+<script src="src/drawings.js?v200"></script>
+<script src="src/export.js?v200"></script>
+<script src="src/cnc.js?v200"></script>
+<script src="src/sketchAI.js?v200"></script>
+<script src="src/app.js?v200"></script>
+<script>if (window.Basis && window.Basis.uiShell) window.Basis.uiShell.start();</script>
+</body>
+</html>
