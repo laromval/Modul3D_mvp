@@ -7,7 +7,7 @@
 <title>Modul3D — параметрический конструктор корпусной мебели</title>
 
 <link rel="icon" type="image/svg+xml" href="favicon.svg" />
-<link rel="stylesheet" href="style.css?v185" />
+<link rel="stylesheet" href="style.css?v186" />
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
@@ -124,7 +124,7 @@
   </aside>
 
   <!-- ---------- Панель: Студия ---------- -->
-  <aside class="drawer drawer-right" id="drawer-studio" data-drawer-panel="studio" aria-hidden="true">
+  <aside class="drawer drawer-left" id="drawer-studio" data-drawer-panel="studio" aria-hidden="true">
     <div class="drawer-head">
       <h2 class="drawer-title">Студия</h2>
       <button class="drawer-close" type="button" data-close aria-label="Закрыть">
@@ -138,6 +138,7 @@
         <button id="drillCheckBtn" class="btn" type="button"
                 title="Полупрозрачный корпус, присадка подсвечена по назначению">Проверка присадки</button>
       </div>
+      <div id="drillLegend" class="drill-legend-inline"></div>
 
       <h3 class="drawer-section">Эскиз → 3D</h3>
       <input id="sketchFile" type="file" accept="image/jpeg,image/png" style="display:none" />
@@ -219,18 +220,18 @@
 
 </main>
 
-<script src="src/catalog.js?v185"></script>
-<script src="src/presets.js?v185"></script>
-<script src="src/engine.js?v185"></script>
-<script src="src/specification.js?v185"></script>
-<script src="src/legMeshes.js?v185"></script>
-<script src="src/viewer.js?v185"></script>
-<script src="src/ui-shell.js?v185"></script>
-<script src="src/drawings.js?v185"></script>
-<script src="src/export.js?v185"></script>
-<script src="src/cnc.js?v185"></script>
-<script src="src/sketchAI.js?v185"></script>
-<script src="src/app.js?v185"></script>
+<script src="src/catalog.js?v186"></script>
+<script src="src/presets.js?v186"></script>
+<script src="src/engine.js?v186"></script>
+<script src="src/specification.js?v186"></script>
+<script src="src/legMeshes.js?v186"></script>
+<script src="src/viewer.js?v186"></script>
+<script src="src/ui-shell.js?v186"></script>
+<script src="src/drawings.js?v186"></script>
+<script src="src/export.js?v186"></script>
+<script src="src/cnc.js?v186"></script>
+<script src="src/sketchAI.js?v186"></script>
+<script src="src/app.js?v186"></script>
 <script>if (window.Modul3D && window.Modul3D.uiShell) window.Modul3D.uiShell.start();</script>
 </body>
 </html>

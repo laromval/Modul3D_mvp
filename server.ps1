@@ -9,10 +9,21 @@ Set-Location $root
 function Show-Banner {
     $ip = $null
     try {
-        $ip = Get-NetIPAddress -AddressFamily IPv4 -ErrorAction Stop |
-              Where-Object { $_.IPAddress -notlike '127.*' -and $_.IPAddress -notlike '169.254.*' } |
+        # Берём адрес адаптера, у которого реально есть шлюз по умолчанию -
+        # это отличает настоящую сеть (Wi-Fi/Ethernet) от виртуальных
+        # адаптеров (Hyper-V vEthernet, WSL, VPN), у которых шлюза нет.
+        $ip = Get-NetIPConfiguration -ErrorAction Stop |
+              Where-Object { $_.IPv4DefaultGateway -and $_.NetAdapter.Status -eq 'Up' } |
+              Select-Object -First 1 -ExpandProperty IPv4Address |
               Select-Object -First 1 -ExpandProperty IPAddress
     } catch {}
+    if (-not $ip) {
+        try {
+            $ip = Get-NetIPAddress -AddressFamily IPv4 -ErrorAction Stop |
+                  Where-Object { $_.IPAddress -notlike '127.*' -and $_.IPAddress -notlike '169.254.*' } |
+                  Select-Object -First 1 -ExpandProperty IPAddress
+        } catch {}
+    }
 
     Write-Host ""
     Write-Host "  Modul3D - доступ с других устройств по локальной сети" -ForegroundColor Cyan

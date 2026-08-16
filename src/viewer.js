@@ -443,11 +443,26 @@ function makeKitchenLeg(box, moduleName, isActive, hasClip) {
 }
 
 /**
- * Управление камерой мышью:
- *   ЛКМ  — перемещение модели (панорамирование) вправо/влево/вверх/вниз,
- *   ПКМ  — вращение,
- *   колесо — зум с фокусом в точке под курсором.
+ * Управление камерой:
+ *   Мышь:  ЛКМ — панорамирование, ПКМ — вращение, колесо — зум с фокусом
+ *          в точке под курсором.
+ *   Тач:   один палец — вращение (самый интуитивный жест на планшете/
+ *          телефоне), два пальца — панорамирование средней точкой между
+ *          пальцами + pinch-zoom (сведение/разведение — отдаление/
+ *          приближение), как в большинстве 3D-просмотрщиков.
+ * Определяем тач по e.pointerType === 'touch' и ведём несколько активных
+ * pointerId через Map — на тач-устройстве при жесте двумя пальцами events
+ * приходят с разными id одновременно.
  */
+// Порог "протухания" записи о пальце в this._pointers: если для pointerId
+// дольше этого времени не пришло вообще ни одного события (ни pointerdown,
+// ни pointermove), считаем, что палец давно отпущен, а браузер просто не
+// прислал pointerup/pointercancel. Значение сознательно большое — sweep
+// применяется только в момент НОВОГО pointerdown (см. ниже), то есть между
+// разными жестами пользователя, а не посреди текущего, так что запас по
+// времени тут ничего не портит и лучше перестраховаться.
+const STALE_TOUCH_POINTER_MS = 3000;
+
 class SimpleOrbitControl {
   constructor(camera, domElement) {
     this.camera = camera;
@@ -460,24 +475,158 @@ class SimpleOrbitControl {
     this._lastX = 0;
     this._lastY = 0;
 
-    this.moved = 0;   // накопленный сдвиг мыши — чтобы отличить клик от протяжки
-    this.mode = null; // 'pan' | 'rotate'
+    this.moved = 0;   // накопленный сдвиг — чтобы отличить клик/тап от протяжки
+    this.mode = null; // 'pan' | 'rotate' | 'pinch'
+
+    // Активные указатели тач-жеста: pointerId -> {x, y}. Нужны, чтобы отличать
+    // одно- и двухпальцевые жесты и считать смещение средней точки/расстояния
+    // между пальцами для панорамирования и pinch-zoom.
+    this._pointers = new Map();
+    this._pinchDist = 0;  // расстояние между пальцами на предыдущем кадре
+    this._pinchMidX = 0;  // средняя точка между пальцами на предыдущем кадре
+    this._pinchMidY = 0;
+
+    // Ставит снаружи Viewer3D: проверяет, попал ли палец на саму 3D-модель
+    // (raycast). Нужен, чтобы решить режим одиночного касания — вращение
+    // или панорамирование (см. pointerdown ниже). Пока не задан (например,
+    // в момент создания контрола, до того как Viewer3D его подключит) —
+    // ведём себя как раньше и всегда вращаем.
+    this.hitTestProvider = null;
 
     // Контекстное меню по ПКМ отключаем — правая кнопка занята вращением
     this.dom.addEventListener('contextmenu', (e) => e.preventDefault());
 
     this.dom.addEventListener('pointerdown', (e) => {
+      this.dom.setPointerCapture(e.pointerId);
+
+      if (e.pointerType === 'touch') {
+        // Защитная очистка "протухших" записей — sweep по возрасту, а НЕ по
+        // this._dragging. Раньше чистили всю карту при `!this._dragging`, но
+        // это логически не могло сработать: для touch этот флаг становится
+        // false ТОЛЬКО внутри endPointer, синхронно с тем же
+        // pointerup/pointercancel, которого как раз и не хватает — то есть
+        // именно в сценарии утечки _dragging никогда не сбросится сам, и
+        // условие `!this._dragging` никогда не срабатывает.
+        //
+        // Вместо флага храним в каждой записи this._pointers метку времени t
+        // последнего события (pointerdown или pointermove) для этого
+        // pointerId. НО одного только возраста t недостаточно: если первый
+        // палец лежит на экране неподвижно дольше STALE_TOUCH_POINTER_MS
+        // (держат модель, чтобы рассмотреть), pointermove по нему браузер не
+        // шлёт, t не обновляется — а затем ставят второй палец для pinch.
+        // Новый pointerdown для второго пальца запускает этот sweep, и по
+        // одному только возрасту первый палец выглядел бы "протухшим", хотя
+        // физически он всё ещё прижат к экрану. Поэтому запись удаляем,
+        // только если ОБА условия верны: по времени давно не было события
+        // И браузер уже не считает этот pointerId захваченным элементом
+        // (Element.hasPointerCapture) — то есть указатель либо реально
+        // отпущен/отменён, либо capture был снят браузером implicitly, а
+        // событие pointerup/pointercancel потерялось. Пока палец физически
+        // прижат, hasPointerCapture остаётся true независимо от того,
+        // двигается палец или нет — так что неподвижный, но реально прижатый
+        // палец sweep не тронет, а по-настоящему потерянный указатель
+        // по-прежнему будет выметен.
+        const now = Date.now();
+        const hasCapture = typeof this.dom.hasPointerCapture === 'function'
+          ? (id) => this.dom.hasPointerCapture(id)
+          // Старые браузеры без Element.hasPointerCapture — fallback на
+          // прежнее поведение (только по возрасту), чтобы не отключать
+          // sweep совсем. В таких браузерах edge-case с неподвижным пальцем
+          // теоретически возможен снова, но актуальные мобильные
+          // Chrome/Safari метод поддерживают, так что это приемлемый
+          // компромисс только для устаревших сред.
+          : () => false;
+        for (const [id, p] of this._pointers) {
+          if (id !== e.pointerId && now - p.t > STALE_TOUCH_POINTER_MS && !hasCapture(id)) {
+            this._pointers.delete(id);
+          }
+        }
+        this._pointers.set(e.pointerId, { x: e.clientX, y: e.clientY, t: now });
+        this.moved = 0;
+        if (this._pointers.size === 1) {
+          // Первый палец: если попал на саму модель — вращаем сцену вокруг
+          // цели, если мимо (пустое место/сетка) — панорамируем. Без
+          // provider (hitTestProvider не задан) — как раньше, всегда rotate.
+          const onObject = this.hitTestProvider ? this.hitTestProvider(e) : true;
+          this._dragging = true;
+          this.mode = onObject ? 'rotate' : 'pan';
+          this._lastX = e.clientX;
+          this._lastY = e.clientY;
+        } else if (this._pointers.size >= 2) {
+          // Появился второй палец — переключаемся на пинч (зум + пан),
+          // одиночное вращение приостанавливаем до отрыва пальца.
+          this._dragging = true;
+          this.mode = 'pinch';
+          this._setPinchBaseline();
+        }
+        return;
+      }
+
+      // Мышь/перо: как раньше — ЛКМ пан, ПКМ вращение. Multi-pointer логикой
+      // (this._pointers.size) мышь не пользуется, но запись в карту всё равно
+      // нужна — её удаляет endPointer при pointerup/pointercancel. Поле t
+      // здесь не используется (sweep — только для touch-ветки), но пишем
+      // его для единообразия формы записи.
+      this._pointers.set(e.pointerId, { x: e.clientX, y: e.clientY, t: Date.now() });
       this._dragging = true;
       this.mode = (e.button === 2) ? 'rotate' : 'pan';
       this.moved = 0;
       this._lastX = e.clientX;
       this._lastY = e.clientY;
-      this.dom.setPointerCapture(e.pointerId);
     });
-    this.dom.addEventListener('pointerup', () => { this._dragging = false; this.mode = null; });
-    this.dom.addEventListener('pointercancel', () => { this._dragging = false; this.mode = null; });
+
+    const endPointer = (e) => {
+      this._pointers.delete(e.pointerId);
+      if (e.pointerType === 'touch') {
+        if (this._pointers.size === 0) {
+          this._dragging = false;
+          this.mode = null;
+        } else if (this._pointers.size === 1) {
+          // Остался один палец после пинча — переходим на вращение без
+          // скачка камеры: берём базовую точку заново, а не продолжаем
+          // старую дельту.
+          const p = this._pointers.values().next().value;
+          this.mode = 'rotate';
+          this._lastX = p.x;
+          this._lastY = p.y;
+        }
+        return;
+      }
+      this._dragging = false;
+      this.mode = null;
+    };
+    this.dom.addEventListener('pointerup', endPointer);
+    this.dom.addEventListener('pointercancel', endPointer);
+    // lostpointercapture сюда намеренно НЕ добавляем: на части Android
+    // WebView/браузеров это событие ненадёжно — может сработать само по себе
+    // посреди активного перетаскивания (например, из-за внутренней
+    // перепривязки capture при перерисовке WebGL-канвы), а не только когда
+    // палец реально оторвался от экрана. Раз endPointer сбрасывает
+    // _dragging/mode, такое ложное срабатывание обрывало жест на середине:
+    // модель проворачивалась на десяток градусов и "залипала" — pointermove
+    // продолжали приходить, но отбрасывались проверкой `!this._dragging`.
+    // Вместо него "протухшие" pointerId (для которых так и не пришёл
+    // pointerup/pointercancel) подчищаются sweep'ом по возрасту записи
+    // (STALE_TOUCH_POINTER_MS) в начале pointerdown — см. комментарий там.
+    // pointerleave тоже не добавляем: при захваченном pointer'е (после
+    // setPointerCapture) события обязаны продолжать приходить на исходный
+    // элемент, даже когда палец физически ушёл за его границы во время
+    // активного жеста — но некоторые движки всё равно шлют pointerleave в
+    // этот момент, и обработка такого события как «отпускания» преждевременно
+    // обрывала бы ещё идущий жест.
+
     this.dom.addEventListener('pointermove', (e) => {
-      if (!this._dragging) return;
+      if (!this._dragging || !this._pointers.has(e.pointerId)) return;
+      // Обновляем t при каждом move (даже если dx/dy малы) — это и есть
+      // признак "палец всё ещё реально на экране", на который опирается
+      // sweep в pointerdown выше.
+      this._pointers.set(e.pointerId, { x: e.clientX, y: e.clientY, t: Date.now() });
+
+      if (this.mode === 'pinch') {
+        this._applyPinch();
+        return;
+      }
+
       const dx = e.clientX - this._lastX;
       const dy = e.clientY - this._lastY;
       this.moved += Math.abs(dx) + Math.abs(dy);
@@ -497,17 +646,64 @@ class SimpleOrbitControl {
     this.dom.addEventListener('wheel', (e) => {
       e.preventDefault();
       const k = 1 + e.deltaY * 0.001;
-      const newR = Math.max(0.15, Math.min(60, this.radius * k));
       const pt = this.zoomPointProvider ? this.zoomPointProvider(e) : null;
-      if (pt && k < 1) {
-        // приближение — тянем цель к точке под курсором пропорционально шагу
-        const f = 1 - newR / this.radius;
-        this.target.lerp(pt, Math.min(0.9, Math.max(0, f)));
-      }
-      this.radius = newR;
-      if (this.onZoom) this.onZoom(k, pt);
+      this._zoomBy(k, pt);
       this.update();
     }, { passive: false });
+  }
+
+  /** Записываем стартовое расстояние и середину между двумя пальцами. */
+  _setPinchBaseline() {
+    const pts = Array.from(this._pointers.values());
+    if (pts.length < 2) return;
+    const [a, b] = pts;
+    this._pinchDist = Math.hypot(b.x - a.x, b.y - a.y) || 1;
+    this._pinchMidX = (a.x + b.x) / 2;
+    this._pinchMidY = (a.y + b.y) / 2;
+  }
+
+  /**
+   * Двухпальцевый жест за один кадр: пинч меняет расстояние между пальцами
+   * (масштаб), сдвиг средней точки между пальцами — панорамирование.
+   * Считаем от значений, сохранённых на предыдущем вызове (не от стартовых),
+   * чтобы жест был плавным на всей длине протяжки.
+   */
+  _applyPinch() {
+    const pts = Array.from(this._pointers.values());
+    if (pts.length < 2) return;
+    const [a, b] = pts;
+    const dist = Math.hypot(b.x - a.x, b.y - a.y) || 1;
+    const midX = (a.x + b.x) / 2;
+    const midY = (a.y + b.y) / 2;
+
+    // Разведение пальцев (дистанция растёт) — приближение, сведение — отдаление.
+    const k = this._pinchDist / dist;
+    const pt = this.zoomPointProvider
+      ? this.zoomPointProvider({ clientX: midX, clientY: midY })
+      : null;
+    this._zoomBy(k, pt);
+
+    // Панорамирование — сдвиг средней точки между пальцами со времени
+    // предыдущего кадра.
+    this.pan(midX - this._pinchMidX, midY - this._pinchMidY);
+
+    this.moved += Math.abs(dist - this._pinchDist) + Math.abs(midX - this._pinchMidX) + Math.abs(midY - this._pinchMidY);
+    this._pinchDist = dist;
+    this._pinchMidX = midX;
+    this._pinchMidY = midY;
+    this.update();
+  }
+
+  /** Общий шаг масштабирования (используется и колесом мыши, и pinch-зумом). */
+  _zoomBy(k, pt) {
+    const newR = Math.max(0.15, Math.min(60, this.radius * k));
+    if (pt && k < 1) {
+      // приближение — тянем цель к точке под курсором/пальцами пропорционально шагу
+      const f = 1 - newR / this.radius;
+      this.target.lerp(pt, Math.min(0.9, Math.max(0, f)));
+    }
+    this.radius = newR;
+    if (this.onZoom) this.onZoom(k, pt);
   }
 
   /**
@@ -606,16 +802,9 @@ class Viewer3D {
     }
     this.renderer.domElement.addEventListener('pointerup', (e) => {
       if (!this.onSelectModule || this.controls.moved > 6) return;
-      const rect = this.renderer.domElement.getBoundingClientRect();
-      const ndc = new THREE.Vector2(
-        ((e.clientX - rect.left) / rect.width) * 2 - 1,
-        -((e.clientY - rect.top) / rect.height) * 2 + 1
-      );
-      this._raycaster.setFromCamera(ndc, this.camera);
       // Деталь теперь собирается из нескольких слоёв внутри группы, поэтому
       // луч пускаем РЕКУРСИВНО, а имя модуля ищем вверх по родителям.
-      const hits = this._raycaster.intersectObjects(this.group.children, true)
-        .filter((h) => h.object && h.object.isMesh);      // контуры не в счёт
+      const hits = this._hitTestAt(e);      // контуры не в счёт (см. _hitTestAt)
       const ownerOf = (obj) => {
         for (let o = obj; o; o = o.parent) {
           if (o.userData && o.userData.module) return o.userData.module;
@@ -639,16 +828,14 @@ class Viewer3D {
 
     // Точка модели под курсором — для зума с фокусом в курсоре
     this.controls.zoomPointProvider = (e) => {
-      const rect = this.renderer.domElement.getBoundingClientRect();
-      const ndc = new THREE.Vector2(
-        ((e.clientX - rect.left) / rect.width) * 2 - 1,
-        -((e.clientY - rect.top) / rect.height) * 2 + 1
-      );
-      this._raycaster.setFromCamera(ndc, this.camera);
-      const hits = this._raycaster.intersectObjects(this.group.children, true)
-        .filter((h) => h.object && h.object.isMesh);
+      const hits = this._hitTestAt(e);
       return hits.length ? hits[0].point : null;
     };
+
+    // Попал ли палец/курсор на саму модель — используется тач-контролом,
+    // чтобы решить: вращать сцену (палец на детали) или панорамировать
+    // (палец мимо, по пустому месту).
+    this.controls.hitTestProvider = (e) => this._hitTestAt(e).length > 0;
 
     this._addLights();
     this._addGrid();
@@ -656,6 +843,23 @@ class Viewer3D {
     window.addEventListener('resize', () => this._resize());
 
     this._animate();
+  }
+
+  /**
+   * Общий raycast из точки экрана (clientX/clientY) в меши модели.
+   * Используется и для выбора модуля кликом, и для зума с фокусом в
+   * курсоре, и для hit-test тач-жестов — чтобы не дублировать одну и ту же
+   * NDC-логику в нескольких местах.
+   */
+  _hitTestAt(e) {
+    const rect = this.renderer.domElement.getBoundingClientRect();
+    const ndc = new THREE.Vector2(
+      ((e.clientX - rect.left) / rect.width) * 2 - 1,
+      -((e.clientY - rect.top) / rect.height) * 2 + 1
+    );
+    this._raycaster.setFromCamera(ndc, this.camera);
+    return this._raycaster.intersectObjects(this.group.children, true)
+      .filter((h) => h.object && h.object.isMesh);   // контуры/линии не в счёт
   }
 
   _addLights() {
@@ -1112,8 +1316,143 @@ class Viewer3D {
   }
 }
 
+// ---------------------------------------------------------------------------
+// ОФСКРИН-МИНИАТЮРА (PNG) ДЛЯ ПЛИТКИ ГАЛЕРЕИ ПРЕСЕТОВ
+// ---------------------------------------------------------------------------
+// Отдельная лёгкая функция, НЕ связанная с классом Viewer3D и его канвой:
+// галерея пресетов должна показать маленькую картинку готового модуля ДО
+// того, как пользователь его выбрал (Viewer3D в этот момент занят текущим
+// проектом). Полный конвейер render() у Viewer3D режет каждую деталь на
+// слои с вырезами под присадку, паз, рамочные фасады, фрезеровку МДФ,
+// реальные меши опор и т.д. — для иконки 140×140 этого не видно, а строить
+// это было бы дорого и рискованно дублировать. Поэтому здесь — упрощённый
+// путь: каждая деталь рисуется одним THREE.BoxGeometry по её собственному
+// row.box (те же поля, что использует Viewer3D.render, — расхождения по
+// размерам и позициям исключены, так как это одни и те же model.partsRaw),
+// а вся фурнитура (опоры, ручки, штанги, полкодержатели, фланцы — все
+// row.shape !== 'box') для силуэта не критична и пропускается.
+function renderThumbnail(model, opts) {
+  if (!THREE || !model || !model.dims) return null;
+  const source = model.partsRaw || model.parts || [];
+  if (!source.length) return null;
+
+  const size = (opts && opts.size) || 140;
+  const geoms = [];   // всё, что создали здесь, — освобождаем в finally
+  const mats = [];
+  let renderer = null;
+
+  try {
+    const scene = new THREE.Scene();
+    scene.background = null;   // прозрачный фон — подложку задаёт CSS плитки
+
+    // Минимальный свет: рассеянный + один направленный, только чтобы грани
+    // читались объёмно (полный вариант — Viewer3D._addLights()).
+    scene.add(new THREE.AmbientLight(0xffffff, 0.8));
+    const dir = new THREE.DirectionalLight(0xffffff, 0.7);
+    dir.position.set(3, 5, 4);
+    scene.add(dir);
+
+    const group = new THREE.Group();
+    scene.add(group);
+
+    for (const row of source) {
+      // Фурнитуру (опоры/ручки/штанги/полкодержатели/фланцы) для маленькой
+      // иконки не рисуем — силуэт модуля определяют только листовые детали.
+      // Сюда же попадает и опора: она использует src/legMeshes.js, который
+      // по правилам проекта не читаем и не трогаем.
+      if (row.shape && row.shape !== 'box') continue;
+      const box = row.box;
+      if (!box || !(box.w > 0) || !(box.h > 0) || !(box.d > 0)) continue;
+
+      // Цвет — по материалу детали (тот же decorLook/KIND_COLOR, что и в
+      // основной сцене), без текстур: для иконки достаточно плоского тона.
+      const look = decorLook(row.material);
+      const asFacade = !!row.facadeType;
+      const color = look ? look.color
+        : (KIND_COLOR[row.kind] ?? (asFacade ? KIND_COLOR.door : KIND_COLOR.side));
+
+      const geo = new THREE.BoxGeometry(
+        Math.max(box.w * MM, 0.001), Math.max(box.h * MM, 0.001), Math.max(box.d * MM, 0.001));
+      const mat = new THREE.MeshStandardMaterial({
+        color: row.glass ? 0xbfe3ea : color,
+        roughness: 0.7, metalness: 0.03,
+        transparent: !!row.glass, opacity: row.glass ? 0.4 : 1,
+      });
+      geoms.push(geo); mats.push(mat);
+
+      const mesh = new THREE.Mesh(geo, mat);
+      // Позиция и поворот — те же поля box.x/y/z и rot, что даёт engine.js
+      // и что использует Viewer3D.render (row.box уже в системе координат
+      // модуля, mesh.rotation.y довершает разворот целиком).
+      mesh.position.set(box.x * MM, box.y * MM, box.z * MM);
+      mesh.rotation.y = ((row.rot || 0) * Math.PI) / 180;
+      group.add(mesh);
+    }
+
+    if (!group.children.length) return null;   // нечего показывать
+
+    // Bounding box всей модели — под него подгоняем камеру так, чтобы модуль
+    // был виден целиком с небольшим отступом по краям.
+    const box3 = new THREE.Box3().setFromObject(group);
+    if (box3.isEmpty()) return null;
+    const sphere = box3.getBoundingSphere(new THREE.Sphere());
+    const center = sphere.center;
+    const radius = Math.max(sphere.radius, 0.05);
+
+    // Изометрический ракурс — тот же угол, что и вид «3D» по умолчанию в
+    // основном вьювере (см. SimpleOrbitControl: theta=PI/4, phi=PI/2.6).
+    const theta = Math.PI / 4;
+    const phi = Math.PI / 2.6;
+    const fovDeg = 35;
+    // Расстояние, на котором вся ограничивающая сфера модели укладывается
+    // в поле зрения камеры, плюс запас на отступ по краям иконки.
+    const dist = (radius / Math.sin((fovDeg * Math.PI) / 360)) * 1.15;
+    const camera = new THREE.PerspectiveCamera(fovDeg, 1, 0.01, Math.max(dist * 4, 100));
+    camera.position.set(
+      center.x + dist * Math.sin(phi) * Math.sin(theta),
+      center.y + dist * Math.cos(phi),
+      center.z + dist * Math.sin(phi) * Math.cos(theta)
+    );
+    camera.up.set(0, 1, 0);
+    camera.lookAt(center);
+
+    // Канва одноразовая и НЕ добавляется в document: в three.js r128
+    // WebGL-контекст создаётся прямо на переданном canvas-элементе, ему не
+    // нужно быть частью DOM, чтобы отрендерить кадр и прочитать его через
+    // toDataURL — так меньше уборки за собой (не нужно ничего вынимать из
+    // страницы после рендера).
+    const canvas = document.createElement('canvas');
+    renderer = new THREE.WebGLRenderer({
+      canvas, antialias: true, preserveDrawingBuffer: true, alpha: true,
+    });
+    renderer.setPixelRatio(1);
+    renderer.setSize(size, size, false);
+    renderer.setClearColor(0x000000, 0);
+    renderer.render(scene, camera);
+
+    return renderer.domElement.toDataURL('image/png');
+  } catch (err) {
+    return null;
+  } finally {
+    // Освобождаем ВСЁ: геометрию и материалы деталей и сам WebGL-контекст.
+    // Функция вызывается подряд по числу пресетов в галерее (десяток+) —
+    // если не закрывать контекст явно, браузер быстро упрётся в лимит
+    // одновременных WebGL-контекстов, и дальнейшие иконки перестанут
+    // рендериться.
+    for (const g of geoms) g.dispose();
+    for (const m of mats) m.dispose();
+    if (renderer) {
+      renderer.dispose();
+      if (typeof renderer.forceContextLoss === 'function') renderer.forceContextLoss();
+    }
+  }
+}
+
 window.Modul3D = window.Modul3D || {};
 // panelSlabs выносим наружу: это чистая математика раскладки слоёв,
 // её проверяет tools/geometry.js без браузера и без Three.js.
-window.Modul3D.viewer = { Viewer3D, panelSlabs, lengthAlongU, edgeDrill, DRILL_COLOR, DRILL_TITLE };
+window.Modul3D.viewer = {
+  Viewer3D, panelSlabs, lengthAlongU, edgeDrill, DRILL_COLOR, DRILL_TITLE,
+  renderThumbnail,
+};
 })();

@@ -349,8 +349,12 @@ select:focus-visible {
   pointer-events: none;
   opacity: .9;
 }
-#viewer3d { position: absolute; inset: 0; z-index: 1; }
-#viewer3d canvas { display: block; }
+/* touch-action: none — иначе на тач-устройствах браузер перехватывает жест
+   пальцем как прокрутку/зум страницы раньше, чем до него доберётся наш
+   pointermove-обработчик в SimpleOrbitControl (viewer.js), и вращать/двигать
+   сцену пальцем не получается вообще. */
+#viewer3d { position: absolute; inset: 0; z-index: 1; touch-action: none; }
+#viewer3d canvas { display: block; touch-action: none; }
 
 .view-overlay { position: absolute; inset: 0; z-index: 4; pointer-events: none; }
 .ov-svg { display: block; width: 100%; height: 100%; }
@@ -816,6 +820,17 @@ h4.spec-title { margin: var(--sp-5) 0 var(--sp-2); font-size: var(--fs-md); font
 .ctx-name { display: block; font-weight: 600; color: var(--text); }
 .ctx-note { display: block; font-size: var(--fs-xs); color: var(--muted); margin-top: 2px; }
 
+/* Пункт с миниатюрой пресета: картинка слева, текст справа. Если миниатюру
+   отрендерить не удалось (renderThumbnail вернул null), .has-thumb не
+   добавляется и пункт выглядит как раньше — просто текстовая кнопка. */
+.ctx-item.has-thumb { display: flex; align-items: center; gap: 9px; }
+.ctx-thumb {
+  flex: 0 0 auto; width: 40px; height: 40px; border-radius: var(--r-sm);
+  border: 1px solid var(--border); background: var(--surface-2);
+  object-fit: contain;
+}
+.ctx-item.has-thumb .ctx-text { flex: 1 1 auto; min-width: 0; }
+
 /* ---------- 12. ПОПОВЕРЫ (эскиз ИИ, API-ключ) ----------------------------- */
 
 .popover {
@@ -839,30 +854,23 @@ h4.spec-title { margin: var(--sp-5) 0 var(--sp-2); font-size: var(--fs-md); font
 
 /* ---------- 13. ЛЕГЕНДА ПРИСАДКИ ----------------------------------------- */
 
-.drill-legend {
-  position: absolute; right: var(--sp-3); top: var(--sp-3); z-index: 26;
-  max-width: 250px; padding: var(--sp-3);
-  border-radius: var(--r-md);
-  background: var(--surface);
-  -webkit-backdrop-filter: var(--blur); backdrop-filter: var(--blur);
-  border: 1px solid var(--border);
-  box-shadow: var(--shadow-2);
+.drill-legend-inline {
   font-size: var(--fs-xs); line-height: 1.5; color: var(--text);
-  transition: opacity var(--dur-slow) var(--ease);
 }
-.drill-legend b { display: block; margin-bottom: 6px; font-size: var(--fs-sm); color: var(--text); }
-.drill-legend .dl-row {
+.drill-legend-inline:empty { display: none; }
+.drill-legend-inline b { display: block; margin: var(--sp-3) 0 6px; font-size: var(--fs-sm); color: var(--text); }
+.drill-legend-inline .dl-row {
   display: flex; align-items: flex-start; gap: 7px;
   padding: 4px 6px; margin: 0 -6px; border-radius: var(--r-sm);
   cursor: pointer;
   transition: background var(--dur) var(--ease);
 }
-.drill-legend .dl-row:hover { background: var(--surface-2); }
-.drill-legend .dl-row.on { background: var(--accent-soft); font-weight: 600; }
-.drill-legend i { width: 10px; height: 10px; border-radius: 3px; flex: none; margin-top: 4px; }
-.drill-legend span { flex: 1; }
-.drill-legend small { display: block; color: var(--muted); font-size: 10.5px; }
-.drill-legend .dl-hint { margin-top: 6px; color: var(--muted); font-size: 10.5px; }
+.drill-legend-inline .dl-row:hover { background: var(--surface-2); }
+.drill-legend-inline .dl-row.on { background: var(--accent-soft); font-weight: 600; }
+.drill-legend-inline i { width: 10px; height: 10px; border-radius: 3px; flex: none; margin-top: 4px; }
+.drill-legend-inline span { flex: 1; }
+.drill-legend-inline small { display: block; color: var(--muted); font-size: 10.5px; }
+.drill-legend-inline .dl-hint { margin-top: 6px; color: var(--muted); font-size: 10.5px; }
 
 /* ---------- 14. FOCUS MODE ------------------------------------------------ */
 /* при вращении / зуме / перетаскивании интерфейс растворяется до 0 */
@@ -872,7 +880,6 @@ body.is-focus .rail,
 body.is-focus .stage-dock,
 body.is-focus .drawer,
 body.is-focus .hud,
-body.is-focus .drill-legend,
 body.is-focus .warnings,
 body.is-focus .mobile-sheet-bar {
   opacity: 0 !important;
@@ -935,7 +942,6 @@ body.is-focus .scrim { opacity: 0 !important; }
   }
   .drawer-head { padding-top: 18px; }
   .warnings { bottom: calc(var(--sheet-h) + 56px); max-width: 92vw; }
-  .drill-legend { max-width: 190px; font-size: 10.5px; }
   .hud { width: 232px; }
 }
 

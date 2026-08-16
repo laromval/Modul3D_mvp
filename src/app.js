@@ -14,7 +14,7 @@
 (function () {
 // Версия сборки — показывается во вкладке браузера и в шапке.
 // При выпуске новой версии меняется только эта строка.
-const APP_VERSION = 'v185';
+const APP_VERSION = 'v186';
 
 // Номер версии выводим ПЕРВЫМ делом: если дальше что-то упадёт, по нему сразу
 // видно, какая сборка открыта.
@@ -832,6 +832,47 @@ function showPresetMenu(catId, x, y) {
   const group = PRESETS.filter((g) => g.id === catId)[0];
   if (!group) return;
 
+  // Материалы для превью берём из ТЕКУЩЕГО проекта (те же источники, что и
+  // recompute()) — миниатюра сразу показывает модуль в декоре, в котором он
+  // реально появится у пользователя, без придуманных дефолтов.
+  const thumbBase = {
+    bodyThickness: state.bodyThickness,
+    backThickness: state.backThickness,
+    decor: DECORS.find(d => d.code === state.decorCode),
+    facadeDecor: DECORS.find(d => d.code === state.facadeDecorCode) || DECORS.find(d => d.code === state.decorCode),
+    backMaterial: BACK_MATERIALS.find(d => d.code === state.backCode),
+    drawerDecor: DECORS.find(d => d.code === state.drawerDecorCode),
+    drawerThickness: state.drawerThickness,
+    worktopDepth: state.worktopDepth,
+    jointType: state.jointType,
+  };
+
+  // Миниатюры рендерятся синхронно только для пунктов открываемой категории
+  // (несколько штук), не для всей базы пресетов сразу.
+  const thumbs = group.items.map((it) => {
+    try {
+      const m = it.make();
+      const project = Object.assign({}, thumbBase, {
+        modules: [{
+          name: m.name, width: m.width, height: m.height, depth: m.depth,
+          rotation: m.rotation || 0, corner: !!m.corner, family: m.family || 'custom',
+          topType: m.topType, railWidth: m.railWidth, noBack: !!m.noBack,
+          blindPanel: !!m.blindPanel, blindStrip: m.blindStrip,
+          leftSide: m.leftSide, rightSide: m.rightSide,
+          base: m.baseType === 'plinth'
+            ? { type: 'plinth', plinthHeight: m.plinthHeight }
+            : { type: m.baseType, legHeight: m.legHeight },
+          legType: m.legType || 'metal',
+          sections: (m.sections || []).map(sc => Object.assign({}, sc, { drawerSystem: state.drawerSystem })),
+        }],
+      });
+      const model = buildModel(project);
+      return window.Modul3D.viewer.renderThumbnail(model, { size: 64 });
+    } catch (err) {
+      return null;
+    }
+  });
+
   const menu = document.createElement('div');
   menu.id = 'moduleMenu';
   menu.className = 'ctx-menu wide';
@@ -839,11 +880,19 @@ function showPresetMenu(catId, x, y) {
   menu.style.top = Math.round(y) + 'px';
   menu.innerHTML = `
     <div class="ctx-title">${esc(group.name)}</div>
-    ${group.items.map((it) =>
-      `<button type="button" class="ctx-item" data-preset="${it.id}">
-         <span class="ctx-name">${esc(it.name)}</span>
-         <span class="ctx-note">${esc(it.note || '')}</span>
-       </button>`).join('')}`;
+    ${group.items.map((it, i) => {
+      const dataUrl = thumbs[i];
+      const thumbHtml = dataUrl
+        ? `<img class="ctx-thumb" src="${dataUrl}" alt="" width="40" height="40">`
+        : '';
+      return `<button type="button" class="ctx-item${dataUrl ? ' has-thumb' : ''}" data-preset="${it.id}">
+         ${thumbHtml}
+         <span class="ctx-text">
+           <span class="ctx-name">${esc(it.name)}</span>
+           <span class="ctx-note">${esc(it.note || '')}</span>
+         </span>
+       </button>`;
+    }).join('')}`;
   document.body.appendChild(menu);
 
   menu.querySelectorAll('[data-preset]').forEach((el) => {
@@ -1247,11 +1296,10 @@ function viewOpts() {
 // Легенда режима проверки присадки: что за отверстия в проекте, каким
 // цветом подсвечены и сколько их. Без неё цветные штыри — просто мозаика.
 function renderDrillLegend() {
-  const host = document.getElementById('viewer3d');
-  if (!host) return;
-  let box = document.getElementById('drillLegend');
+  const box = document.getElementById('drillLegend');
+  if (!box) return;
   if (!state.drillCheck || !currentModel) {
-    if (box && box.remove) box.remove();
+    box.innerHTML = '';
     return;
   }
   // Если 3D не поднялся, справочники цветов могут отсутствовать — легенда
@@ -1298,12 +1346,6 @@ function renderDrillLegend() {
     + `<span>Паз под заднюю стенку<br><small>${esc(key)}</small></span>`
     + `<b>${grooves.get(key)}</b></div>`).join('');
 
-  if (!box) {
-    box = document.createElement('div');
-    box.id = 'drillLegend';
-    box.className = 'drill-legend';
-    host.appendChild(box);
-  }
   box.innerHTML = `<b>Присадка</b>${rows || '<div class="dl-row">отверстий нет</div>'}`
     + (state.drillFilter ? '<div class="dl-hint">показан один вид — кликните ещё раз, чтобы снять</div>' : '');
   // Клик по строке легенды оставляет в сцене только эту присадку
