@@ -15,7 +15,7 @@ function Show-Banner {
     } catch {}
 
     Write-Host ""
-    Write-Host "  Базис - доступ с других устройств по локальной сети" -ForegroundColor Cyan
+    Write-Host "  Modul3D - доступ с других устройств по локальной сети" -ForegroundColor Cyan
     Write-Host "  ---------------------------------------------------"
     Write-Host ""
     Write-Host "  На этом компьютере:  http://localhost:$Port/"

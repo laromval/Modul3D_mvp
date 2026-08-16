@@ -11,7 +11,7 @@
 // Глобальный скрипт работает везде, поэтому здесь THREE берётся из window.
 // Управление камерой (вращение/зум) реализовано без внешней зависимости от
 // OrbitControls.js, чтобы не тянуть ещё один внешний файл с CDN.
-// Классический скрипт (без import/export) — публикует себя в window.Basis.
+// Классический скрипт (без import/export) — публикует себя в window.Modul3D.
 // ============================================================================
 (function () {
 const THREE = window.THREE;
@@ -47,7 +47,7 @@ function woodTexture() {
 // Цвет детали по её МАТЕРИАЛУ: белый корпус должен быть белым и в 3D, а не
 // «древесным» по типу детали. Ищем материал в каталоге и смотрим на название.
 function decorLook(code) {
-  const cat = (typeof window !== 'undefined' && window.Basis && window.Basis.catalog) || {};
+  const cat = (typeof window !== 'undefined' && window.Modul3D && window.Modul3D.catalog) || {};
   const fac = cat.FACADE_MATERIALS || {};
   const all = [].concat(cat.DECORS || [], cat.BACK_MATERIALS || [],
     Object.keys(fac).map((k) => fac[k]));
@@ -425,7 +425,7 @@ function makeKitchenLeg(box, moduleName, isActive, hasClip) {
     emissive: isActive ? 0x0d1a26 : 0x000000,
   });
 
-  const LM = window.Basis.legMeshes;
+  const LM = window.Modul3D.legMeshes;
   const geo = LM.getGeometry(hasClip ? 'clip' : 'plain', THREE);
   const mesh = new THREE.Mesh(geo, plastic);
   // Исходник — в метрах, низ опоры при y=0, верх площадки при y=NATIVE_HEIGHT.
@@ -1112,8 +1112,8 @@ class Viewer3D {
   }
 }
 
-window.Basis = window.Basis || {};
+window.Modul3D = window.Modul3D || {};
 // panelSlabs выносим наружу: это чистая математика раскладки слоёв,
 // её проверяет tools/geometry.js без браузера и без Three.js.
-window.Basis.viewer = { Viewer3D, panelSlabs, lengthAlongU, edgeDrill, DRILL_COLOR, DRILL_TITLE };
+window.Modul3D.viewer = { Viewer3D, panelSlabs, lengthAlongU, edgeDrill, DRILL_COLOR, DRILL_TITLE };
 })();

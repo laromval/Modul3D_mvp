@@ -5,7 +5,7 @@
 // Источник данных — те же model.parts / spec, что показаны в таблицах на
 // экране: экспорт не дублирует ввод, а лишь сериализует единый расчёт.
 //
-// Классический скрипт (без import/export) — публикует себя в window.Basis.
+// Классический скрипт (без import/export) — публикует себя в window.Modul3D.
 // ============================================================================
 (function () {
 function download(wb, filename) {
@@ -92,6 +92,6 @@ function addSheet(wb, rows, name) {
   XLSX.utils.book_append_sheet(wb, ws, name);
 }
 
-window.Basis = window.Basis || {};
-window.Basis.exportModule = { exportDetailing, exportSpecification };
+window.Modul3D = window.Modul3D || {};
+window.Modul3D.exportModule = { exportDetailing, exportSpecification };
 })();

@@ -15,7 +15,7 @@
 //   • полки с шагом 300–350 мм; антресоль отдельным ярусом от 2000 мм;
 //   • фасады ящиков 150–250 мм.
 //
-// Классический скрипт (без import/export) — публикует себя в window.Basis.
+// Классический скрипт (без import/export) — публикует себя в window.Modul3D.
 // ============================================================================
 (function () {
 
@@ -272,6 +272,6 @@ const PRESETS = [
   },
 ];
 
-window.Basis = window.Basis || {};
-window.Basis.presets = { PRESETS };
+window.Modul3D = window.Modul3D || {};
+window.Modul3D.presets = { PRESETS };
 })();

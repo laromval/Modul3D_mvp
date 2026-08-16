@@ -26,7 +26,7 @@ var syncingDocs = false;
    1. Перехват экземпляра Viewer3D (нужен только для перекраски сцены)
 --------------------------------------------------------------------------- */
 (function hookViewer() {
-  var vw = window.Basis && window.Basis.viewer;
+  var vw = window.Modul3D && window.Modul3D.viewer;
   if (!vw || !vw.Viewer3D) return;
   var Orig = vw.Viewer3D;
   function Wrapped(el, opts) {
@@ -496,8 +496,8 @@ function start() {
   });
 }
 
-window.Basis = window.Basis || {};
-window.Basis.uiShell = {
+window.Modul3D = window.Modul3D || {};
+window.Modul3D.uiShell = {
   start: start,
   setTheme: setTheme,
   openDrawer: openDrawer,

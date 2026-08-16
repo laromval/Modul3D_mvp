@@ -397,7 +397,7 @@ function frontDims(model, F, bottomY, leftX) {
 // Человеческое название материала по коду: корпусные декоры, задние стенки,
 // фасадные материалы и стекло лежат в разных справочниках каталога.
 function materialTitle(code) {
-  const cat = (typeof window !== 'undefined' && window.Basis && window.Basis.catalog) || {};
+  const cat = (typeof window !== 'undefined' && window.Modul3D && window.Modul3D.catalog) || {};
   const fac = cat.FACADE_MATERIALS || {};
   const all = [].concat(cat.DECORS || [], cat.BACK_MATERIALS || [],
     Object.keys(fac).map((k) => fac[k]), cat.GLASS ? [cat.GLASS] : []);
@@ -1061,6 +1061,6 @@ const DRAWINGS_CSS = `
 .dw-empty{font:11px sans-serif;color:#333}
 `;
 
-window.Basis = window.Basis || {};
-window.Basis.drawings = { buildDrawings, buildViewSVG, DRAWINGS_CSS, visibleParts };
+window.Modul3D = window.Modul3D || {};
+window.Modul3D.drawings = { buildDrawings, buildViewSVG, DRAWINGS_CSS, visibleParts };
 })();

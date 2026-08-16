@@ -10,7 +10,7 @@
 // -> частичные параметры для state в app.js -> пользователь проверяет и
 // при необходимости правит вручную (панель параметров не блокируется).
 //
-// Классический скрипт (без import/export) — публикует себя в window.Basis.
+// Классический скрипт (без import/export) — публикует себя в window.Modul3D.
 // ============================================================================
 (function () {
 const API_URL = 'https://api.anthropic.com/v1/messages';
@@ -146,6 +146,6 @@ async function recognizeSketch(file, apiKey) {
   return sanitizeRecognizedParams(raw);
 }
 
-window.Basis = window.Basis || {};
-window.Basis.sketchAI = { recognizeSketch, sanitizeRecognizedParams };
+window.Modul3D = window.Modul3D || {};
+window.Modul3D.sketchAI = { recognizeSketch, sanitizeRecognizedParams };
 })();

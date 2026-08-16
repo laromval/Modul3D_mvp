@@ -31,7 +31,7 @@
 // Длина дна выводится из этих флагов автоматически, поэтому пересечение
 // деталей в углах невозможно ни в одном сочетании.
 //
-// Классический скрипт (без import/export) — публикует себя в window.Basis,
+// Классический скрипт (без import/export) — публикует себя в window.Modul3D,
 // чтобы приложение открывалось прямо с диска (file://) без локального сервера.
 // ============================================================================
 (function () {
@@ -189,7 +189,7 @@ function getShelfYs(sec, zoneBottomY, zoneH, t, originY) {
 // Металлические царги в деталировку не попадают — они идут в спецификацию
 // как комплект фурнитуры; из ЛДСП/ХДФ режется только дно и задняя стенка.
 function buildDrawerBoxes(o) {
-  const cat = window.Basis.catalog;
+  const cat = window.Modul3D.catalog;
   const sysId = o.sec.drawerSystem || 'ballBearing';
   const sys = cat.DRAWER_SYSTEMS[sysId];
   if (!sys) return;
@@ -792,7 +792,7 @@ function handleLevel(o, H) {
 }
 
 function handleHoles(o) {
-  const cat = window.Basis.catalog;
+  const cat = window.Modul3D.catalog;
   let h = cat.HANDLES[o.handleId] || cat.HANDLES.none;
   if (!h.holes) return { holes: [], mounts: [], handle: h, count: 0 };
   // Скоба с ручным межосевым: подставляем заданное пользователем значение.
@@ -929,7 +929,7 @@ function pushHandleParts(o) {
 // Подбирает подъёмник: если выбранный не подходит по габариту фасада —
 // предупреждаем, но НЕ подменяем молча.
 function checkLift(liftId, frontH, bodyW) {
-  const cat = window.Basis.catalog;
+  const cat = window.Modul3D.catalog;
   const l = cat.LIFTS[liftId];
   if (!l) return null;
   const notes = [];
@@ -945,7 +945,7 @@ function checkLift(liftId, frontH, bodyW) {
 // facadeDecor — ДЕКОР ФАСАДА, отдельный от корпуса: у кухни корпус обычно
 // белый, а фасад в другом декоре. Если не задан — берётся декор корпуса.
 function facadeTypeOf(sec, decor, t, facadeDecor) {
-  const cat = window.Basis.catalog;
+  const cat = window.Modul3D.catalog;
   const id = sec.facadeType || (sec.glass ? 'glass4' : 'ldsp');
   const ft = cat.FACADE_TYPES[id] || cat.FACADE_TYPES.ldsp;
   const isDefault = ft.id === 'ldsp';
@@ -1584,7 +1584,7 @@ function buildModuleParts(p) {
       });
       // Направляющие крепятся по фактическим отметкам построенных коробов:
       // если короб не построен (не влез), то и присадки под него быть не должно.
-      const drawSys = window.Basis.catalog.DRAWER_SYSTEMS[sec.drawerSystem || 'ballBearing'];
+      const drawSys = window.Modul3D.catalog.DRAWER_SYSTEMS[sec.drawerSystem || 'ballBearing'];
       for (const ry of runnerYs) {
         drawerMounts.push({ y: ry, panels: [secX0 - t / 2, secX0 + secW + t / 2],
           cabinetPin: drawSys && drawSys.cabinetPin });
@@ -1621,7 +1621,7 @@ function buildModuleParts(p) {
       }
       // За стеклянным фасадом полки делают из стекла 6 мм — их видно.
       const glassShelf = facadeTypeOf(sec, decor, t, p.facadeDecor).glassInside;
-      const GL = window.Basis.catalog.GLASS;
+      const GL = window.Modul3D.catalog.GLASS;
       parts.push(makePart({
         name: glassShelf ? 'Полка стеклянная' : 'Полка', section: secName,
         material: glassShelf ? GL.code : decor.code,
@@ -2971,6 +2971,6 @@ function mergeEqualParts(parts) {
   return { merged, numByKey };
 }
 
-window.Basis = window.Basis || {};
-window.Basis.engine = { buildModel, buildModuleParts, EDGE_FRONT, EDGE_BACK, SIDE_LABEL, sidesLabel };
+window.Modul3D = window.Modul3D || {};
+window.Modul3D.engine = { buildModel, buildModuleParts, EDGE_FRONT, EDGE_BACK, SIDE_LABEL, sidesLabel };
 })();

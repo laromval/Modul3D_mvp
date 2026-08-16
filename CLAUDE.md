@@ -21,8 +21,8 @@
   прямо с диска (`file://`), без установки чего-либо — пользователь не
   программист.
 - Each `src/*.js` — самовызывающаяся функция `(function () { ... })()`,
-  которая публикует свой API в глобальный объект `window.Basis.<имя>`
-  (например `window.Basis.engine`, `window.Basis.catalog`).
+  которая публикует свой API в глобальный объект `window.Modul3D.<имя>`
+  (например `window.Modul3D.engine`, `window.Modul3D.catalog`).
 - Three.js (r128) и SheetJS (xlsx) подключаются в `index.html` через CDN
   (`cdnjs.cloudflare.com`), доступны как глобальные `window.THREE` и `XLSX`.
   **Не предлагай `npm install three`** — здесь это не нужно и всё сломает.

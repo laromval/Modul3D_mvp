@@ -12,7 +12,7 @@
 //     открывается в любой CAD/CAM-программе;
 //   • CSV — плоский список отверстий для операторов и импорта в таблицы.
 //
-// Классический скрипт (без import/export) — публикует себя в window.Basis.
+// Классический скрипт (без import/export) — публикует себя в window.Modul3D.
 // ============================================================================
 (function () {
 
@@ -178,6 +178,6 @@ function exportDrillDxf(model) {
   download('присадка.dxf', buildDrillDxf(model), 'application/dxf');
 }
 
-window.Basis = window.Basis || {};
-window.Basis.cnc = { buildDrillCsv, buildDrillDxf, exportDrillCsv, exportDrillDxf, drilledParts };
+window.Modul3D = window.Modul3D || {};
+window.Modul3D.cnc = { buildDrillCsv, buildDrillDxf, exportDrillCsv, exportDrillDxf, drilledParts };
 })();

@@ -5,7 +5,7 @@
 //
 // Классический скрипт (без import/export): подключается через <script src>
 // без type="module", чтобы приложение открывалось прямо с диска (file://)
-// двойным кликом, без локального сервера. Публикует себя в window.Basis.
+// двойным кликом, без локального сервера. Публикует себя в window.Modul3D.
 // ============================================================================
 (function () {
   const DECORS = [
@@ -378,8 +378,8 @@
     return fit.length ? fit[fit.length - 1] : system.nl[0];
   }
 
-  window.Basis = window.Basis || {};
-  window.Basis.catalog = {
+  window.Modul3D = window.Modul3D || {};
+  window.Modul3D.catalog = {
     DECORS, BACK_MATERIALS, EDGE_PRICES, HARDWARE_PRICES, FASTENER_PRICES, JOINT_LABEL,
     DRAWER_SYSTEMS, DRAWER_SYSTEM_ORDER, pickNL, GLASS,
     FACADE_TYPES, FACADE_TYPE_ORDER, FACADE_MATERIALS,

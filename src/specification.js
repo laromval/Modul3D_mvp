@@ -4,12 +4,12 @@
 // деталировки (model.parts) и параметров фурнитуры/крепежа. Ручного
 // дублирования ввода нет — это требование п.7 и критерий приёмки п.13.
 //
-// Классический скрипт (без import/export) — публикует себя в window.Basis,
-// зависит от window.Basis.catalog (должен быть подключен раньше в index.html).
+// Классический скрипт (без import/export) — публикует себя в window.Modul3D,
+// зависит от window.Modul3D.catalog (должен быть подключен раньше в index.html).
 // ============================================================================
 (function () {
 const { EDGE_PRICES, HARDWARE_PRICES, FASTENER_PRICES, JOINT_LABEL, DRAWER_SYSTEMS,
-        HANDLES, LIFTS, GLASS, FACADE_MATERIALS } = window.Basis.catalog;
+        HANDLES, LIFTS, GLASS, FACADE_MATERIALS } = window.Modul3D.catalog;
 
 function round2(v) { return Math.round(v * 100) / 100; }
 
@@ -234,7 +234,7 @@ function fRow(info, qty) {
   return { name: info.name, article: info.article, unit: info.unit, qty, price: info.price, sum: round2(qty * info.price) };
 }
 
-window.Basis = window.Basis || {};
+window.Modul3D = window.Modul3D || {};
 // ПАСПОРТ СИСТЕМЫ ЯЩИКОВ: все числа, по которым считается короб, одной
 // таблицей и с указанием источника. Нужен, чтобы проверить расчёт за
 // полминуты, а не искать координаты по 3D и чертежам.
@@ -272,5 +272,5 @@ function buildDrawerPassport(systemId) {
   return { rows, assumed: sys.assumed || [] };
 }
 
-window.Basis.specification = { buildDrawerPassport, buildSpecification };
+window.Modul3D.specification = { buildDrawerPassport, buildSpecification };
 })();

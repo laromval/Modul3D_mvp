@@ -58,6 +58,6 @@
     return geo;
   }
 
-  window.Basis = window.Basis || {};
-  window.Basis.legMeshes = { getGeometry, NATIVE_HEIGHT, NATIVE_DIAMETER };
+  window.Modul3D = window.Modul3D || {};
+  window.Modul3D.legMeshes = { getGeometry, NATIVE_HEIGHT, NATIVE_DIAMETER };
 })();

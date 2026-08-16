@@ -9,7 +9,7 @@
 // Материалы и тип крепежа общие на проект; габариты, схема корпуса и основание
 // задаются для каждого модуля отдельно (кухня = несколько модулей в ряд).
 //
-// Классический скрипт (без import/export) — зависимости из window.Basis.
+// Классический скрипт (без import/export) — зависимости из window.Modul3D.
 // ============================================================================
 (function () {
 // Версия сборки — показывается во вкладке браузера и в шапке.
@@ -37,7 +37,7 @@ const REQUIRED = [
   ['exportModule', 'src/export.js'],
   ['sketchAI', 'src/sketchAI.js'],
 ];
-const _missing = REQUIRED.filter((x) => !(window.Basis && window.Basis[x[0]]));
+const _missing = REQUIRED.filter((x) => !(window.Modul3D && window.Modul3D[x[0]]));
 if (_missing.length) {
   const box = document.getElementById('paramsPanel');
   const list = _missing.map((x) => x[1]).join(', ');
@@ -52,17 +52,17 @@ if (_missing.length) {
   return;
 }
 
-const { buildModel } = window.Basis.engine;
-const { buildSpecification } = window.Basis.specification;
-const { Viewer3D } = window.Basis.viewer;
-const { exportDetailing, exportSpecification } = window.Basis.exportModule;
+const { buildModel } = window.Modul3D.engine;
+const { buildSpecification } = window.Modul3D.specification;
+const { Viewer3D } = window.Modul3D.viewer;
+const { exportDetailing, exportSpecification } = window.Modul3D.exportModule;
 const { DECORS, BACK_MATERIALS, DRAWER_SYSTEMS, DRAWER_SYSTEM_ORDER,
         HANDLES, HANDLE_ORDER, LIFTS, LIFT_ORDER,
-        FACADE_TYPES, FACADE_TYPE_ORDER } = window.Basis.catalog;
-const { PRESETS } = window.Basis.presets;
-const { recognizeSketch } = window.Basis.sketchAI;
-const { buildDrawings, buildViewSVG, DRAWINGS_CSS } = window.Basis.drawings;
-const { exportDrillCsv, exportDrillDxf } = window.Basis.cnc;
+        FACADE_TYPES, FACADE_TYPE_ORDER } = window.Modul3D.catalog;
+const { PRESETS } = window.Modul3D.presets;
+const { recognizeSketch } = window.Modul3D.sketchAI;
+const { buildDrawings, buildViewSVG, DRAWINGS_CSS } = window.Modul3D.drawings;
+const { exportDrillCsv, exportDrillDxf } = window.Modul3D.cnc;
 
 function newSection() {
   return {
@@ -1256,7 +1256,7 @@ function renderDrillLegend() {
   }
   // Если 3D не поднялся, справочники цветов могут отсутствовать — легенда
   // всё равно должна строиться: она читается и без картинки.
-  const vw = window.Basis.viewer || {};
+  const vw = window.Modul3D.viewer || {};
   const DRILL_COLOR = vw.DRILL_COLOR || {};
   const DRILL_TITLE = vw.DRILL_TITLE || {};
   // Считаем не просто по назначению, а по РЕЖИМУ СВЕРЛЕНИЯ: диаметр,
@@ -1342,7 +1342,7 @@ function materialName(code) {
   if (b) return b.name;
   // Фасадные материалы, шпон и стекло — из каталога, иначе в деталировке
   // печатался внутренний код вроде FAC-VENEER
-  const cat = window.Basis.catalog || {};
+  const cat = window.Modul3D.catalog || {};
   const fac = cat.FACADE_MATERIALS || {};
   const f = Object.keys(fac).filter((k) => k === code)[0];
   if (f) return fac[f].name;
@@ -1416,7 +1416,7 @@ function renderSpecTable(spec) {
 // искать координаты в 3D. Неподтверждённые значения выводятся отдельно —
 // правило проекта: выдуманных размеров в модели быть не должно.
 function drawerPassportHtml() {
-  const { buildDrawerPassport } = window.Basis.specification || {};
+  const { buildDrawerPassport } = window.Modul3D.specification || {};
   if (!buildDrawerPassport) return '';
   const pass = buildDrawerPassport(state.drawerSystem);
   if (!pass) return '';
@@ -1502,13 +1502,13 @@ const onClick = (id, fn) => {
 };
 onClick('exportDrillCsv', () => {
   if (!currentModel || !currentModel.modules.length) { renderWarnings(['Проект пуст — присаживать нечего.']); return; }
-  const n = window.Basis.cnc.drilledParts(currentModel).length;
+  const n = window.Modul3D.cnc.drilledParts(currentModel).length;
   if (!n) { renderWarnings(['Ни на одной детали нет присадки: выберите ручки в секциях.']); return; }
   exportDrillCsv(currentModel);
 });
 onClick('exportDrillDxf', () => {
   if (!currentModel || !currentModel.modules.length) { renderWarnings(['Проект пуст — присаживать нечего.']); return; }
-  const n = window.Basis.cnc.drilledParts(currentModel).length;
+  const n = window.Modul3D.cnc.drilledParts(currentModel).length;
   if (!n) { renderWarnings(['Ни на одной детали нет присадки: выберите ручки в секциях.']); return; }
   exportDrillDxf(currentModel);
 });

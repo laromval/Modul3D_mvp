@@ -221,7 +221,7 @@ for (const f of SRC_ORDER) {
 }
 // viewer.js требует WebGL — подменяем заглушкой: приложение создаёт его в
 // try/catch и обязано работать даже без 3D.
-sandbox.Basis.viewer = {
+sandbox.Modul3D.viewer = {
   Viewer3D: class {
     constructor() { this.onSelectModule = null; }
     render() {} setView() {} dispose() {}
@@ -246,7 +246,7 @@ if (/Ошибка запуска/.test(panel.innerHTML)) {
   fails.push('ПРИЛОЖЕНИЕ НЕ ЗАПУСТИЛОСЬ: ' + panel.innerHTML.replace(/<[^>]*>/g, '').trim());
 }
 
-check('заголовок с версией', () => /^Базис v\d+/.test(document.title));
+check('заголовок с версией', () => /^Modul3D v\d+/.test(document.title));
 
 // --- старт: проект пуст, первый модуль выбирает пользователь ---------------
 check('стартует без модулей', () => document.querySelectorAll('.mod-tab').length === 0);
@@ -788,14 +788,14 @@ for (const el of document.querySelectorAll('.tab-btn')) {
   for (const f of SRC_ORDER.filter((x) => x !== 'presets.js')) {
     vm.runInContext(fs.readFileSync(path.join(ROOT, 'src', f), 'utf8'), s2, { filename: f });
   }
-  s2.Basis.viewer = { Viewer3D: class { render() {} setView() {} } };
+  s2.Modul3D.viewer = { Viewer3D: class { render() {} setView() {} } };
   try {
     vm.runInContext(fs.readFileSync(path.join(ROOT, 'src', 'app.js'), 'utf8'), s2, { filename: 'app.js' });
   } catch (e) {
     fails.push('без одного файла приложение падает без объяснения: ' + e.message);
     return;
   }
-  check('версия выводится даже при сбое загрузки', () => /^Базис v\d+/.test(doc2.title));
+  check('версия выводится даже при сбое загрузки', () => /^Modul3D v\d+/.test(doc2.title));
   check('сообщение называет недостающий файл', () => /src\/presets\.js/.test(box.html));
   check('сообщение подсказывает распаковать архив', () => /распаку/i.test(box.html));
 })();

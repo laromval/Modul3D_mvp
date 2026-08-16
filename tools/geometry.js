@@ -12,10 +12,10 @@ const path = require('path');
 const ROOT = path.join(__dirname, '..');
 global.window = global;
 ['catalog', 'presets', 'engine', 'specification', 'drawings', 'cnc'].forEach((m) => require(path.join(ROOT, 'src', m + '.js')));
-const { buildModel } = window.Basis.engine;
-const { buildSpecification } = window.Basis.specification;
-const { buildDrawings } = window.Basis.drawings;
-const { DECORS, BACK_MATERIALS, DRAWER_SYSTEM_ORDER } = window.Basis.catalog;
+const { buildModel } = window.Modul3D.engine;
+const { buildSpecification } = window.Modul3D.specification;
+const { buildDrawings } = window.Modul3D.drawings;
+const { DECORS, BACK_MATERIALS, DRAWER_SYSTEM_ORDER } = window.Modul3D.catalog;
 
 const EPS = 0.51;                       // допуск: меньше — это стык, не нахлёст
 function overlaps(a, b) {
@@ -224,7 +224,7 @@ for (const rot of [0, 90, 180, 270]) {
 }
 
 // --- база готовых модулей: каждый вариант должен строиться без замечаний ----
-const { PRESETS } = window.Basis.presets;
+const { PRESETS } = window.Modul3D.presets;
 for (const group of PRESETS) {
   for (const item of group.items) {
     const m = item.make();
@@ -299,7 +299,7 @@ for (const h of [1000, 1900, 5000]) {
 
 // --- Г-образная кухня: угловой модуль поворачивает ряд ---------------------
 {
-  const K = window.Basis.presets.PRESETS.filter((g) => g.id === 'kitchen')[0];
+  const K = window.Modul3D.presets.PRESETS.filter((g) => g.id === 'kitchen')[0];
   const byId = (id) => K.items.filter((i) => i.id === id)[0].make();
   const toModule = (m, i) => ({
     name: `Модуль ${i + 1}`, width: m.width, height: m.height, depth: m.depth,
@@ -589,7 +589,7 @@ for (const bt of ['plinth', 'legsPlinth', 'legs']) {
 
 // --- ручки: присадка на фасадах, две ручки на широком, выгрузка для ЧПУ ----
 {
-  const { HANDLES } = window.Basis.catalog;
+  const { HANDLES } = window.Modul3D.catalog;
   const mk = (sec, W) => buildModel(Object.assign({}, base, {
     modules: [{ name: 'М', width: W || 800, height: 820, depth: 560, topType: 'rails',
       leftSide: 'floor', rightSide: 'floor', base: { type: 'legsPlinth', legHeight: 100 },
@@ -824,8 +824,8 @@ for (const bt of ['plinth', 'legsPlinth', 'legs']) {
 
   // выгрузка для ЧПУ
   const model = mk({ shelves: 0, drawers: 3, facade: 'open', handle: 'bow160', drawerSystem: 'ballBearing' });
-  const csv = window.Basis.cnc.buildDrillCsv(model);
-  const dxf = window.Basis.cnc.buildDrillDxf(model);
+  const csv = window.Modul3D.cnc.buildDrillCsv(model);
+  const dxf = window.Modul3D.cnc.buildDrillDxf(model);
   const rows = csv.trim().split('\r\n');
   // В CSV идут и отверстия, и пазы — операций больше, чем отверстий
   const totalHoles = model.parts.filter((p) => p.holes).reduce((s, p) => s + p.holes.length, 0);   // включая чашки
@@ -928,7 +928,7 @@ for (const sys of ['ballBearing', 'quadro', 'tandembox', 'legrabox']) {
 
 // --- высота короба: стандартный ряд, ручной выбор, просвет сверху ----------
 for (const sys of ['ballBearing', 'quadro', 'tandembox', 'innotech', 'legrabox']) {
-  const { DRAWER_SYSTEMS } = window.Basis.catalog;
+  const { DRAWER_SYSTEMS } = window.Modul3D.catalog;
   const mkBox = (code) => buildModel(Object.assign({}, base, {
     modules: [{ name: 'Т', width: 600, height: 820, depth: 560, topType: 'rails',
       leftSide: 'onBottom', rightSide: 'onBottom', base: { type: 'legsPlinth', legHeight: 100 },
@@ -1160,7 +1160,7 @@ for (const sd of ['floor', 'besideBottom', 'onBottom']) {
 
 // --- типы фасадов: материал, толщина, стекло внутри ------------------------
 {
-  const { FACADE_TYPES, FACADE_TYPE_ORDER } = window.Basis.catalog;
+  const { FACADE_TYPES, FACADE_TYPE_ORDER } = window.Modul3D.catalog;
   const mkT = (ft) => buildModel(Object.assign({}, base, {
     modules: [{ name: 'М', width: 600, height: 820, depth: 560, topType: 'rails',
       leftSide: 'onBottom', rightSide: 'onBottom', base: { type: 'legsPlinth', legHeight: 100 },
@@ -1416,8 +1416,8 @@ for (const glass of [false, true]) {
   if (!glassParts.some((p) => (p.holes || []).length)) {
     problems.push('стекло: у стеклянной двери нет отверстий в модели');
   }
-  const csv = window.Basis.cnc.buildDrillCsv(model);
-  const dxf = window.Basis.cnc.buildDrillDxf(model);
+  const csv = window.Modul3D.cnc.buildDrillCsv(model);
+  const dxf = window.Modul3D.cnc.buildDrillDxf(model);
   for (const p of glassParts) {
     if (csv.indexOf(p.material) !== -1) problems.push(`ЧПУ: стекло ${p.material} попало в CSV`);
     if (dxf.indexOf(p.name) !== -1) problems.push(`ЧПУ: стекло «${p.name}» попало в DXF`);
@@ -1446,8 +1446,8 @@ for (const glass of [false, true]) {
   // всё, что насверлено, обязано попасть и в CSV, и в DXF
   const total = model.parts.filter((p) => !p.hardware)
     .reduce((s, p) => s + (p.holes || []).length + ((p.grooves || []).length), 0);
-  const csv = window.Basis.cnc.buildDrillCsv(model);
-  const dxf = window.Basis.cnc.buildDrillDxf(model);
+  const csv = window.Modul3D.cnc.buildDrillCsv(model);
+  const dxf = window.Modul3D.cnc.buildDrillDxf(model);
   if (csv.trim().split('\r\n').length - 1 !== total) problems.push('присадка: CSV не совпал с моделью');
   const holesOnly = model.parts.filter((p) => !p.hardware)
     .reduce((s, p) => s + (p.holes || []).length, 0);
@@ -1956,7 +1956,7 @@ for (const glass of [false, true]) {
 // Корпус кухни белый, но боковину, которую видно (до пола или сбоку дна),
 // делают в материале фасада; под деревянный фасад — МДФ шпон.
 {
-  const { DECORS } = window.Basis.catalog;
+  const { DECORS } = window.Modul3D.catalog;
   const white = DECORS.filter((d) => /бел/i.test(d.name))[0] || DECORS[1];
   const oak = DECORS[0];
   const mk = (side, facadeType) => buildModel(Object.assign({}, base, {
@@ -2043,9 +2043,9 @@ for (const glass of [false, true]) {
       if (g.w < 3 || g.w > 9) problems.push(`ширина паза ${g.w} не под ХДФ`);
       if (g.y0 < 0 || g.y0 > vs.width) problems.push('паз лежит за пределами детали');
     }
-    const csv = window.Basis.cnc.buildDrillCsv(m);
+    const csv = window.Modul3D.cnc.buildDrillCsv(m);
     if (!/паз/i.test(csv)) problems.push('ЧПУ: паза нет в CSV');
-    const dxf = window.Basis.cnc.buildDrillDxf(m);
+    const dxf = window.Modul3D.cnc.buildDrillDxf(m);
     if (!/GROOVE_/.test(dxf)) problems.push('ЧПУ: паза нет в DXF');
     // В таблице чертежа модуля обязан быть столбец «Материал»
     const html = String(buildDrawings(m, true));
@@ -2106,7 +2106,7 @@ for (const glass of [false, true]) {
   try {
     // viewer.js грузится без Three.js: на верхнем уровне там только функции
     require(path.join(ROOT, 'src', 'viewer.js'));
-    panelSlabs = (window.Basis.viewer || {}).panelSlabs;
+    panelSlabs = (window.Modul3D.viewer || {}).panelSlabs;
   } catch (err) {
     problems.push('viewer.js не загружается без браузера: ' + err.message);
   }
@@ -2136,7 +2136,7 @@ for (const glass of [false, true]) {
 
     // Раскладка локальных осей детали: у двери длина горизонтальна,
     // у боковины и доборной планки — вертикальна.
-    const { lengthAlongU, edgeDrill } = window.Basis.viewer;
+    const { lengthAlongU, edgeDrill } = window.Modul3D.viewer;
     if (lengthAlongU(702, 560, 702)) problems.push('боковина: длина принята за горизонталь');
     if (!lengthAlongU(564, 564, 510)) problems.push('дно: длина принята за вертикаль');
     if (!lengthAlongU(597, 597, 717)) problems.push('дверь: длина принята за вертикаль');
@@ -2403,7 +2403,7 @@ for (const glass of [false, true]) {
 // Источник: MTA_9 302 560 00 (Quadro V6 Silent System, насадной монтаж, EB20):
 //   SKW = LB − 40 (EB20, плита ≤16) · дно = NL − 10 · KT = NL + 13
 {
-  const { pickNL, DRAWER_SYSTEMS } = window.Basis.catalog;
+  const { pickNL, DRAWER_SYSTEMS } = window.Modul3D.catalog;
   const sys = DRAWER_SYSTEMS.quadro;
   // таблица из инструкции: NL → минимальная глубина корпуса
   for (const [nl, kt] of [[250, 263], [300, 313], [350, 363], [400, 413], [450, 463], [500, 513]]) {
@@ -2603,7 +2603,7 @@ for (const glass of [false, true]) {
 
 // --- Quadro V6 Stop Control, надвижной монтаж (MTA_9 296 800 00) -----------
 {
-  const { pickNL, DRAWER_SYSTEMS } = window.Basis.catalog;
+  const { pickNL, DRAWER_SYSTEMS } = window.Modul3D.catalog;
   const sys = DRAWER_SYSTEMS.quadroSlide;
   if (!sys) problems.push('в меню нет надвижного Quadro V6');
   else {
@@ -2800,8 +2800,8 @@ for (const glass of [false, true]) {
 // (поле src), либо честно помечен как неподтверждённый (assumed). Выдуманных
 // чисел быть не должно — именно на них ловятся ошибки чтения чертежей.
 {
-  const { DRAWER_SYSTEMS, DRAWER_SYSTEM_ORDER } = window.Basis.catalog;
-  const { buildDrawerPassport } = window.Basis.specification;
+  const { DRAWER_SYSTEMS, DRAWER_SYSTEM_ORDER } = window.Modul3D.catalog;
+  const { buildDrawerPassport } = window.Modul3D.specification;
   for (const id of DRAWER_SYSTEM_ORDER) {
     const sys = DRAWER_SYSTEMS[id];
     if (!sys.src) problems.push(`система «${id}»: не указан источник размеров`);
