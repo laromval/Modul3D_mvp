@@ -287,6 +287,7 @@ select:focus-visible {
   color: var(--accent); font-size: var(--fs-xs); font-family: inherit;
   cursor: pointer; text-decoration: underline; text-underline-offset: 2px;
 }
+.panel-back { display: block; margin-bottom: var(--sp-3); }
 
 /* иконочная кнопка */
 .icon-btn {
@@ -388,7 +389,13 @@ select:focus-visible {
   left: var(--sp-3);
   top: 50%;
   transform: translateY(-50%);
-  z-index: 30;
+  /* Выше открытой панели (.drawer, z-index 36) — иначе рейка сама видна
+     нормально (панель её визуально не перекрывает), но всплывающая
+     подсказка кнопки (.tip::after, z-index 60) рисуется ВНУТРИ
+     собственного стекового контекста .rail и не может оказаться поверх
+     соседней панели с более высоким z-index, даже имея больший z-index
+     сама по себе — подсказка пропадала под открытой панелью параметров. */
+  z-index: 38;
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -428,14 +435,22 @@ select:focus-visible {
   content: attr(data-tip);
   position: absolute; left: calc(100% + 10px); top: 50%; transform: translateY(-50%) scale(.96);
   padding: 5px 9px; border-radius: var(--r-sm);
-  background: var(--surface-solid); color: var(--text);
+  background: var(--surface); color: var(--text);
+  -webkit-backdrop-filter: var(--blur); backdrop-filter: var(--blur);
   border: 1px solid var(--border); box-shadow: var(--shadow-2);
-  font-size: var(--fs-xs); font-weight: 500; white-space: nowrap;
+  font-size: var(--fs-xs); font-weight: 500;
+  /* Перенос по словам + ограничение ширины — иначе длинная подсказка
+     (например, у вкладки модуля или у миниатюры пресета, где в data-tip
+     склеены название и примечание) рисуется одной строкой без предела
+     ширины и вылезает за край узкой панели, обрезаясь контейнером с
+     overflow. С переносом строк подсказка остаётся в разумных пределах
+     независимо от длины текста и позиции элемента внутри панели. */
+  white-space: normal; max-width: 220px; text-align: left;
   opacity: 0; pointer-events: none;
   transition: opacity .18s var(--ease), transform .18s var(--ease);
   z-index: 60;
 }
-.tip:hover::after { opacity: 1; transform: translateY(-50%) scale(1); }
+.tip:hover::after { opacity: 1; transform: translateY(-50%) scale(1); transition-delay: 2s; }
 .tip.tip-down::after { left: 50%; top: calc(100% + 8px); transform: translateX(-50%) scale(.96); }
 .tip.tip-down:hover::after { transform: translateX(-50%) scale(1); }
 
@@ -671,6 +686,26 @@ input[type='number'] { font-family: var(--ff-mono); }
 .lib-row { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 6px; }
 .lib-cat { font-weight: 600; color: var(--accent); border-color: var(--border-strong); }
 .lib-cat:hover { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); }
+.lib-cat.on { background: var(--accent-soft); border-color: var(--accent); }
+
+/* Сетка миниатюр открытой категории «Базы модулей» — рендерится прямо в
+   панели под рядом кнопок-категорий (см. libraryGridBlock() в app.js). */
+.lib-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 8px; }
+.lib-item {
+  padding: 0; border-radius: var(--r-sm);
+  border: 1px solid var(--border); background: var(--surface-2);
+  cursor: pointer;
+  transition: border-color var(--dur) var(--ease);
+}
+.lib-item:hover { border-color: var(--accent); }
+/* Скругление — на самой картинке, не на .lib-item: этот элемент несёт
+   класс .tip (всплывающая подсказка с названием пресета), а overflow:hidden
+   на нём самом обрезал бы подсказку (она — тоже дочерний элемент .lib-item,
+   как псевдоэлемент ::after) вместе с картинкой. */
+.lib-thumb {
+  display: block; width: 100%; aspect-ratio: 1 / 1; object-fit: contain;
+  border-radius: var(--r-sm);
+}
 
 .passport-ok { font-size: var(--fs-xs); color: var(--ok); margin-top: 6px; }
 .passport-warn { font-size: var(--fs-xs); color: var(--warn); margin-top: 6px; }
@@ -795,7 +830,7 @@ h4.spec-title { margin: var(--sp-5) 0 var(--sp-2); font-size: var(--fs-md); font
 .hud-actions { display: flex; gap: 6px; }
 .hud-actions .btn { flex: 1; padding: 6px 8px; font-size: var(--fs-xs); text-align: center; }
 
-/* ---------- 11. КОНТЕКСТНОЕ МЕНЮ (модули, пресеты) ------------------------ */
+/* ---------- 11. КОНТЕКСТНОЕ МЕНЮ (поворот/удаление модуля) ---------------- */
 
 .ctx-menu {
   position: fixed; z-index: 60; min-width: 214px; padding: 6px;
@@ -803,7 +838,6 @@ h4.spec-title { margin: var(--sp-5) 0 var(--sp-2); font-size: var(--fs-md); font
   border: 1px solid var(--border); border-radius: var(--r-md);
   box-shadow: var(--shadow-3);
 }
-.ctx-menu.wide { min-width: 290px; }
 .ctx-title { font-size: var(--fs-sm); font-weight: 700; padding: 5px 9px 7px; color: var(--text); }
 .ctx-group { font-size: 10px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); padding: 5px 9px 3px; }
 .ctx-item {
@@ -817,19 +851,6 @@ h4.spec-title { margin: var(--sp-5) 0 var(--sp-2); font-size: var(--fs-md); font
 .ctx-item.danger { color: var(--danger); }
 .ctx-item.danger:hover { background: var(--danger-soft); }
 .ctx-sep { height: 1px; margin: 5px 4px; background: var(--border); }
-.ctx-name { display: block; font-weight: 600; color: var(--text); }
-.ctx-note { display: block; font-size: var(--fs-xs); color: var(--muted); margin-top: 2px; }
-
-/* Пункт с миниатюрой пресета: картинка слева, текст справа. Если миниатюру
-   отрендерить не удалось (renderThumbnail вернул null), .has-thumb не
-   добавляется и пункт выглядит как раньше — просто текстовая кнопка. */
-.ctx-item.has-thumb { display: flex; align-items: center; gap: 9px; }
-.ctx-thumb {
-  flex: 0 0 auto; width: 40px; height: 40px; border-radius: var(--r-sm);
-  border: 1px solid var(--border); background: var(--surface-2);
-  object-fit: contain;
-}
-.ctx-item.has-thumb .ctx-text { flex: 1 1 auto; min-width: 0; }
 
 /* ---------- 12. ПОПОВЕРЫ (эскиз ИИ, API-ключ) ----------------------------- */
 

@@ -7,7 +7,7 @@
 <title>Modul3D — параметрический конструктор корпусной мебели</title>
 
 <link rel="icon" type="image/svg+xml" href="favicon.svg" />
-<link rel="stylesheet" href="style.css?v186" />
+<link rel="stylesheet" href="style.css?v187" />
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
@@ -68,20 +68,27 @@
 
   <!-- Рейка триггеров: панели прячутся за экран, на холсте только иконки -->
   <nav class="rail" id="rail" aria-label="Панели">
-    <button class="rail-btn tip" type="button" data-panel="params" data-tip="Параметры (P)" aria-label="Параметры">
+    <button class="rail-btn tip" type="button" data-panel="params" data-panelview="library" data-tip="Библиотека модулей" aria-label="Библиотека модулей">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round">
+        <path d="M12 3 3 7.5l9 4.5 9-4.5z"/><path d="M3 12.5 12 17l9-4.5"/><path d="M3 17 12 21.5 21 17"/>
+      </svg>
+    </button>
+
+    <button class="rail-btn tip" type="button" data-panel="params" data-panelview="module" data-tip="Параметры проекта" aria-label="Параметры проекта">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
         <path d="M4 7h10M18 7h2M4 12h4M12 12h8M4 17h9M17 17h3"/>
         <circle cx="16" cy="7" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="15" cy="17" r="2"/>
       </svg>
     </button>
 
-    <button class="rail-btn tip" type="button" data-panel="params" data-scroll="Материалы" data-tip="Материалы" aria-label="Материалы">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round">
-        <path d="M12 3 3 7.5l9 4.5 9-4.5z"/><path d="M3 12.5 12 17l9-4.5"/><path d="M3 17 12 21.5 21 17"/>
+    <button class="rail-btn tip" type="button" data-panel="params" data-panelview="part" data-tip="Деталь" aria-label="Деталь">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round">
+        <path d="M4 4h9v6h7v10H4z"/>
+        <path d="M14.5 14.5l3-3 2 2-3 3-2.4.6z"/>
       </svg>
     </button>
 
-    <button class="rail-btn tip" type="button" data-panel="studio" data-tip="Студия — виды и проверка" aria-label="Студия">
+    <button class="rail-btn tip" type="button" data-panel="studio" data-tip="Студия" aria-label="Студия">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round">
         <path d="M12 2.5 21 7v10l-9 4.5L3 17V7z"/><path d="M3 7l9 4.5L21 7M12 11.5V21.5"/>
       </svg>
@@ -89,7 +96,7 @@
 
     <div class="rail-sep"></div>
 
-    <button class="rail-btn tip" type="button" data-panel="docs" data-tip="Документы: чертежи, деталировка, спецификация (D)" aria-label="Документы">
+    <button class="rail-btn tip" type="button" data-panel="docs" data-tip="Документы" aria-label="Документы">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
         <path d="M6 2.5h8l4 4V21a.5.5 0 0 1-.5.5h-11A.5.5 0 0 1 6 21z"/><path d="M14 2.5V7h4"/><path d="M9 12h6M9 15.5h6M9 8.5h2"/>
       </svg>
@@ -195,15 +202,21 @@
 
   <!-- ---------- Мобильная шторка 40 px ---------- -->
   <div class="mobile-sheet-bar" id="mobileBar">
-    <button class="rail-btn" type="button" data-panel="params" aria-label="Параметры">
+    <button class="rail-btn" type="button" data-panel="params" data-panelview="library" aria-label="Библиотека модулей">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round">
+        <path d="M12 3 3 7.5l9 4.5 9-4.5z"/><path d="M3 12.5 12 17l9-4.5"/><path d="M3 17 12 21.5 21 17"/>
+      </svg>
+    </button>
+    <button class="rail-btn" type="button" data-panel="params" data-panelview="module" aria-label="Параметры проекта">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
         <path d="M4 7h10M18 7h2M4 12h4M12 12h8M4 17h9M17 17h3"/>
         <circle cx="16" cy="7" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="15" cy="17" r="2"/>
       </svg>
     </button>
-    <button class="rail-btn" type="button" data-panel="params" data-scroll="Материалы" aria-label="Материалы">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round">
-        <path d="M12 3 3 7.5l9 4.5 9-4.5z"/><path d="M3 12.5 12 17l9-4.5"/><path d="M3 17 12 21.5 21 17"/>
+    <button class="rail-btn" type="button" data-panel="params" data-panelview="part" aria-label="Деталь">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round">
+        <path d="M4 4h9v6h7v10H4z"/>
+        <path d="M14.5 14.5l3-3 2 2-3 3-2.4.6z"/>
       </svg>
     </button>
     <button class="rail-btn" type="button" data-panel="studio" aria-label="Студия">
@@ -220,18 +233,18 @@
 
 </main>
 
-<script src="src/catalog.js?v186"></script>
-<script src="src/presets.js?v186"></script>
-<script src="src/engine.js?v186"></script>
-<script src="src/specification.js?v186"></script>
-<script src="src/legMeshes.js?v186"></script>
-<script src="src/viewer.js?v186"></script>
-<script src="src/ui-shell.js?v186"></script>
-<script src="src/drawings.js?v186"></script>
-<script src="src/export.js?v186"></script>
-<script src="src/cnc.js?v186"></script>
-<script src="src/sketchAI.js?v186"></script>
-<script src="src/app.js?v186"></script>
+<script src="src/catalog.js?v187"></script>
+<script src="src/presets.js?v187"></script>
+<script src="src/engine.js?v187"></script>
+<script src="src/specification.js?v187"></script>
+<script src="src/legMeshes.js?v187"></script>
+<script src="src/viewer.js?v187"></script>
+<script src="src/ui-shell.js?v187"></script>
+<script src="src/drawings.js?v187"></script>
+<script src="src/export.js?v187"></script>
+<script src="src/cnc.js?v187"></script>
+<script src="src/sketchAI.js?v187"></script>
+<script src="src/app.js?v187"></script>
 <script>if (window.Modul3D && window.Modul3D.uiShell) window.Modul3D.uiShell.start();</script>
 </body>
 </html>

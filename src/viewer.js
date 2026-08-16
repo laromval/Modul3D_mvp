@@ -266,13 +266,14 @@ function makeFramedFacade(box, row, isActive, ghost) {
 // Ручка на фасаде: кнопка — грибок на ножке, скоба — перекладина на двух
 // стойках. Габарит берётся из детали, поэтому ручка стоит ровно там, где
 // посчитаны отверстия присадки.
-function makeHandle(box, shape, moduleName, isActive, cc, rotDeg) {
+function makeHandle(box, shape, moduleName, isActive, cc, rotDeg, dimmed) {
   const g = new THREE.Group();
   const swapped = rotDeg === 90 || rotDeg === 270;
   box = swapped ? Object.assign({}, box, { w: box.d, d: box.w }) : box;
   const mat = new THREE.MeshStandardMaterial({
     color: isActive ? 0x9fc3de : 0xc9ccd0, roughness: 0.25, metalness: 0.9,
     emissive: isActive ? 0x14314a : 0x000000,
+    transparent: !!dimmed, opacity: dimmed ? 0.22 : 1, depthWrite: !dimmed,
   });
   const out = box.d * MM;                       // вылет от фасада
 
@@ -319,13 +320,14 @@ function makeHandle(box, shape, moduleName, isActive, cc, rotDeg) {
 }
 
 // Штанга для одежды: хромированная труба поперёк секции (вдоль оси X).
-function makeRod(box, moduleName, isActive, rotDeg) {
+function makeRod(box, moduleName, isActive, rotDeg, dimmed) {
   const sw = rotDeg === 90 || rotDeg === 270;
   const d = Math.max(box.h, sw ? box.w : box.d) * MM;
   const len = Math.max((sw ? box.d : box.w) * MM, 0.001);
   const steel = new THREE.MeshStandardMaterial({
     color: isActive ? 0x9fc3de : 0xd9dde0, roughness: 0.18, metalness: 0.95,
     emissive: isActive ? 0x14314a : 0x000000,
+    transparent: !!dimmed, opacity: dimmed ? 0.22 : 1, depthWrite: !dimmed,
   });
   const mesh = new THREE.Mesh(new THREE.CylinderGeometry(d / 2, d / 2, len, 20), steel);
   mesh.rotation.z = Math.PI / 2;            // ось трубы — вдоль X
@@ -341,13 +343,16 @@ function makeRod(box, moduleName, isActive, rotDeg) {
 // Монтажная площадка 65×65 под дно, крепёжные отверстия 52×52 по углам —
 // у металлической и у кухонной опоры одинаковые (см. АМЕТИСТ): переиспользуем
 // одну и ту же геометрию для обеих.
-function addLegMountPlate(g, material, h, PLATE_T) {
+function addLegMountPlate(g, material, h, PLATE_T, dimmed) {
   const p = 65 * MM;
   const plate = new THREE.Mesh(new THREE.BoxGeometry(p, PLATE_T, p), material);
   plate.position.y = h / 2 - PLATE_T / 2;
   g.add(plate);
 
-  const holeMat = new THREE.MeshStandardMaterial({ color: 0x1c1d1e, roughness: 0.7, metalness: 0.1 });
+  const holeMat = new THREE.MeshStandardMaterial({
+    color: 0x1c1d1e, roughness: 0.7, metalness: 0.1,
+    transparent: !!dimmed, opacity: dimmed ? 0.22 : 1, depthWrite: !dimmed,
+  });
   const holeD = 4 * MM;
   const holeDepth = PLATE_T * 0.65;
   const spacing = 52 * MM;
@@ -361,16 +366,17 @@ function addLegMountPlate(g, material, h, PLATE_T) {
   }
 }
 
-function legRubberMaterial(isActive) {
+function legRubberMaterial(isActive, dimmed) {
   return new THREE.MeshStandardMaterial({
     color: isActive ? 0x1c2733 : 0x101112, roughness: 0.9, metalness: 0,
     emissive: isActive ? 0x0a1a2a : 0x000000,
+    transparent: !!dimmed, opacity: dimmed ? 0.22 : 1, depthWrite: !dimmed,
   });
 }
 
 // Опора «Металлическая» — открытая, никелированная (зеркальная), пятка
 // резиновая чёрная.
-function makeLeg(box, moduleName, isActive) {
+function makeLeg(box, moduleName, isActive, dimmed) {
   const g = new THREE.Group();
   const d = Math.max(box.w, box.d) * MM;      // диаметр трубы
   const h = Math.max(box.h * MM, 0.001);
@@ -385,8 +391,9 @@ function makeLeg(box, moduleName, isActive) {
     color: isActive ? 0x9fc7d6 : 0xdedad0,
     specular: 0xffffff, shininess: 110,
     emissive: isActive ? 0x14314a : 0x000000,
+    transparent: !!dimmed, opacity: dimmed ? 0.22 : 1, depthWrite: !dimmed,
   });
-  const rubber = legRubberMaterial(isActive);
+  const rubber = legRubberMaterial(isActive, dimmed);
 
   const tubeH = Math.max(h - PLATE_T, 0.001);
   const tube = new THREE.Mesh(new THREE.CylinderGeometry(d / 2, d / 2, tubeH, 24), steel);
@@ -399,7 +406,7 @@ function makeLeg(box, moduleName, isActive) {
   flange.position.y = -h / 2 + FLANGE_H / 2;
   g.add(flange);
 
-  addLegMountPlate(g, steel, h, PLATE_T);
+  addLegMountPlate(g, steel, h, PLATE_T, dimmed);
 
   g.position.set(box.x * MM, box.y * MM, box.z * MM);
   g.userData.module = moduleName;
@@ -412,7 +419,7 @@ function makeLeg(box, moduleName, isActive) {
 // src/legMeshes.js и подставляется как есть, отмасштабированный под нужную
 // высоту/диаметр опоры. Сплошной чёрный матовый пластик — как в файле
 // (там всего один материал, plastic_matte, отдельной резиновой пятки нет).
-function makeKitchenLeg(box, moduleName, isActive, hasClip) {
+function makeKitchenLeg(box, moduleName, isActive, hasClip, dimmed) {
   const g = new THREE.Group();
   const d = Math.max(box.w, box.d) * MM;
   const h = Math.max(box.h * MM, 0.001);
@@ -423,6 +430,7 @@ function makeKitchenLeg(box, moduleName, isActive, hasClip) {
   const plastic = new THREE.MeshStandardMaterial({
     color: isActive ? 0x232a30 : 0x020201, roughness: 0.5, metalness: 0.02,
     emissive: isActive ? 0x0d1a26 : 0x000000,
+    transparent: !!dimmed, opacity: dimmed ? 0.22 : 1, depthWrite: !dimmed,
   });
 
   const LM = window.Modul3D.legMeshes;
@@ -792,6 +800,19 @@ class Viewer3D {
     // Выбор модуля кликом по 3D-модели. Клик отличаем от вращения по тому,
     // сдвигалась ли мышь между нажатием и отпусканием.
     this.onSelectModule = null;
+    // Двойной клик по модулю — переход в режим изоляции (см. render() ниже,
+    // opts.isolateModule). Колбэк получает имя модуля строкой.
+    this.onIsolateModule = null;
+    // Клик по детали ВНУТРИ изолированного модуля (сейчас — только боковина).
+    // Колбэк получает { module, kind, side }.
+    this.onSelectPart = null;
+    // Имя модуля, изолированного в последнем render() — нужно pointerup-
+    // обработчику, чтобы понимать, что клик пришёлся внутрь изоляции.
+    this._isolateModule = null;
+    // Таймер отложенного одиночного клика (анти-дребезг двойного клика,
+    // см. pointerup/dblclick ниже). Храним в поле экземпляра, чтобы
+    // dblclick-обработчик мог его погасить.
+    this._clickTimer = null;
     this._raycaster = new THREE.Raycaster();
     // У линий порог попадания по умолчанию — 1 единица, а у нас это ЦЕЛЫЙ
     // МЕТР: луч цеплялся за контур детали в метре от курсора и возвращал
@@ -801,20 +822,57 @@ class Viewer3D {
       this._raycaster.params.Line.threshold = 0.0005;
     }
     this.renderer.domElement.addEventListener('pointerup', (e) => {
-      if (!this.onSelectModule || this.controls.moved > 6) return;
+      if (this.controls.moved > 6) return;
+      if (!this.onSelectModule && !this.onSelectPart) return;
       // Деталь теперь собирается из нескольких слоёв внутри группы, поэтому
       // луч пускаем РЕКУРСИВНО, а имя модуля ищем вверх по родителям.
       const hits = this._hitTestAt(e);      // контуры не в счёт (см. _hitTestAt)
-      const ownerOf = (obj) => {
-        for (let o = obj; o; o = o.parent) {
-          if (o.userData && o.userData.module) return o.userData.module;
+      const hitModule = (hits.length && this._moduleOwnerOf(hits[0].object)) || null;
+      // Режим изоляции: клик ВНУТРИ изолированного модуля обрабатывается
+      // отдельно — ищем ближайшего предка с userData.kind (боковина и т.д.),
+      // а не выбираем модуль целиком.
+      if (this._isolateModule && hitModule === this._isolateModule && hits.length) {
+        let kindOwner = null;
+        for (let o = hits[0].object; o; o = o.parent) {
+          if (o.userData && o.userData.kind) { kindOwner = o; break; }
         }
-        return null;
-      };
+        if (kindOwner && kindOwner.userData.kind === 'side') {
+          if (this.onSelectPart) {
+            this.onSelectPart({ module: hitModule, kind: 'side', side: kindOwner.userData.side });
+          }
+        }
+        // Остальные виды деталей (полка/дно/фасад и т.п.) пока не имеют
+        // своего контекстного меню внутри изоляции — намеренно ничего не делаем.
+        return;
+      }
       // Промах по модели (клик по пустому месту) — снимаем выделение,
-      // поэтому передаём null, а не выходим молча.
-      const hitModule = (hits.length && ownerOf(hits[0].object)) || null;
-      this.onSelectModule(hitModule);
+      // поэтому передаём null, а не выходим молча. Сам вызов откладываем:
+      // браузер при двойном клике успевает прислать pointerup ДВАЖДЫ ещё
+      // ДО dblclick, и если звать onSelectModule сразу, видно мигание
+      // (выбор/сброс) перед входом в изоляцию. Ждём стандартный интервал
+      // распознавания двойного клика — если за это время придёт dblclick,
+      // он сам погасит этот таймер (см. ниже), и мигания не будет.
+      if (this._clickTimer) clearTimeout(this._clickTimer);
+      this._clickTimer = setTimeout(() => {
+        this._clickTimer = null;
+        if (this.onSelectModule) this.onSelectModule(hitModule);
+      }, 230);
+    });
+
+    // Двойной клик по модулю — вход в режим изоляции (opts.isolateModule
+    // у render()). Та же защита от срабатывания во время вращения камеры,
+    // что и у одиночного клика: moved > 6 — вращали, клик не считается.
+    this.renderer.domElement.addEventListener('dblclick', (e) => {
+      if (!this.onIsolateModule || this.controls.moved > 6) return;
+      // Гасим отложенный одиночный клик от pointerup (см. выше) — иначе он
+      // выстрелит следом за изоляцией и собьёт состояние (лишний
+      // select/deselect после того, как модуль уже изолирован).
+      if (this._clickTimer) { clearTimeout(this._clickTimer); this._clickTimer = null; }
+      const hits = this._hitTestAt(e);
+      const hitModule = (hits.length && this._moduleOwnerOf(hits[0].object)) || null;
+      if (hitModule) this.onIsolateModule(hitModule);
+      // Промах по пустому месту — ничего не делаем: выход из изоляции по
+      // клику мимо реализован на стороне app.js через onSelectModule(null).
     });
 
     // Зум в ортогональных видах меняет рамку камеры (радиус там не работает)
@@ -860,6 +918,16 @@ class Viewer3D {
     this._raycaster.setFromCamera(ndc, this.camera);
     return this._raycaster.intersectObjects(this.group.children, true)
       .filter((h) => h.object && h.object.isMesh);   // контуры/линии не в счёт
+  }
+
+  // Поднимается по родителям от объекта попадания до первого, у кого
+  // проставлен userData.module — так находим имя модуля независимо от того,
+  // на какой вложенный слой/меш детали попал луч.
+  _moduleOwnerOf(obj) {
+    for (let o = obj; o; o = o.parent) {
+      if (o.userData && o.userData.module) return o.userData.module;
+    }
+    return null;
   }
 
   _addLights() {
@@ -1003,6 +1071,12 @@ class Viewer3D {
     this._drillCheck = drillCheck;
     this._updateFloorVisibility();
     const highlight = opts && opts.highlightModule;
+    // Режим изоляции (двойной клик по модулю, см. dblclick-обработчик выше):
+    // имя модуля, который остаётся «живым», все остальные — притушены.
+    // Запоминаем в поле экземпляра — pointerup-обработчик читает его, чтобы
+    // понять, что клик пришёлся внутрь изолированного модуля.
+    const isolateModule = (opts && opts.isolateModule) || null;
+    this._isolateModule = isolateModule;
     while (this.group.children.length) this.group.remove(this.group.children[0]);
 
     const { W, H, D } = model.dims;
@@ -1016,6 +1090,11 @@ class Viewer3D {
       const isFacade = row.kind === 'door' || row.kind === 'drawerFront';
       if (hideFacades && row.kind === 'handle') continue;
       const ghost = hideFacades && isFacade;
+      // Модули, НЕ участвующие в изоляции, гаснут той же полупрозрачностью,
+      // что и скрытые фасады (ghost) — просто по другой причине. Сам
+      // изолированный модуль остаётся полностью непрозрачным.
+      const dimmed = !!(isolateModule && row.module !== isolateModule);
+      const ghostLike = ghost || dimmed;
       const glass = !!row.glass;                 // стекло рисуем прозрачным
       const framed = (row.frameW || 0) > 0 && row.facadeType !== 'mdfMilled';
       const milled = row.facadeType === 'mdfMilled';   // фрезеровка на пласти
@@ -1036,15 +1115,15 @@ class Viewer3D {
       if (row.shape === 'cylinder') {
         for (const box of row.boxes) {
           this.group.add(row.legType === 'kitchen'
-            ? makeKitchenLeg(box, row.module, isActive, !!row.hasClip)
-            : makeLeg(box, row.module, isActive));
+            ? makeKitchenLeg(box, row.module, isActive, !!row.hasClip, dimmed)
+            : makeLeg(box, row.module, isActive, dimmed));
         }
         continue;
       }
       // Ручки: кнопка и скоба рисуются металлом перед фасадом.
       if (row.shape === 'handleKnob' || row.shape === 'handleBowH' || row.shape === 'handleBowV') {
         for (const box of row.boxes) {
-          const g = makeHandle(box, row.shape, row.module, isActive, row.cc, row.rot || 0);
+          const g = makeHandle(box, row.shape, row.module, isActive, row.cc, row.rot || 0, dimmed);
           this.group.add(g);
         }
         continue;
@@ -1055,7 +1134,10 @@ class Viewer3D {
           const mesh = new THREE.Mesh(
             new THREE.CylinderGeometry(2.5 * MM, 2.5 * MM,
               Math.max(((row.rot === 90 || row.rot === 270) ? box.d : box.w) * MM, 0.001), 10),
-            new THREE.MeshStandardMaterial({ color: 0xb9bec3, roughness: 0.35, metalness: 0.8 })
+            new THREE.MeshStandardMaterial({
+              color: 0xb9bec3, roughness: 0.35, metalness: 0.8,
+              transparent: dimmed, opacity: dimmed ? 0.22 : 1, depthWrite: !dimmed,
+            })
           );
           mesh.rotation.z = Math.PI / 2;
           mesh.rotation.y = ((row.rot || 0) * Math.PI) / 180;
@@ -1073,6 +1155,7 @@ class Viewer3D {
             new THREE.CylinderGeometry(d / 2, d / 2, Math.max(box.w * MM, 0.001), 20),
             new THREE.MeshStandardMaterial({
               color: isActive ? 0x9fc3de : 0xd9dde0, roughness: 0.25, metalness: 0.9,
+              transparent: dimmed, opacity: dimmed ? 0.22 : 1, depthWrite: !dimmed,
             })
           );
           mesh.rotation.z = Math.PI / 2;                 // ось диска — вдоль X
@@ -1085,7 +1168,7 @@ class Viewer3D {
       }
       // Штанга — труба вдоль оси X, поперёк проёма секции.
       if (row.shape === 'cylinderX') {
-        for (const box of row.boxes) this.group.add(makeRod(box, row.module, isActive, row.rot));
+        for (const box of row.boxes) this.group.add(makeRod(box, row.module, isActive, row.rot, dimmed));
         continue;
       }
 
@@ -1093,7 +1176,7 @@ class Viewer3D {
       // брусков и вставки — так он и выглядит на самом деле.
       if (framed) {
         for (const box of row.boxes) {
-          this.group.add(makeFramedFacade(box, row, isActive, hideFacades));
+          this.group.add(makeFramedFacade(box, row, isActive, ghostLike));
         }
         continue;
       }
@@ -1164,9 +1247,9 @@ class Viewer3D {
         roughness: glass ? 0.1 : (isMdf ? 0.12 : 0.75),
         metalness: isMdf ? 0.05 : 0.02,
         emissive: isActive ? 0x14314a : 0x000000,
-        transparent: ghost || glass || drillCheck,
-        opacity: ghost ? 0.22 : (glass ? 0.35 : (drillCheck ? 0.22 : 1)),
-        depthWrite: !(ghost || glass || drillCheck),
+        transparent: ghostLike || glass || drillCheck,
+        opacity: ghostLike ? 0.22 : (glass ? 0.35 : (drillCheck ? 0.22 : 1)),
+        depthWrite: !(ghostLike || glass || drillCheck),
       });
       if (tex) {
         // масштабируем рисунок под размер детали, чтобы полосы не растягивались
@@ -1219,6 +1302,15 @@ class Viewer3D {
           mesh.add(piece);
         }
         mesh.userData.module = row.module;   // для выбора модуля кликом
+        // Вид детали — для клика по детали внутри изоляции (см. pointerup
+        // выше). Лево/право боковины определяем по её имени из engine.js
+        // ('Боковина левая'/'Боковина правая') — engine.js уже даёт понятные
+        // русские названия, отдельного поля не заводим.
+        mesh.userData.kind = row.kind;
+        if (row.kind === 'side') {
+          mesh.userData.side = (row.name || '').indexOf('лев') >= 0 ? 'left'
+            : (row.name || '').indexOf('прав') >= 0 ? 'right' : null;
+        }
         mesh.position.set(box.x * MM, box.y * MM, box.z * MM);
         mesh.rotation.y = (rotDeg * Math.PI) / 180;
         // Фрезерованный МДФ: рисуем контур фрезеровки рамкой по лицу
@@ -1366,6 +1458,10 @@ function renderThumbnail(model, opts) {
 
       // Цвет — по материалу детали (тот же decorLook/KIND_COLOR, что и в
       // основной сцене), без текстур: для иконки достаточно плоского тона.
+      // В нейтральном режиме (opts.neutral) реальный декор игнорируем —
+      // все детали красим одним светлым тоном, а силуэт читается по
+      // контуру (EdgesGeometry), а не по цвету материала.
+      const neutral = !!(opts && opts.neutral);
       const look = decorLook(row.material);
       const asFacade = !!row.facadeType;
       const color = look ? look.color
@@ -1374,7 +1470,7 @@ function renderThumbnail(model, opts) {
       const geo = new THREE.BoxGeometry(
         Math.max(box.w * MM, 0.001), Math.max(box.h * MM, 0.001), Math.max(box.d * MM, 0.001));
       const mat = new THREE.MeshStandardMaterial({
-        color: row.glass ? 0xbfe3ea : color,
+        color: row.glass ? 0xbfe3ea : (neutral ? 0xf1efe8 : color),
         roughness: 0.7, metalness: 0.03,
         transparent: !!row.glass, opacity: row.glass ? 0.4 : 1,
       });
@@ -1386,6 +1482,18 @@ function renderThumbnail(model, opts) {
       // модуля, mesh.rotation.y довершает разворот целиком).
       mesh.position.set(box.x * MM, box.y * MM, box.z * MM);
       mesh.rotation.y = ((row.rot || 0) * Math.PI) / 180;
+
+      if (neutral) {
+        // Контур детали — та же техника, что и в основном 3D-виде
+        // (Viewer3D.render): EdgesGeometry поверх боксовой геометрии, тем
+        // же mesh.position/rotation (edges — дочерний объект mesh).
+        const edgesGeo = new THREE.EdgesGeometry(geo);
+        const edgesMat = new THREE.LineBasicMaterial({ color: 0x33302a });
+        geoms.push(edgesGeo); mats.push(edgesMat);
+        const edges = new THREE.LineSegments(edgesGeo, edgesMat);
+        mesh.add(edges);
+      }
+
       group.add(mesh);
     }
 

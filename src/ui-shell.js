@@ -112,11 +112,12 @@ function drawerOf(name) {
 }
 
 function syncTriggers() {
-  // «Материалы» — это тот же ящик параметров с прокруткой к разделу,
-  // поэтому подсвечиваем только основной триггер панели (без data-scroll).
+  // «Материалы» — это тот же ящик параметров, только переключает его на
+  // другой экран (data-panelview), поэтому подсвечиваем только основной
+  // триггер панели (без data-scroll/data-panelview).
   var all = document.querySelectorAll('[data-panel]');
   for (var i = 0; i < all.length; i++) {
-    var isMain = !all[i].getAttribute('data-scroll');
+    var isMain = !all[i].getAttribute('data-scroll') && !all[i].getAttribute('data-panelview');
     all[i].classList.toggle('active', isMain && all[i].getAttribute('data-panel') === openPanel);
   }
 }
@@ -194,7 +195,16 @@ function initDrawers() {
     var trig = e.target.closest && e.target.closest('[data-panel]');
     if (trig) {
       e.preventDefault();
-      toggleDrawer(trig.getAttribute('data-panel'), trig.getAttribute('data-scroll'));
+      var panelView = trig.getAttribute('data-panelview');
+      // Кнопки с data-panelview (например «Материалы») переключают экран
+      // внутри уже открытой панели — они всегда ОТКРЫВАЮТ панель, а не
+      // тогглят её (иначе повторный клик закрывал бы уже открытую панель
+      // вместо того, чтобы просто сменить в ней экран).
+      if (panelView) openDrawer(trig.getAttribute('data-panel'));
+      else toggleDrawer(trig.getAttribute('data-panel'), trig.getAttribute('data-scroll'));
+      if (panelView && window.Modul3D.app && window.Modul3D.app.setPanelView) {
+        window.Modul3D.app.setPanelView(panelView);
+      }
       return;
     }
     var close = e.target.closest && e.target.closest('[data-close]');
@@ -338,7 +348,15 @@ function initHud() {
   box.addEventListener('click', function (e) {
     if (e.target.closest('[data-hud-close]')) { hideHud(); return; }
     var open = e.target.closest('[data-hud-open]');
-    if (open) { openDrawer(open.getAttribute('data-hud-open')); }
+    if (open) {
+      var target = open.getAttribute('data-hud-open');
+      openDrawer(target);
+      // «Параметры» из HUD должны вести на экран параметров МОДУЛЯ (тот,
+      // что сейчас под курсором), а не оставлять прежний экран панели.
+      if (target === 'params' && window.Modul3D.app && window.Modul3D.app.setPanelView) {
+        window.Modul3D.app.setPanelView('module');
+      }
+    }
   });
   box.addEventListener('change', function (e) {
     var f = e.target.getAttribute && e.target.getAttribute('data-hud-field');

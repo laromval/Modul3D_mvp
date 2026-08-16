@@ -14,7 +14,7 @@
 (function () {
 // Версия сборки — показывается во вкладке браузера и в шапке.
 // При выпуске новой версии меняется только эта строка.
-const APP_VERSION = 'v186';
+const APP_VERSION = 'v187';
 
 // Номер версии выводим ПЕРВЫМ делом: если дальше что-то упадёт, по нему сразу
 // видно, какая сборка открыта.
@@ -111,7 +111,38 @@ const state = {
   // Имя подсвеченного модуля. null — выделение снято (клик по пустому месту).
   selected: null,
   modules: [],          // проект стартует пустым — первый модуль выбирает пользователь
+  // Какая категория «Базы модулей» сейчас развёрнута сеткой миниатюр внутри
+  // панели (id группы из PRESETS или null — все свёрнуты). Чисто UI-состояние,
+  // в историю отмены/файл проекта не попадает (не перечислено в snapshot()).
+  libraryOpenCat: null,
+  // Какой экран сейчас показан в панели «Параметры проекта»:
+  // 'library' — база модулей, 'module' — поля активного модуля,
+  // 'materials' — общие на проект материалы, 'part' — параметры одной
+  // детали внутри изолированного модуля. Чисто UI-состояние, в историю
+  // отмены/файл проекта не попадает.
+  panelView: 'library',
+  // Имя модуля, изолированного двойным кликом в 3D (см. viewer.onIsolateModule
+  // ниже), или null — режим изоляции выключен. Чисто UI-состояние режима
+  // просмотра, не часть данных проекта — в snapshot()/файл не попадает,
+  // как и panelView/libraryOpenCat выше.
+  isolatedModule: null,
+  // Деталь, выбранная кликом внутри изолированного модуля: { module, kind,
+  // side } (сейчас kind всегда 'side') или null. Тоже чисто UI-состояние.
+  selectedPart: null,
 };
+
+// Снимает режим изоляции модуля (двойной клик в 3D) и выбор детали внутри
+// него. Имя изолированного модуля и выбранная деталь — чисто UI-состояние,
+// не привязанное к жизненному циклу state.modules: любое место, которое
+// удаляет/переставляет/переименовывает/заменяет модули (удаление, вставка,
+// undo/redo, открытие проекта) или явно переключает пользователя на другой
+// модуль, обязано вызвать этот helper — иначе isolatedModule/selectedPart
+// могут указывать на модуль, которого больше нет (или уже другой), и вьюер
+// притушит всю сцену, ни с чем не совпав по имени.
+function exitIsolation() {
+  state.isolatedModule = null;
+  state.selectedPart = null;
+}
 
 // ---------------------------------------------------------------------------
 // История: отмена (Ctrl+Z) и возврат (Ctrl+Y / Ctrl+Shift+Z / Ctrl+X)
@@ -143,6 +174,9 @@ function pushHistory() {
 function applySnapshot(snap) {
   const o = JSON.parse(snap);
   Object.keys(o).forEach((k) => { state[k] = o[k]; });
+  // state.modules целиком заменён — режим изоляции (по имени модуля) и
+  // выбор детали внутри него могли устареть, снимаем безусловно.
+  exitIsolation();
   history.lock = true;
   try { renderParamsPanel(); recompute(); } finally { history.lock = false; }
   updateHistoryButtons();
@@ -217,6 +251,9 @@ function restoreProjectData(data) {
     throw new Error('Файл не похож на проект «Modul3D» — нет списка модулей.');
   }
   Object.keys(data.state).forEach((k) => { state[k] = data.state[k]; });
+  // Открыт другой проект (или восстановлено автосохранение) — модули заменены
+  // целиком, старая изоляция/выбор детали больше не имеют смысла.
+  exitIsolation();
   history.lock = true;
   try { renderParamsPanel(); recompute(); } finally { history.lock = false; }
   // Загруженный проект — новая точка отсчёта истории отмены.
@@ -277,6 +314,10 @@ function offerAutosaveRestore() {
 // Удаление активного модуля — и кнопкой, и из контекстного меню.
 function deleteModule(idx) {
   if (!state.modules[idx]) return;
+  // Удаляется любой модуль — не только изолированный: проще и надёжнее
+  // всегда снимать изоляцию/выбор детали, чем определять, задело ли удаление
+  // именно изолированный модуль.
+  exitIsolation();
   state.modules.splice(idx, 1);
   renumberModules();
   state.activeModule = Math.min(state.activeModule, state.modules.length - 1);
@@ -326,60 +367,140 @@ function renumberModules() {
 // Новый модуль встаёт СРАЗУ ЗА выделенным, а не в конец ряда: правее стоящие
 // модули сдвигаются дальше. Так добавляют модуль в середину гарнитура.
 function insertModule(m) {
+  // Вставка сдвигает и может переименовать соседние модули (renumberModules
+  // ниже) — изоляция всё равно не имеет смысла в момент добавления нового
+  // модуля, снимаем её на всякий случай ДО вставки.
+  exitIsolation();
   const at = Math.min(state.activeModule + 1, state.modules.length);
   state.modules.splice(at, 0, m);
   renumberModules();
   state.activeModule = at;
   state.selected = state.modules[at].name;
+  // Добавили модуль — сразу открываем экран с его параметрами, чтобы можно
+  // было тут же настроить, а не оставаться на экране базы модулей.
+  state.panelView = 'module';
   renderParamsPanel();
   recompute();
+}
+
+// Переключатель экрана панели «Параметры проекта» — единственная точка
+// связи с ui-shell.js (кнопка «Материалы» на боковой полосе и в HUD).
+function setPanelView(view) {
+  state.panelView = view;
+  renderParamsPanel();
 }
 
 function libraryBlock() {
   return `
     <h3>База модулей</h3>
     <div class="lib-row">
-      ${PRESETS.map((g) => `<button class="lib-cat" type="button" data-cat="${g.id}">${esc(g.name)} ▾</button>`).join('')}
+      ${PRESETS.map((g) =>
+        `<button class="lib-cat ${g.id === state.libraryOpenCat ? 'on' : ''}" type="button"
+                 data-cat="${g.id}">${esc(g.name)} ▾</button>`
+      ).join('')}
     </div>
+    ${libraryGridBlock()}
     <div class="hint">Выберите категорию, затем вариант — готовый модуль добавится в проект и появится в 3D.</div>`;
 }
 
-function renderParamsPanel() {
-  const panel = document.getElementById('paramsPanel');
-  if (state.activeModule >= state.modules.length) state.activeModule = state.modules.length - 1;
-  if (state.activeModule < 0) state.activeModule = 0;
-  const mod = state.modules[state.activeModule];
+// Сетка миниатюр открытой категории. Рендерится СИНХРОННО только для пунктов
+// текущей открытой группы (несколько штук), а не для всех 16 пресетов сразу —
+// иначе панель тормозила бы при каждой перерисовке.
+function libraryGridBlock() {
+  const group = PRESETS.filter((g) => g.id === state.libraryOpenCat)[0];
+  if (!group) return '';
 
-  // Пустой проект: программа стартует без единого модуля — первый выбирает
-  // сам пользователь. Показываем только базу и кнопку «+».
-  if (!mod) {
-    panel.innerHTML = libraryBlock() + `
-      <h3>Модули проекта</h3>
-      <div class="mod-tabs" id="modTabs">
-        <button class="mod-add" id="addModule" type="button" title="Добавить пустой модуль">+</button>
-      </div>
-      <div class="hint">Проект пуст. Выберите готовый модуль в базе выше или добавьте свой кнопкой «+».</div>`;
-    bindPanelEvents();
-    return;
-  }
+  // Материалы для превью берём из ТЕКУЩЕГО проекта (те же источники, что и
+  // recompute()) — миниатюра сразу показывает модуль в декоре, в котором он
+  // реально появится у пользователя. Сам вид миниатюры при этом нейтральный
+  // (см. renderThumbnail({ neutral: true })) — декор на неё не влияет, но
+  // прочие поля (толщины и т.п.) должны быть настоящими, не выдуманными.
+  const thumbBase = {
+    bodyThickness: state.bodyThickness,
+    backThickness: state.backThickness,
+    decor: DECORS.find(d => d.code === state.decorCode),
+    facadeDecor: DECORS.find(d => d.code === state.facadeDecorCode) || DECORS.find(d => d.code === state.decorCode),
+    backMaterial: BACK_MATERIALS.find(d => d.code === state.backCode),
+    drawerDecor: DECORS.find(d => d.code === state.drawerDecorCode),
+    drawerThickness: state.drawerThickness,
+    worktopDepth: state.worktopDepth,
+    jointType: state.jointType,
+  };
 
-  panel.innerHTML = libraryBlock() + `
+  const tiles = group.items.map((it) => {
+    let dataUrl = null;
+    try {
+      const m = it.make();
+      const project = Object.assign({}, thumbBase, {
+        modules: [{
+          name: m.name, width: m.width, height: m.height, depth: m.depth,
+          rotation: m.rotation || 0, corner: !!m.corner, family: m.family || 'custom',
+          topType: m.topType, railWidth: m.railWidth, noBack: !!m.noBack,
+          blindPanel: !!m.blindPanel, blindStrip: m.blindStrip,
+          leftSide: m.leftSide, rightSide: m.rightSide,
+          base: m.baseType === 'plinth'
+            ? { type: 'plinth', plinthHeight: m.plinthHeight }
+            : { type: m.baseType, legHeight: m.legHeight },
+          legType: m.legType || 'metal',
+          sections: (m.sections || []).map(sc => Object.assign({}, sc, { drawerSystem: state.drawerSystem })),
+        }],
+      });
+      const model = buildModel(project);
+      dataUrl = window.Modul3D.viewer.renderThumbnail(model, { size: 200, neutral: true });
+    } catch (err) {
+      dataUrl = null;
+    }
+    // Полное примечание пресета иногда длиной за сотню символов — для
+    // всплывающей подсказки (узкая колонка, перенос по словам) обрезаем его,
+    // иначе подсказка растягивается на добрый десяток строк. Полный текст
+    // примечания по-прежнему виден в самом контекстном меню категории (см.
+    // раньше — до переноса в сетку миниатюр), здесь это только краткая метка.
+    const noteShort = it.note && it.note.length > 70 ? it.note.slice(0, 68) + '…' : it.note;
+    const tip = `${it.name}${noteShort ? ` — ${noteShort}` : ''}`;
+    return `<button type="button" class="lib-item tip tip-down" data-preset="${it.id}" data-tip="${esc(tip)}">
+        ${dataUrl ? `<img class="lib-thumb" src="${dataUrl}" alt="">` : ''}
+      </button>`;
+  }).join('');
 
+  return `<div class="lib-grid">${tiles}</div>`;
+}
+
+// Якорь навигации: вкладки модулей + Отменить/Вернуть/Удалить/«Материалы».
+// Виден ВСЕГДА, независимо от того, какой экран (panelView) сейчас показан
+// ниже — иначе пользователь теряется, из какого экрана выбраться некуда.
+// Переход на «Библиотеку модулей» вынесен на отдельную кнопку рейки, здесь
+// вместо неё — быстрая ссылка на общие материалы проекта (декор, толщины,
+// фурнитура), т.к. с рейки на этот экран напрямую больше не попасть.
+function moduleTabsBlock(mod) {
+  return `
     <h3>Модули проекта</h3>
     <div class="mod-tabs" id="modTabs">
       ${state.modules.map((m, i) =>
-        `<button class="mod-tab ${i === state.activeModule ? 'active' : ''}" data-mod="${i}" type="button"
-                 title="Правая кнопка мыши — поворот и удаление">${esc(m.name)}${m.rotation ? ` ↻${m.rotation}°` : ''}</button>`
+        `<button class="mod-tab tip tip-down ${i === state.activeModule ? 'active' : ''}" data-mod="${i}" type="button"
+                 data-tip="ПКМ: поворот, удаление">${esc(m.name)}${m.rotation ? ` ↻${m.rotation}°` : ''}</button>`
       ).join('')}
-      <button class="mod-add" id="addModule" type="button" title="Добавить модуль">+</button>
+      <button class="mod-add tip tip-down" id="addModule" type="button" data-tip="Добавить модуль" aria-label="Добавить модуль">+</button>
     </div>
     <div class="mod-actions">
-      <button id="undoBtn" type="button" title="Отменить (Ctrl+Z)">↶ Отменить</button>
-      <button id="redoBtn" type="button" title="Вернуть (Ctrl+Y, Ctrl+Shift+Z)">↷ Вернуть</button>
-      <button id="delModule" type="button" class="danger"
-              title="Удалить активный модуль">✕ Удалить модуль</button>
-    </div>
+      <button id="undoBtn" class="tip tip-down" type="button" data-tip="Отменить (Ctrl+Z)">↶ Отменить</button>
+      <button id="redoBtn" class="tip tip-down" type="button" data-tip="Вернуть (Ctrl+Y, Ctrl+Shift+Z)">↷ Вернуть</button>
+      ${mod ? `<button id="delModule" type="button" class="danger tip tip-down"
+              data-tip="Удалить активный модуль">✕ Удалить модуль</button>` : ''}
+      <button id="materialsLinkBtn" class="tip tip-down" type="button" data-tip="Общие материалы проекта">Материалы</button>
+    </div>`;
+}
 
+// Маленькая ссылка «← Назад» сверху экранов, которые не являются точкой
+// входа («Материалы», в будущем «Деталь») — ведёт на «Параметры модуля»,
+// если какой-то модуль выбран, иначе на «Базу модулей».
+function backLinkBlock() {
+  return `<button class="link-btn panel-back" id="panelBack" type="button">← Назад</button>`;
+}
+
+// Экран «Параметры модуля»: название/габариты/конструктив/секции активного
+// модуля. Показывается только когда есть выбранный модуль.
+function moduleFieldsBlock(mod) {
+  return `
     <div class="field">
       <label>Название модуля</label>
       <input id="m-name" type="text" value="${esc(mod.name)}">
@@ -442,8 +563,60 @@ function renderParamsPanel() {
 
     <h3>${esc(mod.name)} — секции</h3>
     <div id="sectionsList"></div>
-    <button class="add-section-btn" id="addSection" type="button">+ Добавить секцию</button>
+    <button class="add-section-btn" id="addSection" type="button">+ Добавить секцию</button>`;
+}
 
+// Экран «Деталь»: открывается кликом по боковине внутри изолированного в 3D
+// модуля (viewer.onSelectPart). Пилотная реализация только для боковины —
+// не общий фреймворк на все виды деталей (см. Этап 3 плана). Инпут — тот же
+// самый, что и в «Конструктиве модуля» (id m-leftSide/m-rightSide), просто
+// показан отдельно: существующий обработчик в bindPanelEvents() слушает эти
+// id и продолжает работать без изменений, где бы они ни были отрисованы.
+function partBlock(mod) {
+  const part = state.selectedPart;
+  const isLeft = part.side === 'left';
+  const label = isLeft ? 'левая' : 'правая';
+  const cur = isLeft ? mod.leftSide : mod.rightSide;
+  const selectId = isLeft ? 'm-leftSide' : 'm-rightSide';
+  // «Видимая» боковина читается из уже ПОСЧИТАННОЙ модели, а не пересчитывается
+  // здесь заново — единый источник истины остаётся engine.js (см. buildModel:
+  // боковина получает facadeType: 'sidePanel', когда она видима и режется
+  // в декоре фасада). Если формула видимости в engine.js когда-нибудь
+  // изменится, эта панель не должна тихо разойтись с ней.
+  const sideName = isLeft ? 'Боковина левая' : 'Боковина правая';
+  const rows = (currentModel && currentModel.partsRaw) || [];
+  const row = rows.find((r) => r.module === mod.name && r.kind === 'side'
+    && r.name && r.name.indexOf(sideName) === 0);
+  const visible = !!(row && row.facadeType === 'sidePanel');
+  return `
+    ${backLinkBlock()}
+    <h3>Боковина ${label}</h3>
+    <div class="field">
+      <label>Конструктив</label>
+      <select id="${selectId}">${sideOptions(cur)}</select>
+    </div>
+    ${visible ? `
+    <div class="hint">Эта боковина видимая — режется в декоре фасада.</div>
+    <button class="link-btn" id="partToFacadeDecor" type="button">Изменить декор фасада →</button>` : ''}`;
+}
+
+// Заглушка экрана «Деталь», когда на него перешли с рейки напрямую (кнопка
+// «Деталь»), а не кликом по боковине в изолированном модуле — редактировать
+// пока нечего, но и откатывать на другой экран не нужно: рейка должна вести
+// именно сюда. Полноценный редактор геометрии (вырезы/пазы) — задача другого
+// этапа, здесь только подсказка, как выбрать деталь для редактирования.
+function partPlaceholderBlock() {
+  return `
+    ${backLinkBlock()}
+    <h3>Деталь</h3>
+    <div class="hint">Чтобы отредактировать деталь: дважды кликните по модулю в 3D-сцене,
+    затем кликните по нужной детали (пока поддерживается только боковина).</div>`;
+}
+
+// Экран «Материалы»: общие на весь проект декор/толщины/фурнитура —
+// не привязаны к конкретному модулю.
+function materialsBlock() {
+  return `
     <h3>Материалы (общие на проект)</h3>
     <div class="field">
       <label>Декор корпуса</label>
@@ -492,9 +665,50 @@ function renderParamsPanel() {
         <option value="minifix" ${state.jointType === 'minifix' ? 'selected' : ''}>Эксцентриковая стяжка</option>
         <option value="dowel" ${state.jointType === 'dowel' ? 'selected' : ''}>Шкант</option>
       </select>
-    </div>
-  `;
-  renderSectionsList();
+    </div>`;
+}
+
+function renderParamsPanel() {
+  const panel = document.getElementById('paramsPanel');
+  if (state.activeModule >= state.modules.length) state.activeModule = state.modules.length - 1;
+  if (state.activeModule < 0) state.activeModule = 0;
+  const mod = state.modules[state.activeModule];
+
+  // Экран «Параметры модуля» имеет смысл только когда модуль есть — пустой
+  // проект (или потеря последнего модуля) откатывает на базу. Так же ведёт
+  // себя переход на этот экран напрямую с рейки (setPanelView('module')) —
+  // это ожидаемый fallback, а не баг.
+  if (state.panelView === 'module' && !mod) state.panelView = 'library';
+  // Экран «Деталь» показывает содержимое только пока жива изоляция и выбрана
+  // боковина ИМЕННО активного модуля — если модуль пропал, выбор детали
+  // устарел (сброс изоляции и т.п.), или деталь принадлежит другому модулю
+  // (доп. защита поверх exitIsolation() на случай рассинхронизации),
+  // откатываем на параметры модуля (или на базу, если и модуля не осталось).
+  // Но если выбора детали просто ещё НЕ было (пришли на экран прямо с
+  // кнопки рейки «Деталь») — с экрана не уходим, а показываем заглушку-
+  // подсказку ниже (см. partPlaceholderBlock).
+  if (state.panelView === 'part' && state.selectedPart && (!mod
+      || state.selectedPart.kind !== 'side' || state.selectedPart.module !== mod.name)) {
+    state.panelView = mod ? 'module' : 'library';
+  }
+
+  let screen;
+  if (state.panelView === 'materials') {
+    screen = backLinkBlock() + materialsBlock();
+  } else if (state.panelView === 'part') {
+    screen = state.selectedPart ? partBlock(mod) : partPlaceholderBlock();
+  } else if (state.panelView === 'module') {
+    screen = moduleFieldsBlock(mod);
+  } else {
+    // 'library' (и любое неизвестное/начальное значение)
+    screen = libraryBlock() + (!mod
+      ? `<div class="hint">Проект пуст. Выберите готовый модуль в базе выше или добавьте свой кнопкой «+».</div>`
+      : '');
+  }
+
+  panel.innerHTML = moduleTabsBlock(mod) + screen;
+
+  if (mod && state.panelView === 'module') renderSectionsList();
   bindPanelEvents();
 }
 
@@ -825,100 +1039,30 @@ function renderSectionsList() {
   });
 }
 
-// Меню базы модулей: варианты выбранной категории. Выбор ДОБАВЛЯЕТ модуль в
+// Клик по миниатюре в сетке «База модулей» внутри панели: ДОБАВЛЯЕТ модуль в
 // проект (не заменяет текущий) и делает его активным — он сразу виден в 3D.
-function showPresetMenu(catId, x, y) {
-  closeModuleMenu();
+// Логика перенесена без изменений из бывшего плавающего меню showPresetMenu().
+function addPresetToProject(catId, presetId) {
   const group = PRESETS.filter((g) => g.id === catId)[0];
-  if (!group) return;
-
-  // Материалы для превью берём из ТЕКУЩЕГО проекта (те же источники, что и
-  // recompute()) — миниатюра сразу показывает модуль в декоре, в котором он
-  // реально появится у пользователя, без придуманных дефолтов.
-  const thumbBase = {
-    bodyThickness: state.bodyThickness,
-    backThickness: state.backThickness,
-    decor: DECORS.find(d => d.code === state.decorCode),
-    facadeDecor: DECORS.find(d => d.code === state.facadeDecorCode) || DECORS.find(d => d.code === state.decorCode),
-    backMaterial: BACK_MATERIALS.find(d => d.code === state.backCode),
-    drawerDecor: DECORS.find(d => d.code === state.drawerDecorCode),
-    drawerThickness: state.drawerThickness,
-    worktopDepth: state.worktopDepth,
-    jointType: state.jointType,
-  };
-
-  // Миниатюры рендерятся синхронно только для пунктов открываемой категории
-  // (несколько штук), не для всей базы пресетов сразу.
-  const thumbs = group.items.map((it) => {
-    try {
-      const m = it.make();
-      const project = Object.assign({}, thumbBase, {
-        modules: [{
-          name: m.name, width: m.width, height: m.height, depth: m.depth,
-          rotation: m.rotation || 0, corner: !!m.corner, family: m.family || 'custom',
-          topType: m.topType, railWidth: m.railWidth, noBack: !!m.noBack,
-          blindPanel: !!m.blindPanel, blindStrip: m.blindStrip,
-          leftSide: m.leftSide, rightSide: m.rightSide,
-          base: m.baseType === 'plinth'
-            ? { type: 'plinth', plinthHeight: m.plinthHeight }
-            : { type: m.baseType, legHeight: m.legHeight },
-          legType: m.legType || 'metal',
-          sections: (m.sections || []).map(sc => Object.assign({}, sc, { drawerSystem: state.drawerSystem })),
-        }],
-      });
-      const model = buildModel(project);
-      return window.Modul3D.viewer.renderThumbnail(model, { size: 64 });
-    } catch (err) {
-      return null;
+  const item = group && group.items.filter((i) => i.id === presetId)[0];
+  if (!item) return;
+  // Имя модулю даёт проект — «Модуль N», как у добавленных вручную.
+  const m = item.make();
+  m.name = '';
+  // Первый кухонный модуль задаёт материалы «как на производстве»:
+  // корпус белый, фасад в декоре. Дальше пользователь меняет вручную.
+  if (m.family === 'kitchen' && !state.modules.length) {
+    const white = DECORS.filter((d) => /бел/i.test(d.name))[0];
+    if (white) {
+      // Декор, который стоял на корпусе, уезжает на ФАСАД, а корпус и
+      // ящики становятся белыми. Если корпус уже белый — фасадный декор
+      // не трогаем, иначе кухня получится целиком белой.
+      if (state.decorCode !== white.code) state.facadeDecorCode = state.decorCode;
+      state.decorCode = white.code;
+      state.drawerDecorCode = white.code;
     }
-  });
-
-  const menu = document.createElement('div');
-  menu.id = 'moduleMenu';
-  menu.className = 'ctx-menu wide';
-  menu.style.left = Math.round(x) + 'px';
-  menu.style.top = Math.round(y) + 'px';
-  menu.innerHTML = `
-    <div class="ctx-title">${esc(group.name)}</div>
-    ${group.items.map((it, i) => {
-      const dataUrl = thumbs[i];
-      const thumbHtml = dataUrl
-        ? `<img class="ctx-thumb" src="${dataUrl}" alt="" width="40" height="40">`
-        : '';
-      return `<button type="button" class="ctx-item${dataUrl ? ' has-thumb' : ''}" data-preset="${it.id}">
-         ${thumbHtml}
-         <span class="ctx-text">
-           <span class="ctx-name">${esc(it.name)}</span>
-           <span class="ctx-note">${esc(it.note || '')}</span>
-         </span>
-       </button>`;
-    }).join('')}`;
-  document.body.appendChild(menu);
-
-  menu.querySelectorAll('[data-preset]').forEach((el) => {
-    el.addEventListener('click', () => {
-      const item = group.items.filter((i) => i.id === el.dataset.preset)[0];
-      closeModuleMenu();
-      if (!item) return;
-      // Имя модулю даёт проект — «Модуль N», как у добавленных вручную.
-      const m = item.make();
-      m.name = '';
-      // Первый кухонный модуль задаёт материалы «как на производстве»:
-      // корпус белый, фасад в декоре. Дальше пользователь меняет вручную.
-      if (m.family === 'kitchen' && !state.modules.length) {
-        const white = DECORS.filter((d) => /бел/i.test(d.name))[0];
-        if (white) {
-          // Декор, который стоял на корпусе, уезжает на ФАСАД, а корпус и
-          // ящики становятся белыми. Если корпус уже белый — фасадный декор
-          // не трогаем, иначе кухня получится целиком белой.
-          if (state.decorCode !== white.code) state.facadeDecorCode = state.decorCode;
-          state.decorCode = white.code;
-          state.drawerDecorCode = white.code;
-        }
-      }
-      insertModule(m);
-    });
-  });
+  }
+  insertModule(m);
 }
 
 // Контекстное меню модуля: поворот вокруг вертикальной оси и удаление.
@@ -976,19 +1120,41 @@ function showModuleMenu(modIndex, x, y) {
   });
 }
 
+// База модулей внутри панели: клик по кнопке категории открывает/закрывает
+// под ней сетку миниатюр её пресетов, клик по миниатюре добавляет модуль.
+// Общая для обеих веток bindPanelEvents() (пустой проект и проект с модулями).
+function bindLibraryEvents() {
+  document.querySelectorAll('.lib-cat').forEach((b) => {
+    b.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const cat = b.dataset.cat;
+      // Повторный клик по уже открытой категории — закрыть; клик по другой —
+      // переключить; сетка одной категории видна за раз.
+      state.libraryOpenCat = state.libraryOpenCat === cat ? null : cat;
+      renderParamsPanel();
+    });
+  });
+  document.querySelectorAll('.lib-item').forEach((b) => {
+    b.addEventListener('click', () => {
+      addPresetToProject(state.libraryOpenCat, b.dataset.preset);
+    });
+  });
+}
+
 function bindPanelEvents() {
   const mod = state.modules[state.activeModule];
   const on = (id, ev, h) => { const el = document.getElementById(id); if (el) el.addEventListener(ev, h); };
+  // Якорь навигации (кнопка «Материалы») и ссылка «← Назад» — их элементы
+  // отрисованы не на каждом экране, но привязка безопасна и для отсутствующих.
+  on('materialsLinkBtn', 'click', () => setPanelView('materials'));
+  on('panelBack', 'click', () => setPanelView(state.selected ? 'module' : 'library'));
+  // Экран «Деталь» → быстрый переход к полю, которое красит видимую боковину.
+  on('partToFacadeDecor', 'click', () => setPanelView('materials'));
+
   // Без модулей в панели есть только база и «+» — остальные поля не отрисованы,
   // и обращаться к полям несуществующего модуля нельзя.
   if (!mod) {
-    document.querySelectorAll('.lib-cat').forEach((b) => {
-      b.addEventListener('click', (e) => {
-        e.stopPropagation();
-        const r = b.getBoundingClientRect ? b.getBoundingClientRect() : { left: 20, bottom: 90 };
-        showPresetMenu(b.dataset.cat, r.left, r.bottom + 4);
-      });
-    });
+    bindLibraryEvents();
     on('addModule', 'click', () => insertModule(newModule()));
     on('undoBtn', 'click', undo);
     on('redoBtn', 'click', redo);
@@ -1001,18 +1167,17 @@ function bindPanelEvents() {
     b.addEventListener('click', () => {
       state.activeModule = Number(b.dataset.mod);
       state.selected = (state.modules[state.activeModule] || {}).name || null;
+      state.panelView = 'module';
+      // Обычный клик по вкладке модуля в панели — тот же случай, что и
+      // обычный клик по модулю в 3D (viewer.onSelectModule): снимает
+      // изоляцию, без стекирования.
+      exitIsolation();
       renderParamsPanel();
       if (viewer && currentModel) viewer.render(currentModel, viewOpts());
     });
   });
-  // База модулей: категория → список вариантов
-  document.querySelectorAll('.lib-cat').forEach((b) => {
-    b.addEventListener('click', (e) => {
-      e.stopPropagation();
-      const r = b.getBoundingClientRect ? b.getBoundingClientRect() : { left: 20, bottom: 90 };
-      showPresetMenu(b.dataset.cat, r.left, r.bottom + 4);
-    });
-  });
+  // База модулей: категория → сетка миниатюр под ней
+  bindLibraryEvents();
 
   // Правая кнопка на вкладке модуля — меню с поворотом и удалением.
   document.querySelectorAll('.mod-tab').forEach((b) => {
@@ -1289,7 +1454,11 @@ function viewOpts() {
     hideFacades: state.hideFacades,
     drillCheck: state.drillCheck,
     drillFilter: state.drillFilter,
-    highlightModule: state.selected,
+    // Пока идёт изоляция, подсветку синим отключаем — изолированный модуль
+    // и так выделен тем, что остальные притушены, а подсветка мешала бы
+    // видеть его настоящую текстуру (см. Этап 3 плана).
+    highlightModule: state.isolatedModule ? null : state.selected,
+    isolateModule: state.isolatedModule,
   };
 }
 
@@ -1612,22 +1781,58 @@ function initHeaderControls() {
     });
   }
 
+  // Делает модуль активным в панели по имени — общая логика для обычного
+  // выбора кликом (onSelectModule) и для входа в изоляцию двойным кликом
+  // (onIsolateModule), чтобы не дублировать поиск индекса модуля.
+  function selectModuleByName(name) {
+    state.selected = name;
+    const idx = state.modules.findIndex(m => m.name === name);
+    if (idx >= 0) state.activeModule = idx;
+  }
+
   // Клик по модулю в 3D выбирает его в панели слева
   if (viewer) {
     viewer.onSelectModule = (name) => {
-      if (!name) {                       // клик мимо модели — снять выделение
-        if (state.selected === null) return;
+      if (!name) {                       // клик мимо модели — снять выделение и уйти к базе
+        const changed = state.selected !== null || state.isolatedModule !== null;
         state.selected = null;
-        viewer.render(currentModel, viewOpts());
+        state.panelView = 'library';
+        // Клик мимо снимает и режим изоляции — стекирования изоляций не бывает.
+        exitIsolation();
+        renderParamsPanel();
+        if (changed) viewer.render(currentModel, viewOpts());
         return;
       }
-      state.selected = name;
-      const idx = state.modules.findIndex(m => m.name === name);
-      if (idx >= 0 && idx !== state.activeModule) {
-        state.activeModule = idx;
-        renderParamsPanel();
-      }
+      // Любой обычный (одиночный) клик по модулю снимает изоляцию — даже если
+      // это тот же самый изолированный модуль: одно предсказуемое правило,
+      // без стекирования изоляций (см. Этап 3 плана).
+      exitIsolation();
+      selectModuleByName(name);
+      state.panelView = 'module';
+      renderParamsPanel();
       viewer.render(currentModel, viewOpts());
+    };
+
+    // Двойной клик по модулю в 3D — «изолировать»: соседние модули гаснут
+    // прозрачностью (opts.isolateModule в viewOpts()), этот остаётся в
+    // реальной текстуре, панель переключается на его параметры.
+    viewer.onIsolateModule = (name) => {
+      if (!name) return;
+      selectModuleByName(name);
+      state.isolatedModule = name;
+      state.selectedPart = null;
+      state.panelView = 'module';
+      renderParamsPanel();
+      viewer.render(currentModel, viewOpts());
+    };
+
+    // Клик по боковине ВНУТРИ уже изолированного модуля — открывает экран
+    // «Деталь». Состав деталей от этого не меняется, сцену перерисовывать
+    // не нужно — достаточно панели.
+    viewer.onSelectPart = ({ module, kind, side }) => {
+      state.selectedPart = { module, kind, side };
+      state.panelView = 'part';
+      renderParamsPanel();
     };
   }
 }
@@ -1723,6 +1928,10 @@ function initSketchPanel() {
   apiKeyPopover.addEventListener('click', (e) => e.stopPropagation());
 }
 
+// Мост для ui-shell.js: кнопка «Материалы» (боковая полоса, HUD) переключает
+// экран панели, не зная её внутреннего устройства.
+window.Modul3D.app = { setPanelView: setPanelView };
+
 // ---------------------------------------------------------------------------
 // Запуск
 // ---------------------------------------------------------------------------
@@ -1738,7 +1947,17 @@ try {
   initHeaderControls();
   // Контекстное меню модуля закрывается кликом мимо и по Esc
   document.addEventListener('click', closeModuleMenu);
-  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeModuleMenu(); });
+  document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape') return;
+    closeModuleMenu();
+    // Esc — ещё и штатный выход из режима изоляции модуля (Этап 3 плана).
+    if (state.isolatedModule) {
+      exitIsolation();
+      state.panelView = state.selected ? 'module' : 'library';
+      renderParamsPanel();
+      if (viewer && currentModel) viewer.render(currentModel, viewOpts());
+    }
+  });
 
   // Отмена и возврат. Ctrl+X перехватываем только вне полей ввода — внутри
   // поля это штатное «вырезать», ломать его нельзя.
