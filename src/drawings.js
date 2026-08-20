@@ -804,6 +804,11 @@ function facadeHoles(p, x0, y0, fw, fh, scale) {
   const hand = holes.filter((h) => h.kind === 'handle');
   const cups = holes.filter((h) => h.kind === 'hingeCup' || h.kind === 'hingeGlass');
   const other = holes.filter((h) => h.kind !== 'handle' && h.kind !== 'hingeCup' && h.kind !== 'hingeGlass');
+  // Пользовательские отверстия (экран «Деталь», добавлены вручную, kind:'custom')
+  // размечаем полноценными размерными цепочками, как ручку/петли — иначе
+  // на чертеже видно только первое из них, а остальные без размеров и подписи.
+  const custom = other.filter((h) => h.kind === 'custom');
+  const otherRest = other.filter((h) => h.kind !== 'custom');
 
   // ПЕТЛИ — размеры со стороны петель
   let hingeLeft = true;
@@ -829,6 +834,35 @@ function facadeHoles(p, x0, y0, fw, fh, scale) {
     if (maxX - minX > 0.5) chainX(xs, 'top'); else chainX([minX], 'top');
   }
 
+  // ПОЛЬЗОВАТЕЛЬСКИЕ ОТВЕРСТИЯ: цепочка по X и по Y от краёв детали + подпись
+  // диаметра/сквозности у КАЖДОГО отверстия (не только у первого).
+  if (custom.length) {
+    const xs = custom.map((h) => h.x), ys = custom.map((h) => h.y);
+    // Горизонтальная сторона: 'top' занята цепочкой ручки — если ручка есть,
+    // уходим на 'bottom' (её частично занимает только один короткий сегмент
+    // цепочки петель — не критично, packDims разведёт по уровням).
+    const hside = hand.length ? 'bottom' : 'top';
+    chainX(xs, hside);
+    // Вертикальная сторона: смотрим, что уже занято петлями/ручкой, и берём
+    // свободную; если свободной нет — ориентируемся на то, к какому краю
+    // сами кастомные отверстия ближе (тот же принцип, что у ручки выше).
+    const usedV = new Set();
+    if (cups.length) usedV.add(hingeLeft ? 'left' : 'right');
+    if (hand.length) {
+      const handRight = Math.max.apply(null, hand.map((h) => h.x)) > p.length / 2;
+      usedV.add(cups.length ? (hingeLeft ? 'right' : 'left') : (handRight ? 'right' : 'left'));
+    }
+    const avgX = xs.reduce((s, v) => s + v, 0) / xs.length;
+    const preferred = avgX > p.length / 2 ? 'right' : 'left';
+    const fallback = preferred === 'right' ? 'left' : 'right';
+    const vsideCustom = !usedV.has(preferred) ? preferred : (!usedV.has(fallback) ? fallback : preferred);
+    chainY(ys, vsideCustom);
+    for (const h of custom) {
+      const label = h.through ? `Ø${h.d} насквозь` : `Ø${h.d} глуб. ${h.depth}`;
+      body += text(px(h.x), py(h.y) - 6, label, 'dw-t', 'middle');
+    }
+  }
+
   // Раскладываем по уровням и рисуем. Уровень 0 занят габаритом детали
   // снизу и справа, поэтому там начинаем с первого.
   const draw = {
@@ -848,9 +882,10 @@ function facadeHoles(p, x0, y0, fw, fh, scale) {
   }
   facadeHoles.levels = levels;
 
-  if (other.length) {
-    const o0 = other[0];
-    body += text(px(o0.x), py(o0.y) - 6, `Ø${o0.d} глуб. ${o0.depth}`, 'dw-t', 'middle');
+  if (otherRest.length) {
+    const o0 = otherRest[0];
+    const label = o0.through ? `Ø${o0.d} насквозь` : `Ø${o0.d} глуб. ${o0.depth}`;
+    body += text(px(o0.x), py(o0.y) - 6, label, 'dw-t', 'middle');
   }
   return body;
 }
@@ -928,6 +963,118 @@ function buildDrilledPartDrawings(model, scale) {
     (p) => !FACADE_KINDS[p.kind] && !p.hardware
       && (((p.holes || []).length) || ((p.grooves || []).length)),
     'Деталей с присадкой в проекте нет.');
+}
+
+// ---------------------------------------------------------------------------
+// РЕДАКТОР ДЕТАЛИ — Этап 1 (см. общий план визуального редактора вырезов).
+// Статичный плоский вид ОДНОЙ детали в реальных пропорциях: контур, размеры
+// длины/ширины, уже посчитанная присадка и пазы. Кликов/перетаскивания тут
+// нет — это фундамент, на который лягут направляющие линии, привязки и
+// построение фигур (следующие этапы). Геометрия и стиль — те же помощники,
+// что и в buildPartDrawings/facadeHoles, чтобы вид не отличался от печатных
+// чертежей.
+// ---------------------------------------------------------------------------
+
+// Прямоугольник паза по его оси (x0,y0)-(x1,y1) и ширине w: паз идёт по
+// половине ширины в каждую сторону от оси — тот же принцип, что использует
+// 3D-вьюер при вырезании паза из меша (см. viewer.js, «along ? … : … ± half»).
+// Отдельного SVG-примитива для паза раньше не было в этом файле, поэтому
+// он вынесен маленьким переиспользуемым помощником.
+function grooveRects(p, x0, y0, fw, fh, scale) {
+  const grooves = p.grooves || [];
+  if (!grooves.length) return '';
+  const px = (v) => x0 + v * scale;
+  const py = (v) => y0 + fh - v * scale;   // деталь снизу вверх, как в facadeHoles
+  let body = '';
+  for (const g of grooves) {
+    const half = (g.w || 4) / 2;
+    // Паз почти всегда идёт вдоль одной из осей детали (x0===x1 либо
+    // y0===y1) — по оси откладываем длину паза, поперёк — половину ширины.
+    const horiz = Math.abs(g.y1 - g.y0) < 0.01;
+    let xa, xb, ya, yb;
+    if (horiz) {
+      xa = Math.min(g.x0, g.x1); xb = Math.max(g.x0, g.x1);
+      ya = g.y0 - half; yb = g.y0 + half;
+    } else {
+      ya = Math.min(g.y0, g.y1); yb = Math.max(g.y0, g.y1);
+      xa = g.x0 - half; xb = g.x0 + half;
+    }
+    const gx = px(xa), gy = py(yb), gw = (xb - xa) * scale, gh = (yb - ya) * scale;
+    body += rect(gx, gy, gw, gh, 'dw-open');
+    body += text(gx + gw / 2, gy - 3, `${esc(g.note || 'паз')} ${g.w}×${g.depth}`, 'dw-t', 'middle');
+  }
+  return body;
+}
+
+// Декоративная фоновая сетка — ТОЛЬКО зрительная подсказка масштаба и
+// пропорций детали. Она НЕ имеет отношения к системе 32 мм и НЕ участвует в
+// привязке курсора: точность в редакторе будут давать направляющие линии и
+// ввод точных чисел (следующие этапы), не эта сетка. Поэтому линии сделаны
+// тонкими и полупрозрачными и помечены pointer-events:none — они не должны
+// перехватывать клики, когда в следующих этапах появится интерактив.
+function partGrid(x0, y0, fw, fh, lenMM, widMM, scale, minorMM, majorMM) {
+  const styleFor = (major) =>
+    `stroke:var(--border-strong);stroke-width:${major ? 0.6 : 0.3};` +
+    `opacity:${major ? 0.5 : 0.22};pointer-events:none`;
+  let body = '';
+  for (let mm = minorMM; mm < lenMM - 0.5; mm += minorMM) {
+    const x = x0 + mm * scale;
+    const major = Math.round(mm) % majorMM === 0;
+    body += `<line x1="${r(x)}" y1="${r(y0)}" x2="${r(x)}" y2="${r(y0 + fh)}" style="${styleFor(major)}"/>`;
+  }
+  for (let mm = minorMM; mm < widMM - 0.5; mm += minorMM) {
+    const y = y0 + fh - mm * scale;
+    const major = Math.round(mm) % majorMM === 0;
+    body += `<line x1="${r(x0)}" y1="${r(y)}" x2="${r(x0 + fw)}" y2="${r(y)}" style="${styleFor(major)}"/>`;
+  }
+  return body;
+}
+
+// Собственно вид детали для редактора. Принимает ОДИН объект детали (как
+// хранится в model.partsRaw: p.length/p.width/p.holes/p.grooves) и опции:
+//   opts.scale     — px на мм (по умолчанию подбирается по большей стороне
+//                     детали под ~560px; сам подбор под контейнер экрана —
+//                     дело вызывающего кода, это лишь разумный дефолт);
+//   opts.showGrid  — false, чтобы отключить декоративную сетку (по умолчанию true);
+//   opts.gridMinor — шаг тонких линий сетки в мм (по умолчанию 50);
+//   opts.gridMajor — шаг контрастных линий сетки в мм (по умолчанию 250).
+// Возвращает готовую строку <svg …>…</svg> (как svgTag), без обёртки
+// dw-block/заголовка — макет экрана редактора собирает вызывающий код.
+function buildPartEditorView(part, opts) {
+  opts = opts || {};
+  const p = part;
+  const scale = opts.scale || Math.min(4, TARGET / Math.max(p.length, p.width, 1));
+  const fw = p.length * scale, fh = p.width * scale;
+
+  // Поля вокруг детали — под размерные цепочки присадки (если она есть) и
+  // под сами габаритные размеры снизу/справа, как в buildPartDrawings.
+  const lv = (p.holes && p.holes.length) ? 4 : 0;
+  const PAD = DIM_FIRST + lv * DIM_STEP + 22;
+  const PAD_L = lv ? PAD : 20;
+  const PAD_T = lv ? PAD : 20;
+  const PAD_R = PAD;
+  const PAD_B = PAD;
+  const W = fw + PAD_L + PAD_R, H = fh + PAD_T + PAD_B;
+
+  let body = '';
+  if (opts.showGrid !== false) {
+    body += partGrid(PAD_L, PAD_T, fw, fh, p.length, p.width, scale,
+      opts.gridMinor || 50, opts.gridMajor || 250);
+  }
+  // Контур детали — тот же класс dw-facade, что у печатного чертежа детали,
+  // чтобы редактор визуально не отличался от остальных чертежей проекта.
+  body += rect(PAD_L, PAD_T, fw, fh, 'dw-facade');
+  // Присадка и пазы — переиспользуем те же расчёты, что идут в деталировку
+  // и в 3D (facadeHoles уже строит размерные цепочки от кромок до отверстий).
+  body += facadeHoles(p, PAD_L, PAD_T, fw, fh, scale);
+  const usedLv = facadeHoles.levels || { bottom: 0, right: 0 };
+  body += grooveRects(p, PAD_L, PAD_T, fw, fh, scale);
+  // Габаритные размеры детали — длина и ширина, тем же стилем dimH/dimV,
+  // что и везде в проекте.
+  body += dimH(PAD_L, PAD_L + fw, PAD_T + fh, usedLv.bottom || 0, String(p.length));
+  body += dimV(PAD_T, PAD_T + fh, PAD_L + fw, usedLv.right || 0, String(p.width));
+
+  return svgTag(W, H, body);
 }
 
 // ---------------------------------------------------------------------------
@@ -1062,5 +1209,5 @@ const DRAWINGS_CSS = `
 `;
 
 window.Modul3D = window.Modul3D || {};
-window.Modul3D.drawings = { buildDrawings, buildViewSVG, DRAWINGS_CSS, visibleParts };
+window.Modul3D.drawings = { buildDrawings, buildViewSVG, DRAWINGS_CSS, visibleParts, buildPartEditorView };
 })();

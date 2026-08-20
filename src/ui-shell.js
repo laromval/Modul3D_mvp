@@ -15,12 +15,122 @@
 
 var THEME_KEY = 'modul3d.theme';
 var STATE_KEY = 'modul3d.ui';
+var CURRENCY_KEY = 'modul3d.currency';
 
 var viewerInstance = null;
 var lastPointer = { x: 0, y: 0 };
 var openPanel = null;
 var hudModule = null;
 var syncingDocs = false;
+
+/* ---------------------------------------------------------------------------
+   0. Валюта проекта — единое глобальное состояние (window.Modul3D.currency).
+   По умолчанию ₽ RUB — прежнее поведение, чтобы у существующих пользователей
+   ничего не изменилось при первом открытии после обновления. Читается из
+   app.js (спецификация, таблицы «Библиотеки») через getSymbol().
+--------------------------------------------------------------------------- */
+var CURRENCY_PRESETS = [
+  { code: 'RUB', symbol: '₽', label: '₽ Российский рубль' },
+  { code: 'USD', symbol: '$', label: '$ Доллар США' },
+  { code: 'EUR', symbol: '€', label: '€ Евро' },
+  { code: 'MDL', symbol: 'лей', label: 'лей Молдавский лей' }
+];
+var currencyState = { code: 'RUB', symbol: '₽', custom: false };
+
+function loadCurrency() {
+  try {
+    var saved = JSON.parse(localStorage.getItem(CURRENCY_KEY) || 'null');
+    if (saved && saved.symbol) currencyState = saved;
+  } catch (e) { /* приватный режим / битые данные — остаёмся на ₽ RUB */ }
+}
+function saveCurrencyState() {
+  try { localStorage.setItem(CURRENCY_KEY, JSON.stringify(currencyState)); } catch (e) { /* ok */ }
+}
+
+// Принимает либо код пресета ('RUB'/'USD'/'EUR'/'MDL'), либо 'CUSTOM' + свой
+// символ/название вторым аргументом, либо готовый объект {code,symbol,custom}.
+function setCurrency(codeOrState, customSymbol) {
+  if (codeOrState && typeof codeOrState === 'object') {
+    currencyState = { code: codeOrState.code || 'CUSTOM', symbol: codeOrState.symbol || '', custom: !!codeOrState.custom };
+  } else {
+    var preset = null;
+    for (var i = 0; i < CURRENCY_PRESETS.length; i++) {
+      if (CURRENCY_PRESETS[i].code === codeOrState) { preset = CURRENCY_PRESETS[i]; break; }
+    }
+    currencyState = preset
+      ? { code: preset.code, symbol: preset.symbol, custom: false }
+      : { code: 'CUSTOM', symbol: customSymbol || codeOrState || '', custom: true };
+  }
+  saveCurrencyState();
+  renderCurrencyOptions();
+  // app.js перерисовывает только то, что показывает цену (спецификация,
+  // таблицы «Библиотеки») — без полного recompute(), это дешевле и укладывается
+  // в требование «не более 1-2 секунд».
+  if (window.Modul3D.app && typeof window.Modul3D.app.refreshCurrency === 'function') {
+    window.Modul3D.app.refreshCurrency();
+  }
+}
+function getCurrency() { return currencyState; }
+function getCurrencySymbol() { return currencyState.symbol; }
+
+loadCurrency();
+window.Modul3D = window.Modul3D || {};
+window.Modul3D.currency = {
+  get: getCurrency,
+  set: setCurrency,
+  getSymbol: getCurrencySymbol,
+  PRESETS: CURRENCY_PRESETS
+};
+
+function renderCurrencyOptions() {
+  var box = document.getElementById('currencyOptions');
+  if (!box) return;
+  var cur = currencyState;
+  var html = '';
+  for (var i = 0; i < CURRENCY_PRESETS.length; i++) {
+    var c = CURRENCY_PRESETS[i];
+    var checked = (!cur.custom && cur.code === c.code) ? ' checked' : '';
+    html += '<label class="currency-opt"><input type="radio" name="currencyChoice" value="'
+      + c.code + '"' + checked + '> ' + escapeHtml(c.label) + '</label>';
+  }
+  box.innerHTML = html;
+  var customInput = document.getElementById('currencyCustomInput');
+  if (customInput && document.activeElement !== customInput) customInput.value = cur.custom ? cur.symbol : '';
+}
+
+function initCurrency() {
+  var toggle = document.getElementById('currencyToggle');
+  var pop = document.getElementById('currencyPopover');
+  var options = document.getElementById('currencyOptions');
+  var customInput = document.getElementById('currencyCustomInput');
+  if (!toggle || !pop) return;
+  renderCurrencyOptions();
+
+  toggle.addEventListener('click', function (e) {
+    e.stopPropagation();
+    pop.style.display = pop.style.display === 'none' ? 'block' : 'none';
+  });
+  pop.addEventListener('click', function (e) { e.stopPropagation(); });
+  document.addEventListener('click', function (e) {
+    if (pop.style.display !== 'none' && !pop.contains(e.target) && e.target !== toggle) {
+      pop.style.display = 'none';
+    }
+  });
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape') pop.style.display = 'none';
+  });
+
+  if (options) options.addEventListener('change', function (e) {
+    var el = e.target.closest && e.target.closest('input[name="currencyChoice"]');
+    if (!el) return;
+    setCurrency(el.value);
+  });
+  if (customInput) customInput.addEventListener('change', function () {
+    var v = (customInput.value || '').trim();
+    if (!v) return;
+    setCurrency('CUSTOM', v);
+  });
+}
 
 /* ---------------------------------------------------------------------------
    1. Перехват экземпляра Viewer3D (нужен только для перекраски сцены)
@@ -223,6 +333,13 @@ function restoreUI() {
   var isNarrow = window.matchMedia && window.matchMedia('(max-width: 820px)').matches;
   // Первый запуск: на десктопе открываем параметры, на телефоне — чистый холст.
   var panel = saved ? saved.panel : (isNarrow ? null : 'params');
+  // Пустой проект — панели «Параметры» нечего показать, кроме подсказки открыть
+  // «Библиотеку» (см. emptyProjectBlock() в app.js). Открываем её сразу, не
+  // заставляя пользователя догадываться. Работает и при первом запуске (нет
+  // сохранённого состояния), и если позже удалить все модули и перезагрузить
+  // страницу (запомненная панель была 'params', но модулей больше нет).
+  var isEmpty = window.Modul3D.app && window.Modul3D.app.isProjectEmpty && window.Modul3D.app.isProjectEmpty();
+  if (panel === 'params' && isEmpty) panel = 'library';
   if (panel) openDrawer(panel);
 }
 
@@ -290,7 +407,7 @@ function renderHud() {
     '<div class="hud-dims">' +
       hudDim('В', 'm-height') + hudDim('Ш', 'm-width') + hudDim('Г', 'm-depth') +
     '</div>' +
-    '<div class="hud-meta">Декор: ' + escapeHtml(selectedText('p-decor')) + '</div>' +
+    '<div class="hud-meta">Материал: ' + escapeHtml(selectedText('p-decor')) + '</div>' +
     '<div class="hud-actions">' +
       '<button type="button" class="btn" data-hud-open="params">Параметры</button>' +
       '<button type="button" class="btn" data-hud-open="docs">Документы</button>' +
@@ -497,6 +614,7 @@ function escapeHtml(s) {
 --------------------------------------------------------------------------- */
 function start() {
   initTheme();
+  initCurrency();
   initDrawers();
   watchResults();
   initFocusMode();

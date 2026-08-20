@@ -9,7 +9,7 @@
 // ============================================================================
 (function () {
 const { EDGE_PRICES, HARDWARE_PRICES, FASTENER_PRICES, JOINT_LABEL, DRAWER_SYSTEMS,
-        HANDLES, LIFTS, GLASS, FACADE_MATERIALS } = window.Modul3D.catalog;
+        HANDLES, LIFTS, GLASS, FACADE_MATERIALS, DECORS, BACK_MATERIALS } = window.Modul3D.catalog;
 
 function round2(v) { return Math.round(v * 100) / 100; }
 
@@ -29,11 +29,13 @@ function buildSpecification(model) {
 
   // ---------- 1. Листовые материалы ----------
   const areaByMaterial = new Map(); // code -> {area_m2, priceInfo}
-  // Известные листовые материалы проекта: корпус, задняя стенка и ящики.
-  // Ящики могут быть другим декором и другой толщины — это отдельная позиция
-  // закупки, поэтому их площадь считается наравне с остальными.
-  // Материалы фасадов (МДФ, массив, алюминий, стекло 4) — отдельные позиции
+  // Известные листовые материалы: весь каталог декоров/задних стенок/фасадов,
+  // а не только выбранные на уровне проекта — деталь с ручным override
+  // материала (part.overrides, см. режим фокуса на модуле) может ссылаться
+  // на любой каталожный код, не только на decor/back/drawerDecor проекта;
+  // иначе её площадь молча выпадает из сметы (см. п.4 архитектуры override).
   const known = [decor, back, drawerDecor, GLASS]
+    .concat(DECORS, BACK_MATERIALS)
     .concat(Object.keys(FACADE_MATERIALS).map((k) => FACADE_MATERIALS[k]))
     .filter(Boolean);
   for (const row of parts) {
@@ -67,7 +69,7 @@ function buildSpecification(model) {
     add(e.short1, row.width); add(e.short2, row.width);
   }
   const edging = Array.from(edgeLenByType.entries()).map(([type, length_m]) => {
-    const price = EDGE_PRICES[type] ?? 0;
+    const price = EDGE_PRICES[type]?.price ?? 0;
     return { type, length_m: round2(length_m), price_per_m: price, sum: round2(length_m * price) };
   });
 

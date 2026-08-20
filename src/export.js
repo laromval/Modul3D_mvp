@@ -13,6 +13,16 @@ function download(wb, filename) {
   XLSX.writeFile(wb, filename);
 }
 
+function currencySymbol() {
+  try {
+    return (window.Modul3D && window.Modul3D.currency && window.Modul3D.currency.getSymbol())
+      ? window.Modul3D.currency.getSymbol()
+      : '₽';
+  } catch (e) {
+    return '₽';
+  }
+}
+
 function exportDetailing(model, projectName) {
   const rows = model.parts.map((r) => ({
     '№ п/п': r.num,
@@ -46,37 +56,38 @@ function exportDetailing(model, projectName) {
 function exportSpecification(spec, projectName) {
   // eslint-disable-next-line no-undef
   const wb = XLSX.utils.book_new();
+  const sym = currencySymbol();
 
   const sheetRows = spec.sheetMaterials.map((m, i) => ({
     '№': i + 1, 'Позиция': m.name, 'Артикул': m.code, 'Ед. изм.': 'лист',
-    'Площадь, м²': m.area_m2, 'Кол-во листов': m.sheets, 'Цена, ₽': m.price, 'Сумма, ₽': m.sum,
+    'Площадь, м²': m.area_m2, 'Кол-во листов': m.sheets, [`Цена, ${sym}`]: m.price, [`Сумма, ${sym}`]: m.sum,
   }));
   addSheet(wb, sheetRows, '1. Листовые материалы');
 
   const edgeRows = spec.edging.map((e, i) => ({
     '№': i + 1, 'Позиция': `Кромка ${e.type}`, 'Ед. изм.': 'пог.м',
-    'Кол-во': e.length_m, 'Цена, ₽': e.price_per_m, 'Сумма, ₽': e.sum,
+    'Кол-во': e.length_m, [`Цена, ${sym}`]: e.price_per_m, [`Сумма, ${sym}`]: e.sum,
   }));
   addSheet(wb, edgeRows, '2. Кромка');
 
   const hwRows = spec.hardware.map((h, i) => ({
     '№': i + 1, 'Позиция': h.name, 'Артикул': h.article, 'Ед. изм.': h.unit,
-    'Кол-во': h.qty, 'Цена, ₽': h.price, 'Сумма, ₽': h.sum,
+    'Кол-во': h.qty, [`Цена, ${sym}`]: h.price, [`Сумма, ${sym}`]: h.sum,
   }));
   addSheet(wb, hwRows, '3. Фурнитура');
 
   const fRows = spec.fasteners.map((f, i) => ({
     '№': i + 1, 'Позиция': f.name, 'Артикул': f.article, 'Ед. изм.': f.unit,
-    'Кол-во': f.qty, 'Цена, ₽': f.price, 'Сумма, ₽': f.sum,
+    'Кол-во': f.qty, [`Цена, ${sym}`]: f.price, [`Сумма, ${sym}`]: f.sum,
   }));
   addSheet(wb, fRows, '4. Крепёж и метизы');
 
   const totalRows = [
-    { 'Раздел': '1. Листовые материалы', 'Сумма, ₽': sumOf(spec.sheetMaterials) },
-    { 'Раздел': '2. Кромка', 'Сумма, ₽': sumOf(spec.edging) },
-    { 'Раздел': '3. Фурнитура', 'Сумма, ₽': sumOf(spec.hardware) },
-    { 'Раздел': '4. Крепёж и метизы', 'Сумма, ₽': sumOf(spec.fasteners) },
-    { 'Раздел': 'ИТОГО', 'Сумма, ₽': spec.totalCost },
+    { 'Раздел': '1. Листовые материалы', [`Сумма, ${sym}`]: sumOf(spec.sheetMaterials) },
+    { 'Раздел': '2. Кромка', [`Сумма, ${sym}`]: sumOf(spec.edging) },
+    { 'Раздел': '3. Фурнитура', [`Сумма, ${sym}`]: sumOf(spec.hardware) },
+    { 'Раздел': '4. Крепёж и метизы', [`Сумма, ${sym}`]: sumOf(spec.fasteners) },
+    { 'Раздел': 'ИТОГО', [`Сумма, ${sym}`]: spec.totalCost },
   ];
   addSheet(wb, totalRows, '5. Итог');
 

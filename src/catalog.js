@@ -9,21 +9,21 @@
 // ============================================================================
 (function () {
   const DECORS = [
-    { code: 'H1180ST10', name: 'ЛДСП Egger H1180 ST10 Дуб Сонома', sheetPrice: 2800, sheetW: 2750, sheetH: 1830 },
-    { code: 'U702ST9',   name: 'ЛДСП Egger U702 ST9 Белый',        sheetPrice: 2450, sheetW: 2750, sheetH: 1830 },
-    { code: 'H3450ST36',  name: 'ЛДСП Egger H3450 ST36 Дуб Крафт', sheetPrice: 3100, sheetW: 2750, sheetH: 1830 },
-    { code: 'U999ST2',   name: 'ЛДСП Egger U999 ST2 Чёрный',       sheetPrice: 2900, sheetW: 2750, sheetH: 1830 },
+    { code: 'H1180ST10', name: 'ЛДСП Egger H1180 ST10 Дуб Сонома', sheetPrice: 2800, sheetW: 2750, sheetH: 1830, unit: 'лист', image: null },
+    { code: 'U702ST9',   name: 'ЛДСП Egger U702 ST9 Белый',        sheetPrice: 2450, sheetW: 2750, sheetH: 1830, unit: 'лист', image: null },
+    { code: 'H3450ST36',  name: 'ЛДСП Egger H3450 ST36 Дуб Крафт', sheetPrice: 3100, sheetW: 2750, sheetH: 1830, unit: 'лист', image: null },
+    { code: 'U999ST2',   name: 'ЛДСП Egger U999 ST2 Чёрный',       sheetPrice: 2900, sheetW: 2750, sheetH: 1830, unit: 'лист', image: null },
   ];
 
   const BACK_MATERIALS = [
-    { code: 'HDF-3', name: 'ХДФ белый 3мм', sheetPrice: 900, sheetW: 2440, sheetH: 1220 },
-    { code: 'HDF-8', name: 'ЛДСП 8мм (усиленная задняя стенка)', sheetPrice: 1500, sheetW: 2750, sheetH: 1830 },
+    { code: 'HDF-3', name: 'ХДФ белый 3мм', sheetPrice: 900, sheetW: 2440, sheetH: 1220, unit: 'лист', image: null },
+    { code: 'HDF-8', name: 'ЛДСП 8мм (усиленная задняя стенка)', sheetPrice: 1500, sheetW: 2750, sheetH: 1830, unit: 'лист', image: null },
   ];
 
   // Стекло для полок и фасадов: считается по площади, кромка не нужна —
   // торцы шлифуются на производстве стекла.
   const GLASS = { code: 'GLASS-6', name: 'Стекло 6 мм (полки, фасады)',
-                  sheetPrice: 3200, sheetW: 2000, sheetH: 1000, thickness: 6 };
+                  sheetPrice: 3200, sheetW: 2000, sheetH: 1000, thickness: 6, unit: 'лист', image: null };
 
   // ---------------------------------------------------------------------------
   // ТИПЫ ФАСАДОВ
@@ -35,15 +35,15 @@
   // glassInside: за таким фасадом полки делаются из стекла
   // ---------------------------------------------------------------------------
   const FACADE_MATERIALS = {
-    'FAC-LDSP': { code: 'FAC-LDSP', name: 'ЛДСП 18 мм (фасад)', sheetPrice: 2800, sheetW: 2750, sheetH: 1830 },
-    'FAC-MDF':  { code: 'FAC-MDF',  name: 'МДФ крашеный 19 мм', sheetPrice: 6900, sheetW: 2800, sheetH: 2070 },
-    'FAC-WOOD': { code: 'FAC-WOOD', name: 'Массив дуба 20 мм', sheetPrice: 18500, sheetW: 2000, sheetH: 1000 },
-    'FAC-ALU':  { code: 'FAC-ALU',  name: 'Алюминиевый профиль (рамка)', sheetPrice: 9800, sheetW: 2000, sheetH: 1000 },
+    'FAC-LDSP': { code: 'FAC-LDSP', name: 'ЛДСП 18 мм (фасад)', sheetPrice: 2800, sheetW: 2750, sheetH: 1830, unit: 'лист', image: null },
+    'FAC-MDF':  { code: 'FAC-MDF',  name: 'МДФ крашеный 19 мм', sheetPrice: 6900, sheetW: 2800, sheetH: 2070, unit: 'лист', image: null },
+    'FAC-WOOD': { code: 'FAC-WOOD', name: 'Массив дуба 20 мм', sheetPrice: 18500, sheetW: 2000, sheetH: 1000, unit: 'лист', image: null },
+    'FAC-ALU':  { code: 'FAC-ALU',  name: 'Алюминиевый профиль (рамка)', sheetPrice: 9800, sheetW: 2000, sheetH: 1000, unit: 'лист', image: null },
     // Видимая боковина под деревянный фасад: массивом её не делают —
     // ставят МДФ в шпоне того же дерева.
     'FAC-VENEER': { code: 'FAC-VENEER', name: 'МДФ шпонированный 18 мм (видимая боковина)',
-                    sheetPrice: 7400, sheetW: 2800, sheetH: 2070 },
-    'GLASS-4':  { code: 'GLASS-4',  name: 'Стекло 4 мм (фасад)', sheetPrice: 2600, sheetW: 2000, sheetH: 1000 },
+                    sheetPrice: 7400, sheetW: 2800, sheetH: 2070, unit: 'лист', image: null },
+    'GLASS-4':  { code: 'GLASS-4',  name: 'Стекло 4 мм (фасад)', sheetPrice: 2600, sheetW: 2000, sheetH: 1000, unit: 'лист', image: null },
   };
 
   const FACADE_TYPES = {
@@ -64,34 +64,37 @@
   };
   const FACADE_TYPE_ORDER = ['ldsp', 'mdf', 'mdfMilled', 'glass4', 'wood', 'woodGlass', 'alu'];
 
+  // Значение — объект {price, unit, image}, а не голое число: библиотека
+  // (вкладка «Материалы») редактирует price/image на месте, единственная
+  // точка чтения цены — specification.js (`EDGE_PRICES[type]?.price`).
   const EDGE_PRICES = {
-    'ПВХ 2 мм': 15,
-    'ПВХ 0.4 мм': 6,
+    'ПВХ 2 мм': { price: 15, unit: 'пог.м', image: null },
+    'ПВХ 0.4 мм': { price: 6, unit: 'пог.м', image: null },
   };
 
   const HARDWARE_PRICES = {
-    hinge: { name: 'Петля накладная Blum CLIP 110°', article: 'BLUM-CLIP', price: 210, unit: 'шт' },
-    handle: { name: 'Ручка мебельная скоба 128мм', article: 'RH-128', price: 90, unit: 'шт' },
-    drawerRunnerPair: { name: 'Направляющие шариковые 500мм (пара)', article: 'DR-500', price: 350, unit: 'пара' },
-    leg: { name: 'Опора мебельная никелированная Ø50, регулируемая h100', article: 'LEG-D50-100', price: 145, unit: 'шт' },
-    legPlastic: { name: 'Опора пластиковая регулируемая h100 (кухонная)', article: 'LEG-PL-100', price: 45, unit: 'шт' },
-    shelfSupport: { name: 'Полкодержатель штифт 5мм', article: 'SUP-5', price: 5, unit: 'шт' },
+    hinge: { name: 'Петля накладная Blum CLIP 110°', article: 'BLUM-CLIP', price: 210, unit: 'шт', category: 'hinge' },
+    handle: { name: 'Ручка мебельная скоба 128мм', article: 'RH-128', price: 90, unit: 'шт', category: 'handle' },
+    drawerRunnerPair: { name: 'Направляющие шариковые 500мм (пара)', article: 'DR-500', price: 350, unit: 'пара', category: 'runner' },
+    leg: { name: 'Опора мебельная никелированная Ø50, регулируемая h100', article: 'LEG-D50-100', price: 145, unit: 'шт', category: 'leg' },
+    legPlastic: { name: 'Опора пластиковая регулируемая h100 (кухонная)', article: 'LEG-PL-100', price: 45, unit: 'шт', category: 'leg' },
+    shelfSupport: { name: 'Полкодержатель штифт 5мм', article: 'SUP-5', price: 5, unit: 'шт', category: 'support' },
     shelfSupportGlass: { name: 'Полкодержатель для стекла с силиконовой пяткой Ø5',
-                         article: 'SUP-5G', price: 28, unit: 'шт' },
+                         article: 'SUP-5G', price: 28, unit: 'шт', category: 'support' },
     hingeGlass: { name: 'Петля для стеклянной двери (отверстие Ø26)',
-                  article: 'HNG-GLASS', price: 520, unit: 'шт' },
-    plinthClip: { name: 'Крепление цоколя', article: 'PLC-1', price: 25, unit: 'шт' },
-    pushToOpen: { name: 'Механизм Push-to-open (толкатель)', article: 'PTO-1', price: 320, unit: 'шт' },
-    rod: { name: 'Штанга для одежды хромированная Ø25', article: 'ROD-D25', price: 120, unit: 'пог.м' },
-    rodHolder: { name: 'Держатель штанги Ø25 (пара)', article: 'ROD-H25', price: 70, unit: 'пара' },
+                  article: 'HNG-GLASS', price: 520, unit: 'шт', category: 'hinge' },
+    plinthClip: { name: 'Крепление цоколя', article: 'PLC-1', price: 25, unit: 'шт', category: 'plinth' },
+    pushToOpen: { name: 'Механизм Push-to-open (толкатель)', article: 'PTO-1', price: 320, unit: 'шт', category: 'mechanism' },
+    rod: { name: 'Штанга для одежды хромированная Ø25', article: 'ROD-D25', price: 120, unit: 'пог.м', category: 'rod' },
+    rodHolder: { name: 'Держатель штанги Ø25 (пара)', article: 'ROD-H25', price: 70, unit: 'пара', category: 'rod' },
   };
 
   const FASTENER_PRICES = {
-    confirmat: { name: 'Конфирмат 7х50', article: 'CONF-50', price: 3, unit: 'шт' },
-    minifixBolt: { name: 'Rastex шток', article: 'RASTEX-BOLT-8', price: 6, unit: 'шт' },
-    minifixCam: { name: 'Rastex эксцентрик', article: 'RASTEX-CAM-15', price: 12, unit: 'шт' },
-    dowel: { name: 'Шкант 8х30', article: 'DWL-30', price: 1, unit: 'шт' },
-    backPanelScrew: { name: 'Шуруп-стяжка задней стенки', article: 'SCR-15', price: 1.5, unit: 'шт' },
+    confirmat: { name: 'Конфирмат 7х50', article: 'CONF-50', price: 3, unit: 'шт', category: 'fastener' },
+    minifixBolt: { name: 'Rastex шток', article: 'RASTEX-BOLT-8', price: 6, unit: 'шт', category: 'fastener' },
+    minifixCam: { name: 'Rastex эксцентрик', article: 'RASTEX-CAM-15', price: 12, unit: 'шт', category: 'fastener' },
+    dowel: { name: 'Шкант 8х30', article: 'DWL-30', price: 1, unit: 'шт', category: 'fastener' },
+    backPanelScrew: { name: 'Шуруп-стяжка задней стенки', article: 'SCR-15', price: 1.5, unit: 'шт', category: 'fastener' },
   };
 
   const JOINT_LABEL = {
@@ -319,18 +322,18 @@
   // ---------------------------------------------------------------------------
   const HANDLE_HOLE_D = 5;          // диаметр отверстия под винт ручки, мм
   const HANDLES = {
-    none:    { id: 'none', name: 'Без ручек', holes: 0, price: 0 },
+    none:    { id: 'none', name: 'Без ручек', holes: 0, price: 0, category: 'handle' },
     knob:    { id: 'knob', name: 'Ручка-кнопка', holes: 1, cc: 0, price: 120,
-               article: 'H-KNOB', note: 'Одно отверстие Ø5' },
-    bow96:   { id: 'bow96', name: 'Ручка-скоба 96 мм', holes: 2, cc: 96, price: 90, article: 'H-96' },
-    bow128:  { id: 'bow128', name: 'Ручка-скоба 128 мм', holes: 2, cc: 128, price: 100, article: 'H-128' },
-    bow160:  { id: 'bow160', name: 'Ручка-скоба 160 мм', holes: 2, cc: 160, price: 120, article: 'H-160' },
-    bow192:  { id: 'bow192', name: 'Ручка-скоба 192 мм', holes: 2, cc: 192, price: 140, article: 'H-192' },
-    bow224:  { id: 'bow224', name: 'Ручка-скоба 224 мм', holes: 2, cc: 224, price: 160, article: 'H-224' },
-    bow320:  { id: 'bow320', name: 'Ручка-скоба 320 мм', holes: 2, cc: 320, price: 210, article: 'H-320' },
+               article: 'H-KNOB', note: 'Одно отверстие Ø5', category: 'handle' },
+    bow96:   { id: 'bow96', name: 'Ручка-скоба 96 мм', holes: 2, cc: 96, price: 90, article: 'H-96', category: 'handle' },
+    bow128:  { id: 'bow128', name: 'Ручка-скоба 128 мм', holes: 2, cc: 128, price: 100, article: 'H-128', category: 'handle' },
+    bow160:  { id: 'bow160', name: 'Ручка-скоба 160 мм', holes: 2, cc: 160, price: 120, article: 'H-160', category: 'handle' },
+    bow192:  { id: 'bow192', name: 'Ручка-скоба 192 мм', holes: 2, cc: 192, price: 140, article: 'H-192', category: 'handle' },
+    bow224:  { id: 'bow224', name: 'Ручка-скоба 224 мм', holes: 2, cc: 224, price: 160, article: 'H-224', category: 'handle' },
+    bow320:  { id: 'bow320', name: 'Ручка-скоба 320 мм', holes: 2, cc: 320, price: 210, article: 'H-320', category: 'handle' },
     // Межосевое задаётся вручную: нестандартная или дизайнерская скоба.
     custom:  { id: 'custom', name: 'Скоба — задать межосевое', holes: 2, cc: 0, price: 200,
-               article: 'H-CUSTOM', custom: true },
+               article: 'H-CUSTOM', custom: true, category: 'handle' },
   };
   const HANDLE_ORDER = ['none', 'knob', 'bow96', 'bow128', 'bow160', 'bow192', 'bow224', 'bow320', 'custom'];
 
@@ -342,28 +345,28 @@
   const LIFTS = {
     aventosHK:  { id: 'aventosHK', brand: 'Blum', name: 'Blum AVENTOS HK (откидной)',
                   article: 'AVENTOS-HK', price: 4200, minH: 240, maxH: 600, maxW: 1800,
-                  note: 'Фасад откидывается вверх одной плоскостью' },
+                  note: 'Фасад откидывается вверх одной плоскостью', category: 'mechanism' },
     aventosHF:  { id: 'aventosHF', brand: 'Blum', name: 'Blum AVENTOS HF (складной, два фасада)',
                   article: 'AVENTOS-HF', price: 8900, minH: 480, maxH: 1040, maxW: 1800,
-                  note: 'Складывается пополам — для высоких антресолей' },
+                  note: 'Складывается пополам — для высоких антресолей', category: 'mechanism' },
     aventosHL:  { id: 'aventosHL', brand: 'Blum', name: 'Blum AVENTOS HL (параллельный подъём)',
                   article: 'AVENTOS-HL', price: 9800, minH: 300, maxH: 580, maxW: 1800,
-                  note: 'Фасад уходит параллельно вверх, открывая весь проём' },
+                  note: 'Фасад уходит параллельно вверх, открывая весь проём', category: 'mechanism' },
     aventosHS:  { id: 'aventosHS', brand: 'Blum', name: 'Blum AVENTOS HS (подъём над корпусом)',
                   article: 'AVENTOS-HS', price: 10500, minH: 350, maxH: 800, maxW: 1800,
-                  note: 'Единый фасад поднимается над корпусом' },
+                  note: 'Единый фасад поднимается над корпусом', category: 'mechanism' },
     hettichHL:  { id: 'hettichHL', brand: 'Hettich', name: 'Hettich Lift Advanced HL',
                   article: 'HT-LIFT-HL', price: 3900, minH: 200, maxH: 700, maxW: 1200,
-                  note: 'Откидной подъёмник для навесных шкафов' },
+                  note: 'Откидной подъёмник для навесных шкафов', category: 'mechanism' },
     hettichHF:  { id: 'hettichHF', brand: 'Hettich', name: 'Hettich Lift Advanced HF (складной)',
                   article: 'HT-LIFT-HF', price: 7600, minH: 480, maxH: 1000, maxW: 1200,
-                  note: 'Складной фасад из двух частей' },
+                  note: 'Складной фасад из двух частей', category: 'mechanism' },
     sametSmart: { id: 'sametSmart', brand: 'Samet', name: 'Samet Smart Lift',
                   article: 'SM-SMART', price: 2400, minH: 240, maxH: 600, maxW: 1000,
-                  note: 'Бюджетный откидной подъёмник' },
+                  note: 'Бюджетный откидной подъёмник', category: 'mechanism' },
     sametRapid: { id: 'sametRapid', brand: 'Samet', name: 'Samet Rapid Lift (газовый)',
                   article: 'SM-RAPID', price: 1600, minH: 200, maxH: 500, maxW: 900,
-                  note: 'Газовый упор с доводчиком' },
+                  note: 'Газовый упор с доводчиком', category: 'mechanism' },
   };
   const LIFT_ORDER = ['aventosHK', 'aventosHF', 'aventosHL', 'aventosHS',
                       'hettichHL', 'hettichHF', 'sametSmart', 'sametRapid'];
@@ -378,11 +381,27 @@
     return fit.length ? fit[fit.length - 1] : system.nl[0];
   }
 
+  // Категории фурнитуры для вкладки «Фурнитура» панели «Библиотека» —
+  // группировка полностью покрывает HARDWARE_PRICES + HANDLES + LIFTS + FASTENER_PRICES.
+  const HARDWARE_CATEGORY_LABEL = {
+    hinge: 'Петли',
+    runner: 'Направляющие',
+    handle: 'Ручки',
+    leg: 'Опоры',
+    support: 'Полкодержатели',
+    plinth: 'Крепление цоколя',
+    mechanism: 'Механизмы (подъёмные, push-to-open)',
+    rod: 'Штанга для одежды',
+    fastener: 'Крепёж и метизы',
+  };
+  const HARDWARE_CATEGORY_ORDER = ['hinge', 'runner', 'handle', 'leg', 'support', 'plinth', 'mechanism', 'rod', 'fastener'];
+
   window.Modul3D = window.Modul3D || {};
   window.Modul3D.catalog = {
     DECORS, BACK_MATERIALS, EDGE_PRICES, HARDWARE_PRICES, FASTENER_PRICES, JOINT_LABEL,
     DRAWER_SYSTEMS, DRAWER_SYSTEM_ORDER, pickNL, GLASS,
     FACADE_TYPES, FACADE_TYPE_ORDER, FACADE_MATERIALS,
     HANDLES, HANDLE_ORDER, HANDLE_HOLE_D, LIFTS, LIFT_ORDER,
+    HARDWARE_CATEGORY_LABEL, HARDWARE_CATEGORY_ORDER,
   };
 })();

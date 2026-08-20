@@ -944,7 +944,7 @@ function checkLift(liftId, frontH, bodyW) {
 // Совместимость: старый флажок sec.glass = «стекло 4 мм».
 // facadeDecor — ДЕКОР ФАСАДА, отдельный от корпуса: у кухни корпус обычно
 // белый, а фасад в другом декоре. Если не задан — берётся декор корпуса.
-function facadeTypeOf(sec, decor, t, facadeDecor) {
+function facadeTypeOf(sec, decor, t, facadeDecor, facadeThickness) {
   const cat = window.Modul3D.catalog;
   const id = sec.facadeType || (sec.glass ? 'glass4' : 'ldsp');
   const ft = cat.FACADE_TYPES[id] || cat.FACADE_TYPES.ldsp;
@@ -956,7 +956,10 @@ function facadeTypeOf(sec, decor, t, facadeDecor) {
     glassInside: !!ft.glassInside,
     // ЛДСП-фасад режется из декора проекта, остальные — из своего материала
     material: isDefault ? fdec.code : ft.material,
-    thickness: isDefault ? t : ft.thickness,
+    // Толщина ЛДСП-фасада настраивается отдельно от корпуса (t — запасное
+    // значение для старых сохранений без facadeThickness); у прочих типов
+    // фасада толщина всегда своя, из каталога.
+    thickness: isDefault ? (Number(facadeThickness) || t) : ft.thickness,
     edged: ft.render === 'panel',
   };
 }
@@ -1062,11 +1065,114 @@ function makePart(o) {
   };
 }
 
+// ---------------------------------------------------------------------------
+// РУЧНЫЕ ПРАВКИ ДЕТАЛИ (режим фокуса на модуле → «Редактировать», см. бриф
+// «фикс панели Библиотека + режим фокуса»). Постобработка уже готового
+// списка parts — НИЧЕГО не пересчитывает у соседних деталей: вырез/смена
+// толщины одной боковины не должна требовать пересчёта дна/полок. Плата —
+// при переопределении толщины несущей детали стык с соседями (посадочные
+// места) может физически разойтись; пользователь предупреждается через
+// warnings, но пересчёт не блокируется (решение пользователя — только
+// предупреждение, не запрет).
+//
+// Идентификация детали — составной ключ kind|section|side|index, стабильный
+// только для «одиночных» видов (боковина, дно, крыша, задняя стенка,
+// цоколь): у них состав деталей группы не меняется при пересчёте параметров
+// модуля. Полки/фасады/перегородки (их количество зависит от секций)
+// намеренно НЕ поддержаны в этой итерации.
+const OVERRIDABLE_KINDS = new Set(['side', 'bottom', 'top', 'back', 'plinth']);
+
+// Сторона детали определяется так же, как в viewer.js (mesh.userData.side) —
+// по имени: отдельного поля part.side в модели нет.
+function partOverrideSide(part) {
+  const nm = part.name || '';
+  if (nm.indexOf('лев') >= 0) return 'left';
+  if (nm.indexOf('прав') >= 0) return 'right';
+  return null;
+}
+
+// Ось box (w|h|d), в которую у детали этого вида «упакована» толщина
+// материала — нужна, чтобы override толщины двигал именно её, а не длину/
+// ширину плиты (см. makePart: box.{w,h,d} и thickness — независимые поля,
+// автоматической связи между ними нет). Для верхней планки «на ребро»
+// (topType: 'railsEdge') толщина лежит в глубине (d), для остальных top —
+// в высоте (h); различить варианты после сборки можно только по note
+// (текст «НА РЕБРО» проставляется там же, где строится планка) — отдельного
+// флага в part нет.
+function thicknessBoxAxis(part) {
+  switch (part.kind) {
+    case 'side': return 'w';
+    case 'bottom': return 'h';
+    case 'back': return 'd';
+    case 'plinth': return 'd';
+    case 'top': return (part.note || '').indexOf('НА РЕБРО') >= 0 ? 'd' : 'h';
+    default: return null;
+  }
+}
+
+function applyPartOverrides(parts, partOverrides, warnings) {
+  if (!partOverrides || !Object.keys(partOverrides).length) return;
+  const counters = new Map();
+  for (const part of parts) {
+    if (!OVERRIDABLE_KINDS.has(part.kind)) continue;
+    const side = partOverrideSide(part);
+    const groupKey = [part.kind, part.section || '', side || ''].join('|');
+    const index = counters.get(groupKey) || 0;
+    counters.set(groupKey, index + 1);
+    const key = [part.kind, part.section || '', side || '', index].join('|');
+    const ov = partOverrides[key];
+    if (!ov) continue;
+
+    part.overridden = true;
+
+    if (ov.thicknessOverride && ov.thicknessOverride > 0 && ov.thicknessOverride !== part.thickness) {
+      const axis = thicknessBoxAxis(part);
+      const isLoadBearing = part.kind === 'side' || part.kind === 'bottom' || part.kind === 'top';
+      if (isLoadBearing) {
+        warnings.push(`${part.name}: толщина переопределена вручную на ${ov.thicknessOverride} мм `
+          + `(проектная — ${part.thickness} мм) — сопряжение с соседними деталями `
+          + `(посадочные места дна/крышки/цоколя) не пересчитывается автоматически, проверьте стык.`);
+      }
+      part.thickness = ov.thicknessOverride;
+      if (axis) part.box[axis] = round1(ov.thicknessOverride);
+    }
+
+    if (ov.materialOverride && ov.materialOverride !== part.material) {
+      part.material = ov.materialOverride;
+    }
+
+    // kind всегда принудительно 'custom' — произвольное пользовательское
+    // отверстие НЕ должно попадать под словарь kind'ов, которые
+    // specification.js/cnc.js используют для подсчёта конкретной фурнитуры
+    // (петли, нагели и т.п.), иначе смета «увидит» несуществующую позицию.
+    if (Array.isArray(ov.extraHoles) && ov.extraHoles.length) {
+      // Пользовательское отверстие всегда СКВОЗНОЕ — глухое на произвольной
+      // глубине здесь не поддерживается (нет формулы, откуда брать глубину
+      // осмысленно для любой детали и любого материала), и на тонкой ХДФ
+      // задней стенке блайнд-отверстие всё равно визуально неотличимо от
+      // отсутствия отверстия. through стоит ПОСЛЕ h нарочно (как и kind) —
+      // если в сохранённом проекте ещё лежит старое h.through из прежней
+      // версии панели (был чекбокс, его убрали), оно не должно перебить
+      // текущее правило «всегда насквозь». depth не используется при
+      // through:true (см. panelSlabs в viewer.js), оставлен для
+      // единообразия с остальными holes-записями (фурнитура).
+      const custom = ov.extraHoles.map((h) => Object.assign(
+        { side: 'front', depth: part.thickness },
+        h, { kind: 'custom', through: true },
+      ));
+      part.holes = (part.holes || []).concat(custom);
+    }
+  }
+}
+
 /**
  * @param {object} p
  * p.width, p.height, p.depth       — габариты ИЗДЕЛИЯ, мм (глубина — по корпусу)
  * p.bodyThickness                  — толщина ЛДСП корпуса, мм
  * p.backThickness                  — толщина ХДФ задней стенки, мм
+ * p.facadeThickness                — толщина ЛДСП-фасада, мм (независима от корпуса;
+ *                                     не влияет на фасады из МДФ/стекла/дерева — у них
+ *                                     своя фиксированная толщина в FACADE_TYPES)
  * p.scheme                         — 'sidesFull' | 'overlayTopBottom'
  * p.decor / p.backMaterial         — {code, name, sheetPrice, sheetW, sheetH}
  * p.base                           — {type:'plinth'|'legs', plinthHeight, legHeight}
@@ -1074,6 +1180,8 @@ function makePart(o) {
  * p.drawerUnitHeight               — высота фасада одного ящика, мм (по умолч. 300)
  * p.gap                            — зазор между фасадами, мм (по умолч. 3)
  * p.jointType                      — 'confirmat'|'minifix'|'dowel'
+ * p.partOverrides                  — {[kind|section|side|index]: {thicknessOverride,
+ *                                     materialOverride, extraHoles:[...]}} — см. applyPartOverrides выше
  *
  * Строит ОДИН модуль в собственных координатах (центр по X в нуле, низ в нуле).
  * Расстановкой модулей в ряд занимается buildModel ниже.
@@ -1183,7 +1291,7 @@ function buildModuleParts(p) {
   // Под деревянный фасад массив на боковину не ставят — берут МДФ в шпоне.
   const visibleSideMat = () => {
     const sec0 = (p.sections && p.sections[0]) || {};
-    const ftv = facadeTypeOf(sec0, decor, t, p.facadeDecor);
+    const ftv = facadeTypeOf(sec0, decor, t, p.facadeDecor, p.facadeThickness);
     if (ftv.id === 'wood' || ftv.id === 'woodGlass') {
       return { code: 'FAC-VENEER', name: 'МДФ шпон' };
     }
@@ -1199,7 +1307,7 @@ function buildModuleParts(p) {
   const WORKTOP_OVERHANG = 20;
   const worktop = Number(p.worktopDepth || 0);
   const wallZ = worktop > 0
-    ? (D / 2 + (p.facadeThicknessHint || t) + WORKTOP_OVERHANG) - worktop
+    ? (D / 2 + (p.facadeThicknessHint || p.facadeThickness || t) + WORKTOP_OVERHANG) - worktop
     : -D / 2;
   const sideDepth = Math.max(D, round1(D / 2 - Math.min(wallZ, -D / 2)));
   const sideZ = round1(D / 2 - sideDepth / 2);   // растёт назад, к стене
@@ -1620,7 +1728,7 @@ function buildModuleParts(p) {
         warnings.push(`${secName}: полка ${Math.round(secW - 2)} мм из ЛДСП ${t} мм прогнётся — добавьте стойку (раздел «Секции») или возьмите материал толще.`);
       }
       // За стеклянным фасадом полки делают из стекла 6 мм — их видно.
-      const glassShelf = facadeTypeOf(sec, decor, t, p.facadeDecor).glassInside;
+      const glassShelf = facadeTypeOf(sec, decor, t, p.facadeDecor, p.facadeThickness).glassInside;
       const GL = window.Modul3D.catalog.GLASS;
       parts.push(makePart({
         name: glassShelf ? 'Полка стеклянная' : 'Полка', section: secName,
@@ -2002,7 +2110,7 @@ function buildModuleParts(p) {
     // пристыковывается перпендикулярный ряд, поэтому её ширина (плюс планки)
     // жёстко задана, а фасад забирает остаток. Стал корпус шире — шире стала
     // дверь, узел стыка остался на месте.
-    const blindFT = facadeTypeOf(sec, decor, t, p.facadeDecor);
+    const blindFT = facadeTypeOf(sec, decor, t, p.facadeDecor, p.facadeThickness);
     const BLIND_W = Number(p.blindWidth) || 560;
     const wantW = p.blindPanel
       ? round1(fullW - BLIND_W - blindFT.thickness - 2 * gap)
@@ -2022,7 +2130,7 @@ function buildModuleParts(p) {
     }
     const secWi = layout.widths[i];
 
-    const ft = facadeTypeOf(sec, decor, t, p.facadeDecor);
+    const ft = facadeTypeOf(sec, decor, t, p.facadeDecor, p.facadeThickness);
     const dHeights = getDrawerHeights(sec, drawerUnitH, frontH, null, secName);
     const drawerZoneH = dHeights.reduce((s, v) => s + v, 0);
 
@@ -2302,6 +2410,11 @@ function buildModuleParts(p) {
     // facade === 'open' → фасада нет (открытая секция)
   }
 
+  // Ручные правки конкретных деталей — см. applyPartOverrides выше. Строго
+  // ПОСЛЕДНИЙ шаг: все формулы корпуса уже отработали, соседние детали
+  // пересчитывать не нужно (и не будем).
+  applyPartOverrides(parts, p.partOverrides, warnings);
+
   return {
     params: p,
     sides,
@@ -2471,6 +2584,7 @@ function buildModel(project) {
         width: m.width, height: m.height, depth: m.depth,
         bodyThickness: proj.bodyThickness, backThickness: proj.backThickness,
         decor: m.carcassDecor || proj.decor, facadeDecor: proj.facadeDecor,
+        facadeThickness: proj.facadeThickness,
         backMaterial: proj.backMaterial,
         drawerDecor: proj.drawerDecor, drawerThickness: proj.drawerThickness,
         base: m.base, legType: m.legType, leftSide: m.leftSide, rightSide: m.rightSide,
@@ -2484,6 +2598,11 @@ function buildModel(project) {
         scheme: m.scheme, sections: m.sections,
         jointType: proj.jointType, gap: proj.gap,
         drawerUnitHeight: proj.drawerUnitHeight,
+        // Ручные правки конкретных деталей этого модуля (режим фокуса →
+        // «Редактировать»), см. applyPartOverrides. Живёт прямо в объекте
+        // модуля — переживает Undo/Redo и сохранение проекта бесплатно,
+        // т.к. snapshot()/serializeProject() сериализуют state.modules целиком.
+        partOverrides: m.partOverrides || {},
       });
 
       const manualRot = rotOf(m);
@@ -2548,7 +2667,7 @@ function buildModel(project) {
         // не выедут, а фасады и ручки столкнутся с соседом. Между ними ставят
         // ФАЛЬШ-ПЛАНКУ (доборную) из фасадного материала — она и держит зазор.
         const sec0 = (m.sections && m.sections[0]) || {};
-        const ftc = facadeTypeOf(sec0, proj.decor, tBody, proj.facadeDecor);
+        const ftc = facadeTypeOf(sec0, proj.decor, tBody, proj.facadeDecor, proj.facadeThickness);
         const mBaseH = m.base && m.base.type === 'plinth'
           ? Number(m.base.plinthHeight || 0) : Number(m.base.legHeight || 0);
         const frontH = Number(m.height || 0) - mBaseH;
@@ -2936,6 +3055,10 @@ function mergeKey(part) {
     part.name, part.material, part.thickness, part.length, part.width,
     part.edging.long1, part.edging.long2, part.edging.short1, part.edging.short2,
     part.grainDirection, part.note,
+    // Присадка/пазы/тип фасада — иначе две иначе одинаковые детали с разной
+    // присадкой (например, деталь с ручными правками из part.overrides)
+    // молча склеятся в одну строку и потеряют/задвоят отверстия.
+    part.holes, part.grooves, part.facadeType,
   ]);
 }
 

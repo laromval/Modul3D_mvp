@@ -14,7 +14,7 @@
 (function () {
 // Версия сборки — показывается во вкладке браузера и в шапке.
 // При выпуске новой версии меняется только эта строка.
-const APP_VERSION = 'v187';
+const APP_VERSION = 'v188';
 
 // Номер версии выводим ПЕРВЫМ делом: если дальше что-то упадёт, по нему сразу
 // видно, какая сборка открыта.
@@ -89,7 +89,7 @@ function newModule(name) {
 }
 
 const state = {
-  bodyThickness: 18, backThickness: 3,
+  bodyThickness: 18, backThickness: 3, facadeThickness: 18,
   decorCode: DECORS[0].code,
   // Декор фасада отдельный: у кухни корпус белый, фасад в своём декоре
   facadeDecorCode: DECORS[0].code,
@@ -115,20 +115,35 @@ const state = {
   // панели (id группы из PRESETS или null — все свёрнуты). Чисто UI-состояние,
   // в историю отмены/файл проекта не попадает (не перечислено в snapshot()).
   libraryOpenCat: null,
-  // Какой экран сейчас показан в панели «Параметры проекта»:
-  // 'library' — база модулей, 'module' — поля активного модуля,
-  // 'materials' — общие на проект материалы, 'part' — параметры одной
-  // детали внутри изолированного модуля. Чисто UI-состояние, в историю
-  // отмены/файл проекта не попадает.
-  panelView: 'library',
+  // Какая вкладка сейчас открыта в панели «Библиотека» (отдельная панель —
+  // см. renderLibraryPanel()): 'modules' — база модулей, 'materials' —
+  // редактируемые таблицы каталога материалов, 'hardware' — фурнитура.
+  // Чисто UI-состояние, в историю отмены/файл проекта не попадает.
+  libraryTab: 'modules',
+  // Какой экран сейчас показан в панели «Параметры проекта» (панель
+  // «Библиотека» — отдельная, самостоятельная, за неё отвечает libraryTab
+  // выше): 'module' — поля активного модуля, 'materials' — общие на проект
+  // материалы, 'part' — параметры одной детали внутри изолированного
+  // модуля. Чисто UI-состояние, в историю отмены/файл проекта не попадает.
+  panelView: 'module',
   // Имя модуля, изолированного двойным кликом в 3D (см. viewer.onIsolateModule
   // ниже), или null — режим изоляции выключен. Чисто UI-состояние режима
   // просмотра, не часть данных проекта — в snapshot()/файл не попадает,
   // как и panelView/libraryOpenCat выше.
   isolatedModule: null,
-  // Деталь, выбранная кликом внутри изолированного модуля: { module, kind,
-  // side } (сейчас kind всегда 'side') или null. Тоже чисто UI-состояние.
+  // Деталь, выбранная через «Редактировать» в контекстном меню фокуса
+  // (см. openPartEditor): { module, kind, side } — side есть только у
+  // боковины (kind === 'side'), у остальных видов деталей undefined — или
+  // null. Полноценный экран (partBlock) есть для видов из OVERRIDABLE_PART_KINDS
+  // (side/bottom/top/back/plinth), для остальных — заглушка
+  // (partKindPlaceholderBlock). Тоже чисто UI-состояние.
   selectedPart: null,
+  // Открыт ли полноэкранный визуальный редактор вырезов детали (см.
+  // openPartVisualEditor/closePartVisualEditor) — новый режим ПОВЕРХ экрана
+  // «Деталь», не замена partBlock(). Закрытие (красный крестик) возвращает
+  // именно сюда, в false, не трогая selectedPart/panelView/isolatedModule.
+  // Чисто UI-состояние, в историю/файл проекта не попадает.
+  partEditorOpen: false,
 };
 
 // Снимает режим изоляции модуля (двойной клик в 3D) и выбор детали внутри
@@ -142,6 +157,10 @@ const state = {
 function exitIsolation() {
   state.isolatedModule = null;
   state.selectedPart = null;
+  // Визуальный редактор вырезов открыт для конкретной детали конкретного
+  // модуля — если сам модуль/фокус пропадает (удаление, undo/redo, открытие
+  // другого проекта), редактору больше нечего показывать, закрываем и его.
+  if (state.partEditorOpen) closePartVisualEditor();
 }
 
 // ---------------------------------------------------------------------------
@@ -155,7 +174,7 @@ const history = { past: [], future: [], lock: false };
 function snapshot() {
   return JSON.stringify({
     modules: state.modules, activeModule: state.activeModule, selected: state.selected,
-    bodyThickness: state.bodyThickness, backThickness: state.backThickness,
+    bodyThickness: state.bodyThickness, backThickness: state.backThickness, facadeThickness: state.facadeThickness,
     decorCode: state.decorCode, facadeDecorCode: state.facadeDecorCode, backCode: state.backCode,
     drawerDecorCode: state.drawerDecorCode, drawerThickness: state.drawerThickness,
     jointType: state.jointType, drawerSystem: state.drawerSystem, worktopDepth: state.worktopDepth,
@@ -195,10 +214,15 @@ function redo() {
   applySnapshot(snap);
 }
 
+// undoBtn/redoBtn/delModule живут статикой в шапке (index.html), а не
+// перерисовываются вместе с панелью — поэтому здесь только переключаем
+// disabled, сама привязка обработчиков делается один раз в initHeaderControls().
 function updateHistoryButtons() {
   const u = document.getElementById('undoBtn'), r = document.getElementById('redoBtn');
   if (u) u.disabled = history.past.length < 2;
   if (r) r.disabled = !history.future.length;
+  const d = document.getElementById('delModule');
+  if (d) d.disabled = !state.modules.length;
 }
 
 // ---------------------------------------------------------------------------
@@ -383,8 +407,8 @@ function insertModule(m) {
   recompute();
 }
 
-// Переключатель экрана панели «Параметры проекта» — единственная точка
-// связи с ui-shell.js (кнопка «Материалы» на боковой полосе и в HUD).
+// Переключатель экрана панели «Параметры проекта» — точка связи с
+// ui-shell.js (кнопка «Параметры» в HUD ведёт на экран 'module').
 function setPanelView(view) {
   state.panelView = view;
   renderParamsPanel();
@@ -418,6 +442,7 @@ function libraryGridBlock() {
   const thumbBase = {
     bodyThickness: state.bodyThickness,
     backThickness: state.backThickness,
+    facadeThickness: state.facadeThickness,
     decor: DECORS.find(d => d.code === state.decorCode),
     facadeDecor: DECORS.find(d => d.code === state.facadeDecorCode) || DECORS.find(d => d.code === state.decorCode),
     backMaterial: BACK_MATERIALS.find(d => d.code === state.backCode),
@@ -465,34 +490,365 @@ function libraryGridBlock() {
   return `<div class="lib-grid">${tiles}</div>`;
 }
 
-// Якорь навигации: вкладки модулей + Отменить/Вернуть/Удалить/«Материалы».
-// Виден ВСЕГДА, независимо от того, какой экран (panelView) сейчас показан
-// ниже — иначе пользователь теряется, из какого экрана выбраться некуда.
-// Переход на «Библиотеку модулей» вынесен на отдельную кнопку рейки, здесь
-// вместо неё — быстрая ссылка на общие материалы проекта (декор, толщины,
-// фурнитура), т.к. с рейки на этот экран напрямую больше не попасть.
+// ---------------------------------------------------------------------------
+// Панель «Библиотека» (отдельная, самостоятельная — не путать с «Параметры
+// проекта»): поиск + три вкладки. «База модулей» — существующий блок выше
+// (libraryBlock/libraryGridBlock/bindLibraryEvents), просто отрисован в
+// #libraryPanel вместо #paramsPanel. «Материалы» и «Фурнитура» — редактируемые
+// таблицы каталога (window.Modul3D.catalog.*): правки пишутся НАПРЯМУЮ в
+// объекты каталога (никакой копии состояния в app.js/ui-shell.js), поэтому
+// engine.js/specification.js подхватывают их без какой-либо синхронизации.
+// ---------------------------------------------------------------------------
+function curSym() {
+  const c = window.Modul3D.currency;
+  return (c && typeof c.getSymbol === 'function' && c.getSymbol()) || '₽';
+}
+
+// Инлайн-редактируемая ячейка: пока не кликнули — обычный текст, клик
+// (см. initLibraryPanel → делегирование на #libraryPanel) превращает её
+// в <input>, сохранение — по Enter/blur (см. startCellEdit).
+function libEditCell(group, key, field, type, value) {
+  return `<td class="lib-edit-cell" data-group="${esc(group)}" data-key="${esc(key)}" data-field="${field}" data-type="${type}">${esc(value == null ? '' : String(value))}</td>`;
+}
+
+// Карточка цвета/образца — превью из поля image (dataURL) или заглушка «+»,
+// клик открывает системный выбор файла (см. openLibImagePicker).
+function libSwatchHtml(group, key, image) {
+  // dataURL (base64) не содержит одинарных кавычек — безопасно подставлять
+  // внутрь url('...') без экранирования; esc() экранирует внешний HTML-атрибут
+  // (двойные кавычки), а не саму CSS-строку.
+  const style = image ? ` style="background-image:url('${esc(image)}')"` : '';
+  return `<span class="lib-swatch${image ? '' : ' empty'}" data-swatch-group="${esc(group)}" data-swatch-key="${esc(key)}"${style} title="Загрузить образец"></span>`;
+}
+
+function libSheetTable(title, group, items) {
+  const rows = items.map((it) => `
+    <tr data-search="${esc(String(it.name || '').toLowerCase())}">
+      ${libEditCell(group, it.code, 'name', 'text', it.name)}
+      ${libEditCell(group, it.code, 'unit', 'text', it.unit || 'лист')}
+      <td>${libSwatchHtml(group, it.code, it.image)}</td>
+      ${libEditCell(group, it.code, 'sheetPrice', 'number', it.sheetPrice)}
+    </tr>`).join('');
+  return `
+    <h4 class="mat-sub">${esc(title)}</h4>
+    <table class="lib-table"><thead><tr>
+      <th>Наименование</th><th>Ед. изм.</th><th>Образец</th><th>Цена, ${esc(curSym())}</th>
+    </tr></thead><tbody>${rows}</tbody></table>
+    <button type="button" class="link-btn lib-add" data-add="${group}">+ Добавить материал</button>`;
+}
+
+// Кромка: ключ объекта EDGE_PRICES — это и есть название (см. catalog.js).
+// Переименовывать его на месте рискованно (specification.js читает
+// EDGE_PRICES[type] по значению из секции) — поэтому название НЕредактируемо,
+// а новая кромка добавляется вводом уникального названия (см. libAddRow).
+function libEdgeTable() {
+  const cat = window.Modul3D.catalog;
+  const rows = Object.keys(cat.EDGE_PRICES).map((name) => {
+    const it = cat.EDGE_PRICES[name];
+    return `
+    <tr data-search="${esc(name.toLowerCase())}">
+      <td>${esc(name)}</td>
+      ${libEditCell('edge', name, 'unit', 'text', it.unit || 'пог.м')}
+      <td>${libSwatchHtml('edge', name, it.image)}</td>
+      ${libEditCell('edge', name, 'price', 'number', it.price)}
+    </tr>`;
+  }).join('');
+  return `
+    <h4 class="mat-sub">Кромка</h4>
+    <table class="lib-table"><thead><tr>
+      <th>Наименование</th><th>Ед. изм.</th><th>Образец</th><th>Цена, ${esc(curSym())}</th>
+    </tr></thead><tbody>${rows}</tbody></table>
+    <button type="button" class="link-btn lib-add" data-add="edge">+ Добавить кромку</button>`;
+}
+
+// Стекло — единственный объект каталога (не массив), поэтому таблица из
+// одной строки и без кнопки «Добавить» — добавлять в этой таблице нечего.
+function libGlassTable() {
+  const g = window.Modul3D.catalog.GLASS;
+  return `
+    <h4 class="mat-sub">Стекло</h4>
+    <table class="lib-table"><thead><tr>
+      <th>Наименование</th><th>Ед. изм.</th><th>Образец</th><th>Цена, ${esc(curSym())}</th>
+    </tr></thead><tbody>
+      <tr data-search="${esc(String(g.name).toLowerCase())}">
+        ${libEditCell('glass', g.code, 'name', 'text', g.name)}
+        ${libEditCell('glass', g.code, 'unit', 'text', g.unit || 'лист')}
+        <td>${libSwatchHtml('glass', g.code, g.image)}</td>
+        ${libEditCell('glass', g.code, 'sheetPrice', 'number', g.sheetPrice)}
+      </tr>
+    </tbody></table>`;
+}
+
+function libraryMaterialsBlock() {
+  const cat = window.Modul3D.catalog;
+  return `
+    <h3>Материалы</h3>
+    ${libSheetTable('Материалы корпуса', 'decors', DECORS)}
+    ${libSheetTable('Материалы задней стенки', 'back', BACK_MATERIALS)}
+    ${libSheetTable('Материалы фасадов', 'facade', Object.values(cat.FACADE_MATERIALS))}
+    ${libEdgeTable()}
+    ${libGlassTable()}`;
+}
+
+// Фурнитура собрана из ЧЕТЫРЁХ источников каталога (HARDWARE_PRICES,
+// HANDLES, LIFTS, FASTENER_PRICES) и сгруппирована по полю category —
+// порядок разделов и подписи берём из справочника каталога, чтобы не
+// разойтись с ним. HANDLES.none — служебная UI-заглушка «без ручки»
+// с ценой 0, а не закупочная позиция, поэтому в таблицу не попадает.
+function libraryHardwareBlock() {
+  const cat = window.Modul3D.catalog;
+  const order = cat.HARDWARE_CATEGORY_ORDER;
+  const label = cat.HARDWARE_CATEGORY_LABEL;
+  const grouped = {};
+  order.forEach((c) => { grouped[c] = []; });
+  const pushSrc = (srcObj, srcName, skipKeys) => {
+    Object.keys(srcObj || {}).forEach((k) => {
+      if (skipKeys && skipKeys.indexOf(k) >= 0) return;
+      const it = srcObj[k];
+      if (!grouped[it.category]) grouped[it.category] = [];
+      grouped[it.category].push({ src: srcName, key: k, item: it });
+    });
+  };
+  pushSrc(cat.HARDWARE_PRICES, 'hw');
+  pushSrc(cat.HANDLES, 'handles', ['none']);
+  pushSrc(cat.LIFTS, 'lifts');
+  pushSrc(cat.FASTENER_PRICES, 'fasteners');
+
+  const sections = order.map((c) => {
+    const items = grouped[c] || [];
+    const rows = items.map(({ src, key, item }) => `
+      <tr data-search="${esc(String(item.name || '').toLowerCase())}">
+        ${libEditCell('hw:' + src, key, 'name', 'text', item.name)}
+        ${libEditCell('hw:' + src, key, 'unit', 'text', item.unit || 'шт')}
+        ${libEditCell('hw:' + src, key, 'price', 'number', item.price)}
+      </tr>`).join('');
+    return `
+      <h4 class="mat-sub">${esc(label[c] || c)}</h4>
+      <table class="lib-table"><thead><tr>
+        <th>Наименование</th><th>Ед. изм.</th><th>Цена, ${esc(curSym())}</th>
+      </tr></thead><tbody>${rows || '<tr><td colspan="3" class="hint">Пока нет позиций</td></tr>'}</tbody></table>
+      <button type="button" class="link-btn lib-add" data-add="hwadd:${c}">+ Добавить позицию</button>`;
+  }).join('');
+
+  return `<h3>Фурнитура</h3>${sections}`;
+}
+
+// ---------------------------------------------------------------------------
+// Сохранение правок каталога — единственная точка записи в объекты
+// window.Modul3D.catalog.*. Мутируем существующие объекты/массивы на месте
+// (не подменяем ссылку), поэтому engine.js/specification.js, которые держат
+// эти же объекты через деструктуризацию при загрузке, видят новые значения
+// без какой-либо отдельной синхронизации.
+// ---------------------------------------------------------------------------
+function libFindItem(group, key) {
+  const cat = window.Modul3D.catalog;
+  if (group === 'decors') return DECORS.find((x) => x.code === key) || null;
+  if (group === 'back') return BACK_MATERIALS.find((x) => x.code === key) || null;
+  if (group === 'facade') return cat.FACADE_MATERIALS[key] || null;
+  if (group === 'edge') return cat.EDGE_PRICES[key] || null;
+  if (group === 'glass') return cat.GLASS;
+  if (group.indexOf('hw:') === 0) {
+    const src = group.slice(3);
+    const obj = src === 'hw' ? cat.HARDWARE_PRICES
+      : src === 'handles' ? cat.HANDLES
+      : src === 'lifts' ? cat.LIFTS
+      : src === 'fasteners' ? cat.FASTENER_PRICES : null;
+    return obj ? (obj[key] || null) : null;
+  }
+  return null;
+}
+
+function libSaveEdit(group, key, field, value) {
+  const it = libFindItem(group, key);
+  if (!it) return;
+  it[field] = value;
+  // Каталог — не часть snapshot()/файла проекта, полный recompute() не
+  // обязателен для пересчёта чисел, но нужен, чтобы обновить спецификацию
+  // (новая цена) и деталировку (переименованный материал) на лету.
+  recompute();
+  renderLibraryPanel();
+}
+
+function libAddHardwareRow(category) {
+  const cat = window.Modul3D.catalog;
+  const key = 'custom_' + category + '_' + Date.now();
+  if (category === 'mechanism') {
+    cat.LIFTS[key] = { id: key, brand: '', name: 'Новая позиция', article: '', price: 0,
+      minH: 0, maxH: 100000, maxW: 100000, note: '', category: 'mechanism', unit: 'шт' };
+  } else if (category === 'handle') {
+    cat.HANDLES[key] = { id: key, name: 'Новая позиция', holes: 2, cc: 0, price: 0,
+      article: '', unit: 'шт', category: 'handle' };
+  } else if (category === 'fastener') {
+    cat.FASTENER_PRICES[key] = { name: 'Новая позиция', article: '', price: 0, unit: 'шт', category: 'fastener' };
+  } else {
+    cat.HARDWARE_PRICES[key] = { name: 'Новая позиция', article: '', price: 0, unit: 'шт', category };
+  }
+}
+
+function libAddRow(group) {
+  const cat = window.Modul3D.catalog;
+  if (group.indexOf('hwadd:') === 0) {
+    libAddHardwareRow(group.slice(6));
+  } else if (group === 'decors') {
+    DECORS.push({ code: 'NEW-' + Date.now(), name: 'Новый материал', sheetPrice: 0, sheetW: 2750, sheetH: 1830, unit: 'лист', image: null });
+  } else if (group === 'back') {
+    BACK_MATERIALS.push({ code: 'NEW-' + Date.now(), name: 'Новый материал', sheetPrice: 0, sheetW: 2440, sheetH: 1220, unit: 'лист', image: null });
+  } else if (group === 'facade') {
+    const code = 'FAC-NEW-' + Date.now();
+    cat.FACADE_MATERIALS[code] = { code, name: 'Новый материал фасада', sheetPrice: 0, sheetW: 2750, sheetH: 1830, unit: 'лист', image: null };
+  } else if (group === 'edge') {
+    const name = (window.prompt('Название новой кромки:') || '').trim();
+    if (!name) return;
+    if (cat.EDGE_PRICES[name]) { window.alert('Кромка с таким названием уже есть в каталоге.'); return; }
+    cat.EDGE_PRICES[name] = { price: 0, unit: 'пог.м', image: null };
+  } else {
+    return;
+  }
+  recompute();
+  renderLibraryPanel();
+}
+
+// Загрузка образца (карточки цвета) — чисто клиентская: input[type=file] →
+// FileReader → dataURL, без бэкенда.
+let pendingLibImageTarget = null;
+function openLibImagePicker(group, key) {
+  const input = document.getElementById('libImageInput');
+  if (!input) return;
+  pendingLibImageTarget = { group, key };
+  input.value = '';
+  input.click();
+}
+function initLibImageInput() {
+  const input = document.getElementById('libImageInput');
+  if (!input) return;
+  input.addEventListener('change', () => {
+    const file = input.files && input.files[0];
+    const target = pendingLibImageTarget;
+    if (!file || !target) return;
+    const reader = new FileReader();
+    reader.onload = () => libSaveEdit(target.group, target.key, 'image', String(reader.result));
+    reader.readAsDataURL(file);
+  });
+}
+
+// Клик по ячейке → инлайн-инпут; Enter/blur — сохранить, Esc — отменить.
+function startCellEdit(cell) {
+  if (cell.querySelector('input')) return;
+  const type = cell.dataset.type === 'number' ? 'number' : 'text';
+  const cur = cell.textContent;
+  cell.innerHTML = `<input type="${type}" ${type === 'number' ? 'step="any"' : ''} value="${esc(cur)}">`;
+  const input = cell.querySelector('input');
+  input.focus();
+  if (input.select) input.select();
+  let done = false;
+  const commit = () => {
+    if (done) return;
+    done = true;
+    const val = type === 'number' ? (Number(input.value) || 0) : input.value;
+    libSaveEdit(cell.dataset.group, cell.dataset.key, cell.dataset.field, val);
+  };
+  input.addEventListener('blur', commit);
+  input.addEventListener('keydown', (ev) => {
+    if (ev.key === 'Enter') { ev.preventDefault(); input.blur(); }
+    else if (ev.key === 'Escape') { ev.preventDefault(); done = true; renderLibraryPanel(); }
+  });
+}
+
+// Поиск в «Библиотеке» — та же логика, что и у поиска по панели параметров
+// (ui-shell.js: applySearch/class dim-out), адаптирована под содержимое
+// активной вкладки: карточки базы модулей (.lib-item, по data-tip) и строки
+// таблиц материалов/фурнитуры (tr[data-search], по атрибуту).
+function applyLibrarySearch() {
+  const input = document.getElementById('librarySearch');
+  const panel = document.getElementById('libraryPanel');
+  if (!input || !panel) return;
+  const q = (input.value || '').trim().toLowerCase();
+  panel.querySelectorAll('tr[data-search]').forEach((tr) => {
+    tr.classList.toggle('dim-out', !!q && tr.getAttribute('data-search').indexOf(q) < 0);
+  });
+  panel.querySelectorAll('.lib-item').forEach((el) => {
+    const text = (el.getAttribute('data-tip') || '').toLowerCase();
+    el.classList.toggle('dim-out', !!q && text.indexOf(q) < 0);
+  });
+}
+
+function renderLibraryPanel() {
+  const panel = document.getElementById('libraryPanel');
+  if (!panel) return;
+  document.querySelectorAll('.lib-tab-btn').forEach((b) => {
+    b.classList.toggle('active', b.dataset.libtab === state.libraryTab);
+  });
+  // На «Материалах»/«Фурнитуре» таблицы шире панели «Базы модулей» — даём
+  // #drawer-library подстроить ширину под содержимое (см. .lib-wide в
+  // style.css); на «Базе модулей» ширина панели остаётся фиксированной.
+  const drawer = document.getElementById('drawer-library');
+  if (drawer) {
+    drawer.classList.toggle('lib-wide', state.libraryTab === 'materials' || state.libraryTab === 'hardware');
+  }
+  if (state.libraryTab === 'materials') panel.innerHTML = libraryMaterialsBlock();
+  else if (state.libraryTab === 'hardware') panel.innerHTML = libraryHardwareBlock();
+  else panel.innerHTML = libraryBlock();   // 'modules' — существующая база модулей, без изменений
+  bindLibraryEvents();
+  applyLibrarySearch();
+}
+
+// Слушатели вешаются один раз (контейнер #libraryPanel и строка вкладок
+// переживают перерисовки — меняется только их содержимое/класс active),
+// поэтому в отличие от bindPanelEvents() это не нужно звать заново.
+function initLibraryPanel() {
+  const panel = document.getElementById('libraryPanel');
+  if (!panel) return;
+  const tabsRow = document.getElementById('libTabs');
+  if (tabsRow) tabsRow.addEventListener('click', (e) => {
+    const b = e.target.closest('.lib-tab-btn');
+    if (!b) return;
+    state.libraryTab = b.dataset.libtab;
+    renderLibraryPanel();
+  });
+  const search = document.getElementById('librarySearch');
+  if (search) search.addEventListener('input', applyLibrarySearch);
+
+  panel.addEventListener('click', (e) => {
+    const addBtn = e.target.closest('.lib-add');
+    if (addBtn) { libAddRow(addBtn.dataset.add); return; }
+    const swatch = e.target.closest('.lib-swatch');
+    if (swatch) { openLibImagePicker(swatch.dataset.swatchGroup, swatch.dataset.swatchKey); return; }
+    const cell = e.target.closest('.lib-edit-cell');
+    if (cell) { startCellEdit(cell); return; }
+  });
+
+  initLibImageInput();
+  renderLibraryPanel();
+}
+
+// Якорь навигации: вкладки модулей (Модуль 1/Модуль 2/«+»). Виден ВСЕГДА,
+// независимо от того, какой экран (panelView) сейчас показан ниже.
+// Отменить/Вернуть/Удалить модуль переехали в шапку программы (иконки рядом
+// с «Сохранить»/«Открыть» — см. index.html и initHeaderControls() ниже);
+// «Библиотека» — отдельная панель со своей кнопкой на рейке.
 function moduleTabsBlock(mod) {
   return `
     <h3>Модули проекта</h3>
     <div class="mod-tabs" id="modTabs">
       ${state.modules.map((m, i) =>
         `<button class="mod-tab tip tip-down ${i === state.activeModule ? 'active' : ''}" data-mod="${i}" type="button"
-                 data-tip="ПКМ: поворот, удаление">${esc(m.name)}${m.rotation ? ` ↻${m.rotation}°` : ''}</button>`
+                 data-tip="ПКМ: переименование, поворот, удаление">${esc(m.name)}${m.rotation ? ` ↻${m.rotation}°` : ''}</button>`
       ).join('')}
       <button class="mod-add tip tip-down" id="addModule" type="button" data-tip="Добавить модуль" aria-label="Добавить модуль">+</button>
-    </div>
-    <div class="mod-actions">
-      <button id="undoBtn" class="tip tip-down" type="button" data-tip="Отменить (Ctrl+Z)">↶ Отменить</button>
-      <button id="redoBtn" class="tip tip-down" type="button" data-tip="Вернуть (Ctrl+Y, Ctrl+Shift+Z)">↷ Вернуть</button>
-      ${mod ? `<button id="delModule" type="button" class="danger tip tip-down"
-              data-tip="Удалить активный модуль">✕ Удалить модуль</button>` : ''}
-      <button id="materialsLinkBtn" class="tip tip-down" type="button" data-tip="Общие материалы проекта">Материалы</button>
     </div>`;
 }
 
+// Экран пустого проекта: показывается вместо параметров модуля, пока в
+// проекте нет ни одного модуля (панель «Библиотека» теперь отдельная —
+// с рейки на неё есть своя кнопка, здесь только подсказка).
+function emptyProjectBlock() {
+  return `<div class="hint">Проект пуст. Откройте «Библиотеку» на рейке слева, чтобы выбрать
+    готовый модуль, или добавьте свой кнопкой «+» выше.</div>`;
+}
+
 // Маленькая ссылка «← Назад» сверху экранов, которые не являются точкой
-// входа («Материалы», в будущем «Деталь») — ведёт на «Параметры модуля»,
-// если какой-то модуль выбран, иначе на «Базу модулей».
+// входа («Материалы», «Деталь») — ведёт на «Параметры модуля» (этот экран
+// показывается только когда модуль есть, см. renderParamsPanel).
 function backLinkBlock() {
   return `<button class="link-btn panel-back" id="panelBack" type="button">← Назад</button>`;
 }
@@ -501,10 +857,7 @@ function backLinkBlock() {
 // модуля. Показывается только когда есть выбранный модуль.
 function moduleFieldsBlock(mod) {
   return `
-    <div class="field">
-      <label>Название модуля</label>
-      <input id="m-name" type="text" value="${esc(mod.name)}">
-    </div>
+    <button class="btn" id="materialsLinkBtn" type="button">Материалы модуля</button>
 
     <h3>Габариты модуля, мм</h3>
     <div class="field-row3">
@@ -548,14 +901,6 @@ function moduleFieldsBlock(mod) {
         </select>
       </div>
     </div>` : ''}
-    ${mod.baseType === 'legsPlinth' ? `
-    <div class="field-row">
-      <div class="field">
-        <label>Тип опоры</label>
-        <div class="hint">кухонная (пластик, держит цоколь клипсой — у металлической клипсы нет)</div>
-      </div>
-    </div>` : ''}
-
 
     <div class="field checkbox-field">
       <label><input id="m-corner" type="checkbox" ${mod.corner ? 'checked' : ''}> Угловой — дальше ряд идёт под 90°</label>
@@ -566,30 +911,111 @@ function moduleFieldsBlock(mod) {
     <button class="add-section-btn" id="addSection" type="button">+ Добавить секцию</button>`;
 }
 
-// Экран «Деталь»: открывается кликом по боковине внутри изолированного в 3D
-// модуля (viewer.onSelectPart). Пилотная реализация только для боковины —
-// не общий фреймворк на все виды деталей (см. Этап 3 плана). Инпут — тот же
-// самый, что и в «Конструктиве модуля» (id m-leftSide/m-rightSide), просто
-// показан отдельно: существующий обработчик в bindPanelEvents() слушает эти
-// id и продолжает работать без изменений, где бы они ни были отрисованы.
-function partBlock(mod) {
-  const part = state.selectedPart;
-  const isLeft = part.side === 'left';
-  const label = isLeft ? 'левая' : 'правая';
-  const cur = isLeft ? mod.leftSide : mod.rightSide;
-  const selectId = isLeft ? 'm-leftSide' : 'm-rightSide';
-  // «Видимая» боковина читается из уже ПОСЧИТАННОЙ модели, а не пересчитывается
-  // здесь заново — единый источник истины остаётся engine.js (см. buildModel:
-  // боковина получает facadeType: 'sidePanel', когда она видима и режется
-  // в декоре фасада). Если формула видимости в engine.js когда-нибудь
-  // изменится, эта панель не должна тихо разойтись с ней.
-  const sideName = isLeft ? 'Боковина левая' : 'Боковина правая';
+// Виды деталей, для которых движок (engine.js, applyPartOverrides) умеет
+// применять ручные правки — толщина/материал/доп. отверстия (см.
+// OVERRIDABLE_KINDS в engine.js). Список ДОЛЖЕН совпадать буквально — иначе
+// экран покажет поля, которые движок тихо проигнорирует.
+const OVERRIDABLE_PART_KINDS = new Set(['side', 'bottom', 'top', 'back', 'plinth']);
+const PART_KIND_TITLES = {
+  side: 'Боковина', bottom: 'Дно', top: 'Крыша / планка', back: 'Задняя стенка', plinth: 'Цоколь',
+};
+
+// Определение стороны по имени детали — ТОЧНО как partOverrideSide() в
+// engine.js и userData.side в viewer.js. Меняешь одно — меняй все три места.
+function partOverrideSideOf(part) {
+  const nm = (part && part.name) || '';
+  if (nm.indexOf('лев') >= 0) return 'left';
+  if (nm.indexOf('прав') >= 0) return 'right';
+  return null;
+}
+
+// Находит в currentModel.partsRaw все «сырые» детали активного модуля
+// заданного вида и считает для каждой её ключ override — ТОЧНО той же
+// логикой (группировка kind+section+side, номер — порядковый внутри
+// группы), что applyPartOverrides() в engine.js. Порядок возврата совпадает
+// с порядком появления детали в модели.
+function overridablePartCandidates(mod, kind) {
   const rows = (currentModel && currentModel.partsRaw) || [];
-  const row = rows.find((r) => r.module === mod.name && r.kind === 'side'
-    && r.name && r.name.indexOf(sideName) === 0);
-  const visible = !!(row && row.facadeType === 'sidePanel');
-  return `
-    ${backLinkBlock()}
+  const counters = {};
+  const list = [];
+  for (const r of rows) {
+    if (r.module !== mod.name || r.kind !== kind) continue;
+    const side = partOverrideSideOf(r);
+    const groupKey = [r.kind, r.section || '', side || ''].join('|');
+    const index = counters[groupKey] || 0;
+    counters[groupKey] = index + 1;
+    list.push({ part: r, side, key: [r.kind, r.section || '', side || '', index].join('|') });
+  }
+  return list;
+}
+
+// Общий выбор «текущей» сырой детали по state.selectedPart — той же логикой
+// (кандидаты + индекс), которой раньше пользовался только partBlock() ниже.
+// Вынесено отдельно, чтобы визуальный редактор вырезов (openPartVisualEditor)
+// указывал ТОЧНО на ту же деталь, что и показанная в partBlock(), без
+// дублирования и риска разойтись.
+function resolveSelectedPart(mod) {
+  const sp = state.selectedPart;
+  if (!mod || !sp) return { candidates: [], chosenIdx: -1, chosen: null };
+  const candidates = overridablePartCandidates(mod, sp.kind);
+
+  // Для боковины сторона уже известна из клика (sp.side). Для остальных
+  // видов деталь в модуле почти всегда одна (index 0) — исключение крыша
+  // из двух планок (topType: 'rails'/'railsEdge', см. ниже subIndex).
+  let chosenIdx;
+  if (sp.kind === 'side') {
+    chosenIdx = candidates.findIndex((c) => c.side === sp.side);
+    if (chosenIdx < 0) chosenIdx = 0;
+  } else {
+    chosenIdx = Number.isFinite(sp.subIndex) ? sp.subIndex : 0;
+    if (chosenIdx < 0 || chosenIdx >= candidates.length) chosenIdx = 0;
+  }
+  return { candidates, chosenIdx, chosen: candidates[chosenIdx] || null };
+}
+
+// Экран «Деталь»: открывается пунктом «Редактировать» контекстного меню
+// фокуса (см. showFocusMenu/openPartEditor ниже), которое, в свою очередь,
+// открывается кликом по детали внутри изолированного в 3D модуля
+// (viewer.onSelectPart). Полноценные поля (толщина/материал/доп. отверстия,
+// см. OVERRIDABLE_PART_KINDS выше) — для боковины, дна, крыши, задней стенки
+// и цоколя; для остальных видов деталей по-прежнему показывается заглушка
+// partKindPlaceholderBlock (см. renderParamsPanel). Для боковины показывается
+// ещё и «Конструктив» — тот же самый инпут, что и в общих параметрах модуля
+// (id m-leftSide/m-rightSide): существующий обработчик в bindPanelEvents()
+// слушает эти id и продолжает работать без изменений, где бы они ни были
+// отрисованы.
+function partBlock(mod) {
+  const sp = state.selectedPart;
+  const kind = sp.kind;
+  const kindTitle = PART_KIND_TITLES[kind] || 'Деталь';
+  const { candidates, chosenIdx, chosen } = resolveSelectedPart(mod);
+
+  if (!chosen) {
+    return `
+      ${backLinkBlock()}
+      <h3>${esc(kindTitle)}</h3>
+      <div class="hint">Деталь не найдена в текущей модели — возможно, она объединена
+      с соседним модулем (например, цоколь идёт сквозной планкой на весь ряд) или
+      параметры модуля изменились. Закройте фокус и выберите деталь заново.</div>`;
+  }
+
+  const part = chosen.part;
+  const ov = (mod.partOverrides && mod.partOverrides[chosen.key]) || {};
+  const decorList = kind === 'back' ? BACK_MATERIALS : DECORS;
+  const extraHoles = Array.isArray(ov.extraHoles) ? ov.extraHoles : [];
+
+  let kindSpecific;
+  if (kind === 'side') {
+    const isLeft = sp.side === 'left';
+    const label = isLeft ? 'левая' : 'правая';
+    const cur = isLeft ? mod.leftSide : mod.rightSide;
+    const selectId = isLeft ? 'm-leftSide' : 'm-rightSide';
+    // «Видимая» боковина читается из уже ПОСЧИТАННОЙ модели, а не
+    // пересчитывается здесь заново — единый источник истины остаётся
+    // engine.js (см. buildModel: боковина получает facadeType: 'sidePanel',
+    // когда она видима и режется в декоре фасада).
+    const visible = !!(part.facadeType === 'sidePanel');
+    kindSpecific = `
     <h3>Боковина ${label}</h3>
     <div class="field">
       <label>Конструктив</label>
@@ -598,19 +1024,179 @@ function partBlock(mod) {
     ${visible ? `
     <div class="hint">Эта боковина видимая — режется в декоре фасада.</div>
     <button class="link-btn" id="partToFacadeDecor" type="button">Изменить декор фасада →</button>` : ''}`;
+  } else {
+    kindSpecific = `<h3>${esc(part.name || kindTitle)}</h3>`;
+  }
+
+  // Единственный случай больше одной детали одного вида в модуле — крыша из
+  // двух планок (topType: 'rails'/'railsEdge'). Клик в 3D не даёт различить,
+  // по какой именно планке кликнули (viewer.js передаёт только kind, не
+  // индекс — см. onSelectPart), поэтому даём выбрать деталь селектором.
+  const subIndexBlock = candidates.length > 1 ? `
+    <div class="field">
+      <label>Какая деталь</label>
+      <select id="partSubIndex">
+        ${candidates.map((c, i) => `<option value="${i}" ${i === chosenIdx ? 'selected' : ''}>${esc(c.part.name || (kindTitle + ' ' + (i + 1)))}</option>`).join('')}
+      </select>
+    </div>` : '';
+
+  return `
+    ${backLinkBlock()}
+    ${kindSpecific}
+    ${subIndexBlock}
+    ${part.overridden ? '<div class="hint">⚠ Эта деталь отличается от проектных настроек — переопределена вручную.</div>' : ''}
+    <div id="partOverridePanel" data-key="${esc(chosen.key)}">
+      <div class="field">
+        <label>Толщина, мм</label>
+        <input id="partThickness" type="number" min="1" step="0.5" value="${part.thickness}">
+      </div>
+      <div class="field">
+        <label>Материал / декор</label>
+        <select id="partMaterial">${decorList.map(d => `<option value="${d.code}" ${d.code === part.material ? 'selected' : ''}>${esc(d.name)}</option>`).join('')}</select>
+      </div>
+
+      <h4 class="mat-sub">Дополнительные отверстия</h4>
+      <div class="hint">Координаты — в системе координат самой детали: начало в левом
+      нижнем углу лицевой стороны, X вправо по длине, Y вверх по ширине, в мм
+      (та же система, что и в присадке для ЧПУ). Отступы от края не проверяются —
+      за расположение отвечаете вы.</div>
+      <div id="extraHolesList">
+        ${extraHoles.length ? extraHoles.map((h, i) => `
+          <div class="extra-hole-row">
+            <div class="field-row3">
+              <div class="field"><label class="axis-label-x">X, мм</label><input type="number" step="1" value="${h.x}" data-hole-field="x" data-hole-idx="${i}"></div>
+              <div class="field"><label class="axis-label-y">Y, мм</label><input type="number" step="1" value="${h.y}" data-hole-field="y" data-hole-idx="${i}"></div>
+              <div class="field"><label>⌀, мм</label><input type="number" step="0.5" min="0" value="${h.d}" data-hole-field="d" data-hole-idx="${i}"></div>
+            </div>
+            <button type="button" class="remove-section" data-remove-hole="${i}">✕ убрать отверстие ${i + 1}</button>
+          </div>`).join('') : '<div class="hint">Отверстий нет</div>'}
+      </div>
+      <button class="add-section-btn" id="addExtraHole" type="button">+ Добавить отверстие</button>
+
+      <button class="link-btn" id="openPartVisualEditorBtn" type="button">Открыть визуальный редактор вырезов →</button>
+    </div>`;
 }
 
 // Заглушка экрана «Деталь», когда на него перешли с рейки напрямую (кнопка
-// «Деталь»), а не кликом по боковине в изолированном модуле — редактировать
-// пока нечего, но и откатывать на другой экран не нужно: рейка должна вести
-// именно сюда. Полноценный редактор геометрии (вырезы/пазы) — задача другого
-// этапа, здесь только подсказка, как выбрать деталь для редактирования.
+// «Деталь»), а не через контекстное меню фокуса — редактировать пока нечего,
+// но и откатывать на другой экран не нужно: рейка должна вести именно сюда.
+// Полноценный редактор геометрии (вырезы/пазы) — задача другого этапа, здесь
+// только подсказка, как выбрать деталь для редактирования.
 function partPlaceholderBlock() {
   return `
     ${backLinkBlock()}
     <h3>Деталь</h3>
     <div class="hint">Чтобы отредактировать деталь: дважды кликните по модулю в 3D-сцене,
-    затем кликните по нужной детали (пока поддерживается только боковина).</div>`;
+    кликните по нужной детали, затем выберите «Редактировать» в открывшемся меню
+    (полноценный экран есть для боковины, дна, крыши, задней стенки и цоколя).</div>`;
+}
+
+// Заглушка экрана «Деталь» для видов деталей, у которых ещё нет полноценного
+// экрана (сейчас поддерживаются боковина/дно/крыша/задняя стенка/цоколь —
+// см. OVERRIDABLE_PART_KINDS и partBlock выше). Открывается через
+// «Редактировать» в контекстном меню фокуса (openPartEditor), когда
+// выбранная деталь — из остальных видов (полка, фасад, перегородка и т.п.).
+// Когда появится общий редактор геометрии детали — эта функция и есть точка,
+// которую нужно будет заменить/расширить, вызывающий код (openPartEditor)
+// менять не придётся.
+function partKindPlaceholderBlock(kind) {
+  return `
+    ${backLinkBlock()}
+    <h3>Деталь</h3>
+    <div class="hint">Редактор для этого вида детали (${esc(kind)}) появится отдельным этапом.</div>`;
+}
+
+// Точка входа в экран редактирования детали — сюда ведёт пункт
+// «Редактировать» контекстного меню фокуса (см. showFocusMenu). Когда
+// появится полноценный редактор геометрии (вырезы/пазы, орто-вид, сетка
+// 32мм, материал/толщина конкретной детали — отдельная задача с отдельной
+// архитектурой хранения ручных правок), менять нужно будет только то, ЧТО
+// показывается на экране «part» (partBlock/partKindPlaceholderBlock и
+// renderParamsPanel ниже), саму точку вызова из меню — не нужно.
+function openPartEditor(module, kind, side) {
+  state.selectedPart = { module, kind, side, subIndex: 0 };
+  state.panelView = 'part';
+  renderParamsPanel();
+  // Экран «Деталь» рисуется в #paramsPanel, но сам дровер «Параметры проекта»
+  // открывается только рейкой (ui-shell.js). Вход сюда — из контекстного меню
+  // в 3D, а не с рейки, и дровер в этот момент может быть закрыт (например,
+  // если до этого была открыта «Библиотека» и закрыта) — тогда контент рисуется,
+  // но невидим. Открываем дровер явно, иначе «Редактировать» выглядит так,
+  // будто ничего не произошло.
+  if (window.Modul3D.uiShell) window.Modul3D.uiShell.openDrawer('params');
+}
+
+// ---------------------------------------------------------------------------
+// Визуальный редактор вырезов детали — Этап 1: полноэкранный контейнер +
+// статичный вид, без интерактива (направляющие, построение фигур — отдельные
+// следующие этапы). Открывается кнопкой «Открыть визуальный редактор вырезов»
+// в partBlock() поверх экрана «Деталь», для ТОЙ ЖЕ детали, что там показана
+// (см. resolveSelectedPart). Это ДОПОЛНИТЕЛЬНЫЙ способ работы с деталью, а не
+// замена partBlock() — толщина/материал/простые отверстия по-прежнему через
+// обычную форму.
+// ---------------------------------------------------------------------------
+
+// Заголовок + вид детали внутри уже открытого оверлея. Сам SVG строит
+// window.Modul3D.drawings.buildPartEditorView(part, opts) (см. drawings.js —
+// принимает «сырую» деталь из model.partsRaw и необязательные opts.scale/
+// showGrid/gridMinor/gridMajor, возвращает готовую строку <svg>). Функция
+// умеет отсутствовать (например, если этот контейнер грузится раньше, чем
+// собран drawings.js) — тогда показываем понятную заглушку вместо ошибки.
+function renderPartEditorOverlay(part) {
+  const title = document.getElementById('partEditorTitle');
+  const canvas = document.getElementById('partEditorCanvas');
+  if (!canvas) return;
+  if (title) title.textContent = `Редактор выреза — ${part.name || PART_KIND_TITLES[part.kind] || 'Деталь'}`;
+
+  const drawings = window.Modul3D.drawings || {};
+  if (typeof drawings.buildPartEditorView === 'function') {
+    try {
+      canvas.innerHTML = drawings.buildPartEditorView(part, {});
+    } catch (err) {
+      console.error('Part editor view failed:', err);
+      canvas.innerHTML = `<div class="hint">Не удалось построить вид детали: ${esc(err.message)}</div>`;
+    }
+  } else {
+    canvas.innerHTML = `<div class="hint">Визуальный вид детали появится здесь — строит его
+      window.Modul3D.drawings.buildPartEditorView(part, opts), которая пока готовится
+      отдельно.</div>`;
+  }
+}
+
+// Открывает полноэкранный оверлей для детали, выбранной сейчас на экране
+// «Деталь» (state.selectedPart) — той же самой, что показывает partBlock().
+function openPartVisualEditor() {
+  const mod = state.modules.find((m) => m.name === (state.selectedPart || {}).module);
+  const resolved = resolveSelectedPart(mod);
+  if (!resolved.chosen) return;
+  state.partEditorOpen = true;
+  renderPartEditorOverlay(resolved.chosen.part);
+  const overlay = document.getElementById('partEditorOverlay');
+  if (overlay) {
+    overlay.classList.add('open');
+    overlay.setAttribute('aria-hidden', 'false');
+  }
+}
+
+// Закрывает оверлей и возвращает в режим фокуса на модуле (экран «Деталь») —
+// НЕ выходит из изоляции модуля целиком, только закрывает этот полноэкранный
+// режим (см. бриф про фокус-режим: выход из самого фокуса — отдельный пункт
+// контекстного меню, не красный крестик здесь).
+function closePartVisualEditor() {
+  state.partEditorOpen = false;
+  const overlay = document.getElementById('partEditorOverlay');
+  if (overlay) {
+    overlay.classList.remove('open');
+    overlay.setAttribute('aria-hidden', 'true');
+  }
+}
+
+// Оверлей статичный (разметка index.html), не пересоздаётся при каждом
+// renderParamsPanel() — как и шапка (см. initHeaderControls), обработчик
+// закрытия вешается один раз здесь.
+function initPartEditorOverlay() {
+  const closeBtn = document.getElementById('partEditorClose');
+  if (closeBtn) closeBtn.addEventListener('click', closePartVisualEditor);
 }
 
 // Экран «Материалы»: общие на весь проект декор/толщины/фурнитура —
@@ -619,17 +1205,17 @@ function materialsBlock() {
   return `
     <h3>Материалы (общие на проект)</h3>
     <div class="field">
-      <label>Декор корпуса</label>
+      <label>Материал корпуса</label>
       <select id="p-decor">${DECORS.map(d => `<option value="${d.code}" ${d.code === state.decorCode ? 'selected' : ''}>${esc(d.name)}</option>`).join('')}</select>
     </div>
     <div class="field">
-      <label>Декор фасада</label>
+      <label>Материал фасада</label>
       <select id="p-facadeDecor">${DECORS.map(d => `<option value="${d.code}" ${d.code === state.facadeDecorCode ? 'selected' : ''}>${esc(d.name)}</option>`).join('')}</select>
       <div class="hint">Видимая боковина (до пола или сбоку дна) режется в этом декоре</div>
     </div>
     <div class="field-row">
       <div class="field"><label>Толщина ЛДСП</label><input id="p-bodyThickness" type="number" value="${state.bodyThickness}"></div>
-      <div class="field"><label>Толщина ХДФ</label><input id="p-backThickness" type="number" value="${state.backThickness}"></div>
+      <div class="field"><label>Толщина фасада, мм</label><input id="p-facadeThickness" type="number" value="${state.facadeThickness}"></div>
     </div>
     <div class="field">
       <label>Глубина столешницы, мм</label>
@@ -640,16 +1226,14 @@ function materialsBlock() {
       <label>Задняя стенка</label>
       <select id="p-back">${BACK_MATERIALS.map(d => `<option value="${d.code}" ${d.code === state.backCode ? 'selected' : ''}>${esc(d.name)}</option>`).join('')}</select>
     </div>
+    <div class="field"><label>Толщина ХДФ</label><input id="p-backThickness" type="number" value="${state.backThickness}"></div>
 
     <h4 class="mat-sub">Ящики (материал отдельно от корпуса)</h4>
     <div class="field">
-      <label>Декор ящиков</label>
+      <label>Материал ящиков</label>
       <select id="p-drawerDecor">${DECORS.map(d => `<option value="${d.code}" ${d.code === state.drawerDecorCode ? 'selected' : ''}>${esc(d.name)}</option>`).join('')}</select>
     </div>
-    <div class="field-row">
-      <div class="field"><label>Толщина ЛДСП ящиков</label><input id="p-drawerThickness" type="number" step="1" value="${state.drawerThickness}"></div>
-      <div class="field"><label>&nbsp;</label><input type="text" value="—" disabled></div>
-    </div>
+    <div class="field"><label>Толщина ЛДСП ящиков</label><input id="p-drawerThickness" type="number" step="1" value="${state.drawerThickness}"></div>
     <div class="field">
       <label>Система ящиков (на весь проект)</label>
       <select id="p-drawerSystem">
@@ -674,36 +1258,38 @@ function renderParamsPanel() {
   if (state.activeModule < 0) state.activeModule = 0;
   const mod = state.modules[state.activeModule];
 
-  // Экран «Параметры модуля» имеет смысл только когда модуль есть — пустой
-  // проект (или потеря последнего модуля) откатывает на базу. Так же ведёт
-  // себя переход на этот экран напрямую с рейки (setPanelView('module')) —
-  // это ожидаемый fallback, а не баг.
-  if (state.panelView === 'module' && !mod) state.panelView = 'library';
-  // Экран «Деталь» показывает содержимое только пока жива изоляция и выбрана
-  // боковина ИМЕННО активного модуля — если модуль пропал, выбор детали
-  // устарел (сброс изоляции и т.п.), или деталь принадлежит другому модулю
-  // (доп. защита поверх exitIsolation() на случай рассинхронизации),
-  // откатываем на параметры модуля (или на базу, если и модуля не осталось).
-  // Но если выбора детали просто ещё НЕ было (пришли на экран прямо с
-  // кнопки рейки «Деталь») — с экрана не уходим, а показываем заглушку-
-  // подсказку ниже (см. partPlaceholderBlock).
-  if (state.panelView === 'part' && state.selectedPart && (!mod
-      || state.selectedPart.kind !== 'side' || state.selectedPart.module !== mod.name)) {
-    state.panelView = mod ? 'module' : 'library';
+  // Экран «Деталь» показывает содержимое только пока выбранная деталь
+  // принадлежит ИМЕННО активному модулю — если модуль пропал, или деталь
+  // принадлежит другому модулю (доп. защита поверх exitIsolation() на случай
+  // рассинхронизации), откатываем на параметры модуля. Вид детали (kind)
+  // здесь больше не проверяем — теперь через меню фокуса можно выбрать любую
+  // деталь, не только боковину; какой именно экран показать для данного kind
+  // решается ниже (partBlock для боковины, partKindPlaceholderBlock —
+  // заглушка для остальных видов, пока для них нет полноценного редактора).
+  if (state.panelView === 'part' && state.selectedPart
+      && (!mod || state.selectedPart.module !== mod.name)) {
+    state.panelView = 'module';
   }
 
+  // Пустой проект (или потеря последнего модуля) — параметрам модуля/детали/
+  // материалов показывать нечего, панель «Библиотека» теперь отдельная и
+  // сама панель параметров сюда пользователя не перекидывает.
   let screen;
-  if (state.panelView === 'materials') {
+  if (!mod) {
+    screen = emptyProjectBlock();
+  } else if (state.panelView === 'materials') {
     screen = backLinkBlock() + materialsBlock();
   } else if (state.panelView === 'part') {
-    screen = state.selectedPart ? partBlock(mod) : partPlaceholderBlock();
-  } else if (state.panelView === 'module') {
-    screen = moduleFieldsBlock(mod);
+    if (!state.selectedPart) {
+      screen = partPlaceholderBlock();
+    } else if (OVERRIDABLE_PART_KINDS.has(state.selectedPart.kind)) {
+      screen = partBlock(mod);
+    } else {
+      screen = partKindPlaceholderBlock(state.selectedPart.kind);
+    }
   } else {
-    // 'library' (и любое неизвестное/начальное значение)
-    screen = libraryBlock() + (!mod
-      ? `<div class="hint">Проект пуст. Выберите готовый модуль в базе выше или добавьте свой кнопкой «+».</div>`
-      : '');
+    // 'module' (и любое неизвестное/начальное значение)
+    screen = moduleFieldsBlock(mod);
   }
 
   panel.innerHTML = moduleTabsBlock(mod) + screen;
@@ -1093,7 +1679,7 @@ function showModuleMenu(modIndex, x, y) {
   menu.style.left = Math.round(x) + 'px';
   menu.style.top = Math.round(y) + 'px';
   menu.innerHTML = `
-    <div class="ctx-title">${esc(mod.name)}</div>
+    <input class="ctx-title ctx-title-input" id="ctxModName" type="text" value="${esc(mod.name)}">
     <div class="ctx-group">Повернуть</div>
     ${ROTATIONS.map(([deg, label]) =>
       `<button type="button" class="ctx-item ${deg === cur ? 'on' : ''}" data-rot="${deg}">${label}</button>`
@@ -1103,6 +1689,29 @@ function showModuleMenu(modIndex, x, y) {
       title="${state.modules.length <= 1 ? 'В проекте должен остаться хотя бы один модуль' : ''}"
       >Удалить модуль</button>`;
   document.body.appendChild(menu);
+
+  // Переименование модуля прямо из контекстного меню (поле в заголовке).
+  const nameInput = menu.querySelector('#ctxModName');
+  if (nameInput) {
+    // Клик/фокус в поле не должен закрывать меню — глобальный слушатель
+    // ниже (см. document.addEventListener('click', closeModuleMenu))
+    // закрывает меню по ЛЮБОМУ клику на странице без проверки цели.
+    nameInput.addEventListener('click', (e) => e.stopPropagation());
+    nameInput.addEventListener('mousedown', (e) => e.stopPropagation());
+    const applyName = () => {
+      mod.name = nameInput.value.trim() || 'Модуль';
+      state.selected = mod.name;
+      renderParamsPanel();
+      recompute();
+    };
+    nameInput.addEventListener('change', applyName);
+    nameInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        applyName();
+        closeModuleMenu();
+      }
+    });
+  }
 
   menu.querySelectorAll('[data-rot]').forEach((el) => {
     el.addEventListener('click', () => {
@@ -1120,9 +1729,85 @@ function showModuleMenu(modIndex, x, y) {
   });
 }
 
-// База модулей внутри панели: клик по кнопке категории открывает/закрывает
-// под ней сетку миниатюр её пресетов, клик по миниатюре добавляет модуль.
-// Общая для обеих веток bindPanelEvents() (пустой проект и проект с модулями).
+// ---------------------------------------------------------------------------
+// Контекстное меню фокуса (изоляция модуля, двойной клик в 3D)
+// ---------------------------------------------------------------------------
+// Пока модуль изолирован, клик внутри сцены (viewer.onSelectPart — по любой
+// детали, viewer.onFocusMiss — мимо любой детали) больше не переключает
+// панель напрямую и не снимает изоляцию сам по себе — вместо этого в точке
+// клика открывается это меню, и ТОЛЬКО его пункт «Выйти из фокуса» снимает
+// изоляцию (см. exitFocusMode ниже). Так пользователь не проваливается в
+// режим просмотра случайно, но всегда может из него выйти явным действием.
+
+// Слушатель «клик мимо меню — закрыть», навешивается заново на каждое
+// открытие (см. showFocusMenu) и снимается при закрытии.
+let focusMenuOutsideHandler = null;
+
+function closeFocusMenu() {
+  const old = document.getElementById('focusMenu');
+  if (old && old.remove) old.remove();
+  if (focusMenuOutsideHandler) {
+    document.removeEventListener('click', focusMenuOutsideHandler);
+    focusMenuOutsideHandler = null;
+  }
+}
+
+// items: [{ label, action }] — action вызывается уже ПОСЛЕ закрытия меню.
+function showFocusMenu(x, y, items) {
+  closeFocusMenu();
+  const menu = document.createElement('div');
+  menu.id = 'focusMenu';
+  menu.className = 'ctx-menu';
+  menu.innerHTML = items.map((it, i) =>
+    `<button type="button" class="ctx-item" data-i="${i}">${esc(it.label)}</button>`
+  ).join('');
+  document.body.appendChild(menu);
+
+  // Позиционируем в точке клика (position: fixed из .ctx-menu), но клампим
+  // к вьюпорту — клик по детали у самого края экрана не должен раскрывать
+  // меню за пределы окна.
+  const rect = menu.getBoundingClientRect();
+  const left = Math.max(4, Math.min(x, window.innerWidth - rect.width - 4));
+  const top = Math.max(4, Math.min(y, window.innerHeight - rect.height - 4));
+  menu.style.left = Math.round(left) + 'px';
+  menu.style.top = Math.round(top) + 'px';
+
+  items.forEach((it, i) => {
+    const el = menu.querySelector(`[data-i="${i}"]`);
+    if (el) el.addEventListener('click', () => { closeFocusMenu(); it.action(); });
+  });
+
+  // Клик мимо меню закрывает его без действия. Слушатель вешаем не сразу,
+  // а следующим тиком: клик по 3D-сцене, который только что ОТКРЫЛ это меню,
+  // сам всплывёт до document как нативное 'click'-событие сразу вслед за
+  // pointerup — если слушатель уже будет висеть, он мгновенно закроет только
+  // что открытое меню тем же кликом.
+  setTimeout(() => {
+    focusMenuOutsideHandler = (e) => {
+      if (!menu.contains(e.target)) closeFocusMenu();
+    };
+    document.addEventListener('click', focusMenuOutsideHandler);
+  }, 0);
+}
+
+// Единственный способ выйти из режима фокуса (см. комментарий выше) — вызов
+// отсюда, из пункта меню «Выйти из фокуса». Последовательность вызовов та
+// же, что раньше делал клик мимо модели (viewer.onSelectModule(null)) —
+// полный сброс выделения, не только изоляции.
+function exitFocusMode() {
+  const changed = state.selected !== null || state.isolatedModule !== null;
+  state.selected = null;
+  state.panelView = 'module';
+  exitIsolation();
+  renderParamsPanel();
+  if (changed && viewer && currentModel) viewer.render(currentModel, viewOpts());
+}
+
+// База модулей внутри вкладки «Библиотека»: клик по кнопке категории
+// открывает/закрывает под ней сетку миниатюр её пресетов, клик по миниатюре
+// добавляет модуль в проект (renderLibraryPanel() зовёт это после каждой
+// перерисовки вкладки «modules» — элементы .lib-cat/.lib-item каждый раз
+// новые, слушатели нужно вешать заново).
 function bindLibraryEvents() {
   document.querySelectorAll('.lib-cat').forEach((b) => {
     b.addEventListener('click', (e) => {
@@ -1131,7 +1816,7 @@ function bindLibraryEvents() {
       // Повторный клик по уже открытой категории — закрыть; клик по другой —
       // переключить; сетка одной категории видна за раз.
       state.libraryOpenCat = state.libraryOpenCat === cat ? null : cat;
-      renderParamsPanel();
+      renderLibraryPanel();
     });
   });
   document.querySelectorAll('.lib-item').forEach((b) => {
@@ -1147,17 +1832,18 @@ function bindPanelEvents() {
   // Якорь навигации (кнопка «Материалы») и ссылка «← Назад» — их элементы
   // отрисованы не на каждом экране, но привязка безопасна и для отсутствующих.
   on('materialsLinkBtn', 'click', () => setPanelView('materials'));
-  on('panelBack', 'click', () => setPanelView(state.selected ? 'module' : 'library'));
+  on('panelBack', 'click', () => setPanelView('module'));
   // Экран «Деталь» → быстрый переход к полю, которое красит видимую боковину.
   on('partToFacadeDecor', 'click', () => setPanelView('materials'));
+  // Экран «Деталь» → полноэкранный визуальный редактор вырезов (см.
+  // openPartVisualEditor ниже) для той же самой детали, что показана в
+  // partBlock() — resolveSelectedPart() внутри найдёт её той же логикой.
+  on('openPartVisualEditorBtn', 'click', () => openPartVisualEditor());
 
-  // Без модулей в панели есть только база и «+» — остальные поля не отрисованы,
-  // и обращаться к полям несуществующего модуля нельзя.
+  // Без модулей в панели есть только подсказка (emptyProjectBlock) и «+» на
+  // вкладках модулей — остальные поля не отрисованы, обращаться к ним нельзя.
   if (!mod) {
-    bindLibraryEvents();
     on('addModule', 'click', () => insertModule(newModule()));
-    on('undoBtn', 'click', undo);
-    on('redoBtn', 'click', redo);
     updateHistoryButtons();
     return;
   }
@@ -1176,8 +1862,6 @@ function bindPanelEvents() {
       if (viewer && currentModel) viewer.render(currentModel, viewOpts());
     });
   });
-  // База модулей: категория → сетка миниатюр под ней
-  bindLibraryEvents();
 
   // Правая кнопка на вкладке модуля — меню с поворотом и удалением.
   document.querySelectorAll('.mod-tab').forEach((b) => {
@@ -1187,16 +1871,8 @@ function bindPanelEvents() {
     });
   });
   on('addModule', 'click', () => insertModule(newModule()));
-  on('undoBtn', 'click', undo);
-  on('redoBtn', 'click', redo);
-  on('delModule', 'click', () => deleteModule(state.activeModule));
   updateHistoryButtons();
 
-  on('m-name', 'change', (e) => {
-    mod.name = e.target.value || 'Модуль';
-    state.selected = mod.name;
-    renderParamsPanel(); recompute();
-  });
   on('m-width', 'change', (e) => { mod.width = Number(e.target.value); recompute(); });
   on('m-height', 'change', (e) => { mod.height = Number(e.target.value); recompute(); });
   on('m-depth', 'change', (e) => { mod.depth = Number(e.target.value); recompute(); });
@@ -1224,6 +1900,7 @@ function bindPanelEvents() {
   on('p-worktop', 'change', (e) => { state.worktopDepth = Number(e.target.value) || 0; recompute(); });
   on('p-back', 'change', (e) => { state.backCode = e.target.value; recompute(); });
   on('p-bodyThickness', 'change', (e) => { state.bodyThickness = Number(e.target.value); recompute(); });
+  on('p-facadeThickness', 'change', (e) => { state.facadeThickness = Number(e.target.value); recompute(); });
   on('p-backThickness', 'change', (e) => { state.backThickness = Number(e.target.value); recompute(); });
   on('p-drawerDecor', 'change', (e) => { state.drawerDecorCode = e.target.value; recompute(); });
   on('p-drawerThickness', 'change', (e) => { state.drawerThickness = Number(e.target.value) || 16; recompute(); });
@@ -1235,6 +1912,68 @@ function bindPanelEvents() {
     renderSectionsList();
     recompute();
   });
+
+  // Экран «Деталь»: переключение конкретной детали, когда деталей одного
+  // вида в модуле несколько (крыша из двух планок) — см. partBlock/
+  // overridablePartCandidates. Смена выбора ничего не меняет в проекте,
+  // только какая деталь сейчас редактируется — recompute() не нужен.
+  on('partSubIndex', 'change', (e) => {
+    if (state.selectedPart) state.selectedPart.subIndex = Number(e.target.value) || 0;
+    renderParamsPanel();
+  });
+
+  // Экран «Деталь»: ручные правки конкретной детали (толщина/материал/доп.
+  // отверстия) — см. applyPartOverrides() в engine.js. Общий блок несёт ключ
+  // override в data-key, вычисленный уже в partBlock() той же самой логикой,
+  // что и в движке (overridablePartCandidates) — здесь его не пересчитываем,
+  // чтобы не разойтись с движком.
+  const ovPanel = document.getElementById('partOverridePanel');
+  if (ovPanel) {
+    const key = ovPanel.dataset.key;
+    const ensureOverride = () => {
+      mod.partOverrides = mod.partOverrides || {};
+      mod.partOverrides[key] = mod.partOverrides[key] || {};
+      return mod.partOverrides[key];
+    };
+    on('partThickness', 'change', (e) => {
+      const v = Number(e.target.value);
+      if (!(v > 0)) return;
+      ensureOverride().thicknessOverride = v;
+      recompute();
+      renderParamsPanel();
+    });
+    on('partMaterial', 'change', (e) => {
+      ensureOverride().materialOverride = e.target.value;
+      recompute();
+      renderParamsPanel();
+    });
+    on('addExtraHole', 'click', () => {
+      const ov = ensureOverride();
+      ov.extraHoles = ov.extraHoles || [];
+      ov.extraHoles.push({ x: 0, y: 0, d: 0 });
+      recompute();
+      renderParamsPanel();
+    });
+    ovPanel.querySelectorAll('[data-hole-field]').forEach((el) => {
+      el.addEventListener('change', (e) => {
+        const ov = ensureOverride();
+        const idx = Number(e.target.dataset.holeIdx);
+        const field = e.target.dataset.holeField;
+        if (!ov.extraHoles || !ov.extraHoles[idx]) return;
+        ov.extraHoles[idx][field] = Number(e.target.value) || 0;
+        recompute();
+      });
+    });
+    ovPanel.querySelectorAll('[data-remove-hole]').forEach((el) => {
+      el.addEventListener('click', (e) => {
+        const ov = ensureOverride();
+        const idx = Number(e.currentTarget.dataset.removeHole);
+        if (ov.extraHoles) ov.extraHoles.splice(idx, 1);
+        recompute();
+        renderParamsPanel();
+      });
+    });
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -1247,6 +1986,7 @@ function recompute(isRetry) {
   const project = {
     bodyThickness: state.bodyThickness,
     backThickness: state.backThickness,
+    facadeThickness: state.facadeThickness,
     decor: DECORS.find(d => d.code === state.decorCode),
     facadeDecor: DECORS.find(d => d.code === state.facadeDecorCode) || DECORS.find(d => d.code === state.decorCode),
     backMaterial: BACK_MATERIALS.find(d => d.code === state.backCode),
@@ -1265,6 +2005,10 @@ function recompute(isRetry) {
         : { type: m.baseType, legHeight: m.legHeight },
       legType: m.legType || 'metal',
       sections: m.sections.map(sc => Object.assign({}, sc, { drawerSystem: state.drawerSystem })),
+      // Ручные правки конкретных деталей (толщина/материал/доп. отверстия) —
+      // см. applyPartOverrides() в engine.js и partBlock()/bindPanelEvents()
+      // выше, где этот объект заполняется с экрана «Деталь».
+      partOverrides: m.partOverrides || {},
     })),
   };
 
@@ -1377,6 +2121,24 @@ function buildOverlayDims() {
     }
   }
 
+  // Пока пользователь добавляет/редактирует доп. отверстие на экране
+  // «Деталь», показываем его координаты X/Y и диаметр прямо на чертеже —
+  // не только цветными рёбрами в 3D (см. viewer.getAxisHint()).
+  if (viewer.getAxisHint) {
+    const hint = viewer.getAxisHint();
+    if (hint && hint.holes && hint.holes.length) {
+      const originP = P(hint.origin.x, hint.origin.y, hint.origin.z);
+      for (const h of hint.holes) {
+        const hp = P(h.world.x, h.world.y, h.world.z);
+        g += lineEl(originP, hp, 'ov-ext');
+        g += `<text x="${hp.x.toFixed(1)}" y="${(hp.y - 10).toFixed(1)}" class="ov-t" text-anchor="middle">`
+          + `<tspan fill="#e03131">X${Math.round(h.x)}</tspan> `
+          + `<tspan fill="#2f9e44">Y${Math.round(h.y)}</tspan> `
+          + `<tspan>⌀${Math.round(h.d)}</tspan></text>`;
+      }
+    }
+  }
+
   return `<svg width="${size.w}" height="${size.h}" viewBox="0 0 ${size.w} ${size.h}" class="ov-svg" xmlns="http://www.w3.org/2000/svg">${g}</svg>`;
 }
 
@@ -1450,6 +2212,15 @@ function innerHeightDims(P, zf) {
 // Параметры отображения 3D: скрытие фасадов + подсветка активного модуля,
 // чтобы было видно, какой именно модуль сейчас редактируется.
 function viewOpts() {
+  // Пока открыт экран «Деталь», подсвечиваем в 3D оси X/Y на лицевой грани
+  // именно той сырой детали, что редактируется (см. partBlock() выше) — той
+  // же ссылкой, resolveSelectedPart() гарантирует совпадение с панелью.
+  let axisHintRow = null;
+  if (state.panelView === 'part' && state.selectedPart) {
+    const mod = state.modules.find((m) => m.name === state.selectedPart.module);
+    const resolved = resolveSelectedPart(mod);
+    if (resolved.chosen) axisHintRow = resolved.chosen.part;
+  }
   return {
     hideFacades: state.hideFacades,
     drillCheck: state.drillCheck,
@@ -1459,6 +2230,7 @@ function viewOpts() {
     // видеть его настоящую текстуру (см. Этап 3 плана).
     highlightModule: state.isolatedModule ? null : state.selected,
     isolateModule: state.isolatedModule,
+    axisHintRow,
   };
 }
 
@@ -1613,12 +2385,15 @@ function renderSpecTable(spec) {
   const fRows = spec.fasteners.map((f, i) =>
     `<tr><td>${i + 1}</td><td>${esc(f.name)}</td><td>${esc(f.article)}</td><td>${f.qty} ${esc(f.unit)}</td><td>${f.price}</td><td>${f.sum}</td></tr>`).join('');
 
+  // Символ валюты — глобальная настройка проекта (шестерёнка в шапке,
+  // см. ui-shell.js: window.Modul3D.currency), а не захардкоженный ₽.
+  const cur = curSym();
   el.innerHTML =
-    section('1. Листовые материалы', sheetRows, ['№', 'Позиция', 'Артикул', 'Площадь', 'Листов', 'Цена, ₽', 'Сумма, ₽']) +
-    section('2. Кромочный материал', edgeRows, ['№', 'Позиция', 'Кол-во', 'Цена, ₽/м', 'Сумма, ₽']) +
-    section('3. Фурнитура', hwRows, ['№', 'Позиция', 'Артикул', 'Кол-во', 'Цена, ₽', 'Сумма, ₽']) +
-    section(`4. Крепёж и метизы (${esc(spec.jointTypeLabel)})`, fRows, ['№', 'Позиция', 'Артикул', 'Кол-во', 'Цена, ₽', 'Сумма, ₽']) +
-    `<div class="total-line">ИТОГО: ${spec.totalCost.toLocaleString('ru-RU')} ₽</div>`
+    section('1. Листовые материалы', sheetRows, ['№', 'Позиция', 'Артикул', 'Площадь', 'Листов', `Цена, ${cur}`, `Сумма, ${cur}`]) +
+    section('2. Кромочный материал', edgeRows, ['№', 'Позиция', 'Кол-во', `Цена, ${cur}/м`, `Сумма, ${cur}`]) +
+    section('3. Фурнитура', hwRows, ['№', 'Позиция', 'Артикул', 'Кол-во', `Цена, ${cur}`, `Сумма, ${cur}`]) +
+    section(`4. Крепёж и метизы (${esc(spec.jointTypeLabel)})`, fRows, ['№', 'Позиция', 'Артикул', 'Кол-во', `Цена, ${cur}`, `Сумма, ${cur}`]) +
+    `<div class="total-line">ИТОГО: ${spec.totalCost.toLocaleString('ru-RU')} ${cur}</div>`
     + drawerPassportHtml();
 }
 
@@ -1745,6 +2520,18 @@ document.getElementById('printDrawings').addEventListener('click', () => {
 // Кнопки шапки: виды камеры и скрытие фасадов
 // ---------------------------------------------------------------------------
 function initHeaderControls() {
+  // Отменить/Вернуть/Удалить модуль — статичные иконки в шапке (index.html),
+  // в отличие от остального содержимого панели параметров не пересоздаются
+  // при каждом renderParamsPanel(), поэтому обработчики вешаются один раз
+  // здесь, а не в bindPanelEvents(). Сама логика (undo/redo/deleteModule) —
+  // прежняя, без изменений; disabled-состояние держит updateHistoryButtons().
+  const undoBtn = document.getElementById('undoBtn');
+  if (undoBtn) undoBtn.addEventListener('click', undo);
+  const redoBtn = document.getElementById('redoBtn');
+  if (redoBtn) redoBtn.addEventListener('click', redo);
+  const delBtn = document.getElementById('delModule');
+  if (delBtn) delBtn.addEventListener('click', () => deleteModule(state.activeModule));
+
   document.querySelectorAll('.view-btn').forEach((b) => {
     b.addEventListener('click', () => {
       document.querySelectorAll('.view-btn').forEach(x => x.classList.remove('active'));
@@ -1793,10 +2580,10 @@ function initHeaderControls() {
   // Клик по модулю в 3D выбирает его в панели слева
   if (viewer) {
     viewer.onSelectModule = (name) => {
-      if (!name) {                       // клик мимо модели — снять выделение и уйти к базе
+      if (!name) {                       // клик мимо модели — снять выделение
         const changed = state.selected !== null || state.isolatedModule !== null;
         state.selected = null;
-        state.panelView = 'library';
+        state.panelView = 'module';
         // Клик мимо снимает и режим изоляции — стекирования изоляций не бывает.
         exitIsolation();
         renderParamsPanel();
@@ -1826,13 +2613,23 @@ function initHeaderControls() {
       viewer.render(currentModel, viewOpts());
     };
 
-    // Клик по боковине ВНУТРИ уже изолированного модуля — открывает экран
-    // «Деталь». Состав деталей от этого не меняется, сцену перерисовывать
-    // не нужно — достаточно панели.
-    viewer.onSelectPart = ({ module, kind, side }) => {
-      state.selectedPart = { module, kind, side };
-      state.panelView = 'part';
-      renderParamsPanel();
+    // Клик по ЛЮБОЙ детали ВНУТРИ уже изолированного модуля — открывает
+    // контекстное меню фокуса в точке клика (см. showFocusMenu выше), а не
+    // сразу экран «Деталь»: «Редактировать» ведёт на openPartEditor,
+    // «Выйти из фокуса» — на exitFocusMode.
+    viewer.onSelectPart = ({ module, kind, side, clientX, clientY }) => {
+      showFocusMenu(clientX, clientY, [
+        { label: 'Редактировать', action: () => openPartEditor(module, kind, side) },
+        { label: 'Выйти из фокуса', action: exitFocusMode },
+      ]);
+    };
+
+    // Клик МИМО любой детали, пока изоляция активна — то же меню, но только
+    // с пунктом выхода: редактировать здесь нечего.
+    viewer.onFocusMiss = ({ module, clientX, clientY }) => {
+      showFocusMenu(clientX, clientY, [
+        { label: 'Выйти из фокуса', action: exitFocusMode },
+      ]);
     };
   }
 }
@@ -1900,7 +2697,7 @@ function initSketchPanel() {
       recompute();
 
       const decorNote = r.decorHint && !decorCode
-        ? ` Декор «${r.decorHint}» не найден в справочнике — поправьте вручную.` : '';
+        ? ` Материал «${r.decorHint}» не найден в справочнике — поправьте вручную.` : '';
       setSketchStatus(`Готово, параметры применены к модулю «${mod.name}» — проверьте их.${r.notes ? ' ' + r.notes : ''}${decorNote}`, 'ok');
     } catch (err) {
       console.error('Sketch recognition failed:', err);
@@ -1928,9 +2725,23 @@ function initSketchPanel() {
   apiKeyPopover.addEventListener('click', (e) => e.stopPropagation());
 }
 
-// Мост для ui-shell.js: кнопка «Материалы» (боковая полоса, HUD) переключает
-// экран панели, не зная её внутреннего устройства.
-window.Modul3D.app = { setPanelView: setPanelView };
+// Смена валюты (ui-shell.js: currencyToggle → setCurrency) не меняет ни одно
+// число в проекте — перерисовываем только то, что показывает цену рядом с
+// символом валюты (спецификация, таблицы «Материалы»/«Фурнитура» в
+// «Библиотеке»), а не весь recompute() (3D/чертежи/деталировка не зависят
+// от валюты) — укладывается в требование «не более 1-2 секунд» тривиально.
+function refreshCurrency() {
+  if (currentSpec) renderSpecTable(currentSpec);
+  if (document.getElementById('libraryPanel')) renderLibraryPanel();
+}
+
+// Мост для ui-shell.js: кнопка «Параметры» в HUD переключает экран панели
+// параметров, не зная её внутреннего устройства; currencyToggle зовёт
+// refreshCurrency() после смены валюты (см. ui-shell.js: setCurrency);
+// isProjectEmpty() нужен restoreUI(), чтобы при пустом проекте открывать
+// «Библиотеку» вместо панели «Параметры», где иначе видна только заглушка
+// (см. emptyProjectBlock()).
+window.Modul3D.app = { setPanelView: setPanelView, refreshCurrency: refreshCurrency, isProjectEmpty: function () { return state.modules.length === 0; } };
 
 // ---------------------------------------------------------------------------
 // Запуск
@@ -1941,22 +2752,25 @@ try {
   if (verEl) verEl.textContent = APP_VERSION;
 
   renderParamsPanel();
+  initLibraryPanel();
   recompute();
   offerAutosaveRestore();
   initSketchPanel();
   initHeaderControls();
-  // Контекстное меню модуля закрывается кликом мимо и по Esc
+  initPartEditorOverlay();
+  // Контекстное меню модуля закрывается кликом мимо и по Esc. Контекстное
+  // меню фокуса (см. showFocusMenu) закрывается по Esc так же — само своим
+  // клик-мимо-слушателем оно уже закрывается (см. showFocusMenu).
+  // ВАЖНО: Esc больше НЕ выходит из режима изоляции напрямую — единственный
+  // способ выйти из фокуса теперь пункт «Выйти из фокуса» в контекстном
+  // меню (см. exitFocusMode) — так по брифу, чтобы пользователь не проваливался
+  // из фокуса случайно, нажав Esc по другому поводу (например, чтобы закрыть
+  // само меню, оставшись при этом в фокусе).
   document.addEventListener('click', closeModuleMenu);
   document.addEventListener('keydown', (e) => {
     if (e.key !== 'Escape') return;
     closeModuleMenu();
-    // Esc — ещё и штатный выход из режима изоляции модуля (Этап 3 плана).
-    if (state.isolatedModule) {
-      exitIsolation();
-      state.panelView = state.selected ? 'module' : 'library';
-      renderParamsPanel();
-      if (viewer && currentModel) viewer.render(currentModel, viewOpts());
-    }
+    closeFocusMenu();
   });
 
   // Отмена и возврат. Ctrl+X перехватываем только вне полей ввода — внутри

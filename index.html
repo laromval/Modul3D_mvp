@@ -7,7 +7,7 @@
 <title>Modul3D — параметрический конструктор корпусной мебели</title>
 
 <link rel="icon" type="image/svg+xml" href="favicon.svg" />
-<link rel="stylesheet" href="style.css?v187" />
+<link rel="stylesheet" href="style.css?v188" />
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
@@ -38,6 +38,18 @@
       </button>
     </div>
 
+    <!-- Отменить/Вернуть/Удалить модуль — перенесены сюда из панели «Параметры
+         проекта» (см. app.js: initHeaderControls). Разметка перемещена, id и
+         обработчики те же самые (undo/redo/deleteModule не переписаны). -->
+    <div class="project-btns" id="historyBtns">
+      <button id="undoBtn" class="icon-btn icon-btn-text tip tip-down" type="button"
+              data-tip="Отменить (Ctrl+Z)" aria-label="Отменить" disabled>↶</button>
+      <button id="redoBtn" class="icon-btn icon-btn-text tip tip-down" type="button"
+              data-tip="Вернуть (Ctrl+Y, Ctrl+Shift+Z)" aria-label="Вернуть" disabled>↷</button>
+      <button id="delModule" class="icon-btn icon-btn-text danger tip tip-down" type="button"
+              data-tip="Удалить активный модуль" aria-label="Удалить модуль" disabled>✕</button>
+    </div>
+
     <button id="focusHintBtn" class="icon-btn tip tip-down" type="button"
             data-tip="Горячие клавиши: Ctrl+S · Ctrl+O · Ctrl+Z · 1–4 виды · D документы · P параметры"
             aria-label="Подсказки">
@@ -45,6 +57,24 @@
         <circle cx="12" cy="12" r="9"/><path d="M9.5 9.2a2.6 2.6 0 1 1 3.3 2.5c-.7.2-1 .8-1 1.5v.4"/><circle cx="12" cy="17" r=".6" fill="currentColor"/>
       </svg>
     </button>
+
+    <!-- Валюта проекта — глобальная настройка (см. ui-shell.js: window.Modul3D.currency) -->
+    <div class="currency-wrap">
+      <button id="currencyToggle" class="icon-btn tip tip-down" type="button" data-tip="Валюта проекта" aria-label="Валюта проекта">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="3"/>
+          <path d="M19.4 13a7.7 7.7 0 0 0 .1-1 7.7 7.7 0 0 0-.1-1l2-1.6-2-3.4-2.4 1a7.6 7.6 0 0 0-1.7-1L14.9 3h-4l-.4 2.6a7.6 7.6 0 0 0-1.7 1l-2.4-1-2 3.4 2 1.6a7.7 7.7 0 0 0 0 2l-2 1.6 2 3.4 2.4-1a7.6 7.6 0 0 0 1.7 1l.4 2.6h4l.4-2.6a7.6 7.6 0 0 0 1.7-1l2.4 1 2-3.4-2-1.6Z"/>
+        </svg>
+      </button>
+      <div id="currencyPopover" class="popover" style="display:none">
+        <label>Валюта проекта</label>
+        <div class="currency-options" id="currencyOptions"><!-- заполняется ui-shell.js --></div>
+        <div class="field">
+          <label for="currencyCustomInput">Свой вариант (символ/название)</label>
+          <input id="currencyCustomInput" type="text" placeholder="напр. ₴ или UAH" />
+        </div>
+      </div>
+    </div>
 
     <button id="themeToggle" class="icon-btn tip tip-down" type="button" data-tip="Светлая / тёмная тема" aria-label="Сменить тему">
       <svg class="ic-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
@@ -68,7 +98,7 @@
 
   <!-- Рейка триггеров: панели прячутся за экран, на холсте только иконки -->
   <nav class="rail" id="rail" aria-label="Панели">
-    <button class="rail-btn tip" type="button" data-panel="params" data-panelview="library" data-tip="Библиотека модулей" aria-label="Библиотека модулей">
+    <button class="rail-btn tip" type="button" data-panel="library" data-tip="Библиотека" aria-label="Библиотека">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round">
         <path d="M12 3 3 7.5l9 4.5 9-4.5z"/><path d="M3 12.5 12 17l9-4.5"/><path d="M3 17 12 21.5 21 17"/>
       </svg>
@@ -112,6 +142,29 @@
       <button class="view-btn active" data-view="iso" type="button">3D</button>
     </div>
   </div>
+
+  <!-- ---------- Панель: Библиотека (база модулей / материалы / фурнитура) ---------- -->
+  <aside class="drawer drawer-left" id="drawer-library" data-drawer-panel="library" aria-hidden="true">
+    <div class="drawer-head">
+      <h2 class="drawer-title">Библиотека</h2>
+      <button class="drawer-close" type="button" data-close aria-label="Закрыть">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
+      </button>
+    </div>
+    <div class="drawer-body">
+      <div class="drawer-search">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="6"/><path d="M15.5 15.5 20 20"/></svg>
+        <input type="search" id="librarySearch" placeholder="Поиск по базе, материалам, фурнитуре…" autocomplete="off" />
+      </div>
+      <div class="lib-tabs" id="libTabs">
+        <button class="lib-tab-btn active" data-libtab="modules" type="button">База модулей</button>
+        <button class="lib-tab-btn" data-libtab="materials" type="button">Материалы</button>
+        <button class="lib-tab-btn" data-libtab="hardware" type="button">Фурнитура</button>
+      </div>
+      <div class="panel" id="libraryPanel"><!-- заполняется app.js --></div>
+    </div>
+    <input id="libImageInput" type="file" accept="image/*" style="display:none" />
+  </aside>
 
   <!-- ---------- Панель: Параметры ---------- -->
   <aside class="drawer drawer-left" id="drawer-params" data-drawer-panel="params" aria-hidden="true">
@@ -200,9 +253,27 @@
   <!-- ---------- HUD: контекстное меню прямо на детали ---------- -->
   <div class="hud" id="partHud" aria-hidden="true"></div>
 
+  <!-- ---------- Визуальный редактор вырезов детали (полноэкранный режим) ----------
+       Открывается кнопкой «Открыть визуальный редактор вырезов» на экране «Деталь»
+       (см. src/app.js: openPartVisualEditor/closePartVisualEditor). Не выдвижная
+       панель (.drawer) — отдельный полноэкранный режим поверх всего интерфейса. -->
+  <div class="part-editor-overlay" id="partEditorOverlay" aria-hidden="true">
+    <div class="part-editor-head">
+      <h2 class="part-editor-title" id="partEditorTitle">Редактор выреза</h2>
+      <button class="icon-btn danger part-editor-close" type="button" id="partEditorClose" aria-label="Закрыть редактор">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
+      </button>
+    </div>
+    <div class="part-editor-body">
+      <!-- Заполняется app.js: renderPartEditorOverlay() — сюда вставляется SVG из
+           window.Modul3D.drawings.buildPartEditorView(part, opts). -->
+      <div class="part-editor-canvas" id="partEditorCanvas"></div>
+    </div>
+  </div>
+
   <!-- ---------- Мобильная шторка 40 px ---------- -->
   <div class="mobile-sheet-bar" id="mobileBar">
-    <button class="rail-btn" type="button" data-panel="params" data-panelview="library" aria-label="Библиотека модулей">
+    <button class="rail-btn" type="button" data-panel="library" aria-label="Библиотека">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round">
         <path d="M12 3 3 7.5l9 4.5 9-4.5z"/><path d="M3 12.5 12 17l9-4.5"/><path d="M3 17 12 21.5 21 17"/>
       </svg>
@@ -233,18 +304,18 @@
 
 </main>
 
-<script src="src/catalog.js?v187"></script>
-<script src="src/presets.js?v187"></script>
-<script src="src/engine.js?v187"></script>
-<script src="src/specification.js?v187"></script>
-<script src="src/legMeshes.js?v187"></script>
-<script src="src/viewer.js?v187"></script>
-<script src="src/ui-shell.js?v187"></script>
-<script src="src/drawings.js?v187"></script>
-<script src="src/export.js?v187"></script>
-<script src="src/cnc.js?v187"></script>
-<script src="src/sketchAI.js?v187"></script>
-<script src="src/app.js?v187"></script>
+<script src="src/catalog.js?v188"></script>
+<script src="src/presets.js?v188"></script>
+<script src="src/engine.js?v188"></script>
+<script src="src/specification.js?v188"></script>
+<script src="src/legMeshes.js?v188"></script>
+<script src="src/viewer.js?v188"></script>
+<script src="src/ui-shell.js?v188"></script>
+<script src="src/drawings.js?v188"></script>
+<script src="src/export.js?v188"></script>
+<script src="src/cnc.js?v188"></script>
+<script src="src/sketchAI.js?v188"></script>
+<script src="src/app.js?v188"></script>
 <script>if (window.Modul3D && window.Modul3D.uiShell) window.Modul3D.uiShell.start();</script>
 </body>
 </html>

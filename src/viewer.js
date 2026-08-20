@@ -208,6 +208,12 @@ const KIND_COLOR = {
   leg: 0x5a5a5a,
 };
 
+// Подсказка осей на экране «Дополнительные отверстия»: X-ребро детали —
+// красным, Y-ребро — зелёным, чтобы было видно, куда физически смотрит
+// каждая ось при вводе кастомных координат X/Y.
+const AXIS_X_COLOR = 0xe03131;
+const AXIS_Y_COLOR = 0x2f9e44;
+
 // Цвета активного (редактируемого) модуля — синий, чтобы сразу было видно,
 // какой именно модуль сейчас меняется в панели слева.
 const HIGHLIGHT_COLOR = {
@@ -803,9 +809,22 @@ class Viewer3D {
     // Двойной клик по модулю — переход в режим изоляции (см. render() ниже,
     // opts.isolateModule). Колбэк получает имя модуля строкой.
     this.onIsolateModule = null;
-    // Клик по детали ВНУТРИ изолированного модуля (сейчас — только боковина).
-    // Колбэк получает { module, kind, side }.
+    // Клик по ЛЮБОЙ детали (боковина, полка, дно, фасад и т.д. — любой
+    // userData.kind) ВНУТРИ изолированного модуля. Колбэк получает
+    // { module, kind, side, clientX, clientY } — side есть только у боковины,
+    // у остальных деталей будет undefined. Координаты клика — чтобы app.js
+    // мог поставить контекстное меню в точку клика.
     this.onSelectPart = null;
+    // Клик МИМО любой детали, пока активна изоляция: либо луч вообще ни во
+    // что не попал (пустое место — пол и сетка лежат в this.scene, а не в
+    // this.group, и в рейкаст не участвуют), либо попал в меш без
+    // userData.kind — это опоры/ручки/штанги/полкодержатели/фланцы, у них
+    // есть только userData.module, своего вида детали для контекстного меню
+    // у них нет. Колбэк получает { module, clientX, clientY }. Пока изоляция
+    // активна, обычный onSelectModule(null) для промаха НЕ вызывается —
+    // выход из изоляции теперь идёт только через явный вызов exitIsolation()
+    // из app.js.
+    this.onFocusMiss = null;
     // Имя модуля, изолированного в последнем render() — нужно pointerup-
     // обработчику, чтобы понимать, что клик пришёлся внутрь изоляции.
     this._isolateModule = null;
@@ -823,26 +842,36 @@ class Viewer3D {
     }
     this.renderer.domElement.addEventListener('pointerup', (e) => {
       if (this.controls.moved > 6) return;
-      if (!this.onSelectModule && !this.onSelectPart) return;
+      if (!this.onSelectModule && !this.onSelectPart && !this.onFocusMiss) return;
       // Деталь теперь собирается из нескольких слоёв внутри группы, поэтому
       // луч пускаем РЕКУРСИВНО, а имя модуля ищем вверх по родителям.
       const hits = this._hitTestAt(e);      // контуры не в счёт (см. _hitTestAt)
       const hitModule = (hits.length && this._moduleOwnerOf(hits[0].object)) || null;
-      // Режим изоляции: клик ВНУТРИ изолированного модуля обрабатывается
-      // отдельно — ищем ближайшего предка с userData.kind (боковина и т.д.),
-      // а не выбираем модуль целиком.
-      if (this._isolateModule && hitModule === this._isolateModule && hits.length) {
+      // Режим изоляции: пока она активна, сцена вообще не содержит чужих
+      // модулей (см. render()), поэтому ЛЮБОЙ клик внутри неё обрабатываем
+      // только через onSelectPart/onFocusMiss — никогда не проваливаемся в
+      // обычный onSelectModule (выход из изоляции теперь только по явной
+      // команде из app.js через exitIsolation(), а не по клику мимо).
+      if (this._isolateModule) {
         let kindOwner = null;
-        for (let o = hits[0].object; o; o = o.parent) {
-          if (o.userData && o.userData.kind) { kindOwner = o; break; }
-        }
-        if (kindOwner && kindOwner.userData.kind === 'side') {
-          if (this.onSelectPart) {
-            this.onSelectPart({ module: hitModule, kind: 'side', side: kindOwner.userData.side });
+        if (hits.length) {
+          for (let o = hits[0].object; o; o = o.parent) {
+            if (o.userData && o.userData.kind) { kindOwner = o; break; }
           }
         }
-        // Остальные виды деталей (полка/дно/фасад и т.п.) пока не имеют
-        // своего контекстного меню внутри изоляции — намеренно ничего не делаем.
+        if (kindOwner) {
+          if (this.onSelectPart) {
+            this.onSelectPart({
+              module: this._isolateModule,
+              kind: kindOwner.userData.kind,
+              side: kindOwner.userData.side,
+              clientX: e.clientX,
+              clientY: e.clientY,
+            });
+          }
+        } else if (this.onFocusMiss) {
+          this.onFocusMiss({ module: this._isolateModule, clientX: e.clientX, clientY: e.clientY });
+        }
         return;
       }
       // Промах по модели (клик по пустому месту) — снимаем выделение,
@@ -871,8 +900,10 @@ class Viewer3D {
       const hits = this._hitTestAt(e);
       const hitModule = (hits.length && this._moduleOwnerOf(hits[0].object)) || null;
       if (hitModule) this.onIsolateModule(hitModule);
-      // Промах по пустому месту — ничего не делаем: выход из изоляции по
-      // клику мимо реализован на стороне app.js через onSelectModule(null).
+      // Промах по пустому месту — ничего не делаем. Если уже была активна
+      // изоляция другого модуля — она остаётся как есть: выход из изоляции
+      // теперь идёт только по явной команде из app.js (exitIsolation()), а
+      // не по клику/двойному клику мимо (см. pointerup выше).
     });
 
     // Зум в ортогональных видах меняет рамку камеры (радиус там не работает)
@@ -994,6 +1025,17 @@ class Viewer3D {
     mat.needsUpdate = true;
   }
 
+  /**
+   * Мировые координаты (в мм) подсказки осей на экране «Деталь»: начало
+   * координат детали, концы рёбер осей X/Y и мировые точки кастомных
+   * отверстий. Заполняется в render() внутри блока opts.axisHintRow —
+   * используется оверлеем размеров поверх видов спереди/сбоку/сверху.
+   * Возвращает null, если подсказка сейчас не активна.
+   */
+  getAxisHint() {
+    return this._axisHint;
+  }
+
   /** Размер канвы в пикселях — для позиционирования оверлея. */
   canvasSize() {
     const el = this.renderer.domElement;
@@ -1069,6 +1111,10 @@ class Viewer3D {
     // здесь, а в _animate(): оно должно пересчитываться каждый кадр при
     // орбите камеры, а не только при пересчёте модели.
     this._drillCheck = drillCheck;
+    // Подсказка осей (см. блок с opts.axisHintRow ниже) отдаёт мировые
+    // координаты наружу — сбрасываем перед пересчётом, иначе после того как
+    // деталь убрали с экрана «Деталь», здесь остались бы устаревшие данные.
+    this._axisHint = null;
     this._updateFloorVisibility();
     const highlight = opts && opts.highlightModule;
     // Режим изоляции (двойной клик по модулю, см. dblclick-обработчик выше):
@@ -1090,11 +1136,19 @@ class Viewer3D {
       const isFacade = row.kind === 'door' || row.kind === 'drawerFront';
       if (hideFacades && row.kind === 'handle') continue;
       const ghost = hideFacades && isFacade;
-      // Модули, НЕ участвующие в изоляции, гаснут той же полупрозрачностью,
-      // что и скрытые фасады (ghost) — просто по другой причине. Сам
-      // изолированный модуль остаётся полностью непрозрачным.
-      const dimmed = !!(isolateModule && row.module !== isolateModule);
-      const ghostLike = ghost || dimmed;
+      // Модули, НЕ участвующие в изоляции, раньше просто гасли прозрачностью
+      // (opacity), теперь — не рисуются вовсе: детали чужого модуля не
+      // долетают до сцены (continue до создания мешей), чтобы полностью
+      // убрать их из вида и не тратить на них геометрию/рейкаст. Изолированный
+      // модуль остаётся полностью непрозрачным, как и раньше.
+      if (isolateModule && row.module !== isolateModule) continue;
+      // dimmed раньше означал «модуль погашен изоляцией» и включал
+      // полупрозрачность; теперь такие детали отсеяны выше (continue), так
+      // что dimmed всегда false. Оставляем константой, чтобы не переписывать
+      // сигнатуры вспомогательных функций (makeLeg/makeHandle/makeRod и т.д.),
+      // которые принимают этот флаг для СВОЕЙ, отдельной, полупрозрачности.
+      const dimmed = false;
+      const ghostLike = ghost;
       const glass = !!row.glass;                 // стекло рисуем прозрачным
       const framed = (row.frameW || 0) > 0 && row.facadeType !== 'mdfMilled';
       const milled = row.facadeType === 'mdfMilled';   // фрезеровка на пласти
@@ -1217,6 +1271,13 @@ class Viewer3D {
       const toV = (h) => (lenIsU ? h.y : h.x);
       for (const h of (row.holes || [])) {
         if (h.side === 'edge') continue;                // торцевую не режем
+        // Отверстие без диаметра (только что добавленное на экране «Деталь»,
+        // пользователь ещё не ввёл ⌀) ничего не режет — не только по смыслу
+        // (нулевой вырез), но и потому что slabGeometry() ниже отличает
+        // круглый вырез от прямоугольного по truthy c.r: при r=0 код уходит
+        // в ветку прямоугольного паза и читает несуществующие c.u0/c.u1,
+        // получая NaN-геометрию.
+        if (!(h.d > 0)) continue;
         const u = toU(h);
         const v = toV(h);
         const fromFront = h.side === 'back' ? !frontIsPlus : frontIsPlus;
@@ -1383,6 +1444,81 @@ class Viewer3D {
             marker.userData.module = row.module;
             mesh.add(marker);
           }
+        }
+        // ПОДСКАЗКА ОСЕЙ на экране «Дополнительные отверстия»: рисуем два
+        // цветных ребра ПРЯМО НА ЛИЦЕВОЙ ГРАНИ детали — ось X красным (низ
+        // грани, от (0,0) до (uSize,0)), ось Y зелёным (левый край, от (0,0)
+        // до (0,vSize)) — чтобы было видно, куда физически смотрит каждая
+        // ось при вводе координат вручную. Работает независимо от drillCheck
+        // — это не про проверку присадки, а про ориентацию детали. row
+        // сравнивается по ссылке с opts.axisHintRow — тот же объект
+        // model.partsRaw, что резолвит экран «Деталь» в app.js, поэтому
+        // подбор детали здесь не дублируется.
+        if (opts && opts.axisHintRow && row === opts.axisHintRow) {
+          const dep = 2; // мм — чуть приподнимаем индикатор над поверхностью
+          // off — та же формула выноса от лицевой грани, что и у маркеров
+          // присадки чуть выше (h.through ? 0 : ...), но здесь не сквозное,
+          // поэтому просто «вплотную к лицу, со стороны frontIsPlus».
+          const off = (tSize / 2 - dep / 2) * (frontIsPlus ? 1 : -1) * MM;
+          // Переводим координаты пласти (u,v) в мировые оси — та же логика
+          // ветвления planeIsX/planeIsY/else, что и у marker.position.set
+          // выше, просто оформленная как функция для двух рёбер сразу.
+          const toWorld = (u, v) => {
+            const uc = (u - uSize / 2) * MM;
+            const vc = (v - vSize / 2) * MM;
+            if (planeIsX) return new THREE.Vector3(off, vc, uc);
+            if (planeIsY) return new THREE.Vector3(uc, off, vc);
+            return new THREE.Vector3(uc, vc, off);
+          };
+          const p00 = toWorld(0, 0);
+          const buildAxisEdge = (p1, color) => {
+            const dir = new THREE.Vector3().subVectors(p1, p00);
+            const len = Math.max(dir.length(), 0.001);
+            const bar = new THREE.Mesh(
+              new THREE.CylinderGeometry(1.5 * MM, 1.5 * MM, len, 10),
+              new THREE.MeshStandardMaterial({
+                color, roughness: 0.3, metalness: 0.1,
+                // Рисуем поверх детали (как и маркеры присадки), иначе
+                // индикатор тонет за материалом панели.
+                depthTest: false, transparent: true, opacity: 0.98,
+              })
+            );
+            bar.position.copy(p00).addScaledVector(dir, 0.5);
+            // CylinderGeometry по умолчанию вытянут вдоль своей оси Y —
+            // разворачиваем её на направление ребра в мировых координатах.
+            bar.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir.clone().normalize());
+            bar.renderOrder = 999;
+            bar.userData.axisHint = true;
+            mesh.add(bar);
+          };
+          // Какое ребро (u или v) физически соответствует полю X, а какое —
+          // полю Y, решает тот же lenIsU, что и toU/toV выше (строки ~1254-1256):
+          // у боковины h.x — это высота (v), а не длина пласти (u), иначе
+          // подсказка красит рёбра наоборот тому, что реально сдвинет ввод.
+          buildAxisEdge(toWorld(uSize, 0), lenIsU ? AXIS_X_COLOR : AXIS_Y_COLOR);
+          buildAxisEdge(toWorld(0, vSize), lenIsU ? AXIS_Y_COLOR : AXIS_X_COLOR);
+          // Отдаём те же точки наружу (в МИРОВЫХ мм) — оверлей размеров на
+          // видах спереди/сбоку/сверху рисует размерные линии по ним поверх
+          // цветной 3D-сцены. mesh ещё не добавлен в this.group, но
+          // position/rotation.y на нём уже выставлены выше по коду, поэтому
+          // localToWorld() на основе собственной матрицы даёт верный результат.
+          mesh.updateMatrixWorld(true);
+          const originW = mesh.localToWorld(p00.clone());
+          const xEndW = mesh.localToWorld(toWorld(uSize, 0).clone());
+          const yEndW = mesh.localToWorld(toWorld(0, vSize).clone());
+          const holesW = (row.holes || [])
+            .filter((h) => h.kind === 'custom')
+            .map((h) => {
+              const hp = toWorld(toU(h), toV(h));
+              const hw = mesh.localToWorld(hp.clone());
+              return { x: h.x, y: h.y, d: h.d, world: { x: hw.x / MM, y: hw.y / MM, z: hw.z / MM } };
+            });
+          this._axisHint = {
+            origin: { x: originW.x / MM, y: originW.y / MM, z: originW.z / MM },
+            xEnd: { x: xEndW.x / MM, y: xEndW.y / MM, z: xEndW.z / MM },
+            yEnd: { x: yEndW.x / MM, y: yEndW.y / MM, z: yEndW.z / MM },
+            holes: holesW,
+          };
         }
         // Контур детали. Присадку наклейками больше НЕ рисуем: отверстия и
         // пазы вырезаны в самой геометрии, у глухого отверстия есть дно.
