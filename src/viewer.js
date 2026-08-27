@@ -498,19 +498,22 @@ function makeLeg(box, moduleName, isActive, dimmed) {
 const LEG_MID_CUT_LOW = 0.020;   // м — верх пятки / низ ствола (низ = 0..0,020)
 const LEG_MID_CUT_HIGH = 0.080;  // м — верх ствола / низ площадки (верх = 0,080..0,1)
 
-// «Ушко» клипсы (вариант 'clip') — единственная часть средней зоны, которая
-// НЕ повторяет ствол/резьбу варианта 'plain'. Найдено сравнением профилей
-// радиуса: у 'plain' весь блок 48..78мм и у 'clip' весь блок 35..65мм —
-// это один и тот же декоративный узел резьбы, просто сдвинутый (у 'clip'
-// он начинается на 13мм раньше), с одинаковыми радиусами на всех Y, КРОМЕ
-// одного centrального участка 47,25..52,75мм — там у 'clip' совсем другой,
-// более сложный профиль (сам зацеп), а у 'plain' на сдвинутом эквиваленте
-// (60,25..65,75мм) — простой симметричный прилив. Берём с небольшим
-// запасом (46..54мм), чтобы не потерять край зацепа даже при небольшой
-// погрешности — соседние кольца резьбы лежат ровно на 45 и 55мм, вплотную
-// не задеваются (проверено: 0 треугольников с вершиной на этих Y).
-const LEG_CLIP_TAB_LOW = 0.046;
-const LEG_CLIP_TAB_HIGH = 0.054;
+// «Ушко» клипсы РАНЬШЕ пытались вырезать из baked-меша сравнением радиальных
+// профилей 'clip' и 'plain' (диапазон Y 0,046..0,054) — оказалось ненадёжно:
+// в этом диапазоне у 'clip' лежит не изолированный маленький выступ, а
+// широкий пояс той же спиральной резьбы/рифления, что и везде на стволе
+// (просто с другими координатами вершин) — вырезка «всех треугольников с
+// Y в диапазоне» без учёта X/Z захватывала треугольники по всей окружности
+// под разными углами наклона спирали, из-за чего на реальном рендере
+// появлялась крупная чёрная масса из каскада «колец», а не маленькая
+// деталь. Кроме того, физически цоколь в этом движке — плоская планка
+// (kind: 'plinth', см. engine.js), а не круглый пруток, так что и «хомут
+// вокруг трубы» с чертежа сюда не подошёл бы даже при точной вырезке.
+// Поэтому клипсу больше не вырезаем из baked-геометрии, а строим отдельным
+// маленьким процедурным мешом — см. makeClipTabMesh ниже, по числам из
+// engine.js (площадка клипсы 38×30 мм, вылет от оси CLIP_NATIVE_REACH/
+// CLIP_NATIVE_D), которые там же используются для расчёта присадки и
+// позиционирования цоколя относительно опоры.
 
 // Кеш разрезанных геометрий по варианту ('plain' | 'clip') — резать
 // треугольники накладно, а ножек с этой опорой на сцене может быть много.
@@ -525,7 +528,6 @@ function splitKitchenLegParts(kind, THREE) {
   const EPS = 1e-6;
 
   const lowPos = [], lowNorm = [], highPos = [], highNorm = [];
-  const clipTabPos = [], clipTabNorm = [];
   const triCount = pos.length / 9;
   for (let t = 0; t < triCount; t++) {
     const b = t * 9;
@@ -534,13 +536,10 @@ function splitKitchenLegParts(kind, THREE) {
       for (let k = 0; k < 9; k++) { lowPos.push(pos[b + k]); lowNorm.push(norm[b + k]); }
     } else if (y0 >= LEG_MID_CUT_HIGH - EPS && y1 >= LEG_MID_CUT_HIGH - EPS && y2 >= LEG_MID_CUT_HIGH - EPS) {
       for (let k = 0; k < 9; k++) { highPos.push(pos[b + k]); highNorm.push(norm[b + k]); }
-    } else if (kind === 'clip'
-      && y0 >= LEG_CLIP_TAB_LOW && y0 <= LEG_CLIP_TAB_HIGH
-      && y1 >= LEG_CLIP_TAB_LOW && y1 <= LEG_CLIP_TAB_HIGH
-      && y2 >= LEG_CLIP_TAB_LOW && y2 <= LEG_CLIP_TAB_HIGH) {
-      for (let k = 0; k < 9; k++) { clipTabPos.push(pos[b + k]); clipTabNorm.push(norm[b + k]); }
     }
-    // иначе — треугольник ствола/резьбы между границами: отбрасываем.
+    // иначе — треугольник ствола/резьбы между границами: отбрасываем
+    // (у варианта 'clip' сюда же попадает и «ушко» — его больше не вырезаем
+    // из этого меша, см. комментарий выше и makeClipTabMesh).
   }
 
   // Радиус ствола ровно в точках среза — чтобы цилиндр состыковался с
@@ -563,15 +562,9 @@ function splitKitchenLegParts(kind, THREE) {
   const highGeo = new THREE.BufferGeometry();
   highGeo.setAttribute('position', new THREE.Float32BufferAttribute(highPos, 3));
   highGeo.setAttribute('normal', new THREE.Float32BufferAttribute(highNorm, 3));
-  let clipTabGeo = null;
-  if (kind === 'clip' && clipTabPos.length) {
-    clipTabGeo = new THREE.BufferGeometry();
-    clipTabGeo.setAttribute('position', new THREE.Float32BufferAttribute(clipTabPos, 3));
-    clipTabGeo.setAttribute('normal', new THREE.Float32BufferAttribute(clipTabNorm, 3));
-  }
 
   const result = {
-    lowGeo, highGeo, clipTabGeo,
+    lowGeo, highGeo,
     lowH: LEG_MID_CUT_LOW,                       // высота нижнего куска, нативные м
     highH: LM.NATIVE_HEIGHT - LEG_MID_CUT_HIGH,  // высота верхнего куска, нативные м
     // паспортный радиус ствола Ø29 мм — подстраховка, если на срезе вдруг
@@ -581,6 +574,42 @@ function splitKitchenLegParts(kind, THREE) {
   };
   kitchenLegSplitCache[kind] = result;
   return result;
+}
+
+// Клипса кухонной опоры для крепления цоколя — процедурная деталь (не
+// вырезается из baked-меша, см. комментарий выше splitKitchenLegParts).
+// Цоколь в этом движке — плоская планка (engine.js, kind: 'plinth'), а не
+// круглый пруток, поэтому клипсу делаем не «хомутом», а плоской монтажной
+// пластиной, торцом упирающейся в цоколь — как её и использует расчёт
+// присадки в engine.js (2 отверстия Ø2 с шагом 25мм в планке цоколя,
+// комментарий «площадка клипсы 38×30, присадка 2×Ø2 с шагом 25»).
+// Кеш геометрии по диаметру опоры d — в одном проекте диаметр опоры один
+// на все ножки, а клипс на сцене может быть несколько (передний ряд).
+const clipTabGeoCache = {};
+function makeClipTabGeo(d, THREE) {
+  const key = Math.round(d * 1e6);
+  if (clipTabGeoCache[key]) return clipTabGeoCache[key];
+  const LM = window.Modul3D.legMeshes;
+  // Вылет пластины клипсы от оси опоры — то же число и та же формула
+  // пересчёта под текущий диаметр, что и CLIP_REACH в engine.js (33,5 мм от
+  // оси при видимом диаметре опоры 54 мм в исходной 3D-модели, которая же
+  // задаёт и LM.NATIVE_DIAMETER = 0,054 м — это одна и та же опора с
+  // клипсой.obj, поэтому опорное число совпадает не случайно).
+  const CLIP_NATIVE_REACH = 0.0335; // м
+  const reach = CLIP_NATIVE_REACH * (d / LM.NATIVE_DIAMETER);
+  const legR = d / 2;
+  const plateW = 0.038; // м — ширина площадки клипсы (engine.js: «площадка клипсы 38×30»)
+  const plateH = 0.030; // м — высота площадки клипсы
+  // Толщина пластины — весь зазор от поверхности ствола до внешней грани
+  // (вылета от оси): при типовом диаметре опоры получается несколько мм,
+  // как у тонкой пластиковой монтажной пластины. Нижняя граница —
+  // подстраховка на случай, если диаметр опоры когда-нибудь станет больше
+  // вылета клипсы (тогда пластина не «утонет» в стволе).
+  const depth = Math.max(reach - legR, 0.003);
+  const geo = new THREE.BoxGeometry(depth, plateH, plateW);
+  geo.userData.legR = legR;
+  clipTabGeoCache[key] = geo;
+  return geo;
 }
 
 function makeKitchenLeg(box, moduleName, isActive, hasClip, dimmed) {
@@ -632,17 +661,18 @@ function makeKitchenLeg(box, moduleName, isActive, hasClip, dimmed) {
   midMesh.position.y = (cut.lowH - cut.highH) / 2;
   g.add(midMesh);
 
-  // Ушко клипсы (только у варианта с клипсой) — держится на своём родном
-  // месте в НАТИВНОМ масштабе (scale.y = 1, не тянется вместе с цилиндром).
-  // В исходнике оно строго на середине высоты опоры (Y=0,05 из 0,1 —
-  // совпадает с CLIP_Y = baseH*0,5 в engine.js, которым инженерный расчёт
-  // ставит планку цоколя). Поэтому крепим его к середине ГРУППЫ (локальный
-  // y=0), а не к фиксированному расстоянию от пятки — так при любой высоте
-  // опоры клипса остаётся ровно там, где её ждёт цоколь.
-  if (cut.clipTabGeo) {
-    const clipTabMesh = new THREE.Mesh(cut.clipTabGeo, plastic);
-    clipTabMesh.scale.set(scaleXZ, 1, scaleXZ);
-    clipTabMesh.position.y = -LM.NATIVE_HEIGHT / 2;
+  // Клипса (только у варианта с клипсой) — маленькая процедурная пластина,
+  // см. makeClipTabGeo. Высота: середина ГРУППЫ (локальный y=0) — при любой
+  // высоте опоры это ровно CLIP_Y = baseH*0,5 из engine.js, на которую
+  // инженерный расчёт ставит планку цоколя. Глубина (X): от поверхности
+  // ствола (legR) до внешней грани на расстоянии reach от оси — центр
+  // пластины на legR + depth/2. Поворот всей группы ниже (g.rotation.y =
+  // -90°) уводит локальную +X ровно в глобальную +Z, к цоколю — тот же
+  // разворот, что раньше ориентировал baked-«ушко».
+  if (hasClip) {
+    const clipGeo = makeClipTabGeo(d, THREE);
+    const clipTabMesh = new THREE.Mesh(clipGeo, plastic);
+    clipTabMesh.position.set(clipGeo.userData.legR + clipGeo.parameters.width / 2, 0, 0);
     g.add(clipTabMesh);
   }
 
