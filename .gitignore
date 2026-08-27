@@ -1,1 +1,4 @@
 .claude/scheduled_tasks.lock
+.claude/settings.local.json
+.vscode/
+src/_corrupted_backup/
