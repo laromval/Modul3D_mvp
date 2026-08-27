@@ -222,13 +222,22 @@ function drawerOf(name) {
 }
 
 function syncTriggers() {
-  // «Материалы» — это тот же ящик параметров, только переключает его на
-  // другой экран (data-panelview), поэтому подсвечиваем только основной
-  // триггер панели (без data-scroll/data-panelview).
+  // «Параметры проекта» (data-panelview="module") — общий вход в панель
+  // params: подсвечивается и на экране «module», и на «materials» (у
+  // экрана «Материалы» своей иконки в рейке нет). «Деталь»
+  // (data-panelview="part") подсвечивается только на самом экране «part».
+  var panelView = window.Modul3D.app && window.Modul3D.app.getPanelView && window.Modul3D.app.getPanelView();
   var all = document.querySelectorAll('[data-panel]');
   for (var i = 0; i < all.length; i++) {
-    var isMain = !all[i].getAttribute('data-scroll') && !all[i].getAttribute('data-panelview');
-    all[i].classList.toggle('active', isMain && all[i].getAttribute('data-panel') === openPanel);
+    var el = all[i];
+    if (el.getAttribute('data-scroll')) { el.classList.remove('active'); continue; }
+    var panelMatch = el.getAttribute('data-panel') === openPanel;
+    var pv = el.getAttribute('data-panelview');
+    var active = panelMatch;
+    if (panelMatch && pv) {
+      active = pv === 'part' ? panelView === 'part' : panelView !== 'part';
+    }
+    el.classList.toggle('active', active);
   }
 }
 

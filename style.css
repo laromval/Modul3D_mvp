@@ -231,6 +231,18 @@ body {
   border-color: var(--border-strong);
   background: var(--surface-2);
 }
+.materials-link-btn {
+  display: flex; align-items: center; justify-content: space-between;
+  width: 100%; margin-top: var(--sp-2);
+  font-weight: 600; color: var(--accent);
+  background: var(--accent-soft); border-color: var(--accent);
+}
+.materials-link-btn:hover { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
+.materials-link-btn .arrow { font-weight: 700; }
+/* Кнопка «назад» (стрелка слева) переиспользует .materials-link-btn, но
+   стрелка+текст должны идти одной группой у левого края, а не разъезжаться
+   по краям, как у кнопки «вперёд» (space-between в базовом классе). */
+.back-link-btn { justify-content: flex-start; gap: 8px; margin-bottom: var(--sp-3); }
 .btn:active, .btn-header:active, .add-section-btn:active { transform: translateY(1px); }
 
 .btn:focus-visible,
@@ -281,8 +293,6 @@ select:focus-visible {
   color: var(--accent); font-size: var(--fs-xs); font-family: inherit;
   cursor: pointer; text-decoration: underline; text-underline-offset: 2px;
 }
-.panel-back { display: block; margin-bottom: var(--sp-3); }
-
 /* иконочная кнопка */
 .icon-btn {
   display: inline-flex; align-items: center; justify-content: center;
@@ -645,6 +655,7 @@ body.has-modal-drawer .scrim { opacity: 1; pointer-events: auto; }
   color: var(--muted);
 }
 .panel h3:first-child { margin-top: 0; }
+.panel h3.screen-title { color: var(--accent); }
 .panel h4.mat-sub {
   margin: var(--sp-4) 0 var(--sp-2);
   font-size: var(--fs-sm); font-weight: 600; color: var(--text-2);
@@ -754,14 +765,38 @@ input[type='number'] { font-family: var(--ff-mono); }
 .axis-label-x { color: #e03131; }
 .axis-label-y { color: #2f9e44; }
 
-.lib-row { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 6px; }
-.lib-cat { font-weight: 600; color: var(--accent); border-color: var(--border-strong); }
+.lib-row { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 6px; }
+/* Уже уменьшенный горизонтальный отступ (было 12px, как у обычных .btn) —
+   чтобы все три категории («Шкаф», «Тумба», «Кухонный модуль») помещались
+   в один ряд на стандартной ширине панели «Библиотека» (340px). */
+.lib-cat { padding-left: 8px; padding-right: 8px; font-weight: 600; color: var(--accent); border-color: var(--border-strong); }
 .lib-cat:hover { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); }
 .lib-cat.on { background: var(--accent-soft); border-color: var(--accent); }
 
 /* Сетка миниатюр открытой категории «Базы модулей» — рендерится прямо в
    панели под рядом кнопок-категорий (см. libraryGridBlock() в app.js). */
 .lib-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 8px; }
+/* Заголовок группы плиток по `tier` (например, «Нижние модули» / «Верхние
+   модули» для кухонных модулей) — на всю ширину сетки, см. libraryGridBlock().
+   Показывается и перед самой первой группой, не только между группами. */
+.lib-grid-heading {
+  grid-column: 1 / -1;
+  font-size: var(--fs-xs);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+  color: var(--muted);
+  padding-bottom: 4px;
+  margin-top: 4px;
+  border-bottom: 1px solid var(--border);
+}
+/* У самой первой плитки в сетке заголовок не должен создавать лишний
+   отступ сверху (он и так margin-top:8px у .lib-grid) — компенсируем. */
+.lib-grid-heading:first-child { margin-top: 0; }
+/* Подсказка «Модули появятся позже» под пустой tier-группой (см.
+   libraryGridBlock() в app.js) — растягиваем на всю ширину сетки, само
+   оформление текста даёт класс .hint. */
+.lib-grid-empty { grid-column: 1 / -1; margin: 0 0 var(--sp-2); }
 .lib-item {
   padding: 0; border-radius: var(--r-sm);
   border: 1px solid var(--border); background: var(--surface-2);

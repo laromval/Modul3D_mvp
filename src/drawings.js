@@ -749,6 +749,9 @@ function facadeHoles(p, x0, y0, fw, fh, scale) {
   let body = '';
 
   for (const h of holes) {
+    // Присадка в торец на пласти не изображается — её место в документации
+    // для ЧПУ (см. такую же проверку в drawParts()).
+    if (h.side === 'edge') continue;
     const cx = px(h.x), cy = py(h.y);
     const rr = Math.max((h.d * scale) / 2, 1.6);
     body += `<circle cx="${r(cx)}" cy="${r(cy)}" r="${r(rr)}" class="dw-hole"/>`;

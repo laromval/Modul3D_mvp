@@ -147,6 +147,65 @@ function slabGeometry(uSize, vSize, thick, cuts, MMv) {
   return geo;
 }
 
+// Деталь физически цельная, а мы режем её на слои-слэбы только ради того,
+// чтобы у глухого отверстия было дно (см. panelSlabs). Каждый слэб —
+// НЕЗАВИСИМЫЙ закрытый солид (ExtrudeGeometry со своими торцевыми
+// «крышками»), поэтому простое слияние вершин соседних слэбов в одну
+// геометрию (как делалось раньше) шов не убирает: EdgesGeometry решает,
+// рисовать ли линию, не по совпадению позиций, а по скалярному
+// произведению нормалей у пары треугольников, и у стыковых торцевых
+// крышек двух слэбов нормали смотрят в ПРОТИВОПОЛОЖНЫЕ стороны (каждая —
+// наружу от своего тела) — для EdgesGeometry это неотличимо от настоящего
+// ребра, сколько вершины ни сливай.
+//
+// Поэтому линии детали строятся в ДВА ПРОХОДА:
+//   1) внешний параллелепипед детали (uSize×vSize×tSize) считается ОДИН
+//      РАЗ по её габаритам — независимо от того, на сколько слэбов её
+//      порезали ради вырезов (см. outlineBox/outlineEdges в цикле рендера);
+//   2) у каждого слэба берутся его собственные рёбра (EdgesGeometry), но
+//      из них выбрасываются сегменты, целиком лежащие на внешней рамке
+//      пласти слэба (боковая стенка слэба или дублирующийся периметр) —
+//      они уже нарисованы проходом 1. Настоящие рёбра выреза (стенка
+//      отверстия, дно паза) всегда отступают от края детали по правилам
+//      присадки, так что фильтр их не задевает. Делает это
+//      filterOuterFrameSegments ниже.
+//
+// Фильтрация выполняется ДО поворота/сдвига слэба в мировые оси — то есть
+// на координатах сразу после slabGeometry(), пока x=u, y=v ещё центрированы
+// вокруг нуля (±uSize/2, ±vSize/2) и совпадают по смыслу с halfU/halfV.
+//
+// Известное ограничение (редкий случай, не блокирует основной фикс выше):
+// если на детали ОДНОВРЕМЕННО есть неглубокий вырез (создающий границу
+// слэбов на малой глубине) и, в другом месте той же детали, сквозной
+// вырез — стенка сквозного отверстия тоже окажется «разрезанной» на слэбы
+// этой границей, и в середине её стенки (не на настоящей кромке детали)
+// может остаться лишнее кольцо-шов. Фильтр по внешней рамке пласти его не
+// ловит, т.к. это не рамка пласти, а внутренняя граница слэбов. Отдельная
+// доработка (не делали): убирать рёбра выреза, совпадающего по u,v,r в
+// соседних слэбах по обе стороны их общей границы.
+function filterOuterFrameSegments(edgesGeo, halfU, halfV) {
+  const eps = 1e-6; // метры; boundary-координаты слэба совпадают с halfU/halfV
+  // почти точно (плавающая ошибка Float32 на этих величинах — порядка
+  // 1e-8..1e-7), а реальный вырез отстоит от края минимум на несколько мм
+  // (0.003+ м) — eps между ними с большим запасом в обе стороны.
+  const pos = edgesGeo.attributes.position.array;
+  const onSide = (v0, v1, half) => (
+    (Math.abs(v0 - half) < eps && Math.abs(v1 - half) < eps) ||
+    (Math.abs(v0 + half) < eps && Math.abs(v1 + half) < eps)
+  );
+  const kept = [];
+  for (let i = 0; i < pos.length; i += 6) {
+    const x0 = pos[i], y0 = pos[i + 1];
+    const x1 = pos[i + 3], y1 = pos[i + 4];
+    if (onSide(x0, x1, halfU) || onSide(y0, y1, halfV)) continue; // дубль рамки слэба
+    for (let k = 0; k < 6; k++) kept.push(pos[i + k]);
+  }
+  if (!kept.length) return null;
+  const out = new THREE.BufferGeometry();
+  out.setAttribute('position', new THREE.BufferAttribute(new Float32Array(kept), 3));
+  return out;
+}
+
 // РЕЖИМ ПРОВЕРКИ ПРИСАДКИ: цвет метки по назначению отверстия. Оператору
 // достаточно взгляда, чтобы понять, что за отверстие и куда оно смотрит.
 const DRILL_COLOR = {
@@ -1014,7 +1073,7 @@ class Viewer3D {
   // порог (не 0) — чтобы не мерцало ровно на границе при взгляде почти сбоку.
   _updateFloorVisibility() {
     if (!this._floor || !this._floor.material) return;
-    const below = this.camera && this.camera.position.y < -5;
+    const below = this.camera && this.camera.position.y < -0.05;
     const wantTransparent = !!this._drillCheck || below;
     const mat = this._floor.material;
     const targetOpacity = this._drillCheck ? 0.12 : (below ? 0.1 : 1);
@@ -1326,9 +1385,22 @@ class Viewer3D {
         ? panelSlabs(uSize, vSize, tSize, cuts)
         : [{ a: 0, b: tSize, cuts: [] }];
       const partGeos = [];
+      // Линии контура строятся в два прохода — см. комментарий у
+      // filterOuterFrameSegments выше: outlineEdges — внешний параллелепипед
+      // детали (один раз на деталь), cutEdgeGeos — рёбра вырезов по слэбам
+      // (без дублей на стыках слоёв).
+      let outlineEdges = null;
+      const cutEdgeGeos = [];
       try {
         for (const sl of slabs) {
           const g = slabGeometry(uSize, vSize, sl.b - sl.a, sl.cuts, MM);
+          // Рёбра ЭТОГО слэба считаем ДО поворота/сдвига в мировые оси —
+          // пока x=u, y=v ещё центрированы вокруг нуля (см. slabGeometry),
+          // и сразу выбрасываем сегменты на внешней рамке пласти (дубли
+          // прохода 1). Настоящие рёбра выреза так не отфильтруются: они
+          // всегда отступают от края детали.
+          const rawEdges = new THREE.EdgesGeometry(g);
+          const filtered = filterOuterFrameSegments(rawEdges, uSize * MM / 2, vSize * MM / 2);
           // Слой разворачивается в мировые оси. Ориентация ФИКСИРОВАНА:
           // «лицо» геометрии смотрит в +X у панелей, в +Y у горизонтальных
           // деталей и в +Z у фасадов. С какой стороны резать — решает флаг
@@ -1338,21 +1410,43 @@ class Viewer3D {
           if (planeIsX) {
             g.rotateY(-Math.PI / 2);                   // u → +Z, толщина → +X
             g.translate(shift, 0, 0);
+            if (filtered) { filtered.rotateY(-Math.PI / 2); filtered.translate(shift, 0, 0); }
           } else if (planeIsY) {
             g.rotateX(Math.PI / 2);                    // v → +Z, толщина → +Y
             g.translate(0, shift, 0);
+            if (filtered) { filtered.rotateX(Math.PI / 2); filtered.translate(0, shift, 0); }
           } else {
             g.translate(0, 0, shift);
+            if (filtered) filtered.translate(0, 0, shift);
           }
           partGeos.push(g);
+          if (filtered) cutEdgeGeos.push(filtered);
         }
+        // Проход 1: внешний параллелепипед детали, один раз по её габаритам
+        // (uSize×vSize×tSize), развёрнутый теми же поворотами, что и слэбы,
+        // но БЕЗ сдвига — он уже центрирован по всей толщине детали, как и
+        // сумма всех слэбов (у BoxGeometry центр в нуле по умолчанию, у
+        // slabGeometry центр каждого слоя выставлен так же относительно
+        // общей толщины tSize).
+        const outlineBox = new THREE.BoxGeometry(uSize * MM, vSize * MM, tSize * MM);
+        if (planeIsX) outlineBox.rotateY(-Math.PI / 2);
+        else if (planeIsY) outlineBox.rotateX(Math.PI / 2);
+        outlineEdges = new THREE.EdgesGeometry(outlineBox);
       } catch (err) {
         partGeos.length = 0;
+        cutEdgeGeos.length = 0;
+        outlineEdges = null;
       }
       if (!partGeos.length) {
-        partGeos.push(new THREE.BoxGeometry(
+        // Запасной путь при ошибке резки (см. catch выше) — обычный куб уже
+        // в мировых осях (без разворота planeIsX/Y, он тут не нужен), контур
+        // строим по нему же, чтобы линии не потерялись вместе с вырезами.
+        const fallbackBox = new THREE.BoxGeometry(
           Math.max(locW * MM, 0.001), Math.max(row.box.h * MM, 0.001), Math.max(locD * MM, 0.001)
-        ));
+        );
+        partGeos.push(fallbackBox);
+        outlineEdges = new THREE.EdgesGeometry(fallbackBox);
+        cutEdgeGeos.length = 0;
       }
 
       for (const box of row.boxes) {
@@ -1522,10 +1616,14 @@ class Viewer3D {
         }
         // Контур детали. Присадку наклейками больше НЕ рисуем: отверстия и
         // пазы вырезаны в самой геометрии, у глухого отверстия есть дно.
-        for (const g of partGeos) {
-          const line = new THREE.LineSegments(new THREE.EdgesGeometry(g),
-            new THREE.LineBasicMaterial({ color: isActive ? 0x1d5c8f : 0x8a7a5a }));
-          mesh.add(line);
+        // Линии — в два прохода (см. комментарий у filterOuterFrameSegments
+        // выше): outlineEdges — внешний параллелепипед детали целиком, один
+        // раз, независимо от разбиения на слэбы; cutEdgeGeos — рёбра
+        // реальных вырезов по каждому слэбу, уже без дублей на стыках.
+        {
+          const lineMat = new THREE.LineBasicMaterial({ color: isActive ? 0x1d5c8f : 0x8a7a5a });
+          if (outlineEdges) mesh.add(new THREE.LineSegments(outlineEdges, lineMat));
+          for (const ce of cutEdgeGeos) mesh.add(new THREE.LineSegments(ce, lineMat));
         }
         this.group.add(mesh);
       }
