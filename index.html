@@ -76,6 +76,38 @@
       </div>
     </div>
 
+    <!-- Аккаунт: вход/регистрация, баланс токенов, статус подписки (см. app.js: initAccountPanel) -->
+    <div class="account-wrap">
+      <button id="accountToggle" class="icon-btn tip tip-down" type="button" data-tip="Аккаунт" aria-label="Аккаунт">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="8" r="3.5"/><path d="M5 20c0-3.6 3.1-6.5 7-6.5s7 2.9 7 6.5"/>
+        </svg>
+      </button>
+      <div id="accountPopover" class="popover" style="display:none">
+        <div id="authForm">
+          <div class="field">
+            <label for="authEmail">Email</label>
+            <input id="authEmail" type="email" placeholder="you@example.com" autocomplete="username" />
+          </div>
+          <div class="field">
+            <label for="authPassword">Пароль</label>
+            <input id="authPassword" type="password" placeholder="не менее 8 символов" autocomplete="current-password" />
+          </div>
+          <div class="account-btns">
+            <button id="authLoginBtn" class="btn btn-primary" type="button">Войти</button>
+            <button id="authRegisterBtn" class="btn" type="button">Зарегистрироваться</button>
+          </div>
+          <div id="authStatus" class="sketch-status"></div>
+        </div>
+        <div id="accountInfo" style="display:none">
+          <div class="account-row"><span>Аккаунт</span><b id="accountEmail"></b></div>
+          <div class="account-row"><span>Токены ИИ-эскиза</span><b id="accountTokens"></b></div>
+          <div class="account-row"><span>Подписка</span><b id="accountSubStatus"></b></div>
+          <button id="authLogoutBtn" class="btn" type="button">Выйти</button>
+        </div>
+      </div>
+    </div>
+
     <button id="themeToggle" class="icon-btn tip tip-down" type="button" data-tip="Светлая / тёмная тема" aria-label="Сменить тему">
       <svg class="ic-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
         <circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>
@@ -201,6 +233,7 @@
       <div id="drillLegend" class="drill-legend-inline"></div>
 
       <h3 class="drawer-section">Эскиз → 3D</h3>
+      <div id="sketchAuthNote" class="sketch-status"></div>
       <input id="sketchFile" type="file" accept="image/jpeg,image/png" style="display:none" />
       <div class="studio-list">
         <button id="sketchUploadBtn" class="btn" type="button">Загрузить эскиз (ИИ)</button>
@@ -209,15 +242,6 @@
         <img id="sketchPreview" class="sketch-preview" style="display:none" alt="" />
         <button id="recognizeBtn" class="btn btn-primary" type="button">Распознать эскиз</button>
         <div id="sketchStatus" class="sketch-status"></div>
-      </div>
-
-      <h3 class="drawer-section">Доступ</h3>
-      <div class="studio-list">
-        <button id="apiKeyToggle" class="btn" type="button" title="Anthropic API-ключ">API-ключ Anthropic</button>
-      </div>
-      <div id="apiKeyPopover" class="popover" style="display:none">
-        <label for="apiKey">Ключ хранится только в этом браузере</label>
-        <input id="apiKey" type="password" placeholder="sk-ant-…" />
       </div>
     </div>
   </aside>

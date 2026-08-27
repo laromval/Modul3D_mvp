@@ -14,7 +14,7 @@
 (function () {
 // Версия сборки — показывается во вкладке браузера и в шапке.
 // При выпуске новой версии меняется только эта строка.
-const APP_VERSION = 'v190';
+const APP_VERSION = 'v191';
 
 // Номер версии выводим ПЕРВЫМ делом: если дальше что-то упадёт, по нему сразу
 // видно, какая сборка открыта.
@@ -1891,7 +1891,17 @@ function bindPanelEvents() {
   on('m-legType', 'change', (e) => { mod.legType = e.target.value; recompute(); });
   on('m-baseHeight', 'change', (e) => {
     const v = Number(e.target.value);
-    if (mod.baseType === 'plinth') mod.plinthHeight = v; else mod.legHeight = v;
+    // Цокольная планка идёт непрерывной линией по всему помещению — если у
+    // соседних модулей разная высота основания, на стыке образуется
+    // физически невозможный уступ. Поэтому высоту синхронизируем сразу по
+    // ВСЕМ модулям проекта (не только по текущему ряду/семейству — так
+    // попросил пользователь), каждому пишем в то поле, что у него сейчас
+    // активно по его собственному baseType, чтобы полная высота от пола до
+    // низа корпуса совпала независимо от того, чем реализовано основание —
+    // цоколем или опорами.
+    state.modules.forEach((m) => {
+      if (m.baseType === 'plinth') m.plinthHeight = v; else m.legHeight = v;
+    });
     recompute();
   });
 
@@ -2635,7 +2645,173 @@ function initHeaderControls() {
 }
 
 // ---------------------------------------------------------------------------
-// Эскиз → 3D (Claude Vision)
+// Аккаунт: вход/регистрация, баланс токенов, статус подписки
+// (см. ТЗ-МОНЕТИЗАЦИЯ.md, раздел 4.2 — минимальный вход, без него токены не
+// к чему привязать для ИИ-распознавания эскиза). API_BASE и ключ localStorage
+// под JWT — общие с sketchAI.js, чтобы не разъезжались (window.Modul3D.sketchAI).
+// ---------------------------------------------------------------------------
+const AUTH_API_BASE = window.Modul3D.sketchAI.API_BASE;
+const AUTH_TOKEN_KEY = window.Modul3D.sketchAI.AUTH_TOKEN_KEY;
+
+// Текущий статус аккаунта (null, пока не залогинены/не проверили токен) —
+// { email, subscription: { status, currentPeriodEnd }, tokenBalance }
+let authAccount = null;
+
+function getAuthToken() {
+  return localStorage.getItem(AUTH_TOKEN_KEY);
+}
+
+function setAuthToken(token) {
+  if (token) localStorage.setItem(AUTH_TOKEN_KEY, token);
+  else localStorage.removeItem(AUTH_TOKEN_KEY);
+}
+
+function setAuthStatus(message, kind) {
+  const el = document.getElementById('authStatus');
+  if (!el) return;
+  el.textContent = message || '';
+  el.className = 'sketch-status' + (kind ? ` ${kind}` : '');
+}
+
+async function authRequest(path, body) {
+  let res;
+  try {
+    res = await fetch(`${AUTH_API_BASE}${path}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+  } catch (networkErr) {
+    throw new Error('Не удалось связаться с сервером — проверьте подключение к интернету.');
+  }
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || `Ошибка сервера (${res.status}).`);
+  return data;
+}
+
+// Обновляет и попап «Аккаунт» в шапке, и подсказку рядом с загрузкой эскиза
+// (см. index.html: sketchAuthNote) — единая точка отрисовки статуса входа.
+function renderAccountUI() {
+  const authForm = document.getElementById('authForm');
+  const accountInfo = document.getElementById('accountInfo');
+  const accountToggle = document.getElementById('accountToggle');
+  const sketchNote = document.getElementById('sketchAuthNote');
+
+  if (authAccount) {
+    if (authForm) authForm.style.display = 'none';
+    if (accountInfo) accountInfo.style.display = 'block';
+    const emailEl = document.getElementById('accountEmail');
+    const tokensEl = document.getElementById('accountTokens');
+    const subEl = document.getElementById('accountSubStatus');
+    if (emailEl) emailEl.textContent = authAccount.email;
+    if (tokensEl) tokensEl.textContent = String(authAccount.tokenBalance);
+    if (subEl) {
+      const st = authAccount.subscription && authAccount.subscription.status;
+      subEl.textContent = st === 'active' ? 'активна' : 'нет';
+    }
+    if (accountToggle) accountToggle.classList.add('active');
+    if (sketchNote) {
+      sketchNote.textContent = `Вы вошли как ${authAccount.email} · токенов: ${authAccount.tokenBalance}`;
+      sketchNote.className = 'sketch-status' + (authAccount.tokenBalance > 0 ? '' : ' error');
+    }
+  } else {
+    if (authForm) authForm.style.display = 'block';
+    if (accountInfo) accountInfo.style.display = 'none';
+    if (accountToggle) accountToggle.classList.remove('active');
+    if (sketchNote) {
+      sketchNote.textContent = 'Войдите в аккаунт (кнопка «Аккаунт» в шапке), чтобы распознавать эскизы через ИИ.';
+      sketchNote.className = 'sketch-status';
+    }
+  }
+}
+
+// Дёргает /auth/me и обновляет authAccount по сохранённому JWT — вызывается
+// при загрузке страницы (если токен уже есть) и сразу после входа/регистрации.
+async function fetchAccount() {
+  const token = getAuthToken();
+  if (!token) { authAccount = null; renderAccountUI(); return; }
+  try {
+    const res = await fetch(`${AUTH_API_BASE}/auth/me`, {
+      headers: { authorization: `Bearer ${token}` },
+    });
+    if (res.status === 401) {
+      // Токен истёк/невалиден — тихо разлогиниваем, без всплывающей ошибки
+      // при обычной загрузке страницы.
+      setAuthToken(null);
+      authAccount = null;
+      renderAccountUI();
+      return;
+    }
+    if (!res.ok) throw new Error(`Ошибка сервера (${res.status}).`);
+    authAccount = await res.json();
+  } catch (err) {
+    console.error('Не удалось получить статус аккаунта:', err);
+    authAccount = null;
+  }
+  renderAccountUI();
+}
+
+function initAccountPanel() {
+  const toggle = document.getElementById('accountToggle');
+  const popover = document.getElementById('accountPopover');
+  const emailInput = document.getElementById('authEmail');
+  const passwordInput = document.getElementById('authPassword');
+  const loginBtn = document.getElementById('authLoginBtn');
+  const registerBtn = document.getElementById('authRegisterBtn');
+  const logoutBtn = document.getElementById('authLogoutBtn');
+  if (!toggle || !popover) return;
+
+  toggle.addEventListener('click', () => {
+    popover.style.display = popover.style.display === 'none' ? 'block' : 'none';
+  });
+  popover.addEventListener('click', (e) => e.stopPropagation());
+  document.addEventListener('click', (e) => {
+    if (!popover.contains(e.target) && e.target !== toggle) popover.style.display = 'none';
+  });
+
+  async function submit(path, successMessage) {
+    const email = (emailInput.value || '').trim();
+    const password = passwordInput.value || '';
+    if (!email || !password) {
+      setAuthStatus('Укажите email и пароль.', 'error');
+      return;
+    }
+    loginBtn.disabled = true;
+    registerBtn.disabled = true;
+    setAuthStatus(path === '/auth/login' ? 'Входим…' : 'Регистрируем…', '');
+    try {
+      const data = await authRequest(path, { email, password });
+      setAuthToken(data.token);
+      passwordInput.value = '';
+      setAuthStatus('', '');
+      await fetchAccount();
+    } catch (err) {
+      setAuthStatus('Ошибка: ' + err.message, 'error');
+    } finally {
+      loginBtn.disabled = false;
+      registerBtn.disabled = false;
+    }
+  }
+
+  loginBtn.addEventListener('click', () => submit('/auth/login'));
+  registerBtn.addEventListener('click', () => submit('/auth/register'));
+
+  if (logoutBtn) {
+    logoutBtn.addEventListener('click', () => {
+      setAuthToken(null);
+      authAccount = null;
+      emailInput.value = '';
+      passwordInput.value = '';
+      renderAccountUI();
+    });
+  }
+
+  renderAccountUI();
+  if (getAuthToken()) fetchAccount();
+}
+
+// ---------------------------------------------------------------------------
+// Эскиз → 3D (Claude Vision, через сервер — см. sketchAI.js)
 // ---------------------------------------------------------------------------
 let selectedSketchFile = null;
 
@@ -2676,12 +2852,20 @@ function initSketchPanel() {
   });
 
   recognizeBtn.addEventListener('click', async () => {
-    const apiKey = (document.getElementById('apiKey').value || '').trim();
     if (!selectedSketchFile) { setSketchStatus('Сначала выберите файл эскиза.', 'error'); return; }
+    if (!authAccount) {
+      setSketchStatus('Войдите в аккаунт (кнопка «Аккаунт» в шапке), чтобы распознать эскиз через ИИ.', 'error');
+      return;
+    }
+    if (authAccount.tokenBalance <= 0) {
+      setSketchStatus('Токены на распознавание эскиза закончились — пополните баланс.', 'error');
+      return;
+    }
     recognizeBtn.disabled = true;
     setSketchStatus('Распознаём эскиз через Claude…', '');
     try {
-      const r = await recognizeSketch(selectedSketchFile, apiKey);
+      // Контракт сервера (см. server/src/routes/sketch.js): { params, tokenBalance }.
+      const { params: r, tokenBalance } = await recognizeSketch(selectedSketchFile);
       // Результат применяем к активному модулю
       const mod = state.modules[state.activeModule];
       mod.width = r.width; mod.height = r.height; mod.depth = r.depth;
@@ -2696,6 +2880,13 @@ function initSketchPanel() {
       renderParamsPanel();
       recompute();
 
+      // Сервер возвращает актуальный остаток токенов вместе с результатом —
+      // обновляем локальный статус аккаунта без лишнего похода на /auth/me.
+      if (typeof tokenBalance === 'number' && authAccount) {
+        authAccount.tokenBalance = tokenBalance;
+        renderAccountUI();
+      }
+
       const decorNote = r.decorHint && !decorCode
         ? ` Материал «${r.decorHint}» не найден в справочнике — поправьте вручную.` : '';
       setSketchStatus(`Готово, параметры применены к модулю «${mod.name}» — проверьте их.${r.notes ? ' ' + r.notes : ''}${decorNote}`, 'ok');
@@ -2707,22 +2898,10 @@ function initSketchPanel() {
     }
   });
 
-  const apiKeyToggle = document.getElementById('apiKeyToggle');
-  const apiKeyPopover = document.getElementById('apiKeyPopover');
-  const apiKeyInput = document.getElementById('apiKey');
-  const savedKey = localStorage.getItem('basisApiKey');
-  if (savedKey) apiKeyInput.value = savedKey;
-  apiKeyToggle.addEventListener('click', () => {
-    apiKeyPopover.style.display = apiKeyPopover.style.display === 'none' ? 'block' : 'none';
-  });
-  apiKeyInput.addEventListener('input', () => localStorage.setItem('basisApiKey', apiKeyInput.value.trim()));
-
   document.addEventListener('click', (e) => {
     if (!popover.contains(e.target) && e.target !== uploadBtn) popover.style.display = 'none';
-    if (!apiKeyPopover.contains(e.target) && e.target !== apiKeyToggle) apiKeyPopover.style.display = 'none';
   });
   popover.addEventListener('click', (e) => e.stopPropagation());
-  apiKeyPopover.addEventListener('click', (e) => e.stopPropagation());
 }
 
 // Смена валюты (ui-shell.js: currencyToggle → setCurrency) не меняет ни одно
@@ -2755,6 +2934,7 @@ try {
   initLibraryPanel();
   recompute();
   offerAutosaveRestore();
+  initAccountPanel();
   initSketchPanel();
   initHeaderControls();
   initPartEditorOverlay();

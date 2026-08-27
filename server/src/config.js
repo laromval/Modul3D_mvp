@@ -1,6 +1,6 @@
 // Единая точка чтения переменных окружения. Секретов по умолчанию нет —
 // плейсхолдеры существуют только чтобы сервер не падал при импорте до того,
-// как код реально попробует ими воспользоваться (Stripe/JWT дадут понятную
+// как код реально попробует ими воспользоваться (Paddle/JWT дадут понятную
 // ошибку сами, если значение осталось плейсхолдером).
 
 require('dotenv').config();
@@ -21,9 +21,19 @@ module.exports = {
 
   startingTokenBalance: parseInt(process.env.STARTING_TOKEN_BALANCE || '20', 10),
 
-  stripeSecretKey: process.env.STRIPE_SECRET_KEY,
-  stripePriceId: process.env.STRIPE_PRICE_ID,
-  stripeWebhookSecret: process.env.STRIPE_WEBHOOK_SECRET,
+  paddleApiKey: process.env.PADDLE_API_KEY,
+  paddlePriceId: process.env.PADDLE_PRICE_ID,
+  paddleWebhookSecret: process.env.PADDLE_WEBHOOK_SECRET,
+  // 'sandbox' | 'production' — см. paddleClient.js. По умолчанию sandbox.
+  paddleEnvironment: process.env.PADDLE_ENVIRONMENT || 'sandbox',
+  // Единственный URL возврата, который принимает Paddle Transaction
+  // (checkout.url в запросе) — у Paddle, в отличие от Stripe, нет отдельного
+  // cancel_url: при отмене пользователь просто закрывает окно чекаута.
   checkoutSuccessUrl: process.env.CHECKOUT_SUCCESS_URL || 'http://localhost:8080/?checkout=success',
-  checkoutCancelUrl: process.env.CHECKOUT_CANCEL_URL || 'http://localhost:8080/?checkout=cancel',
+
+  // --- Этап 2: прокси ИИ-эскиза (server/src/services/sketchRecognition.js) ---
+  // Серверный ключ Anthropic — никогда не попадает в клиентский код/ответ.
+  anthropicApiKey: process.env.ANTHROPIC_API_KEY,
+  // Стоимость одного распознавания эскиза в токенах (ТЗ-МОНЕТИЗАЦИЯ.md, 4.1).
+  sketchTokenCost: parseInt(process.env.SKETCH_TOKEN_COST || '1', 10),
 };

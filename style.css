@@ -1058,6 +1058,19 @@ h4.spec-title { margin: var(--sp-5) 0 var(--sp-2); font-size: var(--fs-md); font
 .currency-opt { display: flex; align-items: center; gap: 8px; font-size: var(--fs-sm); color: var(--text); cursor: pointer; }
 .currency-opt input { width: auto; }
 
+/* ---------- 15б. АККАУНТ (вход/регистрация, токены, подписка) ------------ */
+
+.account-wrap { position: relative; display: inline-flex; }
+.account-wrap .popover { position: absolute; right: 0; top: calc(100% + 8px); width: 250px; z-index: 55; }
+.account-btns { display: flex; gap: var(--sp-2); margin-top: var(--sp-2); }
+.account-btns .btn { flex: 1; }
+.account-row {
+  display: flex; align-items: center; justify-content: space-between; gap: var(--sp-2);
+  font-size: var(--fs-sm); color: var(--text-2); padding: 4px 0;
+}
+.account-row b { color: var(--text); font-weight: 600; }
+#accountInfo #authLogoutBtn { width: 100%; margin-top: var(--sp-2); }
+
 /* Отменить/Вернуть/Удалить в шапке — иконки-глифы вместо svg */
 .icon-btn-text { font-size: 15px; font-weight: 700; font-family: inherit; }
 .icon-btn.danger { color: var(--danger); }

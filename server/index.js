@@ -1,5 +1,5 @@
 // Modul3D backend — Этап 1 монетизации: аккаунты, подписки, баланс токенов,
-// приём платежей (Stripe). Точка входа Express-приложения.
+// приём платежей (Paddle). Точка входа Express-приложения.
 //
 // Обычный Node-процесс (require/CommonJS) — стиль клиентской части проекта
 // (глобальные объекты window.Modul3D.*, без сборщика) сюда не переносится,
@@ -11,6 +11,7 @@ const cors = require('cors');
 const config = require('./src/config');
 const authRouter = require('./src/routes/auth');
 const billingRouter = require('./src/routes/billing');
+const sketchRouter = require('./src/routes/sketch');
 
 const app = express();
 
@@ -20,11 +21,14 @@ app.get('/health', (req, res) => {
   res.json({ ok: true, service: 'modul3d-server' });
 });
 
-// express.json() подключается точечно внутри routers/auth.js и
-// routers/billing.js (а не здесь глобально) — /billing/webhook требует
-// сырое тело для проверки подписи Stripe, см. комментарий в billing.js.
+// express.json() подключается точечно внутри routers/auth.js,
+// routers/billing.js и routers/sketch.js (а не здесь глобально) —
+// /billing/webhook требует сырое тело для проверки подписи Paddle (см.
+// комментарий в billing.js), а /sketch/recognize — увеличенный лимит
+// (10mb) под base64-изображение, не нужный остальным роутам.
 app.use('/auth', express.json(), authRouter);
 app.use('/billing', billingRouter);
+app.use('/sketch', sketchRouter);
 
 app.use((req, res) => {
   res.status(404).json({ error: 'Не найдено.' });
