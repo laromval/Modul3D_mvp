@@ -11,14 +11,14 @@ CREATE TABLE IF NOT EXISTS users (
 );
 
 -- Статус подписки пользователя. Одна активная подписка на пользователя
--- на этом этапе (Stripe subscription); provider_subscription_id — id
--- подписки в Stripe для сверки при вебхуках.
+-- на этом этапе (Paddle subscription); provider_subscription_id — id
+-- подписки в Paddle для сверки при вебхуках.
 CREATE TABLE IF NOT EXISTS subscriptions (
   id                       UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id                  UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   status                   TEXT NOT NULL DEFAULT 'none',
     -- ожидаемые значения status: 'none' | 'active' | 'past_due' | 'canceled'
-  provider                 TEXT NOT NULL DEFAULT 'stripe',
+  provider                 TEXT NOT NULL DEFAULT 'paddle',
   provider_customer_id     TEXT,
   provider_subscription_id TEXT UNIQUE,
   current_period_end       TIMESTAMPTZ,
@@ -35,9 +35,10 @@ CREATE TABLE IF NOT EXISTS token_balances (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
--- Журнал уже обработанных событий Stripe webhook — защита от повторной
--- обработки одного и того же события при retry со стороны Stripe (иначе
+-- Журнал уже обработанных событий Paddle webhook — защита от повторной
+-- обработки одного и того же события при retry со стороны Paddle (иначе
 -- повторный вебхук может продублировать изменение статуса подписки).
+-- event_id хранит значение event.eventId из Paddle SDK (Webhooks.unmarshal).
 CREATE TABLE IF NOT EXISTS processed_webhook_events (
   event_id     TEXT PRIMARY KEY,
   processed_at TIMESTAMPTZ NOT NULL DEFAULT now()

@@ -2,7 +2,7 @@
   "name": "modul3d-server",
   "version": "0.1.0",
   "private": true,
-  "description": "Modul3D backend — Этап 1 монетизации: аккаунты, подписки, баланс токенов, приём платежей (Stripe).",
+  "description": "Modul3D backend — Этап 1 монетизации: аккаунты, подписки, баланс токенов, приём платежей (Paddle).",
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
@@ -10,15 +10,15 @@
     "migrate": "node scripts/migrate.js"
   },
   "dependencies": {
+    "@paddle/paddle-node-sdk": "^3.10.0",
     "bcryptjs": "^2.4.3",
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",
     "express": "^4.19.2",
     "jsonwebtoken": "^9.0.2",
-    "pg": "^8.12.0",
-    "stripe": "^16.9.0"
+    "pg": "^8.12.0"
   },
   "engines": {
-    "node": ">=18"
+    "node": ">=20"
   }
 }
