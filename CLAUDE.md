@@ -97,6 +97,7 @@ drawings.js → export.js → cnc.js → sketchAI.js → app.js`.
 | 3D-сцена (Three.js) и чертежи (SVG, ЕСКД) — вид, камера, материалы, проекции | `geometry-engine` | `src/viewer.js`, `src/drawings.js`, (данные опор — `src/legMeshes.js`, см. предупреждение выше — не читать целиком) |
 | Интерфейс управления (поля ввода, панель настроек, привязка к сцене) | `ui-configurator` | `src/app.js`, `src/ui-shell.js`, `src/errorBanner.js`, `index.html`, `style.css` |
 | Экспорт файлов: Excel, DXF/CSV для ЧПУ, (в перспективе) PDF | `export-cutting` | `src/export.js`, `src/cnc.js` |
+| Сервер монетизации: аккаунты, подписки, токены, платежи (Stripe/Paddle), прокси ИИ-эскиза | `backend-monetization` | новая директория `server/` (см. `ТЗ-МОНЕТИЗАЦИЯ.md`) |
 | Проверка кода, тесты, консистентность перед коммитом | `code-reviewer` | весь проект (кроме `tools/` — dev-only, см. выше) |
 
 ## Порядок работы над задачей

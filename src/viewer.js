@@ -480,10 +480,109 @@ function makeLeg(box, moduleName, isActive, dimmed) {
 }
 
 // Опора «Кухонная» — настоящая модель заказчика (опора.obj / опора с
-// клипсой.obj), а не параметрическое приближение: меш запечён в
-// src/legMeshes.js и подставляется как есть, отмасштабированный под нужную
-// высоту/диаметр опоры. Сплошной чёрный матовый пластик — как в файле
-// (там всего один материал, plastic_matte, отдельной резиновой пятки нет).
+// клипсой.obj), запечённая в src/legMeshes.js, БЕЗ групп/подмешей (просто
+// облако треугольников). Раньше весь меш растягивался по Y одним
+// mesh.scale — от этого при смене высоты опоры «плыла» и верхняя площадка,
+// и нижняя пятка, и резьба.
+//
+// По требованию заказчика (чертёж регулируемой опоры 98–130 мм) резьбу не
+// моделируем — она не видна в сборке. Вместо неё меш разрезан на две
+// НЕИЗМЕНЯЕМЫЕ по размеру части — верхнюю площадку и нижнюю пятку, — а
+// между ними вставлен гладкий процедурный цилиндр, длина которого и
+// меняется при изменении box.h. Границы среза (в нативных метрах
+// исходника, где 0 — низ пятки, NATIVE_HEIGHT=0.1 — верх площадки) найдены
+// разведочным анализом координат треугольников меша: у обоих вариантов
+// (plain/clip) РОВНО на Y=0,020 и Y=0,080 нет ни одного треугольника,
+// пересекающего границу — то есть в самой исходной модели там уже проходит
+// шов между пяткой, стволом/резьбой и площадкой, резать можно без дыр.
+const LEG_MID_CUT_LOW = 0.020;   // м — верх пятки / низ ствола (низ = 0..0,020)
+const LEG_MID_CUT_HIGH = 0.080;  // м — верх ствола / низ площадки (верх = 0,080..0,1)
+
+// «Ушко» клипсы (вариант 'clip') — единственная часть средней зоны, которая
+// НЕ повторяет ствол/резьбу варианта 'plain'. Найдено сравнением профилей
+// радиуса: у 'plain' весь блок 48..78мм и у 'clip' весь блок 35..65мм —
+// это один и тот же декоративный узел резьбы, просто сдвинутый (у 'clip'
+// он начинается на 13мм раньше), с одинаковыми радиусами на всех Y, КРОМЕ
+// одного centrального участка 47,25..52,75мм — там у 'clip' совсем другой,
+// более сложный профиль (сам зацеп), а у 'plain' на сдвинутом эквиваленте
+// (60,25..65,75мм) — простой симметричный прилив. Берём с небольшим
+// запасом (46..54мм), чтобы не потерять край зацепа даже при небольшой
+// погрешности — соседние кольца резьбы лежат ровно на 45 и 55мм, вплотную
+// не задеваются (проверено: 0 треугольников с вершиной на этих Y).
+const LEG_CLIP_TAB_LOW = 0.046;
+const LEG_CLIP_TAB_HIGH = 0.054;
+
+// Кеш разрезанных геометрий по варианту ('plain' | 'clip') — резать
+// треугольники накладно, а ножек с этой опорой на сцене может быть много.
+const kitchenLegSplitCache = {};
+function splitKitchenLegParts(kind, THREE) {
+  if (kitchenLegSplitCache[kind]) return kitchenLegSplitCache[kind];
+
+  const LM = window.Modul3D.legMeshes;
+  const full = LM.getGeometry(kind, THREE);
+  const pos = full.attributes.position.array;
+  const norm = full.attributes.normal.array;
+  const EPS = 1e-6;
+
+  const lowPos = [], lowNorm = [], highPos = [], highNorm = [];
+  const clipTabPos = [], clipTabNorm = [];
+  const triCount = pos.length / 9;
+  for (let t = 0; t < triCount; t++) {
+    const b = t * 9;
+    const y0 = pos[b + 1], y1 = pos[b + 4], y2 = pos[b + 7];
+    if (y0 <= LEG_MID_CUT_LOW + EPS && y1 <= LEG_MID_CUT_LOW + EPS && y2 <= LEG_MID_CUT_LOW + EPS) {
+      for (let k = 0; k < 9; k++) { lowPos.push(pos[b + k]); lowNorm.push(norm[b + k]); }
+    } else if (y0 >= LEG_MID_CUT_HIGH - EPS && y1 >= LEG_MID_CUT_HIGH - EPS && y2 >= LEG_MID_CUT_HIGH - EPS) {
+      for (let k = 0; k < 9; k++) { highPos.push(pos[b + k]); highNorm.push(norm[b + k]); }
+    } else if (kind === 'clip'
+      && y0 >= LEG_CLIP_TAB_LOW && y0 <= LEG_CLIP_TAB_HIGH
+      && y1 >= LEG_CLIP_TAB_LOW && y1 <= LEG_CLIP_TAB_HIGH
+      && y2 >= LEG_CLIP_TAB_LOW && y2 <= LEG_CLIP_TAB_HIGH) {
+      for (let k = 0; k < 9; k++) { clipTabPos.push(pos[b + k]); clipTabNorm.push(norm[b + k]); }
+    }
+    // иначе — треугольник ствола/резьбы между границами: отбрасываем.
+  }
+
+  // Радиус ствола ровно в точках среза — чтобы цилиндр состыковался с
+  // пяткой/площадкой без видимой ступеньки. Берём только вершины самого
+  // ствола (радиус 10..20 мм) — шире этого диапазона на срезе лежит уже
+  // край диска пятки/площадки, а не ствол.
+  let sumRLow = 0, cntRLow = 0, sumRHigh = 0, cntRHigh = 0;
+  const R_MIN = 0.010, R_MAX = 0.020, Y_EPS = 1e-4;
+  for (let i = 0; i < pos.length; i += 3) {
+    const y = pos[i + 1], x = pos[i], z = pos[i + 2];
+    const r = Math.sqrt(x * x + z * z);
+    if (r < R_MIN || r > R_MAX) continue;
+    if (Math.abs(y - LEG_MID_CUT_LOW) < Y_EPS) { sumRLow += r; cntRLow++; }
+    else if (Math.abs(y - LEG_MID_CUT_HIGH) < Y_EPS) { sumRHigh += r; cntRHigh++; }
+  }
+
+  const lowGeo = new THREE.BufferGeometry();
+  lowGeo.setAttribute('position', new THREE.Float32BufferAttribute(lowPos, 3));
+  lowGeo.setAttribute('normal', new THREE.Float32BufferAttribute(lowNorm, 3));
+  const highGeo = new THREE.BufferGeometry();
+  highGeo.setAttribute('position', new THREE.Float32BufferAttribute(highPos, 3));
+  highGeo.setAttribute('normal', new THREE.Float32BufferAttribute(highNorm, 3));
+  let clipTabGeo = null;
+  if (kind === 'clip' && clipTabPos.length) {
+    clipTabGeo = new THREE.BufferGeometry();
+    clipTabGeo.setAttribute('position', new THREE.Float32BufferAttribute(clipTabPos, 3));
+    clipTabGeo.setAttribute('normal', new THREE.Float32BufferAttribute(clipTabNorm, 3));
+  }
+
+  const result = {
+    lowGeo, highGeo, clipTabGeo,
+    lowH: LEG_MID_CUT_LOW,                       // высота нижнего куска, нативные м
+    highH: LM.NATIVE_HEIGHT - LEG_MID_CUT_HIGH,  // высота верхнего куска, нативные м
+    // паспортный радиус ствола Ø29 мм — подстраховка, если на срезе вдруг
+    // не нашлось ни одной подходящей вершины (на текущей модели такого нет).
+    radiusBottom: cntRLow ? sumRLow / cntRLow : 0.0145,
+    radiusTop: cntRHigh ? sumRHigh / cntRHigh : 0.0145,
+  };
+  kitchenLegSplitCache[kind] = result;
+  return result;
+}
+
 function makeKitchenLeg(box, moduleName, isActive, hasClip, dimmed) {
   const g = new THREE.Group();
   const d = Math.max(box.w, box.d) * MM;
@@ -499,14 +598,53 @@ function makeKitchenLeg(box, moduleName, isActive, hasClip, dimmed) {
   });
 
   const LM = window.Modul3D.legMeshes;
-  const geo = LM.getGeometry(hasClip ? 'clip' : 'plain', THREE);
-  const mesh = new THREE.Mesh(geo, plastic);
-  // Исходник — в метрах, низ опоры при y=0, верх площадки при y=NATIVE_HEIGHT.
-  // Масштабируем под целевые высоту/диаметр и сдвигаем так, чтобы центр
-  // группы (как у box.y) пришёлся на середину высоты опоры.
-  mesh.scale.set(d / LM.NATIVE_DIAMETER, h / LM.NATIVE_HEIGHT, d / LM.NATIVE_DIAMETER);
-  mesh.position.y = -h / 2;
-  g.add(mesh);
+  const kind = hasClip ? 'clip' : 'plain';
+  const cut = splitKitchenLegParts(kind, THREE);
+  const scaleXZ = d / LM.NATIVE_DIAMETER;
+
+  // Нижняя пятка — форма и высота как в исходнике, БЕЗ растяжения по Y
+  // (scale.y = 1): меняется только высота опоры box.h, форма пятки — нет.
+  const lowMesh = new THREE.Mesh(cut.lowGeo, plastic);
+  lowMesh.scale.set(scaleXZ, 1, scaleXZ);
+  lowMesh.position.y = -h / 2;
+  g.add(lowMesh);
+
+  // Верхняя площадка с крепёжными отверстиями — тоже без растяжения по Y.
+  // Формула сдвига не зависит от места среза: вершина исходника при
+  // y=NATIVE_HEIGHT (самый верх площадки) всегда должна попасть в +h/2.
+  const highMesh = new THREE.Mesh(cut.highGeo, plastic);
+  highMesh.scale.set(scaleXZ, 1, scaleXZ);
+  highMesh.position.y = h / 2 - LM.NATIVE_HEIGHT;
+  g.add(highMesh);
+
+  // Средняя часть — гладкий процедурный цилиндр без резьбы. Единственная
+  // деталь, чья длина зависит от box.h. Радиусы на концах — фактический
+  // радиус ствола в точках среза (см. splitKitchenLegParts), поэтому стыки
+  // с пяткой и площадкой не дают видимой ступеньки. openEnded — торцы уже
+  // закрыты соседними кусками, свои крышки цилиндру не нужны.
+  const midH = Math.max(h - cut.lowH - cut.highH, 0.001);
+  const midGeo = new THREE.CylinderGeometry(
+    cut.radiusTop * scaleXZ, cut.radiusBottom * scaleXZ, midH, 24, 1, true);
+  const midMesh = new THREE.Mesh(midGeo, plastic);
+  // Центр цилиндра: низ группы на -h/2, нижний кусок высотой lowH над ним,
+  // верхний кусок высотой highH под верхом группы (+h/2) — цилиндр
+  // заполняет ровно то, что осталось между ними.
+  midMesh.position.y = (cut.lowH - cut.highH) / 2;
+  g.add(midMesh);
+
+  // Ушко клипсы (только у варианта с клипсой) — держится на своём родном
+  // месте в НАТИВНОМ масштабе (scale.y = 1, не тянется вместе с цилиндром).
+  // В исходнике оно строго на середине высоты опоры (Y=0,05 из 0,1 —
+  // совпадает с CLIP_Y = baseH*0,5 в engine.js, которым инженерный расчёт
+  // ставит планку цоколя). Поэтому крепим его к середине ГРУППЫ (локальный
+  // y=0), а не к фиксированному расстоянию от пятки — так при любой высоте
+  // опоры клипса остаётся ровно там, где её ждёт цоколь.
+  if (cut.clipTabGeo) {
+    const clipTabMesh = new THREE.Mesh(cut.clipTabGeo, plastic);
+    clipTabMesh.scale.set(scaleXZ, 1, scaleXZ);
+    clipTabMesh.position.y = -LM.NATIVE_HEIGHT / 2;
+    g.add(clipTabMesh);
+  }
 
   g.position.set(box.x * MM, box.y * MM, box.z * MM);
   if (hasClip) g.rotation.y = -Math.PI / 2;   // клипса развёрнута к цоколю, к +Z
