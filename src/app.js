@@ -14,7 +14,7 @@
 (function () {
 // Версия сборки — показывается во вкладке браузера и в шапке.
 // При выпуске новой версии меняется только эта строка.
-const APP_VERSION = 'v192';
+const APP_VERSION = 'v193';
 
 // Номер версии выводим ПЕРВЫМ делом: если дальше что-то упадёт, по нему сразу
 // видно, какая сборка открыта.
@@ -917,10 +917,6 @@ function moduleFieldsBlock(mod) {
         </select>
       </div>
     </div>` : ''}
-
-    <div class="field checkbox-field">
-      <label><input id="m-corner" type="checkbox" ${mod.corner ? 'checked' : ''}> Угловой — дальше ряд идёт под 90°</label>
-    </div>
 
     <h3>${esc(mod.name)} — секции</h3>
     <div id="sectionsList"></div>
@@ -1894,7 +1890,6 @@ function bindPanelEvents() {
   on('m-depth', 'change', (e) => { mod.depth = Number(e.target.value); recompute(); });
   on('m-leftSide', 'change', (e) => { mod.leftSide = e.target.value; recompute(); });
   on('m-rightSide', 'change', (e) => { mod.rightSide = e.target.value; recompute(); });
-  on('m-corner', 'change', (e) => { mod.corner = e.target.checked; recompute(); });
   on('m-baseType', 'change', (e) => {
     mod.baseType = e.target.value;
     // «Опоры с цоколем» держит цоколь клипсой только кухонная опора — у
