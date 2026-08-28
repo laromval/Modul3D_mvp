@@ -386,6 +386,26 @@ select:focus-visible {
 }
 .warnings:empty { display: none; }
 
+/* гейт доступа (401/402 при экспорте, "нужна подписка") — плашка того же
+   типа, что и .warnings, но акцентная, а не «опасная»: это призыв к
+   действию (войти/оплатить), а не ошибка геометрии проекта. Поднята выше
+   .warnings (bottom: 18px), чтобы не перекрываться с нижней плавающей
+   панелью видов .stage-dock (bottom: var(--sp-4), z-index: 28) — там как
+   раз лежит кликабельная кнопка действия, её нельзя перекрывать. */
+.access-gate {
+  position: absolute; left: 50%; bottom: 78px; transform: translateX(-50%);
+  z-index: 29; max-width: min(680px, 82vw);
+  display: flex; align-items: center; gap: var(--sp-3);
+  font-size: var(--fs-sm); line-height: 1.45; color: var(--text);
+  background: var(--surface);
+  -webkit-backdrop-filter: var(--blur); backdrop-filter: var(--blur);
+  border: 1px solid var(--accent); border-left-width: 3px;
+  border-radius: var(--r-md);
+  padding: 8px 10px 8px 14px;
+  box-shadow: var(--shadow-2);
+}
+.access-gate-actions { display: flex; align-items: center; gap: var(--sp-2); flex: 0 0 auto; }
+
 /* ---------- 6. РЕЙКА ТРИГГЕРОВ ------------------------------------------- */
 
 .rail {
@@ -1070,12 +1090,14 @@ h4.spec-title { margin: var(--sp-5) 0 var(--sp-2); font-size: var(--fs-md); font
 }
 .account-row b { color: var(--text); font-weight: 600; }
 #accountInfo #authLogoutBtn { width: 100%; margin-top: var(--sp-2); }
+#accountInfo #accountUpgradeBtn { width: 100%; margin-top: var(--sp-2); }
 
 /* Отменить/Вернуть/Удалить в шапке — иконки-глифы вместо svg */
 .icon-btn-text { font-size: 15px; font-weight: 700; font-family: inherit; }
 .icon-btn.danger { color: var(--danger); }
 .icon-btn.danger:hover { background: var(--danger-soft); color: var(--danger); border-color: transparent; }
 .icon-btn:disabled { opacity: .4; cursor: default; pointer-events: none; }
+.btn:disabled { opacity: .5; cursor: default; pointer-events: none; }
 
 /* ---------- 16. FOCUS MODE ------------------------------------------------ */
 /* при вращении / зуме / перетаскивании интерфейс растворяется до 0 */
@@ -1155,6 +1177,7 @@ body.is-focus .scrim { opacity: 0 !important; }
   }
   .drawer-head { padding-top: 18px; }
   .warnings { bottom: calc(var(--sheet-h) + 56px); max-width: 92vw; }
+  .access-gate { bottom: calc(var(--sheet-h) + 116px); max-width: 92vw; flex-wrap: wrap; }
   .hud { width: 232px; }
 }
 

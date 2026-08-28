@@ -14,7 +14,7 @@
 (function () {
 // Версия сборки — показывается во вкладке браузера и в шапке.
 // При выпуске новой версии меняется только эта строка.
-const APP_VERSION = 'v191';
+const APP_VERSION = 'v192';
 
 // Номер версии выводим ПЕРВЫМ делом: если дальше что-то упадёт, по нему сразу
 // видно, какая сборка открыта.
@@ -846,18 +846,34 @@ function emptyProjectBlock() {
     готовый модуль, или добавьте свой кнопкой «+» выше.</div>`;
 }
 
-// Маленькая ссылка «← Назад» сверху экранов, которые не являются точкой
-// входа («Материалы», «Деталь») — ведёт на «Параметры модуля» (этот экран
-// показывается только когда модуль есть, см. renderParamsPanel).
+// Маленькая ссылка «← Назад» сверху служебных экранов «Деталь»
+// (partBlock/partPlaceholderBlock/partKindPlaceholderBlock) — ведёт на
+// «Параметры модуля» (этот экран показывается только когда модуль есть,
+// см. renderParamsPanel). Экран «Материалы» использует отдельную акцентную
+// кнопку — см. materialsBackLinkBlock() ниже: туда и обратно ведёт парная
+// навигация («Материалы модуля →» / «← Конструктив модуля») одного
+// визуального веса, а экраны «Деталь» — второстепенные точки входа
+// (контекстное меню в 3D, рейка), где обычная неприметная ссылка уместнее.
 function backLinkBlock() {
   return `<button class="link-btn panel-back" id="panelBack" type="button">← Назад</button>`;
+}
+
+// Акцентная кнопка возврата с экрана «Материалы модуля» на «Конструктив
+// модуля» — визуальная пара к «Материалы модуля →» в moduleFieldsBlock()
+// (тот же .materials-link-btn, полная ширина, акцентный цвет), но с
+// модификатором .back-link-btn: стрелка и текст идут одной группой у левого
+// края, а не разъезжаются по краям, как у кнопки «вперёд» (см. комментарий
+// к .back-link-btn в style.css). id остаётся panelBack — обработчик в
+// bindPanelEvents() как и раньше ведёт на setPanelView('module').
+function materialsBackLinkBlock() {
+  return `<button class="btn materials-link-btn back-link-btn" id="panelBack" type="button"><span class="arrow">←</span> Конструктив модуля</button>`;
 }
 
 // Экран «Параметры модуля»: название/габариты/конструктив/секции активного
 // модуля. Показывается только когда есть выбранный модуль.
 function moduleFieldsBlock(mod) {
   return `
-    <button class="btn" id="materialsLinkBtn" type="button">Материалы модуля</button>
+    <button class="btn materials-link-btn" id="materialsLinkBtn" type="button">Материалы модуля <span class="arrow">→</span></button>
 
     <h3>Габариты модуля, мм</h3>
     <div class="field-row3">
@@ -1278,7 +1294,7 @@ function renderParamsPanel() {
   if (!mod) {
     screen = emptyProjectBlock();
   } else if (state.panelView === 'materials') {
-    screen = backLinkBlock() + materialsBlock();
+    screen = materialsBackLinkBlock() + materialsBlock();
   } else if (state.panelView === 'part') {
     if (!state.selectedPart) {
       screen = partPlaceholderBlock();
@@ -2472,8 +2488,26 @@ if (docsBox) docsBox.classList.remove('open');
 // ---------------------------------------------------------------------------
 // Экспорт и печать
 // ---------------------------------------------------------------------------
-document.getElementById('exportDetailing').addEventListener('click', () => exportDetailing(currentModel));
-document.getElementById('exportSpec').addEventListener('click', () => exportSpecification(currentSpec));
+// Деталировка/спецификация формируются на сервере (см. ТЗ-МОНЕТИЗАЦИЯ.md 4.3) —
+// exportDetailing/exportSpecification асинхронные и бросают Error с err.code
+// = HTTP-статус (401/402) при отказе доступа; handleExportError переводит
+// это в понятный текст + кнопку действия (см. ниже, раздел «Гейт доступа»).
+function wireExportButton(id, action) {
+  const btn = document.getElementById(id);
+  if (!btn) return;
+  btn.addEventListener('click', async () => {
+    btn.disabled = true;
+    try {
+      await action();
+    } catch (err) {
+      handleExportError(err);
+    } finally {
+      btn.disabled = false;
+    }
+  });
+}
+wireExportButton('exportDetailing', () => exportDetailing(currentModel));
+wireExportButton('exportSpec', () => exportSpecification(currentSpec));
 
 // Сохранение/открытие проекта файлом .json — рядом с экспортом, тот же принцип:
 // файл строится из единого состояния, ничего не собирается вручную.
@@ -2496,17 +2530,33 @@ const onClick = (id, fn) => {
   const el = document.getElementById(id);
   if (el) el.addEventListener('click', fn);
 };
-onClick('exportDrillCsv', () => {
+onClick('exportDrillCsv', async () => {
   if (!currentModel || !currentModel.modules.length) { renderWarnings(['Проект пуст — присаживать нечего.']); return; }
   const n = window.Modul3D.cnc.drilledParts(currentModel).length;
   if (!n) { renderWarnings(['Ни на одной детали нет присадки: выберите ручки в секциях.']); return; }
-  exportDrillCsv(currentModel);
+  const btn = document.getElementById('exportDrillCsv');
+  if (btn) btn.disabled = true;
+  try {
+    await exportDrillCsv(currentModel);
+  } catch (err) {
+    handleExportError(err);
+  } finally {
+    if (btn) btn.disabled = false;
+  }
 });
-onClick('exportDrillDxf', () => {
+onClick('exportDrillDxf', async () => {
   if (!currentModel || !currentModel.modules.length) { renderWarnings(['Проект пуст — присаживать нечего.']); return; }
   const n = window.Modul3D.cnc.drilledParts(currentModel).length;
   if (!n) { renderWarnings(['Ни на одной детали нет присадки: выберите ручки в секциях.']); return; }
-  exportDrillDxf(currentModel);
+  const btn = document.getElementById('exportDrillDxf');
+  if (btn) btn.disabled = true;
+  try {
+    await exportDrillDxf(currentModel);
+  } catch (err) {
+    handleExportError(err);
+  } finally {
+    if (btn) btn.disabled = false;
+  }
 });
 
 document.getElementById('printDrawings').addEventListener('click', () => {
@@ -2685,7 +2735,7 @@ async function authRequest(path, body) {
     throw new Error('Не удалось связаться с сервером — проверьте подключение к интернету.');
   }
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error || `Ошибка сервера (${res.status}).`);
+  if (!res.ok) throw new Error(data.error || 'Не удалось выполнить запрос, попробуйте ещё раз.');
   return data;
 }
 
@@ -2707,7 +2757,13 @@ function renderAccountUI() {
     if (tokensEl) tokensEl.textContent = String(authAccount.tokenBalance);
     if (subEl) {
       const st = authAccount.subscription && authAccount.subscription.status;
-      subEl.textContent = st === 'active' ? 'активна' : 'нет';
+      // Сервер уже схлопывает Paddle-статус 'trialing' в 'active' при записи в
+      // БД (см. billing.js: mapPaddleSubscriptionStatus) — здесь всегда либо
+      // 'active', либо нет.
+      const active = st === 'active';
+      subEl.textContent = active ? 'активна' : 'нет';
+      const upgradeBtn = document.getElementById('accountUpgradeBtn');
+      if (upgradeBtn) upgradeBtn.style.display = active ? 'none' : 'block';
     }
     if (accountToggle) accountToggle.classList.add('active');
     if (sketchNote) {
@@ -2742,7 +2798,7 @@ async function fetchAccount() {
       renderAccountUI();
       return;
     }
-    if (!res.ok) throw new Error(`Ошибка сервера (${res.status}).`);
+    if (!res.ok) throw new Error('Не удалось получить статус аккаунта.');
     authAccount = await res.json();
   } catch (err) {
     console.error('Не удалось получить статус аккаунта:', err);
@@ -2806,9 +2862,124 @@ function initAccountPanel() {
     });
   }
 
+  const upgradeBtn = document.getElementById('accountUpgradeBtn');
+  if (upgradeBtn) upgradeBtn.addEventListener('click', requestCheckout);
+
   renderAccountUI();
   if (getAuthToken()) fetchAccount();
 }
+
+// ---------------------------------------------------------------------------
+// Гейт доступа: подписка (Paddle) и обработка 401/402 при экспорте
+// (см. ТЗ-МОНЕТИЗАЦИЯ.md, разделы 4.3-4.4). Пользователю никогда не
+// показывается голый код ошибки — только понятный текст и кнопка действия.
+// ---------------------------------------------------------------------------
+
+// Публичный клиентский токен Paddle (Dashboard → Developer Tools →
+// Authentication → Client-side tokens) — НЕ секрет, безопасен в клиентском
+// коде (в отличие от серверного PADDLE_API_KEY). Плейсхолдер для песочницы —
+// перед боевым запуском заменить на реальный live_... токен и переключить
+// initPaddle() ниже на Environment.set('production').
+const PADDLE_CLIENT_TOKEN = 'test_REPLACE_WITH_REAL_PADDLE_CLIENT_TOKEN';
+
+function initPaddle() {
+  // Скрипт мог не загрузиться (блокировщик рекламы, офлайн) — страницу это
+  // ронять не должно, оформление подписки просто покажет понятную ошибку.
+  if (!window.Paddle) return;
+  try {
+    window.Paddle.Environment.set('sandbox'); // сменить на 'production' в бою
+    window.Paddle.Initialize({ token: PADDLE_CLIENT_TOKEN });
+  } catch (err) {
+    console.error('Paddle init failed:', err);
+  }
+}
+
+// Открывает уже существующий попап «Аккаунт» на форме входа (401-сценарий).
+// Открытие отложено на макротаск (setTimeout 0) — иначе тот же клик, что
+// вызвал эту функцию (кнопка «Открыть аккаунт» лежит вне #accountPopover),
+// долетает по всплытию до document-обработчика initAccountPanel(), который
+// закрывает попап по клику снаружи, и попап открывается и тут же гаснет.
+function openAccountPanel() {
+  setTimeout(() => {
+    const popover = document.getElementById('accountPopover');
+    if (popover) popover.style.display = 'block';
+    const emailInput = document.getElementById('authEmail');
+    if (emailInput && !authAccount) emailInput.focus();
+  }, 0);
+}
+
+// «Оформить подписку»: POST /billing/checkout → переход на checkoutUrl,
+// либо (если сервер просит оформить прямо на месте) оверлей Paddle.js.
+async function requestCheckout() {
+  const token = getAuthToken();
+  if (!token) { openAccountPanel(); return; }
+  try {
+    const res = await fetch(`${AUTH_API_BASE}/billing/checkout`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${token}` },
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || 'Не удалось выполнить запрос, попробуйте ещё раз.');
+    if (data.checkoutUrl) {
+      window.location.href = data.checkoutUrl;
+      return;
+    }
+    if (window.Paddle && data.transactionId) {
+      window.Paddle.Checkout.open({ transactionId: data.transactionId });
+    } else {
+      showAccessGate('Не удалось открыть окно оплаты — обновите страницу и попробуйте снова.', null, null);
+    }
+  } catch (err) {
+    console.error('Checkout request failed:', err);
+    showAccessGate('Не удалось начать оформление подписки: ' + err.message, null, null);
+  }
+}
+
+// Плавающая плашка «нужно действие» — сообщение и опциональная кнопка
+// (см. index.html: #accessGate). Один и тот же элемент переиспользуется для
+// всех гейтов (401/402/сеть), поэтому обработчик кнопки перевешивается заново
+// при каждом вызове.
+function showAccessGate(message, actionLabel, actionFn) {
+  const box = document.getElementById('accessGate');
+  const msgEl = document.getElementById('accessGateMessage');
+  const actionBtn = document.getElementById('accessGateActionBtn');
+  if (!box || !msgEl || !actionBtn) return;
+  msgEl.textContent = message;
+  if (actionLabel && actionFn) {
+    actionBtn.textContent = actionLabel;
+    actionBtn.style.display = '';
+    actionBtn.onclick = () => { hideAccessGate(); actionFn(); };
+  } else {
+    actionBtn.style.display = 'none';
+    actionBtn.onclick = null;
+  }
+  box.style.display = 'flex';
+}
+function hideAccessGate() {
+  const box = document.getElementById('accessGate');
+  if (box) box.style.display = 'none';
+}
+
+// Единая обработка ошибок экспорта (деталировка/спецификация/присадка) —
+// сервер (см. src/export.js, src/cnc.js) бросает Error с err.code =
+// HTTP-статус при отказе доступа; здесь код превращается в понятную фразу
+// и рабочую кнопку, а не остаётся видимым пользователю числом.
+function handleExportError(err) {
+  console.error('Export failed:', err);
+  const code = err && Number(err.code);
+  if (code === 401) {
+    showAccessGate('Войдите в аккаунт, чтобы скачать файл.', 'Открыть аккаунт', openAccountPanel);
+  } else if (code === 402) {
+    showAccessGate('Для экспорта нужна активная подписка.', 'Оформить подписку', requestCheckout);
+  } else {
+    showAccessGate((err && err.message) || 'Не удалось сформировать файл — попробуйте ещё раз.', null, null);
+  }
+}
+
+(function initAccessGateUI() {
+  const closeBtn = document.getElementById('accessGateCloseBtn');
+  if (closeBtn) closeBtn.addEventListener('click', hideAccessGate);
+})();
 
 // ---------------------------------------------------------------------------
 // Эскиз → 3D (Claude Vision, через сервер — см. sketchAI.js)
@@ -2935,6 +3106,7 @@ try {
   recompute();
   offerAutosaveRestore();
   initAccountPanel();
+  initPaddle();
   initSketchPanel();
   initHeaderControls();
   initPartEditorOverlay();

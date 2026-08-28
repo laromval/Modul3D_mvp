@@ -7,10 +7,12 @@
 <title>Modul3D — параметрический конструктор корпусной мебели</title>
 
 <link rel="icon" type="image/svg+xml" href="favicon.svg" />
-<link rel="stylesheet" href="style.css?v190" />
+<link rel="stylesheet" href="style.css?v192" />
 
-<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<!-- Paddle.js — оверлей оплаты подписки (см. app.js: requestCheckout/initPaddle).
+     Обычный скрипт без defer, как остальные CDN-подключения выше. -->
+<script src="https://cdn.paddle.com/paddle/v2/paddle.js"></script>
 </head>
 <body>
 
@@ -103,6 +105,7 @@
           <div class="account-row"><span>Аккаунт</span><b id="accountEmail"></b></div>
           <div class="account-row"><span>Токены ИИ-эскиза</span><b id="accountTokens"></b></div>
           <div class="account-row"><span>Подписка</span><b id="accountSubStatus"></b></div>
+          <button id="accountUpgradeBtn" class="btn btn-primary" type="button" style="display:none">Оформить подписку</button>
           <button id="authLogoutBtn" class="btn" type="button">Выйти</button>
         </div>
       </div>
@@ -125,6 +128,17 @@
   <div id="viewer3d"></div>
   <div id="viewOverlay" class="view-overlay" style="display:none"></div>
   <div class="warnings" id="warnings"></div>
+
+  <!-- Гейт доступа: 401/402 при экспорте, "нужна подписка" и т.п. — никогда
+       не сырой код ошибки, только текст + кнопка действия (см. app.js:
+       showAccessGate/handleExportError, ТЗ-МОНЕТИЗАЦИЯ.md раздел 4.4). -->
+  <div class="access-gate" id="accessGate" style="display:none">
+    <span id="accessGateMessage"></span>
+    <div class="access-gate-actions">
+      <button id="accessGateActionBtn" class="btn btn-primary" type="button" style="display:none"></button>
+      <button id="accessGateCloseBtn" class="icon-btn" type="button" aria-label="Закрыть">✕</button>
+    </div>
+  </div>
 
   <div class="scrim" id="scrim"></div>
 
@@ -328,18 +342,18 @@
 
 </main>
 
-<script src="src/catalog.js?v190"></script>
-<script src="src/presets.js?v190"></script>
-<script src="src/engine.js?v190"></script>
-<script src="src/specification.js?v190"></script>
-<script src="src/legMeshes.js?v190"></script>
-<script src="src/viewer.js?v190"></script>
-<script src="src/ui-shell.js?v190"></script>
-<script src="src/drawings.js?v190"></script>
-<script src="src/export.js?v190"></script>
-<script src="src/cnc.js?v190"></script>
-<script src="src/sketchAI.js?v190"></script>
-<script src="src/app.js?v190"></script>
+<script src="src/catalog.js?v192"></script>
+<script src="src/presets.js?v192"></script>
+<script src="src/engine.js?v192"></script>
+<script src="src/specification.js?v192"></script>
+<script src="src/legMeshes.js?v192"></script>
+<script src="src/viewer.js?v192"></script>
+<script src="src/ui-shell.js?v192"></script>
+<script src="src/drawings.js?v192"></script>
+<script src="src/export.js?v192"></script>
+<script src="src/cnc.js?v192"></script>
+<script src="src/sketchAI.js?v192"></script>
+<script src="src/app.js?v192"></script>
 <script>if (window.Modul3D && window.Modul3D.uiShell) window.Modul3D.uiShell.start();</script>
 </body>
 </html>

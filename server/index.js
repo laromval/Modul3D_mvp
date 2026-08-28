@@ -12,6 +12,8 @@ const config = require('./src/config');
 const authRouter = require('./src/routes/auth');
 const billingRouter = require('./src/routes/billing');
 const sketchRouter = require('./src/routes/sketch');
+const exportRouter = require('./src/routes/export');
+const hardwareModelsRouter = require('./src/routes/hardwareModels');
 
 const app = express();
 
@@ -22,13 +24,16 @@ app.get('/health', (req, res) => {
 });
 
 // express.json() подключается точечно внутри routers/auth.js,
-// routers/billing.js и routers/sketch.js (а не здесь глобально) —
-// /billing/webhook требует сырое тело для проверки подписи Paddle (см.
-// комментарий в billing.js), а /sketch/recognize — увеличенный лимит
-// (10mb) под base64-изображение, не нужный остальным роутам.
+// routers/billing.js, routers/sketch.js и routers/export.js (а не здесь
+// глобально) — /billing/webhook требует сырое тело для проверки подписи
+// Paddle (см. комментарий в billing.js), а /sketch/recognize и /export/*
+// — увеличенные лимиты (10mb и 20mb соответственно) под base64-изображение
+// и полную модель/спецификацию проекта, не нужные остальным роутам.
 app.use('/auth', express.json(), authRouter);
 app.use('/billing', billingRouter);
 app.use('/sketch', sketchRouter);
+app.use('/export', exportRouter);
+app.use('/hardware-models', hardwareModelsRouter);
 
 app.use((req, res) => {
   res.status(404).json({ error: 'Не найдено.' });
