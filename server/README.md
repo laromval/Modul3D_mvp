@@ -24,6 +24,13 @@ Paddle официально поддерживает Молдову и сам б
   вариант — не используется этим эндпоинтом и остаётся только для истории/
   офлайн-сценария, если клиент решит его сохранить).
 
+Дополнительно (вне этапов монетизации из ТЗ):
+- Никнейм и аватарка в аккаунте (`POST /auth/register` принимает `nickname`
+  и файл `avatar`), раздача аватарок через `/uploads/avatars/...`.
+- Отзывы о приложении с ручной модерацией (`POST /reviews`,
+  `GET /reviews/public`, `GET /reviews/pending`, `POST /reviews/:id/approve`,
+  `POST /reviews/:id/reject`).
+
 Реализовано на Этапе 3:
 - `src/services/exportGeneration.js` — построение содержимого документов
   (`buildDetailingWorkbook`, `buildSpecificationWorkbook`, `buildDrillCsv`,
@@ -73,6 +80,7 @@ cp .env.example .env
 | `STARTING_TOKEN_BALANCE` | Сколько токенов даётся при регистрации бесплатно |
 | `ANTHROPIC_API_KEY` | Ключ Anthropic API (console.anthropic.com → Settings → API Keys), нужен для `POST /sketch/recognize`. Без него эндпоинт отвечает 503, сервер не падает |
 | `SKETCH_TOKEN_COST` | Сколько токенов списывается за один вызов `/sketch/recognize` (по умолчанию 1) |
+| `ADMIN_TOKEN` | Приватный токен владельца проекта для модерации отзывов (`GET /reviews/pending`, `POST /reviews/:id/approve\|reject`), передаётся в заголовке `X-Admin-Token`. Без него эти эндпоинты отвечают 503 |
 
 ### 2. База данных
 
@@ -83,8 +91,11 @@ npm run migrate
 ```
 
 Это создаст таблицы `users`, `subscriptions`, `token_balances`,
-`processed_webhook_events` (см. `src/migrations/001_init.sql`). Миграции
-идемпотентны (`CREATE TABLE IF NOT EXISTS`) — повторный запуск безопасен.
+`processed_webhook_events` (см. `src/migrations/001_init.sql`), а также
+`hardware_models` (`002_hardware_models.sql`), колонки `nickname`/
+`avatar_url` у `users` и таблицу `reviews` (`003_reviews_avatars.sql`).
+Миграции идемпотентны (`CREATE TABLE IF NOT EXISTS` / `ADD COLUMN IF NOT
+EXISTS`) — повторный запуск безопасен.
 
 ### 3. Настройка вебхука Paddle
 
@@ -130,9 +141,13 @@ npm run dev
 ## Эндпоинты
 
 ### `POST /auth/register`
-Body: `{ "email": "...", "password": "..." }` (пароль от 8 символов).
+Body: `multipart/form-data` с полями `email`, `password` (от 8 символов),
+`nickname` (2–40 символов после trim, обязателен) и опциональным файлом
+`avatar` (JPEG/PNG/WebP, до 2 МБ).
 Ответ: `{ "token": "<jwt>" }`. Создаёт пользователя, запись подписки
-(`status: 'none'`) и баланс токенов (`STARTING_TOKEN_BALANCE`).
+(`status: 'none'`) и баланс токенов (`STARTING_TOKEN_BALANCE`). Аватарка
+(если передана) сохраняется на диск сервера (`server/uploads/avatars/`,
+не коммитится в git) и раздаётся статически по `/uploads/avatars/<файл>`.
 
 ### `POST /auth/login`
 Body: `{ "email": "...", "password": "..." }`.
@@ -144,6 +159,7 @@ Body: `{ "email": "...", "password": "..." }`.
 ```json
 {
   "id": "...", "email": "...", "createdAt": "...",
+  "nickname": "...", "avatarUrl": "/uploads/avatars/... | null",
   "subscription": { "status": "none|active|past_due|canceled", "currentPeriodEnd": null },
   "tokenBalance": 20
 }
@@ -238,6 +254,24 @@ BOM не добавляют, это часть доставки файла в `r
 напрямую — переводит их в понятный призыв к действию («войдите в аккаунт» /
 «оформите подписку»), см. `ТЗ-МОНЕТИЗАЦИЯ.md`, 4.4.
 
+### `POST /reviews`
+Заголовок: `Authorization: Bearer <jwt>`. Body: `{ "text": "..." }` (непустая
+строка после trim, до 2000 символов). Создаёт отзыв со статусом `pending` —
+он не виден публично, пока владелец проекта его не одобрит.
+
+### `GET /reviews/public`
+Без авторизации. Список одобренных отзывов (`status: 'approved'`), сортировка
+по дате новые сверху: `[{ id, body, createdAt, nickname, avatarUrl }]`. Email
+автора не возвращается.
+
+### `GET /reviews/pending`, `POST /reviews/:id/approve`, `POST /reviews/:id/reject`
+Заголовок: `X-Admin-Token: <ADMIN_TOKEN>` — приватные модерационные
+эндпоинты владельца проекта (не полноценные роли). `GET /reviews/pending`
+отдаёт все отзывы на модерации, включая `email` автора (чтобы можно было
+с ним связаться). `POST .../approve` и `POST .../reject` переводят отзыв
+в `approved`/`rejected` и проставляют `moderated_at`. Без `ADMIN_TOKEN` в
+`.env` все три эндпоинта отвечают `503`.
+
 ## Что нужно настроить вручную (не входит в код)
 
 - Получить ключ Anthropic API (console.anthropic.com → Settings → API Keys,
@@ -276,3 +310,10 @@ BOM не добавляют, это часть доставки файла в `r
 - Сгенерировать `JWT_SECRET` и держать его в секрете (утечка = возможность
   подделать сессию любого пользователя).
 - В продакшене сузить `CORS_ORIGIN` до реального домена клиента вместо `*`.
+- Сгенерировать `ADMIN_TOKEN` (`openssl rand -hex 32`) и держать в секрете —
+  им защищены модерационные эндпоинты отзывов (`GET /reviews/pending`,
+  `POST /reviews/:id/approve|reject`).
+- В проде убедиться, что папка `server/uploads/avatars/` сохраняется между
+  деплоями/рестартами процесса (обычный эфемерный контейнер её потеряет) —
+  либо примонтировать постоянный volume, либо (на будущее) перенести
+  хранение аватарок в объектное хранилище (S3-совместимое и т.п.).

@@ -36,4 +36,10 @@ module.exports = {
   anthropicApiKey: process.env.ANTHROPIC_API_KEY,
   // Стоимость одного распознавания эскиза в токенах (ТЗ-МОНЕТИЗАЦИЯ.md, 4.1).
   sketchTokenCost: parseInt(process.env.SKETCH_TOKEN_COST || '1', 10),
+
+  // Приватный токен для модерационных эндпоинтов отзывов
+  // (GET /reviews/pending, POST /reviews/:id/approve|reject) — не полноценные
+  // роли, у проекта на этом этапе один владелец. Если не задан, эти
+  // эндпоинты отклоняют все запросы (см. requireAdmin в routes/reviews.js).
+  adminToken: process.env.ADMIN_TOKEN,
 };

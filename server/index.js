@@ -5,6 +5,8 @@
 // (глобальные объекты window.Modul3D.*, без сборщика) сюда не переносится,
 // см. CLAUDE.md и .claude/agents/backend-monetization.md.
 
+const path = require('path');
+
 const express = require('express');
 const cors = require('cors');
 
@@ -14,6 +16,7 @@ const billingRouter = require('./src/routes/billing');
 const sketchRouter = require('./src/routes/sketch');
 const exportRouter = require('./src/routes/export');
 const hardwareModelsRouter = require('./src/routes/hardwareModels');
+const reviewsRouter = require('./src/routes/reviews');
 
 const app = express();
 
@@ -23,17 +26,27 @@ app.get('/health', (req, res) => {
   res.json({ ok: true, service: 'modul3d-server' });
 });
 
+// Статическая раздача загруженных файлов (сейчас — только аватарки, см.
+// server/src/services/avatarUpload.js). Сами файлы не коммитятся в git
+// (server/.gitignore).
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+
 // express.json() подключается точечно внутри routers/auth.js,
-// routers/billing.js, routers/sketch.js и routers/export.js (а не здесь
-// глобально) — /billing/webhook требует сырое тело для проверки подписи
-// Paddle (см. комментарий в billing.js), а /sketch/recognize и /export/*
-// — увеличенные лимиты (10mb и 20mb соответственно) под base64-изображение
-// и полную модель/спецификацию проекта, не нужные остальным роутам.
+// routers/billing.js, routers/sketch.js, routers/export.js,
+// routers/hardwareModels.js и routers/reviews.js (а не здесь глобально) —
+// /billing/webhook требует сырое тело для проверки подписи Paddle (см.
+// комментарий в billing.js), а /sketch/recognize и /export/* — увеличенные
+// лимиты (10mb и 20mb соответственно) под base64-изображение и полную
+// модель/спецификацию проекта, не нужные остальным роутам. express.json()
+// на /auth ниже молча пропускает POST /auth/register (multipart/form-data,
+// парсится отдельно через handleAvatarUpload в auth.js) — типы контента не
+// совпадают, конфликта нет.
 app.use('/auth', express.json(), authRouter);
 app.use('/billing', billingRouter);
 app.use('/sketch', sketchRouter);
 app.use('/export', exportRouter);
 app.use('/hardware-models', hardwareModelsRouter);
+app.use('/reviews', reviewsRouter);
 
 app.use((req, res) => {
   res.status(404).json({ error: 'Не найдено.' });

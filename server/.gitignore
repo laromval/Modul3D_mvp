@@ -1,3 +1,11 @@
 node_modules/
 .env
 *.log
+
+# Загруженные пользователями файлы (аватарки) — не коммитятся, хранятся
+# только на диске сервера. .gitkeep оставляет пустую папку под git.
+uploads/*
+!uploads/.gitkeep
+!uploads/avatars/
+uploads/avatars/*
+!uploads/avatars/.gitkeep

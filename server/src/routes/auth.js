@@ -6,11 +6,14 @@ const db = require('../db');
 const config = require('../config');
 const { requireAuth } = require('../middleware/auth');
 const { getAccountStatus } = require('../services/account');
+const { handleAvatarUpload, deleteUploadedFile } = require('../services/avatarUpload');
 
 const router = express.Router();
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const BCRYPT_ROUNDS = 12;
+const NICKNAME_MIN_LENGTH = 2;
+const NICKNAME_MAX_LENGTH = 40;
 
 function issueToken(user) {
   return jwt.sign({ sub: user.id, email: user.email }, config.jwtSecret, {
@@ -18,32 +21,54 @@ function issueToken(user) {
   });
 }
 
-// POST /auth/register { email, password }
-router.post('/register', async (req, res) => {
-  const { email, password } = req.body || {};
+// POST /auth/register — multipart/form-data: email, password, nickname,
+// avatar (опциональный файл, поле "avatar"). handleAvatarUpload сам
+// разбирает multipart-тело (замена express.json() для этого роута —
+// они несовместимы на одном запросе, см. server/index.js).
+router.post('/register', handleAvatarUpload, async (req, res) => {
+  const { email, password, nickname } = req.body || {};
+
+  // С этого места, если валидация не пройдёт, файл (если был загружен)
+  // нужно удалить, чтобы не копить мусор на диске.
+  const rejectWithCleanup = (status, error) => {
+    deleteUploadedFile(req.file);
+    return res.status(status).json({ error });
+  };
 
   if (typeof email !== 'string' || !EMAIL_RE.test(email)) {
-    return res.status(400).json({ error: 'Укажи корректный email.' });
+    return rejectWithCleanup(400, 'Укажи корректный email.');
   }
   if (typeof password !== 'string' || password.length < 8) {
-    return res.status(400).json({ error: 'Пароль должен быть не короче 8 символов.' });
+    return rejectWithCleanup(400, 'Пароль должен быть не короче 8 символов.');
+  }
+  if (typeof nickname !== 'string') {
+    return rejectWithCleanup(400, 'Укажи никнейм.');
+  }
+  const trimmedNickname = nickname.trim();
+  if (trimmedNickname.length < NICKNAME_MIN_LENGTH || trimmedNickname.length > NICKNAME_MAX_LENGTH) {
+    return rejectWithCleanup(
+      400,
+      `Никнейм должен быть от ${NICKNAME_MIN_LENGTH} до ${NICKNAME_MAX_LENGTH} символов.`
+    );
   }
 
   const normalizedEmail = email.trim().toLowerCase();
+  const avatarUrl = req.file ? `/uploads/avatars/${req.file.filename}` : null;
 
   try {
     const existing = await db.query('SELECT id FROM users WHERE email = $1', [normalizedEmail]);
     if (existing.rows.length > 0) {
-      return res.status(409).json({ error: 'Пользователь с таким email уже зарегистрирован.' });
+      return rejectWithCleanup(409, 'Пользователь с таким email уже зарегистрирован.');
     }
 
     const passwordHash = await bcrypt.hash(password, BCRYPT_ROUNDS);
 
     const user = await db.withTransaction(async (client) => {
       const { rows } = await client.query(
-        `INSERT INTO users (email, password_hash) VALUES ($1, $2)
+        `INSERT INTO users (email, password_hash, nickname, avatar_url)
+         VALUES ($1, $2, $3, $4)
          RETURNING id, email, created_at`,
-        [normalizedEmail, passwordHash]
+        [normalizedEmail, passwordHash, trimmedNickname, avatarUrl]
       );
       const newUser = rows[0];
 
@@ -62,6 +87,7 @@ router.post('/register', async (req, res) => {
     const token = issueToken(user);
     return res.status(201).json({ token });
   } catch (err) {
+    deleteUploadedFile(req.file);
     console.error('[auth/register] ошибка:', err);
     return res.status(500).json({ error: 'Не удалось зарегистрировать пользователя.' });
   }
