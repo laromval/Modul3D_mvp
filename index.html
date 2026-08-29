@@ -7,7 +7,7 @@
 <title>Modul3D — параметрический конструктор корпусной мебели</title>
 
 <link rel="icon" type="image/svg+xml" href="favicon.svg" />
-<link rel="stylesheet" href="style.css?v192" />
+<link rel="stylesheet" href="style.css?v195" />
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <!-- Paddle.js — оверлей оплаты подписки (см. app.js: requestCheckout/initPaddle).
@@ -86,27 +86,95 @@
         </svg>
       </button>
       <div id="accountPopover" class="popover" style="display:none">
-        <div id="authForm">
+        <!-- Настоящий <form>, а не <div> — иначе Chrome/Google Password Manager
+             нестабильно предлагает автозаполнение (см. app.js: initAccountPanel). -->
+        <form id="authForm" autocomplete="on">
           <div class="field">
             <label for="authEmail">Email</label>
             <input id="authEmail" type="email" placeholder="you@example.com" autocomplete="username" />
           </div>
           <div class="field">
-            <label for="authPassword">Пароль</label>
-            <input id="authPassword" type="password" placeholder="не менее 8 символов" autocomplete="current-password" />
+            <label for="authNickname">Никнейм</label>
+            <input id="authNickname" type="text" maxlength="40" placeholder="Ваше имя в профиле" autocomplete="nickname" />
+            <span class="hint">Только для регистрации — так вас увидят в профиле и отзывах.</span>
           </div>
+          <div class="field">
+            <label for="authAvatar">Аватар <span class="dim">необязательно</span></label>
+            <div class="avatar-upload-row">
+              <span class="avatar-preview" id="authAvatarPreview" aria-hidden="true"></span>
+              <input id="authAvatar" type="file" accept="image/jpeg,image/png,image/webp" />
+            </div>
+            <span class="hint">Только для регистрации, до 2 МБ — JPG, PNG или WEBP.</span>
+          </div>
+          <div class="field">
+            <label for="authPassword">Пароль</label>
+            <div class="password-field">
+              <input id="authPassword" type="password" placeholder="не менее 8 символов" autocomplete="current-password" />
+              <button id="authPasswordToggle" class="password-toggle-btn" type="button" aria-label="Показать пароль" title="Показать пароль">
+                <svg class="ic-eye" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M1.5 12S5 5 12 5s10.5 7 10.5 7-3.5 7-10.5 7S1.5 12 1.5 12Z"/><circle cx="12" cy="12" r="3"/>
+                </svg>
+                <svg class="ic-eye-off" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="display:none">
+                  <path d="M3 3l18 18"/>
+                  <path d="M9.9 5.5A10.6 10.6 0 0 1 12 5c7 0 10.5 7 10.5 7a13.7 13.7 0 0 1-2.9 3.9M6.2 6.6C3.4 8.5 1.5 12 1.5 12S5 19 12 19a10.6 10.6 0 0 0 4.1-.8"/>
+                  <path d="M9.9 9.9a3 3 0 0 0 4.2 4.2"/>
+                </svg>
+              </button>
+            </div>
+          </div>
+          <label class="checkbox-inline auth-terms">
+            <input id="authTerms" type="checkbox" />
+            Я согласен с <a href="terms.html" target="_blank" rel="noopener">условиями использования</a>
+          </label>
           <div class="account-btns">
-            <button id="authLoginBtn" class="btn btn-primary" type="button">Войти</button>
-            <button id="authRegisterBtn" class="btn" type="button">Зарегистрироваться</button>
+            <button id="authLoginBtn" class="btn btn-primary" type="submit">Войти</button>
+            <button id="authRegisterBtn" class="btn" type="button" disabled>Зарегистрироваться</button>
           </div>
           <div id="authStatus" class="sketch-status"></div>
-        </div>
+        </form>
         <div id="accountInfo" style="display:none">
-          <div class="account-row"><span>Аккаунт</span><b id="accountEmail"></b></div>
+          <div class="account-header">
+            <span class="avatar-preview" id="accountAvatarPreview" aria-hidden="true"></span>
+            <div class="account-header-rows">
+              <div class="account-row"><span>Аккаунт</span><b id="accountEmail"></b></div>
+              <div class="account-row" id="accountNicknameRow" style="display:none"><span>Никнейм</span><b id="accountNickname"></b></div>
+            </div>
+          </div>
           <div class="account-row"><span>Токены ИИ-эскиза</span><b id="accountTokens"></b></div>
           <div class="account-row"><span>Подписка</span><b id="accountSubStatus"></b></div>
           <button id="accountUpgradeBtn" class="btn btn-primary" type="button" style="display:none">Оформить подписку</button>
+          <!-- Отзыв о приложении — см. app.js: initAccountPanel (обработчик
+               #reviewSubmitBtn), POST /reviews на модерацию. -->
+          <div class="review-block">
+            <label for="reviewText">Оставить отзыв о приложении</label>
+            <textarea id="reviewText" maxlength="2000" placeholder="Расскажите, что понравилось или что стоит доработать..."></textarea>
+            <button id="reviewSubmitBtn" class="btn" type="button">Оставить отзыв</button>
+            <div id="reviewStatus" class="sketch-status"></div>
+          </div>
           <button id="authLogoutBtn" class="btn" type="button">Выйти</button>
+        </div>
+        <!-- Панель сравнения тарифов — показывается после успешной регистрации
+             и по клику «Оформить подписку» в #accountInfo (см. app.js:
+             showPlansPanel). Состав пунктов — ТЗ-МОНЕТИЗАЦИЯ.md, раздел 1. -->
+        <div id="plansPanel" style="display:none">
+          <div class="plan-card">
+            <h4>Бесплатно</h4>
+            <ul>
+              <li>3D-конфигуратор</li>
+              <li>Ручной ввод параметров</li>
+              <li>Пресеты готовых модулей</li>
+              <li>Просмотр спецификации и стоимости на экране</li>
+            </ul>
+            <button id="planFreeBtn" class="btn" type="button">Продолжить бесплатно</button>
+          </div>
+          <div class="plan-card plan-card-paid">
+            <h4>Платно</h4>
+            <ul>
+              <li>Экспорт документов: Excel, DXF/CSV</li>
+              <li>Распознавание эскиза через ИИ</li>
+            </ul>
+            <button id="planPaidBtn" class="btn btn-primary" type="button">Оформить подписку</button>
+          </div>
         </div>
       </div>
     </div>
@@ -342,18 +410,18 @@
 
 </main>
 
-<script src="src/catalog.js?v192"></script>
-<script src="src/presets.js?v192"></script>
-<script src="src/engine.js?v192"></script>
-<script src="src/specification.js?v192"></script>
-<script src="src/legMeshes.js?v192"></script>
-<script src="src/viewer.js?v192"></script>
-<script src="src/ui-shell.js?v192"></script>
-<script src="src/drawings.js?v192"></script>
-<script src="src/export.js?v192"></script>
-<script src="src/cnc.js?v192"></script>
-<script src="src/sketchAI.js?v192"></script>
-<script src="src/app.js?v192"></script>
+<script src="src/catalog.js?v195"></script>
+<script src="src/presets.js?v195"></script>
+<script src="src/engine.js?v195"></script>
+<script src="src/specification.js?v195"></script>
+<script src="src/legMeshes.js?v195"></script>
+<script src="src/viewer.js?v195"></script>
+<script src="src/ui-shell.js?v195"></script>
+<script src="src/drawings.js?v195"></script>
+<script src="src/export.js?v195"></script>
+<script src="src/cnc.js?v195"></script>
+<script src="src/sketchAI.js?v195"></script>
+<script src="src/app.js?v195"></script>
 <script>if (window.Modul3D && window.Modul3D.uiShell) window.Modul3D.uiShell.start();</script>
 </body>
 </html>

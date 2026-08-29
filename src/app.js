@@ -14,7 +14,7 @@
 (function () {
 // Версия сборки — показывается во вкладке браузера и в шапке.
 // При выпуске новой версии меняется только эта строка.
-const APP_VERSION = 'v193';
+const APP_VERSION = 'v195';
 
 // Номер версии выводим ПЕРВЫМ делом: если дальше что-то упадёт, по нему сразу
 // видно, какая сборка открыта.
@@ -2739,8 +2739,14 @@ async function authRequest(path, body) {
 function renderAccountUI() {
   const authForm = document.getElementById('authForm');
   const accountInfo = document.getElementById('accountInfo');
+  const plansPanel = document.getElementById('plansPanel');
   const accountToggle = document.getElementById('accountToggle');
   const sketchNote = document.getElementById('sketchAuthNote');
+
+  // Панель тарифов — временный экран поверх формы входа/аккаунта (см.
+  // showPlansPanel); при любой обычной перерисовке возвращаемся к обычному
+  // виду формы входа или карточки аккаунта.
+  if (plansPanel) plansPanel.style.display = 'none';
 
   if (authAccount) {
     if (authForm) authForm.style.display = 'none';
@@ -2749,6 +2755,26 @@ function renderAccountUI() {
     const tokensEl = document.getElementById('accountTokens');
     const subEl = document.getElementById('accountSubStatus');
     if (emailEl) emailEl.textContent = authAccount.email;
+    const nicknameEl = document.getElementById('accountNickname');
+    const nicknameRow = document.getElementById('accountNicknameRow');
+    if (nicknameRow) {
+      if (authAccount.nickname) {
+        if (nicknameEl) nicknameEl.textContent = authAccount.nickname;
+        nicknameRow.style.display = 'flex';
+      } else {
+        nicknameRow.style.display = 'none';
+      }
+    }
+    const accountAvatarEl = document.getElementById('accountAvatarPreview');
+    if (accountAvatarEl) {
+      if (authAccount.avatarUrl) {
+        accountAvatarEl.style.backgroundImage = `url(${AUTH_API_BASE}${authAccount.avatarUrl})`;
+        accountAvatarEl.classList.add('has-image');
+      } else {
+        accountAvatarEl.style.backgroundImage = '';
+        accountAvatarEl.classList.remove('has-image');
+      }
+    }
     if (tokensEl) tokensEl.textContent = String(authAccount.tokenBalance);
     if (subEl) {
       const st = authAccount.subscription && authAccount.subscription.status;
@@ -2774,6 +2800,27 @@ function renderAccountUI() {
       sketchNote.className = 'sketch-status';
     }
   }
+}
+
+// Панель сравнения тарифов (см. index.html: #plansPanel) — общий экран для
+// двух сценариев: сразу после успешной регистрации и по клику «Оформить
+// подписку» в уже заполненной карточке аккаунта. Состав пунктов и кнопка
+// оплаты переиспользуют существующие данные/функцию, не дублируют их.
+function showPlansPanel() {
+  const popover = document.getElementById('accountPopover');
+  const authForm = document.getElementById('authForm');
+  const accountInfo = document.getElementById('accountInfo');
+  const plansPanel = document.getElementById('plansPanel');
+  if (authForm) authForm.style.display = 'none';
+  if (accountInfo) accountInfo.style.display = 'none';
+  if (plansPanel) plansPanel.style.display = 'block';
+  if (popover) popover.style.display = 'block';
+}
+
+// «Продолжить бесплатно» — просто возвращает попап к обычному виду (форма
+// входа или карточка аккаунта, в зависимости от того, вошёл ли пользователь).
+function hidePlansPanel() {
+  renderAccountUI();
 }
 
 // Дёргает /auth/me и обновляет authAccount по сохранённому JWT — вызывается
@@ -2802,23 +2849,91 @@ async function fetchAccount() {
   renderAccountUI();
 }
 
+// Ограничения на аватар при регистрации — те же, что сервер уже проверяет
+// сам (см. ТЗ выше), дублируем на клиенте только чтобы не ждать зря ответ.
+const AVATAR_MAX_SIZE = 2 * 1024 * 1024; // 2 МБ
+const AVATAR_ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
+
 function initAccountPanel() {
   const toggle = document.getElementById('accountToggle');
   const popover = document.getElementById('accountPopover');
+  const formEl = document.getElementById('authForm');
   const emailInput = document.getElementById('authEmail');
+  const nicknameInput = document.getElementById('authNickname');
+  const avatarInput = document.getElementById('authAvatar');
+  const avatarPreview = document.getElementById('authAvatarPreview');
   const passwordInput = document.getElementById('authPassword');
+  const passwordToggle = document.getElementById('authPasswordToggle');
+  const termsCheckbox = document.getElementById('authTerms');
   const loginBtn = document.getElementById('authLoginBtn');
   const registerBtn = document.getElementById('authRegisterBtn');
   const logoutBtn = document.getElementById('authLogoutBtn');
   if (!toggle || !popover) return;
+
+  function resetAvatarPreview() {
+    if (!avatarPreview) return;
+    avatarPreview.style.backgroundImage = '';
+    avatarPreview.classList.remove('has-image');
+  }
+
+  // Превью аватарки сразу при выборе файла, без похода на сервер — заодно
+  // здесь же валидируем формат/размер, чтобы не ждать ответа сервера с
+  // заведомо невалидным файлом (submit() ниже перепроверяет то же самое
+  // на случай, если файл выбрали, а потом изменили условия).
+  if (avatarInput && avatarPreview) {
+    avatarInput.addEventListener('change', () => {
+      const file = avatarInput.files && avatarInput.files[0];
+      if (!file) { resetAvatarPreview(); return; }
+      if (!AVATAR_ALLOWED_TYPES.includes(file.type)) {
+        setAuthStatus('Аватар должен быть в формате JPEG, PNG или WEBP.', 'error');
+        avatarInput.value = '';
+        resetAvatarPreview();
+        return;
+      }
+      if (file.size > AVATAR_MAX_SIZE) {
+        setAuthStatus('Аватар слишком большой — максимум 2 МБ.', 'error');
+        avatarInput.value = '';
+        resetAvatarPreview();
+        return;
+      }
+      setAuthStatus('', '');
+      avatarPreview.style.backgroundImage = `url(${URL.createObjectURL(file)})`;
+      avatarPreview.classList.add('has-image');
+    });
+  }
 
   toggle.addEventListener('click', () => {
     popover.style.display = popover.style.display === 'none' ? 'block' : 'none';
   });
   popover.addEventListener('click', (e) => e.stopPropagation());
   document.addEventListener('click', (e) => {
-    if (!popover.contains(e.target) && e.target !== toggle) popover.style.display = 'none';
+    if (!popover.contains(e.target) && !toggle.contains(e.target)) popover.style.display = 'none';
   });
+
+  // Глазик показа/скрытия пароля — обычный паттерн, переключает type поля
+  // и меняет иконку (см. index.html: .ic-eye/.ic-eye-off).
+  if (passwordToggle && passwordInput) {
+    passwordToggle.addEventListener('click', () => {
+      const showing = passwordInput.type === 'text';
+      passwordInput.type = showing ? 'password' : 'text';
+      const eyeIcon = passwordToggle.querySelector('.ic-eye');
+      const eyeOffIcon = passwordToggle.querySelector('.ic-eye-off');
+      if (eyeIcon) eyeIcon.style.display = showing ? '' : 'none';
+      if (eyeOffIcon) eyeOffIcon.style.display = showing ? 'none' : '';
+      const label = showing ? 'Показать пароль' : 'Скрыть пароль';
+      passwordToggle.setAttribute('aria-label', label);
+      passwordToggle.title = label;
+    });
+  }
+
+  // Кнопка «Зарегистрироваться» заблокирована, пока не отмечен чекбокс
+  // согласия с условиями использования (входа это не касается).
+  if (termsCheckbox && registerBtn) {
+    registerBtn.disabled = !termsCheckbox.checked;
+    termsCheckbox.addEventListener('change', () => {
+      registerBtn.disabled = !termsCheckbox.checked;
+    });
+  }
 
   async function submit(path, successMessage) {
     const email = (emailInput.value || '').trim();
@@ -2827,24 +2942,90 @@ function initAccountPanel() {
       setAuthStatus('Укажите email и пароль.', 'error');
       return;
     }
+    if (path === '/auth/register' && termsCheckbox && !termsCheckbox.checked) {
+      setAuthStatus('Подтвердите согласие с условиями использования.', 'error');
+      return;
+    }
+
+    // Никнейм и аватар нужны только при регистрации — /auth/login их не
+    // принимает и не должен спотыкаться, даже если поля что-то содержат.
+    let nickname = '';
+    let avatarFile = null;
+    if (path === '/auth/register') {
+      nickname = (nicknameInput && nicknameInput.value || '').trim();
+      if (nickname.length < 2 || nickname.length > 40) {
+        setAuthStatus('Никнейм должен быть от 2 до 40 символов.', 'error');
+        return;
+      }
+      avatarFile = (avatarInput && avatarInput.files && avatarInput.files[0]) || null;
+      if (avatarFile) {
+        if (!AVATAR_ALLOWED_TYPES.includes(avatarFile.type)) {
+          setAuthStatus('Аватар должен быть в формате JPEG, PNG или WEBP.', 'error');
+          return;
+        }
+        if (avatarFile.size > AVATAR_MAX_SIZE) {
+          setAuthStatus('Аватар слишком большой — максимум 2 МБ.', 'error');
+          return;
+        }
+      }
+    }
+
     loginBtn.disabled = true;
     registerBtn.disabled = true;
     setAuthStatus(path === '/auth/login' ? 'Входим…' : 'Регистрируем…', '');
     try {
-      const data = await authRequest(path, { email, password });
+      let data;
+      if (path === '/auth/register') {
+        // Сервер принимает регистрацию как multipart/form-data (поле avatar —
+        // файл), поэтому здесь не используем authRequest() (он всегда шлёт
+        // JSON) — собираем FormData и не проставляем content-type вручную,
+        // браузер сам добавит корректный boundary.
+        const formData = new FormData();
+        formData.append('email', email);
+        formData.append('password', password);
+        formData.append('nickname', nickname);
+        if (avatarFile) formData.append('avatar', avatarFile);
+        let res;
+        try {
+          res = await fetch(`${AUTH_API_BASE}${path}`, { method: 'POST', body: formData });
+        } catch (networkErr) {
+          throw new Error('Не удалось связаться с сервером — проверьте подключение к интернету.');
+        }
+        const resData = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(resData.error || 'Не удалось выполнить запрос, попробуйте ещё раз.');
+        data = resData;
+      } else {
+        data = await authRequest(path, { email, password });
+      }
       setAuthToken(data.token);
       passwordInput.value = '';
+      if (path === '/auth/register') {
+        if (nicknameInput) nicknameInput.value = '';
+        if (avatarInput) avatarInput.value = '';
+        resetAvatarPreview();
+      }
       setAuthStatus('', '');
       await fetchAccount();
+      if (path === '/auth/register') showPlansPanel();
     } catch (err) {
       setAuthStatus('Ошибка: ' + err.message, 'error');
     } finally {
       loginBtn.disabled = false;
-      registerBtn.disabled = false;
+      registerBtn.disabled = !(termsCheckbox && termsCheckbox.checked);
     }
   }
 
-  loginBtn.addEventListener('click', () => submit('/auth/login'));
+  // #authForm теперь настоящий <form> (нужно для автозаполнения браузера);
+  // «Войти» — type="submit", поэтому и Enter в полях, и клик по кнопке идут
+  // через один и тот же submit-обработчик. «Зарегистрироваться» остаётся
+  // type="button" — у него отдельное условие (чекбокс), Enter его не должен
+  // вызывать по умолчанию.
+  if (formEl) {
+    formEl.addEventListener('submit', (e) => {
+      e.preventDefault();
+      submit('/auth/login');
+    });
+  }
   registerBtn.addEventListener('click', () => submit('/auth/register'));
 
   if (logoutBtn) {
@@ -2853,12 +3034,64 @@ function initAccountPanel() {
       authAccount = null;
       emailInput.value = '';
       passwordInput.value = '';
+      const reviewTextEl = document.getElementById('reviewText');
+      if (reviewTextEl) reviewTextEl.value = '';
+      setReviewStatus('', '');
       renderAccountUI();
     });
   }
 
+  // Отзыв о приложении (POST /reviews, требует вход) — уходит на модерацию,
+  // поэтому после успешной отправки показываем не «опубликовано», а понятное
+  // объяснение, что отзыв появится на сайте после проверки.
+  const reviewText = document.getElementById('reviewText');
+  const reviewSubmitBtn = document.getElementById('reviewSubmitBtn');
+  function setReviewStatus(message, kind) {
+    const el = document.getElementById('reviewStatus');
+    if (!el) return;
+    el.textContent = message || '';
+    el.className = 'sketch-status' + (kind ? ` ${kind}` : '');
+  }
+  if (reviewSubmitBtn && reviewText) {
+    reviewSubmitBtn.addEventListener('click', async () => {
+      const text = (reviewText.value || '').trim();
+      if (!text) {
+        setReviewStatus('Напишите текст отзыва, прежде чем отправить.', 'error');
+        return;
+      }
+      reviewSubmitBtn.disabled = true;
+      setReviewStatus('Отправляем…', '');
+      try {
+        let res;
+        try {
+          res = await fetch(`${AUTH_API_BASE}/reviews`, {
+            method: 'POST',
+            headers: { authorization: `Bearer ${getAuthToken()}`, 'content-type': 'application/json' },
+            body: JSON.stringify({ text }),
+          });
+        } catch (networkErr) {
+          throw new Error('Не удалось связаться с сервером — проверьте подключение к интернету.');
+        }
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error || 'Не удалось отправить отзыв, попробуйте ещё раз.');
+        reviewText.value = '';
+        setReviewStatus('Спасибо! Отзыв отправлен на проверку — после одобрения он появится на сайте.', 'ok');
+      } catch (err) {
+        setReviewStatus('Ошибка: ' + err.message, 'error');
+      } finally {
+        reviewSubmitBtn.disabled = false;
+      }
+    });
+  }
+
   const upgradeBtn = document.getElementById('accountUpgradeBtn');
-  if (upgradeBtn) upgradeBtn.addEventListener('click', requestCheckout);
+  if (upgradeBtn) upgradeBtn.addEventListener('click', showPlansPanel);
+
+  const planFreeBtn = document.getElementById('planFreeBtn');
+  if (planFreeBtn) planFreeBtn.addEventListener('click', hidePlansPanel);
+
+  const planPaidBtn = document.getElementById('planPaidBtn');
+  if (planPaidBtn) planPaidBtn.addEventListener('click', requestCheckout);
 
   renderAccountUI();
   if (getAuthToken()) fetchAccount();
@@ -3065,7 +3298,7 @@ function initSketchPanel() {
   });
 
   document.addEventListener('click', (e) => {
-    if (!popover.contains(e.target) && e.target !== uploadBtn) popover.style.display = 'none';
+    if (!popover.contains(e.target) && !uploadBtn.contains(e.target)) popover.style.display = 'none';
   });
   popover.addEventListener('click', (e) => e.stopPropagation());
 }

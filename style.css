@@ -1081,7 +1081,7 @@ h4.spec-title { margin: var(--sp-5) 0 var(--sp-2); font-size: var(--fs-md); font
 /* ---------- 15б. АККАУНТ (вход/регистрация, токены, подписка) ------------ */
 
 .account-wrap { position: relative; display: inline-flex; }
-.account-wrap .popover { position: absolute; right: 0; top: calc(100% + 8px); width: 250px; z-index: 55; }
+.account-wrap .popover { position: absolute; right: 0; top: calc(100% + 8px); width: 280px; z-index: 55; }
 .account-btns { display: flex; gap: var(--sp-2); margin-top: var(--sp-2); }
 .account-btns .btn { flex: 1; }
 .account-row {
@@ -1091,6 +1091,98 @@ h4.spec-title { margin: var(--sp-5) 0 var(--sp-2); font-size: var(--fs-md); font
 .account-row b { color: var(--text); font-weight: 600; }
 #accountInfo #authLogoutBtn { width: 100%; margin-top: var(--sp-2); }
 #accountInfo #accountUpgradeBtn { width: 100%; margin-top: var(--sp-2); }
+
+/* Глазик показа/скрытия пароля (см. index.html: .password-field,
+   app.js: initAccountPanel) */
+.password-field { position: relative; }
+.password-field input { padding-right: 32px; }
+.password-toggle-btn {
+  position: absolute; right: 3px; top: 50%; transform: translateY(-50%);
+  width: 26px; height: 26px; padding: 0;
+  display: inline-flex; align-items: center; justify-content: center;
+  border: none; border-radius: var(--r-sm);
+  background: transparent; color: var(--muted);
+  cursor: pointer; transition: all var(--dur) var(--ease);
+}
+.password-toggle-btn:hover { background: var(--surface-2); color: var(--text); }
+.password-toggle-btn svg { width: 16px; height: 16px; }
+
+/* Чекбокс согласия с условиями использования — та же ссылка-паттерн, что и
+   остальные inline-чекбоксы в панели параметров, но с переносом на 2 строки
+   (align-items: flex-start, а не center) и запасом сверху/снизу. */
+.auth-terms {
+  align-items: flex-start !important;
+  margin: 2px 0 var(--sp-3);
+  line-height: 1.4;
+}
+.auth-terms input { margin-top: 2px !important; }
+.auth-terms a { color: var(--accent); }
+
+/* Превью аватарки — при регистрации (#authAvatarPreview, до отправки формы,
+   см. app.js: initAccountPanel) и в карточке аккаунта (#accountAvatarPreview,
+   после GET /auth/me). Круглая рамка фиксированного размера, картинка через
+   background — без "битой" иконки при пустом значении. */
+.avatar-preview {
+  width: 48px; height: 48px; flex: 0 0 auto;
+  border-radius: 50%;
+  border: 1px solid var(--border-strong);
+  background: var(--surface-2) center/cover no-repeat;
+}
+.avatar-upload-row { display: flex; align-items: center; gap: var(--sp-2); }
+.avatar-upload-row input[type='file'] {
+  flex: 1 1 auto; width: auto; padding: 6px 0;
+  font-size: var(--fs-xs); color: var(--text-2);
+}
+
+/* Шапка карточки аккаунта — аватарка слева, строки «Аккаунт»/«Никнейм»
+   справа (см. index.html: #accountInfo .account-header). */
+.account-header { display: flex; align-items: center; gap: var(--sp-2); margin-bottom: var(--sp-1); }
+.account-header .avatar-preview { width: 44px; height: 44px; }
+.account-header-rows { flex: 1 1 auto; min-width: 0; }
+.account-header-rows .account-row { padding: 2px 0; }
+
+/* Отзыв о приложении (#accountInfo .review-block, см. app.js:
+   initAccountPanel — обработчик #reviewSubmitBtn, POST /reviews). */
+.review-block {
+  margin-top: var(--sp-3);
+  padding-top: var(--sp-3);
+  border-top: 1px solid var(--border);
+}
+.review-block label {
+  display: block; font-size: var(--fs-sm); color: var(--text-2);
+  margin-bottom: 5px; font-weight: 500;
+}
+.review-block textarea {
+  width: 100%; min-height: 72px; resize: vertical;
+  padding: 7px 10px;
+  border: 1px solid var(--border-strong); border-radius: var(--r-sm);
+  background: var(--surface-solid); color: var(--text);
+  font-family: inherit; font-size: var(--fs-md);
+  transition: border-color var(--dur) var(--ease), box-shadow var(--dur) var(--ease);
+}
+.review-block textarea:focus {
+  outline: none; border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+.review-block .btn { width: 100%; margin-top: var(--sp-2); }
+
+/* Панель сравнения тарифов — после регистрации и по клику «Оформить
+   подписку» в карточке аккаунта (см. index.html: #plansPanel, app.js:
+   showPlansPanel). Попап «Аккаунт» узкий (280px), поэтому карточки идут
+   вертикально одна под другой, а не колонками. */
+.account-wrap #plansPanel { width: 100%; }
+.plan-card {
+  border: 1px solid var(--border); border-radius: var(--r-md);
+  padding: var(--sp-3); margin-bottom: var(--sp-3);
+  background: var(--surface-2);
+}
+.plan-card:last-child { margin-bottom: 0; }
+.plan-card h4 { margin: 0 0 var(--sp-2); font-size: var(--fs-md); color: var(--text); }
+.plan-card ul { margin: 0 0 var(--sp-3); padding-left: 18px; }
+.plan-card li { font-size: var(--fs-sm); color: var(--text-2); margin-bottom: 4px; line-height: 1.4; }
+.plan-card li:last-child { margin-bottom: 0; }
+.plan-card .btn { width: 100%; }
+.plan-card-paid { background: var(--accent-soft); border-color: var(--accent); }
 
 /* Отменить/Вернуть/Удалить в шапке — иконки-глифы вместо svg */
 .icon-btn-text { font-size: 15px; font-weight: 700; font-family: inherit; }
