@@ -20,9 +20,9 @@
 // Классический скрипт (без import/export) — публикует себя в window.Modul3D.
 // ============================================================================
 (function () {
-// Адрес сервера монетизации. Для локальной разработки — локальный сервер
-// из server/. Для реального деплоя ЗАМЕНИТЬ на адрес продакшен-сервера.
-const API_BASE = 'http://localhost:4000';
+// Адрес сервера монетизации — задеплоен на Railway (см. server/README.md,
+// раздел «Деплой на Railway»).
+const API_BASE = 'https://modul3dmvp-production.up.railway.app';
 
 const AUTH_TOKEN_KEY = 'modul3dAuthToken';
 
