@@ -10,11 +10,27 @@ if (!process.env.JWT_SECRET) {
     'В проде обязательно задайте свой JWT_SECRET, иначе любой сможет подделать сессию.');
 }
 
+// Managed Postgres в облаке (Railway, Render, Supabase, Neon и т.п.) почти
+// всегда требует SSL и использует самоподписанный сертификат — без
+// `rejectUnauthorized: false` подключение падает с "self signed certificate"
+// или "no encryption". Локальный Postgres (localhost/127.0.0.1), наоборот,
+// обычно SSL не поддерживает вовсе. Определяем по хосту в самой строке
+// подключения, чтобы не заводить отдельную переменную окружения.
+function resolveDatabaseSsl(connectionString) {
+  if (!connectionString) return false;
+  const isLocalHost = /(?:@|\/\/)(localhost|127\.0\.0\.1)(?::\d+)?(?:\/|$)/i.test(
+    connectionString
+  );
+  return isLocalHost ? false : { rejectUnauthorized: false };
+}
+
 module.exports = {
   port: parseInt(process.env.PORT || '4000', 10),
   corsOrigin: process.env.CORS_ORIGIN || '*',
 
   databaseUrl: process.env.DATABASE_URL,
+  databaseSsl: resolveDatabaseSsl(process.env.DATABASE_URL),
+  resolveDatabaseSsl,
 
   jwtSecret: process.env.JWT_SECRET || 'dev-only-insecure-secret-change-me',
   jwtExpiresIn: process.env.JWT_EXPIRES_IN || '7d',

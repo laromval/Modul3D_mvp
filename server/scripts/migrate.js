@@ -5,6 +5,7 @@ require('dotenv').config();
 const fs = require('fs');
 const path = require('path');
 const { Pool } = require('pg');
+const { resolveDatabaseSsl } = require('../src/config');
 
 const MIGRATIONS_DIR = path.join(__dirname, '..', 'src', 'migrations');
 
@@ -14,7 +15,10 @@ async function main() {
     process.exit(1);
   }
 
-  const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+  const pool = new Pool({
+    connectionString: process.env.DATABASE_URL,
+    ssl: resolveDatabaseSsl(process.env.DATABASE_URL),
+  });
   const files = fs
     .readdirSync(MIGRATIONS_DIR)
     .filter((f) => f.endsWith('.sql'))

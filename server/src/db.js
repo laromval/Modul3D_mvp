@@ -15,7 +15,10 @@ if (!config.databaseUrl) {
   );
 }
 
-const pool = new Pool({ connectionString: config.databaseUrl });
+const pool = new Pool({
+  connectionString: config.databaseUrl,
+  ssl: config.databaseSsl,
+});
 
 pool.on('error', (err) => {
   // Ошибки на простаивающих клиентах пула — не должны валить процесс.
