@@ -137,8 +137,11 @@ function buildSpecification(model) {
     });
   }
 
-  // Полкодержатели: под стеклянную полку нужен держатель с силиконовой пяткой
-  const shelvesAll = parts.filter(r => r.kind === 'shelf');
+  // Полкодержатели: под стеклянную полку нужен держатель с силиконовой пяткой.
+  // Несъёмные полки-перегородки (fixed, см. engine.js) держатся минификсами
+  // Rastex, а не штифтами — их фурнитура уже учтена в jointRows ниже, сюда
+  // не попадают, иначе штифты насчитались бы вдвойне.
+  const shelvesAll = parts.filter(r => r.kind === 'shelf' && !r.fixed);
   const shelfCount = shelvesAll.filter(r => !r.glass).reduce((s, r) => s + r.qty, 0);
   const shelfGlassCount = shelvesAll.filter(r => r.glass).reduce((s, r) => s + r.qty, 0);
   if (shelfGlassCount > 0) hardware.push(hwRow(HARDWARE_PRICES.shelfSupportGlass, shelfGlassCount * 4));

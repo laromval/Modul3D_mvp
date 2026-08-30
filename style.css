@@ -985,6 +985,16 @@ h4.spec-title { margin: var(--sp-5) 0 var(--sp-2); font-size: var(--fs-md); font
 .ctx-item.danger { color: var(--danger); }
 .ctx-item.danger:hover { background: var(--danger-soft); }
 .ctx-sep { height: 1px; margin: 5px 4px; background: var(--border); }
+/* Составной пункт меню: число + кнопка в одной строке (например «Разделить
+   на секции по вертикали» у фасада в режиме фокуса, см. showFocusMenu). */
+.ctx-numrow { display: flex; gap: 6px; padding: 2px 9px 7px; align-items: center; }
+.ctx-numrow input[type="number"] {
+  width: 56px; box-sizing: border-box; font-family: inherit; font-size: var(--fs-sm);
+  border: 1px solid var(--border); border-radius: var(--r-sm);
+  background: var(--surface-2); color: var(--text); padding: 5px 6px;
+}
+.ctx-numrow .ctx-item { width: auto; flex: 1; text-align: center; background: var(--surface-2); }
+.ctx-numrow .ctx-item:hover { background: var(--accent-soft); color: var(--accent); }
 
 /* ---------- 12. ПОПОВЕРЫ (эскиз ИИ, API-ключ) ----------------------------- */
 
