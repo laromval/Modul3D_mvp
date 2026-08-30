@@ -14,7 +14,7 @@
 (function () {
 // Версия сборки — показывается во вкладке браузера и в шапке.
 // При выпуске новой версии меняется только эта строка.
-const APP_VERSION = 'v196';
+const APP_VERSION = 'v197';
 
 // Номер версии выводим ПЕРВЫМ делом: если дальше что-то упадёт, по нему сразу
 // видно, какая сборка открыта.
@@ -415,8 +415,17 @@ function insertModule(m) {
 // Переключатель экрана панели «Параметры проекта» — точка связи с
 // ui-shell.js (кнопка «Параметры» в HUD ведёт на экран 'module').
 function setPanelView(view) {
+  // Уход с экрана «Деталь» на любой другой — снимаем выбор (и вместе с ним
+  // 3D-подсветку, см. viewOpts): иначе деталь/секция осталась бы подсвечена
+  // бирюзовым в 3D, хотя панель её больше не показывает.
+  if (view !== 'part') state.selectedPart = null;
   state.panelView = view;
   renderParamsPanel();
+  // Смена panelView/selectedPart меняет opts.axisHintRow/highlightSection в
+  // viewOpts() — без re-render 3D не подхватит новое значение до следующего
+  // не связанного с этим действия (см. тот же вызов в openPartEditor/
+  // exitFocusMode/onSelectPart/onFocusMiss).
+  if (viewer && currentModel) viewer.render(currentModel, viewOpts());
 }
 
 function libraryBlock() {
@@ -935,6 +944,7 @@ function moduleFieldsBlock(mod) {
 const OVERRIDABLE_PART_KINDS = new Set(['side', 'bottom', 'top', 'back', 'plinth']);
 const PART_KIND_TITLES = {
   side: 'Боковина', bottom: 'Дно', top: 'Крыша / планка', back: 'Задняя стенка', plinth: 'Цоколь',
+  door: 'Фасад', drawerFront: 'Фасад ящика',
 };
 
 // Определение стороны по имени детали — ТОЧНО как partOverrideSide() в
@@ -982,6 +992,13 @@ function resolveSelectedPart(mod) {
   let chosenIdx;
   if (sp.kind === 'side') {
     chosenIdx = candidates.findIndex((c) => c.side === sp.side);
+    if (chosenIdx < 0) chosenIdx = 0;
+  } else if (sp.kind === 'door') {
+    // У модуля почти всегда несколько дверей (по секции/зоне) — subIndex
+    // здесь всегда 0 (openPartEditor его не считает для door), поэтому
+    // ищем ту же деталь по sectionIndex+zoneIndex, а не по порядку.
+    chosenIdx = candidates.findIndex((c) =>
+      c.part.sectionIndex === sp.sectionIndex && c.part.zoneIndex === sp.zoneIndex);
     if (chosenIdx < 0) chosenIdx = 0;
   } else {
     chosenIdx = Number.isFinite(sp.subIndex) ? sp.subIndex : 0;
@@ -1117,10 +1134,11 @@ function partPlaceholderBlock() {
 // которую нужно будет заменить/расширить, вызывающий код (openPartEditor)
 // менять не придётся.
 function partKindPlaceholderBlock(kind) {
+  const title = PART_KIND_TITLES[kind] || kind;
   return `
     ${backLinkBlock()}
     <h3>Деталь</h3>
-    <div class="hint">Редактор для этого вида детали (${esc(kind)}) появится отдельным этапом.</div>`;
+    <div class="hint">Редактор для этого вида детали (${esc(title)}) появится отдельным этапом.</div>`;
 }
 
 // Компактный редактор ОДНОЙ зоны фасада — открывается «Редактировать» в
@@ -1173,16 +1191,25 @@ function doorZoneEditorScreen(mod, sectionIndex, zoneIndex) {
 // архитектурой хранения ручных правок), менять нужно будет только то, ЧТО
 // показывается на экране «part» (partBlock/partKindPlaceholderBlock и
 // renderParamsPanel ниже), саму точку вызова из меню — не нужно.
-function openPartEditor(module, kind, side, sectionIndex, zoneIndex) {
+function openPartEditor(module, kind, side, sectionIndex, zoneIndex, asPart) {
   state.selectedPart = {
     module, kind, side, subIndex: 0,
-    // Только у дверей (kind:'door') — числовой индекс секции/зоны фасада,
+    // У фасадов (kind:'door'/'drawerFront') — числовой индекс секции/зоны фасада,
     // которую кликнули в 3D (см. viewer.js userData.sectionIndex/zoneIndex).
     // Undefined для остальных видов деталей — им это поле не нужно.
     sectionIndex, zoneIndex,
+    // Для kind:'door' — true, если открыли именно как деталь (пункт меню
+    // «Редактировать деталь», второй у фасада), а не как зону фасада
+    // (пункт «Редактировать секцию» → doorZoneEditorScreen). Остальным
+    // видам деталей не нужно.
+    asPart: !!asPart,
   };
   state.panelView = 'part';
   renderParamsPanel();
+  // viewOpts() теперь учитывает state.panelView/selectedPart (см. highlightSection) —
+  // без явного re-render 3D-сцена остаётся в прежнем виде, пока что-то ещё
+  // не вызовет recompute()/render() (как это уже сделано в exitFocusMode).
+  if (viewer && currentModel) viewer.render(currentModel, viewOpts());
   // Экран «Деталь» рисуется в #paramsPanel, но сам дровер «Параметры проекта»
   // открывается только рейкой (ui-shell.js). Вход сюда — из контекстного меню
   // в 3D, а не с рейки, и дровер в этот момент может быть закрыт (например,
@@ -1348,10 +1375,10 @@ function renderParamsPanel() {
   } else if (state.panelView === 'part') {
     if (!state.selectedPart) {
       screen = partPlaceholderBlock();
+    } else if (state.selectedPart.kind === 'door' && !state.selectedPart.asPart) {
+      screen = doorZoneEditorScreen(mod, state.selectedPart.sectionIndex, state.selectedPart.zoneIndex);
     } else if (OVERRIDABLE_PART_KINDS.has(state.selectedPart.kind)) {
       screen = partBlock(mod);
-    } else if (state.selectedPart.kind === 'door') {
-      screen = doorZoneEditorScreen(mod, state.selectedPart.sectionIndex, state.selectedPart.zoneIndex);
     } else {
       screen = partKindPlaceholderBlock(state.selectedPart.kind);
     }
@@ -1361,6 +1388,24 @@ function renderParamsPanel() {
   }
 
   panel.innerHTML = moduleTabsBlock(mod) + screen;
+
+  const drawerTitleEl = document.getElementById('paramsDrawerTitle');
+  if (drawerTitleEl) {
+    // «Редактор секции» — только для doorZoneEditorScreen (зона фасада).
+    // Всё остальное на экране «part» (partBlock/partKindPlaceholderBlock,
+    // включая дверь, открытую как деталь через asPart) — «Редактор детали»,
+    // это другой, более старый экран, не про зоны фасада.
+    const onSectionScreen = state.panelView === 'part' && state.selectedPart
+      && state.selectedPart.kind === 'door' && !state.selectedPart.asPart;
+    // state.selectedPart может обнулиться (undo/redo, удаление модуля,
+    // открытие другого проекта — все через exitIsolation()) БЕЗ отката
+    // panelView на 'module' — тогда экран уже откатился на подсказку
+    // partPlaceholderBlock(), а заголовок без этой проверки остался бы
+    // «Редактор детали».
+    const onPartScreen = state.panelView === 'part' && !!state.selectedPart && !onSectionScreen;
+    drawerTitleEl.textContent = onSectionScreen ? 'Редактор секции'
+      : (onPartScreen ? 'Редактор детали' : 'Параметры проекта');
+  }
 
   if (mod && state.panelView === 'module') renderSectionsList();
   bindPanelEvents();
@@ -2257,8 +2302,9 @@ function showFocusMenu(x, y, items) {
 // же, что раньше делал клик мимо модели (viewer.onSelectModule(null)) —
 // полный сброс выделения, не только изоляции.
 function exitFocusMode() {
-  const changed = state.selected !== null || state.isolatedModule !== null;
+  const changed = state.selected !== null || state.isolatedModule !== null || state.selectedPart !== null;
   state.selected = null;
+  state.selectedPart = null;
   state.panelView = 'module';
   exitIsolation();
   renderParamsPanel();
@@ -2703,15 +2749,31 @@ function innerHeightDims(P, zf) {
 // Параметры отображения 3D: скрытие фасадов + подсветка активного модуля,
 // чтобы было видно, какой именно модуль сейчас редактируется.
 function viewOpts() {
-  // Пока открыт экран «Деталь», подсвечиваем в 3D оси X/Y на лицевой грани
-  // именно той сырой детали, что редактируется (см. partBlock() выше) — той
-  // же ссылкой, resolveSelectedPart() гарантирует совпадение с панелью.
+  // Подсказка осей и бирюзовая подсветка детали держатся на state.selectedPart
+  // САМОМ ПО СЕБЕ, а не на state.panelView==='part' — деталь должна
+  // подсвечиваться сразу по клику в 3D (viewer.onSelectPart ставит
+  // selectedPart в момент открытия контекстного меню, ДО того как
+  // пользователь выбрал конкретный пункт), а не только когда открыт сам
+  // экран редактирования. state.selectedPart корректно обнуляется во всех
+  // точках выхода (exitFocusMode, onFocusMiss, setPanelView при уходе с
+  // экрана «Деталь»), так что подсветка не залипает.
   let axisHintRow = null;
-  if (state.panelView === 'part' && state.selectedPart) {
+  if (state.selectedPart) {
     const mod = state.modules.find((m) => m.name === state.selectedPart.module);
     const resolved = resolveSelectedPart(mod);
     if (resolved.chosen) axisHintRow = resolved.chosen.part;
   }
+  // Секция (фасад), которую сейчас редактируют или только что выбрали в 3D,
+  // подсвечивается бирюзовым — сигнал для viewer.js, какую именно
+  // подсвечивать. zoneIndex передаём отдельно: если секция разбита на зоны
+  // по высоте («Разделить на секции по вертикали» — доверь-пенал под технику),
+  // редактируется ОДНА конкретная зона, и подсвечивать нужно только её дверь,
+  // а не все зоны стопки — viewer.js сверяет zoneIndex наравне с sectionIndex.
+  const highlightSection = (state.selectedPart
+      && Number.isFinite(state.selectedPart.sectionIndex))
+    ? { module: state.selectedPart.module, sectionIndex: state.selectedPart.sectionIndex,
+        zoneIndex: Number.isFinite(state.selectedPart.zoneIndex) ? state.selectedPart.zoneIndex : null }
+    : null;
   return {
     hideFacades: state.hideFacades,
     drillCheck: state.drillCheck,
@@ -2722,6 +2784,7 @@ function viewOpts() {
     highlightModule: state.isolatedModule ? null : state.selected,
     isolateModule: state.isolatedModule,
     axisHintRow,
+    highlightSection,
   };
 }
 
@@ -3143,6 +3206,12 @@ function initHeaderControls() {
     // сразу экран «Деталь»: «Редактировать» ведёт на openPartEditor,
     // «Выйти из фокуса» — на exitFocusMode.
     viewer.onSelectPart = ({ module, kind, side, sectionIndex, zoneIndex, clientX, clientY }) => {
+      // Деталь подсвечивается в 3D СРАЗУ по клику — ещё до того, как открыто
+      // само меню и тем более выбран его пункт (см. viewOpts/viewer.render
+      // ниже). panelView здесь НЕ трогаем — панель «Деталь»/«Секция» по-
+      // прежнему открывается только явным выбором пункта меню (openPartEditor).
+      state.selectedPart = { module, kind, side, subIndex: 0, sectionIndex, zoneIndex, asPart: false };
+      viewer.render(currentModel, viewOpts());
       const items = [];
       // Клик по фасаду — сверху пункт быстрого разбиения секции на N зон
       // по вертикали (пенал под встроенную технику), альтернатива полю
@@ -3174,7 +3243,20 @@ function initHeaderControls() {
           });
         }
       }
-      items.push({ label: 'Редактировать', action: () => openPartEditor(module, kind, side, sectionIndex, zoneIndex) });
+      // У фасада (kind:'door') первый пункт ведёт на редактор ЗОНЫ фасада
+      // (doorZoneEditorScreen) — поэтому подпись «...секцию»; у остальных
+      // видов деталей (боковина/дно и т.п.) этот же пункт — единственный и
+      // ведёт сразу на общий редактор ОДНОЙ детали, подпись — «...деталь».
+      items.push({
+        label: kind === 'door' ? 'Редактировать секцию' : 'Редактировать деталь',
+        action: () => openPartEditor(module, kind, side, sectionIndex, zoneIndex),
+      });
+      // Для фасада — отдельно ещё и «Редактировать деталь» (asPart:true), пока
+      // честная заглушка (partKindPlaceholderBlock), но с корректной 3D-
+      // подсветкой именно этой двери (см. resolveSelectedPart ниже).
+      if (kind === 'door') {
+        items.push({ label: 'Редактировать деталь', action: () => openPartEditor(module, kind, side, sectionIndex, zoneIndex, true) });
+      }
       items.push({ label: 'Выйти из фокуса', action: exitFocusMode });
       showFocusMenu(clientX, clientY, items);
     };
@@ -3182,6 +3264,13 @@ function initHeaderControls() {
     // Клик МИМО любой детали, пока изоляция активна — то же меню, но только
     // с пунктом выхода: редактировать здесь нечего.
     viewer.onFocusMiss = ({ module, clientX, clientY }) => {
+      // Клик мимо любой детали — снимаем подсветку, оставленную предыдущим
+      // кликом по детали (см. onSelectPart выше): раз ничего конкретного не
+      // выбрано, светить в 3D больше нечему.
+      if (state.selectedPart) {
+        state.selectedPart = null;
+        viewer.render(currentModel, viewOpts());
+      }
       showFocusMenu(clientX, clientY, [
         { label: 'Выйти из фокуса', action: exitFocusMode },
       ]);

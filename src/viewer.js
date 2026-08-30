@@ -290,19 +290,31 @@ const HIGHLIGHT_COLOR = {
   leg: 0x41667f,
 };
 
+// Подсветка фасада ВЫБРАННОЙ СЕКЦИИ (клик по двери/ящику в Focus Mode →
+// «Редактировать секцию»): плотная бирюзовая полупрозрачная заливка поверх
+// обычного цвета фасада — грани и контур детали видны сквозь неё. В отличие
+// от highlightModule (подсветка всего модуля синим) это подсветка одной
+// конкретной секции модуля, и только её фасада — не корпуса.
+const SECTION_HI_COLOR = 0x35c9e0;
+const SECTION_HI_EMISSIVE = 0x0d4b57;
+const SECTION_HI_OPACITY = 0.75;
+
 // Рамочный фасад: четыре бруска рамки и вставка. У витражных и алюминиевых
 // вставка стеклянная и прозрачная, у глухого деревянного — филёнка из того же
 // материала, утопленная в рамку.
-function makeFramedFacade(box, row, isActive, ghost) {
+function makeFramedFacade(box, row, isActive, ghost, sectionHi) {
   const g = new THREE.Group();
   const sw = row.rot === 90 || row.rot === 270;
   const W = (sw ? box.d : box.w) * MM, H = box.h * MM, T = (sw ? box.w : box.d) * MM;
   const fw = Math.min((row.frameW || 70) * MM, Math.min(W, H) / 2 - 0.005);
-  const frameColor = isActive ? 0x6fa3cd : (row.insertMaterial === 'GLASS-4' && row.facadeType === 'alu' ? 0x8d9296 : 0xc9a76a);
+  const frameColor = sectionHi ? SECTION_HI_COLOR
+    : isActive ? 0x6fa3cd : (row.insertMaterial === 'GLASS-4' && row.facadeType === 'alu' ? 0x8d9296 : 0xc9a76a);
   const matFrame = new THREE.MeshStandardMaterial({
     color: frameColor, roughness: row.facadeType === 'alu' ? 0.3 : 0.7,
     metalness: row.facadeType === 'alu' ? 0.8 : 0.05,
-    transparent: ghost, opacity: ghost ? 0.22 : 1, depthWrite: !ghost,
+    emissive: sectionHi ? SECTION_HI_EMISSIVE : 0x000000,
+    transparent: ghost || sectionHi, opacity: sectionHi ? SECTION_HI_OPACITY : (ghost ? 0.22 : 1),
+    depthWrite: !(ghost || sectionHi),
   });
   const addBar = (w, h, x, y) => {
     const m = new THREE.Mesh(new THREE.BoxGeometry(Math.max(w, 0.001), Math.max(h, 0.001), T), matFrame);
@@ -319,10 +331,12 @@ function makeFramedFacade(box, row, isActive, ghost) {
   const ih = Math.max(H - 2 * fw + 0.006, 0.001);
   const isGlass = row.insertMaterial === 'GLASS-4';
   const matIns = new THREE.MeshStandardMaterial({
-    color: isGlass ? 0xbfe3ea : (isActive ? 0x7fb0d8 : 0xd8c8a8),
+    color: sectionHi ? SECTION_HI_COLOR : (isGlass ? 0xbfe3ea : (isActive ? 0x7fb0d8 : 0xd8c8a8)),
     roughness: isGlass ? 0.08 : 0.7, metalness: 0.02,
-    transparent: isGlass || ghost, opacity: ghost ? 0.2 : (isGlass ? 0.35 : 1),
-    depthWrite: !(isGlass || ghost),
+    emissive: sectionHi ? SECTION_HI_EMISSIVE : 0x000000,
+    transparent: isGlass || ghost || sectionHi,
+    opacity: sectionHi ? SECTION_HI_OPACITY : (ghost ? 0.2 : (isGlass ? 0.35 : 1)),
+    depthWrite: !(isGlass || ghost || sectionHi),
   });
   const ins = new THREE.Mesh(new THREE.BoxGeometry(iw, ih, T * (isGlass ? 0.25 : 0.6)), matIns);
   ins.position.z = isGlass ? 0 : -T * 0.15;
@@ -1580,6 +1594,10 @@ class Viewer3D {
     this._axisHint = null;
     this._updateFloorVisibility();
     const highlight = opts && opts.highlightModule;
+    // Подсветка секции (клик по фасаду в Focus Mode → «Редактировать
+    // секцию»): { module, sectionIndex } либо null. Красим бирюзовым только
+    // фасады (двери/ящики) этой секции — см. isSectionHi ниже в цикле.
+    const sectionHi = (opts && opts.highlightSection) || null;
     // Режим изоляции (двойной клик по модулю, см. dblclick-обработчик выше):
     // имя модуля, который остаётся «живым», все остальные — притушены.
     // Запоминаем в поле экземпляра — pointerup-обработчик читает его, чтобы
@@ -1616,6 +1634,32 @@ class Viewer3D {
       const framed = (row.frameW || 0) > 0 && row.facadeType !== 'mdfMilled';
       const milled = row.facadeType === 'mdfMilled';   // фрезеровка на пласти
       const isActive = highlight && row.module === highlight;
+      // Эта деталь — фасад секции, выбранной для редактирования: подсвечиваем
+      // её бирюзовой заливкой (см. mat/makeFramedFacade ниже). Ручки под
+      // isSectionHi НЕ подпадают (makeHandle его не принимает) — они должны
+      // остаться металлическими.
+      // sectionIndex один на всю секцию (и её зоны, и её ящики) — этого
+      // достаточно, ПОКА в секции нет нескольких зон двери по высоте
+      // («Разделить на секции по вертикали», engine.js zonesRaw). Если зона
+      // выбрана (sectionHi.zoneIndex — число), подсвечивать нужно ТОЛЬКО её
+      // дверь, а не всю стопку зон секции — иначе бирюзовым красится сразу
+      // весь пенал. У ящиков (kind:'drawerFront') zoneIndex не бывает
+      // (engine.js его не проставляет) — они подсвечиваются все вместе, как
+      // единый набор фасадов секции, когда выбрана именно секция без зон.
+      const targetZoneIndex = sectionHi && Number.isFinite(sectionHi.zoneIndex) ? sectionHi.zoneIndex : null;
+      const isSectionHi = !!(sectionHi && isFacade && row.module === sectionHi.module
+        && Number.isFinite(row.sectionIndex) && row.sectionIndex === sectionHi.sectionIndex
+        && (targetZoneIndex === null ? !Number.isFinite(row.zoneIndex)
+          : (Number.isFinite(row.zoneIndex) && row.zoneIndex === targetZoneIndex)));
+      // Эта деталь — та самая «сырая» деталь, которую сейчас показывает экран
+      // «Деталь» (боковина/дно/крыша/задняя стенка/цоколь/дверь-как-деталь).
+      // opts.axisHintRow — ссылка на объект model.partsRaw, её же использует
+      // подсказка осей ниже по циклу. В отличие от isSectionHi, здесь НЕ
+      // проверяем isFacade — обычные детали корпуса тоже должны подсвечиваться.
+      const isPartHi = !!(opts && opts.axisHintRow && row === opts.axisHintRow);
+      // Единственная переменная, от которой зависит бирюзовая заливка ниже:
+      // логическое ИЛИ подсветки секции и подсветки отдельной детали.
+      const hiCyan = isSectionHi || isPartHi;
       // Доборные детали (фальш-планки, заглушки) красим по МАТЕРИАЛУ:
       // сделана из фасадного — выглядит как фасад, из корпусного ЛДСП —
       // как корпус. Раньше они уходили в серую заглушку по умолчанию.
@@ -1693,7 +1737,7 @@ class Viewer3D {
       // брусков и вставки — так он и выглядит на самом деле.
       if (framed) {
         for (const box of row.boxes) {
-          this.group.add(makeFramedFacade(box, row, isActive, ghostLike));
+          this.group.add(makeFramedFacade(box, row, isActive, ghostLike, hiCyan));
         }
         continue;
       }
@@ -1764,16 +1808,22 @@ class Viewer3D {
       // Текстуру «под древесину» кладём только на древесные декоры: на белом
       // и чёрном ЛДСП её быть не должно.
       const ldspLike = !glass && !isMdf && (look ? look.wood : true);
-      const tex = (ldspLike && !isActive) ? woodTexture() : null;
+      // Подсветка секции/детали — приоритет НАД декором/isActive/ghost/
+      // drillCheck: если эта деталь — фасад выбранной секции ИЛИ конкретная
+      // деталь, открытая на экране «Деталь», красим её бирюзовым и никакую
+      // текстуру/другой оттенок сверху не кладём.
+      const tex = (ldspLike && !isActive && !hiCyan) ? woodTexture() : null;
       const mat = new THREE.MeshStandardMaterial({
-        color: glass ? 0xbfe3ea : (isMdf ? (isActive ? 0x7fb0d8 : 0xf2efe9) : color),
+        color: hiCyan ? SECTION_HI_COLOR
+          : (glass ? 0xbfe3ea : (isMdf ? (isActive ? 0x7fb0d8 : 0xf2efe9) : color)),
         map: tex || null,
         roughness: glass ? 0.1 : (isMdf ? 0.12 : 0.75),
         metalness: isMdf ? 0.05 : 0.02,
-        emissive: isActive ? 0x14314a : 0x000000,
-        transparent: ghostLike || glass || drillCheck,
-        opacity: ghostLike ? 0.22 : (glass ? 0.35 : (drillCheck ? 0.22 : 1)),
-        depthWrite: !(ghostLike || glass || drillCheck),
+        emissive: hiCyan ? SECTION_HI_EMISSIVE : (isActive ? 0x14314a : 0x000000),
+        transparent: hiCyan || ghostLike || glass || drillCheck,
+        opacity: hiCyan ? SECTION_HI_OPACITY
+          : (ghostLike ? 0.22 : (glass ? 0.35 : (drillCheck ? 0.22 : 1))),
+        depthWrite: !(hiCyan || ghostLike || glass || drillCheck),
       });
       if (tex) {
         // Грань детали строится в slabGeometry() как THREE.Shape с
@@ -1885,11 +1935,11 @@ class Viewer3D {
           mesh.userData.side = (row.name || '').indexOf('лев') >= 0 ? 'left'
             : (row.name || '').indexOf('прав') >= 0 ? 'right' : null;
         }
-        // Индекс секции/зоны фасада — только у дверей (engine.js makePart),
-        // числовой, в отличие от текстового row.section. Даёт контекстному
-        // меню/редактору зоны в app.js понять, по какой именно двери
-        // кликнули, когда их у модуля несколько (см. pointerup ниже).
-        if (row.kind === 'door') {
+        // Индекс секции/зоны фасада — у дверей и фасадов ящиков (engine.js
+        // makePart), числовой, в отличие от текстового row.section. Даёт
+        // контекстному меню/редактору зоны в app.js понять, по какому именно
+        // фасаду кликнули, когда их у модуля несколько (см. pointerup ниже).
+        if (row.kind === 'door' || row.kind === 'drawerFront') {
           mesh.userData.sectionIndex = Number.isFinite(row.sectionIndex) ? row.sectionIndex : null;
           mesh.userData.zoneIndex = Number.isFinite(row.zoneIndex) ? row.zoneIndex : null;
         }
@@ -1904,8 +1954,11 @@ class Viewer3D {
           const h = Math.max(box.h * MM - 2 * inset, 0.02);
           const depth = Math.min(3 * MM, box.d * MM * 0.35);
           const fieldMat = new THREE.MeshStandardMaterial({
-            color: isActive ? 0x6fa3cd : 0xe6e2da,
+            color: hiCyan ? SECTION_HI_COLOR : (isActive ? 0x6fa3cd : 0xe6e2da),
             roughness: 0.14, metalness: 0.05,
+            emissive: hiCyan ? SECTION_HI_EMISSIVE : 0x000000,
+            transparent: hiCyan, opacity: hiCyan ? SECTION_HI_OPACITY : 1,
+            depthWrite: !hiCyan,
           });
           const field = new THREE.Mesh(new THREE.BoxGeometry(w, h, depth), fieldMat);
           field.position.z = box.d / 2 * MM - depth / 2;   // утоплено внутрь

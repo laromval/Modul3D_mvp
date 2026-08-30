@@ -1277,7 +1277,8 @@ function makePart(o) {
     // ПАЗЫ: прямые канавки в системе координат детали. Нужны станку так же,
     // как отверстия: x0,y0 → x1,y1 — ось паза, w — ширина, depth — глубина.
     grooves: o.grooves || [],
-    // Индекс секции/зоны фасада (только у дверей, kind:'door') — числовые,
+    // Индекс секции/зоны фасада (у дверей — kind:'door', и у фасадов ящиков —
+    // kind:'drawerFront'; zoneIndex осмыслен только у дверей) — числовые,
     // в отличие от текстового `section`, поэтому по ним безопасно искать
     // конкретную деталь программно (клик в 3D → контекстное меню/редактор
     // зоны, см. viewer.js/app.js). В mergeKey (mergeEqualParts ниже) не
@@ -2550,7 +2551,7 @@ function buildModuleParts(p) {
         faceX: fX, faceY: dy + dHeights[d] / 2, faceW: facadeW, faceH: fH,
       faceZ: D / 2 + ft.thickness / 2, t: ft.thickness });
       parts.push(makePart({
-        name: `Фасад ящика ${d + 1}`, section: secName,
+        name: `Фасад ящика ${d + 1}`, section: secName, sectionIndex: i,
         material: ft.material, thickness: ft.thickness,
         facadeType: ft.id, frameW: ft.frame, insertMaterial: ft.insert, glass: ft.render === 'glass',
         length: facadeW, width: fH, qty: 1, kind: 'drawerFront', grain: true,
