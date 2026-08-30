@@ -134,7 +134,7 @@ function getDrawerHeights(sec, drawerUnitH, avail, warn, secName) {
     && manualList.every(v => Number.isFinite(Number(v)) && Number(v) > 0);
 
   if (!isManual) {
-    const hasDoor = sec.facade !== 'open';
+    const hasDoor = sectionHasAnyFacade(sec);
     if (!hasDoor) {
       // Ящики занимают весь фронт: делим поровну, кратно 10, остаток —
       // нижнему ящику, чтобы верх стопки был заподлицо с крышкой.
@@ -163,11 +163,133 @@ function getDrawerHeights(sec, drawerUnitH, avail, warn, secName) {
   return raw.map(v => Math.floor(v * k * 10) / 10);
 }
 
+// Секция считается «без фасада» (открытой), только если у неё нет ни
+// одной непустой дверной зоны — при нескольких зонах (doorZoneCount > 1)
+// одиночного sec.facade больше нет, поэтому такие места кода не могут
+// читать его напрямую.
+function sectionHasAnyFacade(sec) {
+  if (Number(sec.doorZoneCount) > 1 && Array.isArray(sec.doorZones) && sec.doorZones.length) {
+    return sec.doorZones.some((z) => z && z.facade !== 'open');
+  }
+  return sec.facade !== 'open';
+}
+
+// «Основной» фасад секции — для мест, которым нужно одно решение на всю
+// секцию (например, к какому краю жмётся узкий фасад углового модуля).
+// При нескольких зонах берём фасад НИЖНЕЙ (первой) зоны.
+function primaryFacade(sec) {
+  if (Number(sec.doorZoneCount) > 1 && Array.isArray(sec.doorZones) && sec.doorZones.length) {
+    return (sec.doorZones[0] || {}).facade;
+  }
+  return sec.facade;
+}
+
+// Встраиваемая техника, которую можно назначить дверной зоне (см.
+// zone.appliance). Влияет на то, строится ли фасад вообще и нужна ли под
+// него обычная мебельная петля — три разных механизма крепления:
+//   'none'              — обычная дверь, обычные петли (как раньше).
+//   'oven'/'microwave'  — у техники своя лицевая панель, фасада корпуса тут
+//                          нет вообще (как facade:'open'), поэтому направление
+//                          навески (fac) для этих зон не имеет значения.
+//   'fridge'             — фасад ЕСТЬ и крепится к БОКОВИНЕ пенала, но
+//                          спец. петлями под встройку (не обычными
+//                          мебельными) — и тем же фасадом через отдельную
+//                          тягу открывается дверца самого холодильника.
+//                          Координат этих спец. петель в проекте нет —
+//                          обычную мебельную чашку не сверлим.
+//   'washer'/'dishwasher'— фасад крепится не к корпусу, а к ДВЕРЦЕ САМОЙ
+//                          техники, по шаблону производителя (иногда со
+//                          своими петлями в комплекте машины) — это тоже
+//                          не мебельная петля корпуса, чашку не сверлим.
+const APPLIANCE_LABELS = {
+  oven: 'духовой шкаф', microwave: 'СВЧ', fridge: 'холодильник',
+  washer: 'стиральная машина', dishwasher: 'посудомоечная машина',
+};
+// Ниша без фасада корпуса вообще — техника показывает свою лицевую панель.
+function applianceNicheOnly(appliance) {
+  return appliance === 'oven' || appliance === 'microwave';
+}
+// Фасад есть, но НЕ на мебельной петле корпуса (см. таблицу выше) — обычную
+// hingeHoles не сверлим, вместо этого честное предупреждение и заметка.
+function applianceSkipsHinge(appliance) {
+  return appliance === 'fridge' || appliance === 'washer' || appliance === 'dishwasher';
+}
+function applianceHingeNote(appliance) {
+  if (appliance === 'fridge') {
+    return 'крепится к боковине спец. петлями под встраиваемый холодильник — '
+      + 'координаты уточнить у поставщика фурнитуры; тем же фасадом открывается дверца холодильника';
+  }
+  if (appliance === 'washer' || appliance === 'dishwasher') {
+    return 'крепится к дверце техники по шаблону производителя — не мебельная петля корпуса';
+  }
+  return '';
+}
+
+/**
+ * Раскладка НЕСКОЛЬКИХ дверных зон друг над другом внутри одного слота
+ * (пеналы под встраиваемую технику — духовка/СВЧ/холодильник, либо просто
+ * «две двери одна над другой»). Каждая зона окружена зазором gap со всех
+ * сторон — тем же приёмом, что и створки doors2 по горизонтали: там слот
+ * делится на leafW = (facadeW - 2*gap) / 2. По вертикали для N зон это
+ * означает: полезный бюджет высоты = slotHeight - 2*gap*N (gap сверху
+ * первой зоны, gap снизу последней и по 2*gap на каждой границе между
+ * соседними зонами).
+ *
+ * zones[i].height === 0 — «взять остаток» (как sec.facadeWidth === 0 значит
+ * «во всю секцию»): бюджет, оставшийся после явных высот, делится поровну
+ * между такими зонами. Если сумма явных высот больше бюджета — все зоны
+ * ужимаются пропорционально (тот же приём k = usable/sum, что и выше в
+ * getDrawerHeights), с предупреждением.
+ *
+ * Совместимость: при ОДНОЙ зоне с height:0 возвращает ровно ту высоту,
+ * что и старая формула doorZoneH = slotHeight - 2*gap.
+ *
+ * @return { heights: number[], bottoms: number[] } — bottoms[i] — нижняя
+ *   граница i-й зоны относительно slotBot (низа слота).
+ */
+function layoutDoorZones(zones, slotHeight, gap, warn, secName) {
+  const N = zones.length;
+  const usableBudget = Math.max(0, slotHeight - 2 * gap * N);
+  const explicit = zones.map((z) => Math.max(0, Number(z.height) || 0));
+  const sumExplicit = explicit.reduce((a, v) => a + v, 0);
+  const autoCount = explicit.filter((v) => v <= 0).length;
+
+  let heights;
+  if (sumExplicit > usableBudget + 0.5) {
+    const k = usableBudget / sumExplicit;
+    if (warn) {
+      warn(`${secName}: заданные высоты зон фасада (${Math.round(sumExplicit)} мм) не помещаются `
+         + `в ${Math.round(usableBudget)} мм — ужаты пропорционально.`);
+    }
+    heights = explicit.map((v) => v * k);
+  } else {
+    const rest = usableBudget - sumExplicit;
+    const autoH = autoCount ? rest / autoCount : 0;
+    heights = explicit.map((v) => (v > 0 ? v : autoH));
+  }
+
+  const bottoms = [];
+  let acc = gap;
+  for (let i = 0; i < N; i++) {
+    bottoms.push(acc);
+    acc += heights[i] + 2 * gap;
+  }
+  return { heights, bottoms };
+}
+
 // Возвращает координаты ЦЕНТРА полок по высоте.
 // В ручном режиме sec.shelfHeights задаёт высоту НИЖНЕЙ плоскости полки от
 // дна — именно на этой отметке стоит полкодержатель, так меряет сборщик.
 // Поэтому к заданному значению прибавляем половину толщины детали.
-function getShelfYs(sec, zoneBottomY, zoneH, t, originY) {
+//
+// excludeRanges — диапазоны Y (та же система координат, что zoneBottomY),
+// которые нужно обойти при АВТО-распределении: ниши под встраиваемую технику
+// (doorZones[].appliance !== 'none') из фасадной части секции — полка не
+// должна перегораживать место, отведённое под духовку/холодильник и т.п.
+// В ручном режиме (shelfHeights) диапазоны не учитываются — там высоту
+// задаёт сам пользователь, это его ответственность (см. комментарий у
+// вызова из buildModuleParts).
+function getShelfYs(sec, zoneBottomY, zoneH, t, originY, excludeRanges) {
   const n = sec.shelves || 0;
   if (!n) return [];
   const out = [];
@@ -176,11 +298,53 @@ function getShelfYs(sec, zoneBottomY, zoneH, t, originY) {
   // написано в панели. Раньше отсчёт шёл от верха ящиков, и в секции с
   // ящиками введённое значение означало совсем не то, что ожидал пользователь.
   const base = Number.isFinite(originY) ? originY : zoneBottomY;
-  for (let i = 0; i < n; i++) {
-    const v = isManual ? Number(sec.shelfHeights[i]) : NaN;
-    out.push(Number.isFinite(v)
-      ? base + v + t / 2
-      : zoneBottomY + (zoneH * (i + 1)) / (n + 1));
+  if (isManual) {
+    for (let i = 0; i < n; i++) {
+      const v = Number(sec.shelfHeights[i]);
+      out.push(Number.isFinite(v)
+        ? base + v + t / 2
+        : zoneBottomY + (zoneH * (i + 1)) / (n + 1));
+    }
+    return out;
+  }
+
+  // Авто-режим: делим зону на свободные участки, обходя excludeRanges, и
+  // распределяем полки пропорционально длине каждого участка — тот же
+  // общий приём, что и раскладка нескольких дверных зон по высоте
+  // (layoutDoorZones), только тут «зонами» выступают промежутки между
+  // нишами техники. Без исключений (excludeRanges пуст) даёт РОВНО ту же
+  // формулу, что была раньше — обратная совместимость.
+  const zTop = zoneBottomY + zoneH;
+  const ranges = (excludeRanges || [])
+    .map(([a, b]) => [Math.max(zoneBottomY, Math.min(a, b)), Math.min(zTop, Math.max(a, b))])
+    .filter(([a, b]) => b > a)
+    .sort((r1, r2) => r1[0] - r2[0]);
+  const segments = [];
+  let cursor = zoneBottomY;
+  for (const [a, b] of ranges) {
+    if (a > cursor) segments.push([cursor, a]);
+    cursor = Math.max(cursor, b);
+  }
+  if (cursor < zTop) segments.push([cursor, zTop]);
+  const totalFree = segments.reduce((s, [a, b]) => s + (b - a), 0);
+  if (!segments.length || totalFree <= 0) {
+    // Ниши занимают всю зону целиком — распределять полки некуда; отдаём
+    // старую формулу как безопасный fallback, дальше по коду сработает уже
+    // существующая проверка «полка выходит за пределы секции».
+    for (let i = 0; i < n; i++) out.push(zoneBottomY + (zoneH * (i + 1)) / (n + 1));
+    return out;
+  }
+  const counts = segments.map((seg) => Math.floor((n * (seg[1] - seg[0])) / totalFree));
+  let assigned = counts.reduce((s, c) => s + c, 0);
+  // Остаток (от округления вниз) раздаём участкам по убыванию длины —
+  // крупный свободный участок получает лишнюю полку в первую очередь.
+  const order = segments.map((_, idx) => idx)
+    .sort((a, b) => (segments[b][1] - segments[b][0]) - (segments[a][1] - segments[a][0]));
+  for (let k = 0; assigned < n; k = (k + 1) % order.length) { counts[order[k]]++; assigned++; }
+  for (let s = 0; s < segments.length; s++) {
+    const [a, b] = segments[s];
+    const c = counts[s];
+    for (let k = 0; k < c; k++) out.push(a + ((b - a) * (k + 1)) / (c + 1));
   }
   return out;
 }
@@ -691,8 +855,9 @@ function buildDrawerBoxes(o) {
 // РУЧКИ И ПРИСАДКА ПОД НИХ
 //
 // Правила разметки (практика сборки, см. README):
-//   • на ДВЕРИ ручка ставится у противоположного петлям края, отступ 50 мм
-//     от края и 50 мм от верха (у нижних шкафов — от низа);
+//   • на ДВЕРИ ручка ставится у противоположного петлям края — отступ зависит
+//     от конструкции фасада (см. doorHandleEdge ниже), тот же отступ и от
+//     верха/низа;
 //   • на ФАСАДЕ ЯЩИКА ручка ставится по центру ширины, по центру высоты;
 //     у высоких фасадов — 50 мм от верхнего края;
 //   • на ШИРОКОМ фасаде ставят ДВЕ ручки, симметрично от центра;
@@ -701,8 +866,19 @@ function buildDrawerBoxes(o) {
 // Отверстия описываются в системе координат ДЕТАЛИ: начало — левый нижний угол
 // лицевой стороны, x вправо, y вверх. Именно так их ждёт станок присадки.
 // ---------------------------------------------------------------------------
-const HANDLE_EDGE = 50;        // отступ ручки от края фасада, мм
+const HANDLE_EDGE = 50;        // отступ ручки от края фасада (ящик/откидной), мм
+const HANDLE_EDGE_SHEET_DOOR = 30; // отступ ручки от края ЛИСТОВОЙ двери (ЛДСП/МДФ), мм — подтверждено пользователем
 const TWO_HANDLES_FROM = 900;  // с этой ширины фасада ставим две ручки, мм
+
+// Отступ ручки от края ДВЕРИ: правило зависит от конструкции фасада, а не
+// единое число (подтверждено пользователем). У листового фасада (ЛДСП/МДФ —
+// facadeType без frame) — фиксированные 30 мм. У рамочного (дерево/алюминиевый
+// профиль — frameW у facadeType, см. catalog.js FACADE_TYPES) отверстие идёт
+// строго по центру ширины видимого профиля рамки, иначе винт попадёт в паз
+// или на стеклянную/филёнчатую вставку — поэтому берём frameW/2, а не число.
+function doorHandleEdge(frameW) {
+  return frameW > 0 ? frameW / 2 : HANDLE_EDGE_SHEET_DOOR;
+}
 
 // Чашки под петли: Ø35, глубина 12,5, сверлятся с ИЗНАНКИ фасада.
 // Отступ от края открывания до центра чашки — 22 мм (накладная петля),
@@ -782,13 +958,13 @@ function hingeHoles(W, H, hingeSide, shelves, warn, secName, glassDoor, railBott
 // Высота ручки на двери в координатах фасада. Считается от ПОЛА, поэтому
 // у соседних фасадов разной высоты ручки оказываются на одном уровне.
 const HAND_LEVEL = 1000;     // уровень руки от пола, мм
-function handleLevel(o, H) {
+function handleLevel(o, H, edge) {
   const bottom = Number(o.floorY);           // низ фасада от пола
-  if (!Number.isFinite(bottom)) return H > 900 ? H / 2 : H - HANDLE_EDGE;
+  if (!Number.isFinite(bottom)) return H > 900 ? H / 2 : H - edge;
   const top = bottom + H;
-  if (top <= 1100) return H - HANDLE_EDGE;   // низкий фасад — берут сверху
-  if (bottom >= 1200) return HANDLE_EDGE;    // навесной — берут снизу
-  return Math.min(Math.max(HAND_LEVEL - bottom, HANDLE_EDGE), H - HANDLE_EDGE);
+  if (top <= 1100) return H - edge;   // низкий фасад — берут сверху
+  if (bottom >= 1200) return edge;    // навесной — берут снизу
+  return Math.min(Math.max(HAND_LEVEL - bottom, edge), H - edge);
 }
 
 function handleHoles(o) {
@@ -858,7 +1034,9 @@ function handleHoles(o) {
     //   • высокая дверь шкафа — на уровне руки, 1000 мм от пола.
     // Скоба на двери ставится вертикально, поэтому её центр обязательно
     // отодвигается от края так, чтобы оба отверстия остались на детали.
-    const cx = o.hingeSide === 'left' ? W - HANDLE_EDGE : HANDLE_EDGE;
+    // Отступ зависит от конструкции фасада — см. doorHandleEdge.
+    const edge = doorHandleEdge(o.frame);
+    const cx = o.hingeSide === 'left' ? W - edge : edge;
     const MIN_EDGE = 12;                       // минимум от отверстия до торца
 
     // Ориентация скобы: по умолчанию на двери вертикально, но можно поставить
@@ -866,28 +1044,65 @@ function handleHoles(o) {
     const horizontal = h.holes === 2 && o.orient === 'horizontal';
 
     if (h.holes === 2 && !horizontal) {
-      // ВЕРТИКАЛЬНО. Отступ 50 мм отсчитывается до КРАЙНЕГО ОТВЕРСТИЯ, а не до
+      // ВЕРТИКАЛЬНО. Отступ отсчитывается до КРАЙНЕГО ОТВЕРСТИЯ, а не до
       // середины ручки: иначе у длинной скобы верхнее отверстие оказывается
       // почти у самого торца фасада.
-      let top = handleLevel(o, H) + (H > 900 ? half : 0);
-      top = Math.min(Math.max(top, 2 * half + MIN_EDGE), H - MIN_EDGE);
-      const bottom = top - h.cc;
+      // Три случая — те же пороги, что и в handleLevel (низкий/навесной/по
+      // уровню руки), но здесь считаем ОБА отверстия от того края, к
+      // которому реально привязана ручка, а не всегда «сверху вниз»: раньше
+      // единая формула top = handleLevel(...); bottom = top − cc считала,
+      // что handleLevel всегда возвращает позицию ВЕРХНЕГО отверстия — верно
+      // для низкого фасада, но для навесного и «по уровню руки» итоговое
+      // нижнее отверстие проваливалось к аварийному минимуму MIN_EDGE вместо
+      // заданного отступа — баг, подтверждённый пользователем на зонах пенала.
+      const floorY = Number(o.floorY);
+      let top, bottom;
+      // Зона фасада внутри пенала (zoneCount>1): кроме САМОЙ НИЖНЕЙ зоны,
+      // все остальные тянут ручку к своему НИЖНЕМУ краю (к шву с соседней
+      // зоной снизу) — независимо от абсолютной высоты от пола. Это отдельно
+      // подтверждено пользователем на реальном пенале: у него верхняя и
+      // средняя зоны должны вести себя как навесной фасад, а не «по уровню
+      // руки» (иначе средняя зона повисает по центру, не у шва). Нижняя зона
+      // пенала (zoneIndex 0) продолжает жить по обычным трём случаям ниже —
+      // для неё это уже подтверждено как корректное поведение.
+      const isUpperZone = Number(o.zoneCount) > 1 && Number(o.zoneIndex) > 0;
+      if (isUpperZone) {
+        bottom = edge; top = bottom + h.cc;
+      } else if (!Number.isFinite(floorY)) {
+        if (H > 900) { const c = H / 2; bottom = c - half; top = c + half; }
+        else { top = H - edge; bottom = top - h.cc; }
+      } else if (floorY + H <= 1100) {
+        top = H - edge; bottom = top - h.cc;                        // низкий — сверху
+      } else if (floorY >= 1200) {
+        bottom = edge; top = bottom + h.cc;                         // навесной — снизу
+      } else {
+        const c = HAND_LEVEL - floorY; bottom = c - half; top = c + half; // по уровню руки — по центру пары
+      }
+      // Пара не должна вылезать за деталь — сдвигаем ЦЕЛИКОМ (межосевое cc
+      // не трогаем), а не пересчитываем от одного «верхнего» отверстия.
+      // Сначала стараемся уложиться в edge (это и есть отступ по правилу
+      // разметки), и только если совсем не хватает места на короткой зоне —
+      // откатываемся к чисто конструктивному минимуму MIN_EDGE.
+      if (bottom < edge) { top += edge - bottom; bottom = edge; }
+      if (top > H - edge) { bottom -= top - (H - edge); top = H - edge; }
+      if (bottom < MIN_EDGE) { top += MIN_EDGE - bottom; bottom = MIN_EDGE; }
+      if (top > H - MIN_EDGE) { bottom -= top - (H - MIN_EDGE); top = H - MIN_EDGE; }
       const cy = (top + bottom) / 2;
       mounts.push({ cx: round1(cx), cy: round1(cy), cc: h.cc, vertical: true });
       holes.push({ x: round1(cx), y: round1(bottom), d: D, through: true, kind: 'handle' });
       holes.push({ x: round1(cx), y: round1(top), d: D, through: true, kind: 'handle' });
     } else if (horizontal) {
       // ГОРИЗОНТАЛЬНО: ручка вдоль верхнего края, ближним отверстием
-      // в 50 мм от края открывания.
-      const cy = Math.min(Math.max(handleLevel(o, H), MIN_EDGE), H - MIN_EDGE);
-      const near = o.hingeSide === 'left' ? W - HANDLE_EDGE : HANDLE_EDGE;
+      // в edge мм от края открывания.
+      const cy = Math.min(Math.max(handleLevel(o, H, edge), MIN_EDGE), H - MIN_EDGE);
+      const near = o.hingeSide === 'left' ? W - edge : edge;
       const far = o.hingeSide === 'left' ? near - h.cc : near + h.cc;
       const ccx = (near + far) / 2;
       mounts.push({ cx: round1(ccx), cy: round1(cy), cc: h.cc, vertical: false });
       holes.push({ x: round1(Math.min(near, far)), y: round1(cy), d: D, through: true, kind: 'handle' });
       holes.push({ x: round1(Math.max(near, far)), y: round1(cy), d: D, through: true, kind: 'handle' });
     } else {
-      const cy = Math.min(Math.max(handleLevel(o, H), MIN_EDGE), H - MIN_EDGE);
+      const cy = Math.min(Math.max(handleLevel(o, H, edge), MIN_EDGE), H - MIN_EDGE);
       mounts.push({ cx: round1(cx), cy: round1(cy), cc: 0, vertical: false });
       holes.push({ x: round1(cx), y: round1(cy), d: D, through: true, kind: 'handle' });
     }
@@ -1062,6 +1277,20 @@ function makePart(o) {
     // ПАЗЫ: прямые канавки в системе координат детали. Нужны станку так же,
     // как отверстия: x0,y0 → x1,y1 — ось паза, w — ширина, depth — глубина.
     grooves: o.grooves || [],
+    // Индекс секции/зоны фасада (только у дверей, kind:'door') — числовые,
+    // в отличие от текстового `section`, поэтому по ним безопасно искать
+    // конкретную деталь программно (клик в 3D → контекстное меню/редактор
+    // зоны, см. viewer.js/app.js). В mergeKey (mergeEqualParts ниже) не
+    // участвуют — деталировка по-прежнему склеивает одинаковые двери из
+    // разных зон в одну строку, эти поля только для 3D-клика по partsRaw.
+    sectionIndex: Number.isFinite(o.sectionIndex) ? o.sectionIndex : null,
+    zoneIndex: Number.isFinite(o.zoneIndex) ? o.zoneIndex : null,
+    // Несъёмная полка-перегородка (на стыке зон фасада высокого пенала —
+    // см. sec.shelfFixed[]) — во всю глубину корпуса, крепится минификсом
+    // Rastex к боковинам, как дно/крыша, а не полкодержателями. Влияет на
+    // то, попадёт ли деталь в контур присадки «ПРИСАДКА КРЕПЕЖА КОРПУСА»
+    // ниже (см. фильтр horiz по kind==='shelf' && fixed).
+    fixed: !!o.fixed,
   };
 }
 
@@ -1745,42 +1974,83 @@ function buildModuleParts(p) {
     const shelfZoneBottom = drawerZoneH
       ? Math.max(innerBottomY, facadeTopY, drawerBaseY + drawerZoneH)
       : innerBottomY;
+    // Ниши под встраиваемую технику (doorZones[].appliance !== 'none') —
+    // диапазоны по высоте ФАСАДА, которые нужно обойти при авто-раскладке
+    // полок (см. getShelfYs выше): полка не должна перегораживать место,
+    // отведённое под духовку/холодильник и т.п. Считаем той же функцией
+    // layoutDoorZones, что и реальные фасады во втором цикле ниже — числа
+    // обязаны совпасть, иначе полка и ниша разъедутся. warn передаём null:
+    // предупреждения о нехватке места уже даёт настоящий расчёт во втором
+    // цикле, здесь дублировать их не нужно.
+    const applianceZoneRanges = [];
+    if (Number(sec.doorZoneCount) > 1 && Array.isArray(sec.doorZones) && sec.doorZones.length) {
+      const azSlotBot = drawerZoneH ? baseH + drawerZoneH : baseH;
+      const azSlotTop = baseH + frontAvail;
+      const azZones = [];
+      for (let zi = 0; zi < sec.doorZoneCount; zi++) {
+        const z = sec.doorZones[zi];
+        azZones.push({ height: (z && Number(z.height)) || 0, appliance: (z && z.appliance) || 'none' });
+      }
+      const azLayout = layoutDoorZones(azZones, azSlotTop - azSlotBot, gap, null, secName);
+      for (let zi = 0; zi < azZones.length; zi++) {
+        if (azZones[zi].appliance !== 'none') {
+          const zBottom = azSlotBot + azLayout.bottoms[zi];
+          applianceZoneRanges.push([zBottom, zBottom + azLayout.heights[zi]]);
+        }
+      }
+    }
     // Если ящики заняли весь фронт, зоны под полки не остаётся — полки не
     // строим вовсе, иначе они попадали внутрь ящиков.
     const shelfYs = (sec.shelves > 0 && shelfZoneH < t + 40)
       ? (warnings.push(`${secName}: под полки не осталось места — уменьшите число ящиков `
           + `или увеличьте высоту модуля.`), [])
-      : getShelfYs(sec, shelfZoneBottom, shelfZoneH, t, innerBottomY);
+      : getShelfYs(sec, shelfZoneBottom, shelfZoneH, t, innerBottomY, applianceZoneRanges);
     // Запоминаем плоскости полок: по ним потом разводится присадка под петли
     // и ставятся полкодержатели.
     const infoRow = secInfo[secInfo.length - 1];
     if (infoRow) infoRow.shelfYs = shelfYs.slice();
     shelfPanelX[i] = [secX0 - t / 2, secX0 + secW + t / 2];
-    for (const y of shelfYs) {
+    // sec.shelfFixed[si] — полка на стыке зон фасада высокого пенала
+    // (см. app.js placeShelvesAtZoneBoundaries): не съёмная на
+    // полкодержателях, а несъёмная перегородка во всю глубину корпуса на
+    // минификсах Rastex — для жёсткости конструкции. Индекс si совпадает
+    // с sec.shelfHeights[si] 1:1 (getShelfYs в ручном режиме отдаёт ровно
+    // по одному Y на каждый элемент shelfHeights, в том же порядке).
+    const manualMode = sec.shelfMode === 'manual' && Array.isArray(sec.shelfFixed);
+    for (let si = 0; si < shelfYs.length; si++) {
+      const y = shelfYs[si];
+      const isFixed = manualMode && !!sec.shelfFixed[si];
       if (y < innerBottomY + drawerZoneH - 1 || y > innerBottomY + innerH + 1) {
         warnings.push(`${secName}: полка на высоте ${Math.round(y - innerBottomY)} мм выходит за пределы секции.`);
         continue;
       }
+      const width = isFixed ? D : shelfDepth;
       if (secW - 2 > 900 && t <= 16) {
         warnings.push(`${secName}: полка ${Math.round(secW - 2)} мм из ЛДСП ${t} мм прогнётся — добавьте стойку (раздел «Секции») или возьмите материал толще.`);
       }
-      // За стеклянным фасадом полки делают из стекла 6 мм — их видно.
-      const glassShelf = facadeTypeOf(sec, decor, t, p.facadeDecor, p.facadeThickness).glassInside;
+      // За стеклянным фасадом полки делают из стекла 6 мм — их видно. Для
+      // несъёмной Rastex-перегородки это не применимо: она держит корпус,
+      // а не просто лежит на полкодержателях, стекло тут неуместно.
+      const glassShelf = !isFixed
+        && facadeTypeOf(sec, decor, t, p.facadeDecor, p.facadeThickness).glassInside;
       const GL = window.Modul3D.catalog.GLASS;
       parts.push(makePart({
         name: glassShelf ? 'Полка стеклянная' : 'Полка', section: secName,
         material: glassShelf ? GL.code : decor.code,
         thickness: glassShelf ? GL.thickness : t,
-        length: secW - 2, width: shelfDepth, qty: 1, kind: 'shelf',
-        glass: glassShelf,
+        length: secW - 2, width, qty: 1, kind: 'shelf',
+        glass: glassShelf, fixed: isFixed,
         note: glassShelf
           ? 'Стекло 6 мм, на полкодержателях с силиконовой пяткой'
-          : 'Съёмная, на полкодержателях',
+          : (isFixed
+            ? 'Несъёмная, во всю глубину корпуса, крепится минификсами Rastex к боковинам — '
+              + 'на стыке фасадов, для жёсткости пенала'
+            : 'Съёмная, на полкодержателях'),
         edging: glassShelf
           ? { long1: null, long2: null, short1: null, short2: null }
           : { long1: EDGE_FRONT, long2: null, short1: null, short2: null },
-        x: secCenterX, y, z: (D / 2 - SHELF_SETBACK) - shelfDepth / 2,
-        dims: { w: secW - 2, h: glassShelf ? GL.thickness : t, d: shelfDepth },
+        x: secCenterX, y, z: isFixed ? 0 : (D / 2 - SHELF_SETBACK) - shelfDepth / 2,
+        dims: { w: secW - 2, h: glassShelf ? GL.thickness : t, d: width },
       }));
     }
 
@@ -1874,17 +2144,59 @@ function buildModuleParts(p) {
   {
     const sidePart = (x) => parts.filter((p) => p.kind === 'side'
       && Math.abs(p.box.x - x) < 1.5)[0];
-    const horiz = parts.filter((p) => p.kind === 'top' || p.kind === 'bottom');
+    // Несъёмные полки-перегородки (fixed, см. цикл построения полок выше)
+    // крепятся к боковинам ТЕМ ЖЕ узлом, что дно/крыша — во всю глубину
+    // корпуса, минификс или конфирмат по тому же правилу jointForSide, что
+    // и остальной корпус (не жёстко «всегда Rastex» — это дало бы разнобой
+    // с реальной сборкой, если у секции сторона на конфирмате).
+    const horiz = parts.filter((p) => p.kind === 'top' || p.kind === 'bottom'
+      || (p.kind === 'shelf' && p.fixed));
 
     for (const sgn of [-1, 1]) {
       const mode = sgn < 0 ? sides.left : sides.right;
-      const joint = jointForSide(mode);
       const panel = sidePart(sgn * (W / 2 - t / 2));
       if (!panel) continue;
+      // Видимая (декоративная — с цветом/текстурой, шпон, МДФ) боковина
+      // нельзя сажать на конфирмат: у накладной боковины (mode==='onBottom')
+      // конфирмат идёт СНАРУЖИ, через лицевую пласть боковины в торец дна
+      // (см. ветку joint==='confirmat' ниже) — на декоративной поверхности
+      // это оставляет видимую шляпку/заглушку. Минификс Rastex скрыт внутри
+      // корпуса, поэтому декоративную боковину крепят только им — даже если
+      // по способу установки (onBottom) обычно уместен конфирмат.
+      // «Декоративная» — материал панели отличается от базового корпусного
+      // decor.code: либо она уже посчитана видимой автоматически (доходит
+      // до пола/сбоку дна — тогда material уже в decor фасада, см. vm выше),
+      // либо клиент вручную назначил ей другой материал через редактор
+      // детали («Материал / декор» в partBlock). Ручная правка применяется
+      // САМОЙ ПОСЛЕДНЕЙ во всей сборке (applyPartOverrides, строго последний
+      // шаг, см. её комментарий) — то есть на этом месте кода ещё НЕ
+      // применена, а присадка уже нужна сейчас. Поэтому подглядываем в
+      // p.partOverrides ТЕМ ЖЕ ключом, что и applyPartOverrides для этой же
+      // детали (kind/section/side панели совпадают 1:1 — у боковины всегда
+      // ровно одна деталь на сторону, index всегда 0).
+      const ovKey = ['side', panel.section || '', partOverrideSide(panel) || '', 0].join('|');
+      const ov = p.partOverrides && p.partOverrides[ovKey];
+      const effectiveMaterial = (ov && ov.materialOverride) || panel.material;
+      const joint = (mode === 'onBottom' && effectiveMaterial !== decor.code)
+        ? 'minifix' : jointForSide(mode);
       const pBottom = panel.box.y - panel.box.h / 2;
       const pBackZ = panel.box.z - panel.box.d / 2;
 
       for (const hp of horiz) {
+        // ДЕТАЛЬ ФИЗИЧЕСКИ ДОСТАЁТ ДО ЭТОЙ БОКОВИНЫ? Дно/крышка — цельные,
+        // на всю ширину корпуса, всегда касаются обеих наружных боковин.
+        // Несъёмная полка-перегородка (fixed) — деталь ОДНОЙ секции: в
+        // многосекционном корпусе (несколько колонок через внутреннюю
+        // стойку-divider) она может доставать только до ОДНОЙ наружной
+        // боковины, а другим торцом упираться во внутреннюю стойку. Стойки
+        // (divider) этот контур пока не обрабатывает (см. sidePart выше —
+        // только kind:'side'), поэтому для дальнего торца присадку сюда
+        // просто не кладём — лучше отсутствие отверстия, чем отверстие в
+        // боковине, которой полка не касается.
+        if (hp.kind === 'shelf'
+            && Math.abs(panel.box.x - hp.box.x) > hp.box.w / 2 + panel.box.w / 2 + 5) {
+          continue;
+        }
         // Точки крепежа — по СОБСТВЕННОЙ глубине горизонтальной детали в 3D
         // (hp.box.d), а НЕ по полю width из деталировки: для дна и плашмя
         // планки они совпадают, но у планки НА РЕБРО (topType 'railsEdge')
@@ -2022,6 +2334,12 @@ function buildModuleParts(p) {
       // нижней плоскости, а не по середине толщины.
       const shelfPart = parts.filter((p) => p.kind === 'shelf'
         && Math.abs(p.box.y - sy) < 1)[0];
+      // Несъёмная полка-перегородка (fixed) уже прикреплена к боковинам
+      // минификсами Rastex — тем же узлом, что дно/крыша (см. блок
+      // «ПРИСАДКА КРЕПЕЖА КОРПУСА» выше, фильтр horiz). Штифты-полкодержатели
+      // ей не нужны и физически мешали бы: сверлить лишние отверстия Ø5 и
+      // выпускать деталь-«Полкодержатель» для неразборного стыка не нужно.
+      if (shelfPart && shelfPart.fixed) continue;
       const shelfT = shelfPart ? shelfPart.box.h : t;
       // Полка ЛЕЖИТ на штифте: и сам штифт, и отверстие под него целиком
       // ниже полки. Поэтому ось отверстия опускаем на его радиус — иначе
@@ -2155,13 +2473,13 @@ function buildModuleParts(p) {
     const narrow = Number.isFinite(wantW) && wantW > 0 && wantW < fullW - 0.5;
     const facadeW = narrow ? wantW : fullW;
     const fX = !narrow ? (bnd[i] + bnd[i + 1]) / 2
-      : (sec.facade === 'doorRight' ? bnd[i + 1] - gap - facadeW / 2
+      : (primaryFacade(sec) === 'doorRight' ? bnd[i + 1] - gap - facadeW / 2
                                     : bnd[i] + gap + facadeW / 2);
     // Рекомендация «не уже 350–400 мм» относится к НАПОЛЬНЫМ угловым модулям:
     // в глубокий корпус через узкий проём просто не подлезть. У верхнего
     // углового 600×600 фасад 300 мм — норма, там ширину диктует пристыкованный
     // сбоку шкаф глубиной 300, поэтому предупреждение только для глубоких.
-    if (narrow && sec.facade !== 'open' && facadeW < 350 && D >= 700) {
+    if (narrow && primaryFacade(sec) !== 'open' && facadeW < 350 && D >= 700) {
       warnings.push(`${secName}: фасад ${Math.round(facadeW)} мм при глубине ${Math.round(D)} мм — `
         + `в напольный угловой модуль не подлезть, рекомендуется 350–400 мм.`);
     }
@@ -2250,201 +2568,274 @@ function buildModuleParts(p) {
     // ФАКТИЧЕСКОМУ положению фасадов ящиков, а не по их суммарной высоте:
     // при смещённой стопке (drawerFrom = 'top' | 'offset') дверь иначе
     // налезала на ящики.
-    // Слот двери — весь фронт, свободный от ящиков; сам фасад вписывается
-    // в него с отступом gap со всех сторон.
+    // Слот двери — весь фронт, свободный от ящиков; внутри него может стоять
+    // ОДНА дверная зона на весь слот (как раньше) либо НЕСКОЛЬКО зон одна
+    // над другой (doorZoneCount > 1 — пеналы под встраиваемую технику или
+    // просто «две двери одна над другой»). Каждая зона вписывается в свой
+    // участок слота с отступом gap со всех сторон — по тому же принципу,
+    // что и створки doors2 по горизонтали.
     const slotBot = drawerZoneH ? baseH + drawerZoneH : baseH;
     const slotTop = baseH + frontH;
-    const doorZoneH = (slotTop - slotBot) - 2 * gap;
-    if (doorZoneH <= 0) continue;
-    const doorY = (slotBot + slotTop) / 2;
 
-    const fac = sec.facade === 'doors1' ? 'doorLeft' : sec.facade;  // старое имя
-    if (fac === 'doorLeft' || fac === 'doorRight') {
-      const hingeSide = fac === 'doorLeft' ? 'петли слева' : 'петли справа';
-      const dh = handleHoles({ kind: 'door', width: facadeW, height: doorZoneH,
-        handleId: sec.handle, handleCC: sec.handleCC, orient: sec.handleOrient,
-        hingeSide: fac === 'doorLeft' ? 'left' : 'right',
-        floorY: doorY - doorZoneH / 2 });
-      if (dh.overflow) warnings.push(`${secName}: ручка «${dh.handle.name}» не помещается на двери.`);
-      if (dh.badCC) warnings.push(`${secName}: у ручки не задано межосевое расстояние — укажите его в секции.`);
-      if (dh.count) handleHardware.push({ id: dh.handle.id, qty: dh.count, name: dh.handle.name, cc: dh.handle.cc });
-      pushHandleParts({ parts, mounts: dh.mounts, secName, handleName: dh.handle.name,
-        faceX: fX, faceY: doorY, faceW: facadeW, faceH: doorZoneH,
-        faceZ: D / 2 + ft.thickness / 2, t: ft.thickness });
-      parts.push(makePart({
-        name: `Дверь ${fac === 'doorLeft' ? 'левая' : 'правая'} (${ft.name.replace('Фасад ', '')})`,
-        section: secName, material: ft.material, thickness: ft.thickness,
-        facadeType: ft.id, frameW: ft.frame, insertMaterial: ft.insert, glass: ft.render === 'glass',
-        length: facadeW, width: doorZoneH, qty: 1, kind: 'door', grain: true,
-        holes: dh.holes.concat(hingeHoles(facadeW, doorZoneH,
-          fac === 'doorLeft' ? 'left' : 'right',
-          shelvesOnFacade(secInfo, i, doorY, doorZoneH),
-          (w) => warnings.push(w), secName, ft.render === 'glass',
-          railBottomOnFacade(doorY, doorZoneH))),
-        note: `Накладная, ${hingeSide}` + (dh.count ? `, ручка ${dh.handle.name}` : ''),
-        edging: { long1: EDGE_FRONT, long2: EDGE_FRONT, short1: EDGE_FRONT, short2: EDGE_FRONT },
-        x: fX, y: doorY, z: D / 2 + ft.thickness / 2,
-        dims: { w: facadeW, h: doorZoneH, d: ft.thickness },
-      }));
-      doorHardware.push({ section: secName, height: doorZoneH, leaves: 1, pushToOpen: !!sec.pushToOpen });
-
-      // ЗАГЛУШКА УГЛОВОГО МОДУЛЯ. Фасад узкий, остальной фронт корпуса
-      // закрывает вертикальная панель из КОРПУСНОГО ЛДСП: она же служит
-      // опорой петель соседа и не даёт заглянуть в угол. К её правой
-      // кромке ПОД 90° крепится фальш-планка из фасадного материала —
-      // видимая снаружи полоса, добирающая фронт до соседнего ряда.
-      if (p.blindPanel && narrow) {
-        const STRIP_W = Number(p.blindStrip) || 78;
-        const BRACKET_W = Number(p.blindBracket) || 100;
-        const ftk = ft.thickness;
-        // ФРОНТ УГЛОВОГО МОДУЛЯ собирается так:
-        //   дверь → фальш-планка (фасадный материал, уходит ВПЕРЁД под 90°)
-        //   → заглушка (корпусной ЛДСП, во фронте, справа от планки)
-        //   → планка крепёжная (корпусной ЛДСП, НАПРОТИВ заглушки, на
-        //     переднем торце фальш-планки) — к ней и встаёт соседний ряд.
-        // Все три детали связаны МИНИФИКСАМИ: гнездо эксцентрика Ø15
-        // сверлится с ВНУТРЕННЕЙ стороны — снаружи его быть не должно.
-        const stripX = round1(fX + facadeW / 2 + gap + ftk / 2);
-        const blindX0 = round1(stripX + ftk / 2);
-        const blindW = BLIND_W;   // фиксированная: к ней стыкуется соседний ряд
-        const stripH = round1(frontH - 2 * gap);
-        const CAM_SET = RASTEX.camSetback;       // ось эксцентрика от кромки
-        const pts = jointPoints(stripH);        // точки крепежа по высоте
-
-        const strip = makePart({
-          name: 'Фальш-планка (добор)', section: secName,
-          material: ft.material, thickness: ftk,
-          facadeType: ft.id, grain: true,
-          length: stripH, width: STRIP_W, qty: 1, kind: 'filler',
-          note: `Из фасадного материала, ${STRIP_W} мм, под 90° слева от заглушки `
-            + '— закрывает её торец; крепление на минификсы',
-          edging: { long1: EDGE_FRONT, long2: EDGE_FRONT, short1: EDGE_FRONT, short2: EDGE_FRONT },
-          x: stripX, y: baseH + frontH / 2,
-          z: round1(D / 2 + STRIP_W / 2),
-          dims: { w: ftk, h: stripH, d: STRIP_W },
-          // Деталь смещена от центра модуля — общая эвристика стороны
-          // ошибается (см. комментарий у frontIsPlus в viewer.js). Дюбели
-          // должны открываться на грани, что касается заглушки/планки
-          // крепёжной, а не на внешней стороне фальш-планки.
-          frontIsPlus: false,
+    // Список зон "снизу вверх". По умолчанию (doorZoneCount <= 1, или без
+    // заполненного sec.doorZones) — одна зона на весь слот: это в точности
+    // старое поведение, обязательная обратная совместимость.
+    let zonesRaw;
+    if (Number(sec.doorZoneCount) > 1 && Array.isArray(sec.doorZones) && sec.doorZones.length) {
+      zonesRaw = [];
+      for (let zi = 0; zi < sec.doorZoneCount; zi++) {
+        const z = sec.doorZones[zi];
+        zonesRaw.push({
+          facade: (z && z.facade) || 'doorLeft',
+          height: (z && Number(z.height)) || 0,
+          appliance: (z && z.appliance) || 'none',
+          applianceW: (z && Number(z.applianceW)) || 0,
+          applianceD: (z && Number(z.applianceD)) || 0,
+          note: (z && z.note) || '',
         });
-        const blind = makePart({
-          name: 'Заглушка (панель)', section: secName,
-          material: decor.code, thickness: t,
-          length: round1(frontH), width: blindW, qty: 1, kind: 'filler',
-          note: 'Глухая панель фронта углового модуля, корпусной ЛДСП, на минификсах',
-          edging: { long1: EDGE_FRONT, long2: EDGE_FRONT, short1: EDGE_FRONT, short2: EDGE_FRONT },
-          x: round1(blindX0 + blindW / 2), y: baseH + frontH / 2, z: D / 2 + t / 2,
-          dims: { w: blindW, h: frontH, d: t },
-        });
-        const bracket = makePart({
-          name: 'Планка крепёжная (ЛДСП)', section: secName,
-          material: decor.code, thickness: t,
-          length: stripH, width: BRACKET_W, qty: 1, kind: 'filler',
-          note: `Корпусной ЛДСП ${BRACKET_W} мм, напротив заглушки на переднем `
-            + 'торце фальш-планки; минификсы, гнездо Ø15 внутрь корпуса',
-          edging: { long1: EDGE_FRONT, long2: null, short1: null, short2: null },
-          x: round1(stripX + ftk / 2 + BRACKET_W / 2), y: baseH + frontH / 2,
-          // Планка утоплена на свою толщину: её передняя пласть вровень
-          // с торцом фальш-планки, и кромка планки оказывается закрыта.
-          z: round1(D / 2 + STRIP_W - t / 2),
-          dims: { w: BRACKET_W, h: t, d: t },
-        });
-        bracket.box.w = BRACKET_W; bracket.box.h = stripH; bracket.box.d = t;
-
-        for (const py of pts) {
-          // Заглушка примыкает ТОРЦОМ к фальш-планке: гнездо Ø15 и Ø8 в торец
-          // — на заглушке, дюбель Ø8 — в пласть фальш-планки (у ближнего края,
-          // где заглушка своим торцом прилегает к пласти планки).
-          blind.holes.push({ x: round1(py), y: round1(CAM_SET), d: RASTEX.camD,
-                            depth: RASTEX.camDepthFor(t),
-                            through: false, side: 'back', kind: 'minifixCam' });
-          blind.holes.push({ x: round1(py), y: 0, d: RASTEX.boltD, depth: RASTEX.boltDepth,
-                            through: false, side: 'edge', kind: 'minifixBolt' });
-          strip.holes.push({ x: round1(py), y: round1(t / 2), d: RASTEX.dowelD,
-                            depth: RASTEX.dowelDepth,
-                            through: false, side: 'back', kind: 'minifixDowel' });
-          // Планка крепёжная примыкает ТОРЦОМ к фальш-планке (симметрично
-          // заглушке, но у дальнего края): гнездо Ø15 и шток Ø8 — в торец
-          // планки крепёжной; дюбель Ø8 — в пласть фальш-планки НАПРОТИВ
-          // штока, у того же (дальнего) края, где планка своим торцом
-          // прилегает к пласти фальш-планки.
-          // Гнездо — с ВНЕШНЕЙ стороны планки: по разметке заказчика и по
-          // факту нулевого зазора с фальш-планкой с внутренней стороны
-          // (отвёрткой туда не подобраться). Планку крепёжную в этом месте
-          // закрывает соседний ряд после сборки — снаружи гнездо не остаётся.
-          bracket.holes.push({ x: round1(py), y: round1(CAM_SET), d: RASTEX.camD,
-                              depth: RASTEX.camDepthFor(t),
-                              through: false, side: 'front', kind: 'minifixCam' });
-          bracket.holes.push({ x: round1(py), y: 0, d: RASTEX.boltD, depth: RASTEX.boltDepth,
-                              through: false, side: 'edge', kind: 'minifixBolt' });
-          // Дюбель центруется по толщине ПЛАНКИ КРЕПЁЖНОЙ (t, корпусный
-          // ЛДСП — по нему же проходит шток), а не фальш-планки (ftk):
-          // именно там, по центру торца планки, входит её шток.
-          strip.holes.push({ x: round1(py), y: round1(STRIP_W - t / 2), d: RASTEX.dowelD,
-                            depth: RASTEX.dowelDepth,
-                            through: false, side: 'back', kind: 'minifixDowel' });
-        }
-        jointRows.push({ joint: 'minifix', qty: pts.length * 2 });
-        parts.push(strip, blind, bracket);
       }
-    } else if (fac === 'doors2') {
-      const leafW = (facadeW - 2 * gap) / 2;
-      for (let leaf = 0; leaf < 2; leaf++) {
-        // У двустворчатой двери петли снаружи: ручки сходятся к середине,
-        // поэтому у левой створки ручка справа, у правой — слева.
-        const dh = handleHoles({ kind: 'door', width: leafW, height: doorZoneH,
+    } else {
+      zonesRaw = [{ facade: sec.facade, height: 0, appliance: 'none', applianceW: 0, applianceD: 0, note: '' }];
+    }
+
+    if (zonesRaw.length > 1 && p.blindPanel && narrow) {
+      warnings.push(`${secName}: несколько зон по высоте с заглушкой углового модуля не `
+        + `поддерживаются вместе — заглушка построена только для одной (нижней) зоны.`);
+    }
+
+    const zoneLayout = layoutDoorZones(zonesRaw, slotTop - slotBot, gap, (w) => warnings.push(w), secName);
+
+    for (let zi = 0; zi < zonesRaw.length; zi++) {
+      const zone = zonesRaw[zi];
+      const doorZoneH = zoneLayout.heights[zi];
+      if (doorZoneH <= 0) continue;  // предупреждение уже дал layoutDoorZones
+      const doorY = slotBot + zoneLayout.bottoms[zi] + doorZoneH / 2;
+      const isTopZone = zi === zonesRaw.length - 1;
+      const fac = zone.facade === 'doors1' ? 'doorLeft' : zone.facade;  // старое имя
+      const zoneSecName = zonesRaw.length > 1
+        ? `${secName} (${zi === 0 ? 'нижняя зона' : (isTopZone ? 'верхняя зона' : `зона ${zi + 1}`)})`
+        : secName;
+      // Ниша под технику со своей лицевой панелью (духовка/СВЧ) — фасада
+      // корпуса тут нет вообще, независимо от того, что выбрано в facade
+      // (см. APPLIANCE_LABELS выше). Как и facade:'open' — просто ничего не
+      // строим и переходим к следующей зоне.
+      if (applianceNicheOnly(zone.appliance)) continue;
+      // Фасад есть, но крепится НЕ на мебельную петлю корпуса (холодильник —
+      // на боковину спец. петлями; стиральная/посудомоечная — на дверцу
+      // самой техники по шаблону производителя) — обычную чашку не сверлим,
+      // честно предупреждаем.
+      const skipHinge = applianceSkipsHinge(zone.appliance);
+      if (skipHinge && (fac === 'doorLeft' || fac === 'doorRight' || fac === 'doors2')) {
+        warnings.push(`${zoneSecName}: фасад под ${APPLIANCE_LABELS[zone.appliance]} — `
+          + `${applianceHingeNote(zone.appliance)}.`);
+      }
+      const applianceDimsNote = (zone.applianceW || zone.applianceD)
+        ? `габариты техники (Ш×Г) ${zone.applianceW ? Math.round(zone.applianceW) : '—'}×`
+          + `${zone.applianceD ? Math.round(zone.applianceD) : '—'} мм`
+        : '';
+
+      if (fac === 'doorLeft' || fac === 'doorRight') {
+        const hingeSide = fac === 'doorLeft' ? 'петли слева' : 'петли справа';
+        const dh = handleHoles({ kind: 'door', width: facadeW, height: doorZoneH,
           handleId: sec.handle, handleCC: sec.handleCC, orient: sec.handleOrient,
-          hingeSide: leaf === 0 ? 'left' : 'right',
-          floorY: doorY - doorZoneH / 2 });
+          hingeSide: fac === 'doorLeft' ? 'left' : 'right',
+          floorY: doorY - doorZoneH / 2, frame: ft.frame,
+          zoneIndex: zi, zoneCount: zonesRaw.length });
+        if (dh.overflow) warnings.push(`${secName}: ручка «${dh.handle.name}» не помещается на двери.`);
+        if (dh.badCC) warnings.push(`${secName}: у ручки не задано межосевое расстояние — укажите его в секции.`);
         if (dh.count) handleHardware.push({ id: dh.handle.id, qty: dh.count, name: dh.handle.name, cc: dh.handle.cc });
-        const leafX = fX - facadeW / 2 + leafW / 2 + leaf * (leafW + 2 * gap);
-        pushHandleParts({ parts, mounts: dh.mounts, secName, handleName: dh.handle.name,
-          faceX: leafX, faceY: doorY, faceW: leafW, faceH: doorZoneH,
+        pushHandleParts({ parts, mounts: dh.mounts, secName: zoneSecName, handleName: dh.handle.name,
+          faceX: fX, faceY: doorY, faceW: facadeW, faceH: doorZoneH,
           faceZ: D / 2 + ft.thickness / 2, t: ft.thickness });
+        const doorNoteParts = [`Накладная, ${hingeSide}` + (dh.count ? `, ручка ${dh.handle.name}` : '')];
+        if (skipHinge) doorNoteParts.push(applianceHingeNote(zone.appliance));
+        if (applianceDimsNote) doorNoteParts.push(applianceDimsNote);
+        if (zone.note) doorNoteParts.push(zone.note);
         parts.push(makePart({
-          name: `Дверь-створка (${ft.name.replace('Фасад ', '')})`,
-          section: secName, material: ft.material, thickness: ft.thickness,
+          name: `Дверь ${fac === 'doorLeft' ? 'левая' : 'правая'} (${ft.name.replace('Фасад ', '')})`,
+          section: zoneSecName, sectionIndex: i, zoneIndex: zi, material: ft.material, thickness: ft.thickness,
           facadeType: ft.id, frameW: ft.frame, insertMaterial: ft.insert, glass: ft.render === 'glass',
-          length: leafW, width: doorZoneH, qty: 1, kind: 'door', grain: true,
-          holes: dh.holes.concat(hingeHoles(leafW, doorZoneH,
-            leaf === 0 ? 'left' : 'right',
+          length: facadeW, width: doorZoneH, qty: 1, kind: 'door', grain: true,
+          holes: skipHinge ? dh.holes : dh.holes.concat(hingeHoles(facadeW, doorZoneH,
+            fac === 'doorLeft' ? 'left' : 'right',
             shelvesOnFacade(secInfo, i, doorY, doorZoneH),
             (w) => warnings.push(w), secName, ft.render === 'glass',
-            railBottomOnFacade(doorY, doorZoneH))),
-          note: 'Накладная, двустворчатая' + (dh.count ? `, ручка ${dh.handle.name}` : ''),
+            isTopZone ? railBottomOnFacade(doorY, doorZoneH) : null)),
+          note: doorNoteParts.join('; '),
           edging: { long1: EDGE_FRONT, long2: EDGE_FRONT, short1: EDGE_FRONT, short2: EDGE_FRONT },
-          x: fX - facadeW / 2 + leafW / 2 + leaf * (leafW + 2 * gap), y: doorY, z: facadeZ,
-          dims: { w: leafW, h: doorZoneH, d: t },
+          x: fX, y: doorY, z: D / 2 + ft.thickness / 2,
+          dims: { w: facadeW, h: doorZoneH, d: ft.thickness },
         }));
-      }
-      doorHardware.push({ section: secName, height: doorZoneH, leaves: 2, pushToOpen: !!sec.pushToOpen });
-    } else if (fac === 'liftUp') {
-      // Фасад откидывается ВВЕРХ: петель нет, работает подъёмный механизм.
-      const dh = handleHoles({ kind: 'liftFront', width: facadeW, height: doorZoneH, handleId: sec.handle, handleCC: sec.handleCC });
-      if (dh.count) handleHardware.push({ id: dh.handle.id, qty: dh.count, name: dh.handle.name, cc: dh.handle.cc });
-      pushHandleParts({ parts, mounts: dh.mounts, secName, handleName: dh.handle.name,
-        faceX: fX, faceY: doorY, faceW: facadeW, faceH: doorZoneH,
-        faceZ: D / 2 + ft.thickness / 2, t: ft.thickness });
-      parts.push(makePart({
-        name: 'Фасад откидной (вверх)', section: secName, material: decor.code, thickness: t,
-        length: facadeW, width: doorZoneH, qty: 1, kind: 'door', grain: true,
-        holes: dh.holes,
-        note: 'Накладной, открывание вверх' + (dh.count ? `, ручка ${dh.handle.name}` : ''),
-        edging: { long1: EDGE_FRONT, long2: EDGE_FRONT, short1: EDGE_FRONT, short2: EDGE_FRONT },
-        x: fX, y: doorY, z: D / 2 + ft.thickness / 2,
-        dims: { w: facadeW, h: doorZoneH, d: ft.thickness },
-      }));
-      const liftId = sec.lift || 'aventosHK';
-      const chk = checkLift(liftId, doorZoneH, W);
-      if (chk) {
-        liftHardware.push({ id: liftId, section: secName, qty: 1 });
-        for (const n of chk.notes) {
-          warnings.push(`${secName}: подъёмник «${chk.lift.name}» — ${n}.`);
+        doorHardware.push({ section: zoneSecName, height: doorZoneH, leaves: 1, pushToOpen: !!sec.pushToOpen });
+
+        // ЗАГЛУШКА УГЛОВОГО МОДУЛЯ. Фасад узкий, остальной фронт корпуса
+        // закрывает вертикальная панель из КОРПУСНОГО ЛДСП: она же служит
+        // опорой петель соседа и не даёт заглянуть в угол. К её правой
+        // кромке ПОД 90° крепится фальш-планка из фасадного материала —
+        // видимая снаружи полоса, добирающая фронт до соседнего ряда.
+        // Несколько зон по высоте с заглушкой вместе не поддерживаются —
+        // строим её только для нижней зоны (см. предупреждение выше).
+        if (p.blindPanel && narrow && zi === 0) {
+          const STRIP_W = Number(p.blindStrip) || 78;
+          const BRACKET_W = Number(p.blindBracket) || 100;
+          const ftk = ft.thickness;
+          // ФРОНТ УГЛОВОГО МОДУЛЯ собирается так:
+          //   дверь → фальш-планка (фасадный материал, уходит ВПЕРЁД под 90°)
+          //   → заглушка (корпусной ЛДСП, во фронте, справа от планки)
+          //   → планка крепёжная (корпусной ЛДСП, НАПРОТИВ заглушки, на
+          //     переднем торце фальш-планки) — к ней и встаёт соседний ряд.
+          // Все три детали связаны МИНИФИКСАМИ: гнездо эксцентрика Ø15
+          // сверлится с ВНУТРЕННЕЙ стороны — снаружи его быть не должно.
+          const stripX = round1(fX + facadeW / 2 + gap + ftk / 2);
+          const blindX0 = round1(stripX + ftk / 2);
+          const blindW = BLIND_W;   // фиксированная: к ней стыкуется соседний ряд
+          const stripH = round1(frontH - 2 * gap);
+          const CAM_SET = RASTEX.camSetback;       // ось эксцентрика от кромки
+          const pts = jointPoints(stripH);        // точки крепежа по высоте
+
+          const strip = makePart({
+            name: 'Фальш-планка (добор)', section: zoneSecName,
+            material: ft.material, thickness: ftk,
+            facadeType: ft.id, grain: true,
+            length: stripH, width: STRIP_W, qty: 1, kind: 'filler',
+            note: `Из фасадного материала, ${STRIP_W} мм, под 90° слева от заглушки `
+              + '— закрывает её торец; крепление на минификсы',
+            edging: { long1: EDGE_FRONT, long2: EDGE_FRONT, short1: EDGE_FRONT, short2: EDGE_FRONT },
+            x: stripX, y: baseH + frontH / 2,
+            z: round1(D / 2 + STRIP_W / 2),
+            dims: { w: ftk, h: stripH, d: STRIP_W },
+            // Деталь смещена от центра модуля — общая эвристика стороны
+            // ошибается (см. комментарий у frontIsPlus в viewer.js). Дюбели
+            // должны открываться на грани, что касается заглушки/планки
+            // крепёжной, а не на внешней стороне фальш-планки.
+            frontIsPlus: false,
+          });
+          const blind = makePart({
+            name: 'Заглушка (панель)', section: zoneSecName,
+            material: decor.code, thickness: t,
+            length: round1(frontH), width: blindW, qty: 1, kind: 'filler',
+            note: 'Глухая панель фронта углового модуля, корпусной ЛДСП, на минификсах',
+            edging: { long1: EDGE_FRONT, long2: EDGE_FRONT, short1: EDGE_FRONT, short2: EDGE_FRONT },
+            x: round1(blindX0 + blindW / 2), y: baseH + frontH / 2, z: D / 2 + t / 2,
+            dims: { w: blindW, h: frontH, d: t },
+          });
+          const bracket = makePart({
+            name: 'Планка крепёжная (ЛДСП)', section: zoneSecName,
+            material: decor.code, thickness: t,
+            length: stripH, width: BRACKET_W, qty: 1, kind: 'filler',
+            note: `Корпусной ЛДСП ${BRACKET_W} мм, напротив заглушки на переднем `
+              + 'торце фальш-планки; минификсы, гнездо Ø15 внутрь корпуса',
+            edging: { long1: EDGE_FRONT, long2: null, short1: null, short2: null },
+            x: round1(stripX + ftk / 2 + BRACKET_W / 2), y: baseH + frontH / 2,
+            // Планка утоплена на свою толщину: её передняя пласть вровень
+            // с торцом фальш-планки, и кромка планки оказывается закрыта.
+            z: round1(D / 2 + STRIP_W - t / 2),
+            dims: { w: BRACKET_W, h: t, d: t },
+          });
+          bracket.box.w = BRACKET_W; bracket.box.h = stripH; bracket.box.d = t;
+
+          for (const py of pts) {
+            // Заглушка примыкает ТОРЦОМ к фальш-планке: гнездо Ø15 и Ø8 в торец
+            // — на заглушке, дюбель Ø8 — в пласть фальш-планки (у ближнего края,
+            // где заглушка своим торцом прилегает к пласти планки).
+            blind.holes.push({ x: round1(py), y: round1(CAM_SET), d: RASTEX.camD,
+                              depth: RASTEX.camDepthFor(t),
+                              through: false, side: 'back', kind: 'minifixCam' });
+            blind.holes.push({ x: round1(py), y: 0, d: RASTEX.boltD, depth: RASTEX.boltDepth,
+                              through: false, side: 'edge', kind: 'minifixBolt' });
+            strip.holes.push({ x: round1(py), y: round1(t / 2), d: RASTEX.dowelD,
+                              depth: RASTEX.dowelDepth,
+                              through: false, side: 'back', kind: 'minifixDowel' });
+            // Планка крепёжная примыкает ТОРЦОМ к фальш-планке (симметрично
+            // заглушке, но у дальнего края): гнездо Ø15 и шток Ø8 — в торец
+            // планки крепёжной; дюбель Ø8 — в пласть фальш-планки НАПРОТИВ
+            // штока, у того же (дальнего) края, где планка своим торцом
+            // прилегает к пласти фальш-планки.
+            // Гнездо — с ВНЕШНЕЙ стороны планки: по разметке заказчика и по
+            // факту нулевого зазора с фальш-планкой с внутренней стороны
+            // (отвёрткой туда не подобраться). Планку крепёжную в этом месте
+            // закрывает соседний ряд после сборки — снаружи гнездо не остаётся.
+            bracket.holes.push({ x: round1(py), y: round1(CAM_SET), d: RASTEX.camD,
+                                depth: RASTEX.camDepthFor(t),
+                                through: false, side: 'front', kind: 'minifixCam' });
+            bracket.holes.push({ x: round1(py), y: 0, d: RASTEX.boltD, depth: RASTEX.boltDepth,
+                                through: false, side: 'edge', kind: 'minifixBolt' });
+            // Дюбель центруется по толщине ПЛАНКИ КРЕПЁЖНОЙ (t, корпусный
+            // ЛДСП — по нему же проходит шток), а не фальш-планки (ftk):
+            // именно там, по центру торца планки, входит её шток.
+            strip.holes.push({ x: round1(py), y: round1(STRIP_W - t / 2), d: RASTEX.dowelD,
+                              depth: RASTEX.dowelDepth,
+                              through: false, side: 'back', kind: 'minifixDowel' });
+          }
+          jointRows.push({ joint: 'minifix', qty: pts.length * 2 });
+          parts.push(strip, blind, bracket);
+        }
+      } else if (fac === 'doors2') {
+        const leafW = (facadeW - 2 * gap) / 2;
+        const doors2NoteParts = ['двустворчатая'];
+        if (skipHinge) doors2NoteParts.push(applianceHingeNote(zone.appliance));
+        if (applianceDimsNote) doors2NoteParts.push(applianceDimsNote);
+        if (zone.note) doors2NoteParts.push(zone.note);
+        for (let leaf = 0; leaf < 2; leaf++) {
+          // У двустворчатой двери петли снаружи: ручки сходятся к середине,
+          // поэтому у левой створки ручка справа, у правой — слева.
+          const dh = handleHoles({ kind: 'door', width: leafW, height: doorZoneH,
+            handleId: sec.handle, handleCC: sec.handleCC, orient: sec.handleOrient,
+            hingeSide: leaf === 0 ? 'left' : 'right',
+            floorY: doorY - doorZoneH / 2, frame: ft.frame,
+            zoneIndex: zi, zoneCount: zonesRaw.length });
+          if (dh.count) handleHardware.push({ id: dh.handle.id, qty: dh.count, name: dh.handle.name, cc: dh.handle.cc });
+          const leafX = fX - facadeW / 2 + leafW / 2 + leaf * (leafW + 2 * gap);
+          pushHandleParts({ parts, mounts: dh.mounts, secName: zoneSecName, handleName: dh.handle.name,
+            faceX: leafX, faceY: doorY, faceW: leafW, faceH: doorZoneH,
+            faceZ: D / 2 + ft.thickness / 2, t: ft.thickness });
+          parts.push(makePart({
+            name: `Дверь-створка (${ft.name.replace('Фасад ', '')})`,
+            section: zoneSecName, sectionIndex: i, zoneIndex: zi, material: ft.material, thickness: ft.thickness,
+            facadeType: ft.id, frameW: ft.frame, insertMaterial: ft.insert, glass: ft.render === 'glass',
+            length: leafW, width: doorZoneH, qty: 1, kind: 'door', grain: true,
+            holes: skipHinge ? dh.holes : dh.holes.concat(hingeHoles(leafW, doorZoneH,
+              leaf === 0 ? 'left' : 'right',
+              shelvesOnFacade(secInfo, i, doorY, doorZoneH),
+              (w) => warnings.push(w), secName, ft.render === 'glass',
+              isTopZone ? railBottomOnFacade(doorY, doorZoneH) : null)),
+            note: 'Накладная, ' + doors2NoteParts.join('; ') + (dh.count ? `, ручка ${dh.handle.name}` : ''),
+            edging: { long1: EDGE_FRONT, long2: EDGE_FRONT, short1: EDGE_FRONT, short2: EDGE_FRONT },
+            x: fX - facadeW / 2 + leafW / 2 + leaf * (leafW + 2 * gap), y: doorY, z: facadeZ,
+            dims: { w: leafW, h: doorZoneH, d: t },
+          }));
+        }
+        doorHardware.push({ section: zoneSecName, height: doorZoneH, leaves: 2, pushToOpen: !!sec.pushToOpen });
+      } else if (fac === 'liftUp') {
+        // Фасад откидывается ВВЕРХ: петель нет, работает подъёмный механизм.
+        const dh = handleHoles({ kind: 'liftFront', width: facadeW, height: doorZoneH, handleId: sec.handle, handleCC: sec.handleCC });
+        if (dh.count) handleHardware.push({ id: dh.handle.id, qty: dh.count, name: dh.handle.name, cc: dh.handle.cc });
+        pushHandleParts({ parts, mounts: dh.mounts, secName: zoneSecName, handleName: dh.handle.name,
+          faceX: fX, faceY: doorY, faceW: facadeW, faceH: doorZoneH,
+          faceZ: D / 2 + ft.thickness / 2, t: ft.thickness });
+        const liftNoteParts = ['Накладной, открывание вверх' + (dh.count ? `, ручка ${dh.handle.name}` : '')];
+        if (zone.note) liftNoteParts.push(zone.note);
+        parts.push(makePart({
+          name: 'Фасад откидной (вверх)', section: zoneSecName, sectionIndex: i, zoneIndex: zi,
+          material: decor.code, thickness: t,
+          length: facadeW, width: doorZoneH, qty: 1, kind: 'door', grain: true,
+          holes: dh.holes,
+          note: liftNoteParts.join('; '),
+          edging: { long1: EDGE_FRONT, long2: EDGE_FRONT, short1: EDGE_FRONT, short2: EDGE_FRONT },
+          x: fX, y: doorY, z: D / 2 + ft.thickness / 2,
+          dims: { w: facadeW, h: doorZoneH, d: ft.thickness },
+        }));
+        const liftId = sec.lift || 'aventosHK';
+        const chk = checkLift(liftId, doorZoneH, W);
+        if (chk) {
+          liftHardware.push({ id: liftId, section: zoneSecName, qty: 1 });
+          for (const n of chk.notes) {
+            warnings.push(`${secName}: подъёмник «${chk.lift.name}» — ${n}.`);
+          }
         }
       }
+      // zone.facade === 'open' → фасада нет (открытая зона)
     }
-    // facade === 'open' → фасада нет (открытая секция)
   }
 
   // Ручные правки конкретных деталей — см. applyPartOverrides выше. Строго
@@ -3132,5 +3523,11 @@ function mergeEqualParts(parts) {
 }
 
 window.Modul3D = window.Modul3D || {};
-window.Modul3D.engine = { buildModel, buildModuleParts, EDGE_FRONT, EDGE_BACK, SIDE_LABEL, sidesLabel };
+window.Modul3D.engine = {
+  buildModel, buildModuleParts, EDGE_FRONT, EDGE_BACK, SIDE_LABEL, sidesLabel,
+  // Чистая функция раскладки вертикальных зон фасада — переиспользуется в
+  // app.js (контекстное «Разделить на секции» из 3D), чтобы не дублировать
+  // формулу стыков между зонами.
+  layoutDoorZones,
+};
 })();

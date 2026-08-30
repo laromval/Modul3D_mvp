@@ -246,10 +246,10 @@ const PRESETS = [
         // нижний ярус — по этой логике он в группе «нижние», а не отдельно.
         tier: 'lower',
         name: 'Пенал 600',
-        note: '600×2140×560 · во всю высоту гарнитура, четыре полки',
+        note: '600×2140×510 · во всю высоту гарнитура, четыре полки',
         make: () => mod({
           family: 'kitchen',
-          name: 'Пенал 600', width: 600, height: 2140, depth: 560,
+          name: 'Пенал 600', width: 600, height: 2140, depth: 510,
           baseType: 'legsPlinth', legHeight: 100,
           leftSide: 'onBottom', rightSide: 'onBottom',
           sections: [sec({ handle: 'bow160', facade: 'doorLeft', shelves: 4 })],
