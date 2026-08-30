@@ -73,7 +73,7 @@
   };
 
   const HARDWARE_PRICES = {
-    hinge: { name: 'Петля накладная Blum CLIP 110°', article: 'BLUM-CLIP', price: 210, unit: 'шт', category: 'hinge' },
+    hinge: { name: 'Петля накладная Blum CLIP 110°', article: 'BLUM-CLIP', price: 210, unit: 'шт', category: 'hinge', hardwareModelSlot: 'hingeCup' },
     handle: { name: 'Ручка мебельная скоба 128мм', article: 'RH-128', price: 90, unit: 'шт', category: 'handle' },
     drawerRunnerPair: { name: 'Направляющие шариковые 500мм (пара)', article: 'DR-500', price: 350, unit: 'пара', category: 'runner' },
     leg: { name: 'Опора мебельная никелированная Ø50, регулируемая h100', article: 'LEG-D50-100', price: 145, unit: 'шт', category: 'leg' },
@@ -82,7 +82,7 @@
     shelfSupportGlass: { name: 'Полкодержатель для стекла с силиконовой пяткой Ø5',
                          article: 'SUP-5G', price: 28, unit: 'шт', category: 'support' },
     hingeGlass: { name: 'Петля для стеклянной двери (отверстие Ø26)',
-                  article: 'HNG-GLASS', price: 520, unit: 'шт', category: 'hinge' },
+                  article: 'HNG-GLASS', price: 520, unit: 'шт', category: 'hinge', hardwareModelSlot: 'hingeGlass' },
     plinthClip: { name: 'Крепление цоколя', article: 'PLC-1', price: 25, unit: 'шт', category: 'plinth' },
     pushToOpen: { name: 'Механизм Push-to-open (толкатель)', article: 'PTO-1', price: 320, unit: 'шт', category: 'mechanism' },
     rod: { name: 'Штанга для одежды хромированная Ø25', article: 'ROD-D25', price: 120, unit: 'пог.м', category: 'rod' },
