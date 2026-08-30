@@ -29,7 +29,9 @@ Paddle официально поддерживает Молдову и сам б
   и файл `avatar`), раздача аватарок через `/uploads/avatars/...`.
 - Отзывы о приложении с ручной модерацией (`POST /reviews`,
   `GET /reviews/public`, `GET /reviews/pending`, `POST /reviews/:id/approve`,
-  `POST /reviews/:id/reject`).
+  `POST /reviews/:id/reject`), Telegram-уведомление владельцу о новом
+  отзыве (`services/telegramNotify.js`) и статическая страница модерации
+  `GET /admin/reviews.html`.
 
 Реализовано на Этапе 3:
 - `src/services/exportGeneration.js` — построение содержимого документов
@@ -81,6 +83,8 @@ cp .env.example .env
 | `ANTHROPIC_API_KEY` | Ключ Anthropic API (console.anthropic.com → Settings → API Keys), нужен для `POST /sketch/recognize`. Без него эндпоинт отвечает 503, сервер не падает |
 | `SKETCH_TOKEN_COST` | Сколько токенов списывается за один вызов `/sketch/recognize` (по умолчанию 1) |
 | `ADMIN_TOKEN` | Приватный токен владельца проекта для модерации отзывов (`GET /reviews/pending`, `POST /reviews/:id/approve\|reject`), передаётся в заголовке `X-Admin-Token`. Без него эти эндпоинты отвечают 503 |
+| `PUBLIC_SERVER_URL` | Публичный адрес сервера, используется только для ссылок (например, на `/admin/reviews.html` в Telegram-уведомлении). По умолчанию `http://localhost:<PORT>` |
+| `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` | Уведомление о новом отзыве в Telegram (`services/telegramNotify.js`). Если хоть одна не задана — уведомления просто не отправляются, `POST /reviews` работает как обычно |
 
 ### 2. База данных
 
@@ -272,6 +276,19 @@ BOM не добавляют, это часть доставки файла в `r
 в `approved`/`rejected` и проставляют `moderated_at`. Без `ADMIN_TOKEN` в
 `.env` все три эндпоинта отвечают `503`.
 
+При создании нового отзыва (`POST /reviews`) сервер также пытается
+отправить уведомление в Telegram владельцу проекта
+(`services/telegramNotify.js`) — не блокирует ответ клиенту и тихо
+пропускается, если `TELEGRAM_BOT_TOKEN`/`TELEGRAM_CHAT_ID` не настроены.
+
+### `GET /admin/reviews.html`
+Статическая страница ручной модерации отзывов (`server/public/admin/
+reviews.html`), раздаётся через `express.static` без авторизации на уровне
+маршрута — сама страница просит ввести `ADMIN_TOKEN` (хранит его в
+`localStorage` браузера) и обращается к `GET /reviews/pending`/`POST
+/reviews/:id/approve|reject` с заголовком `X-Admin-Token`, то есть реально
+защищена тем же `ADMIN_TOKEN`, что и сами эндпоинты.
+
 ## Что нужно настроить вручную (не входит в код)
 
 - Получить ключ Anthropic API (console.anthropic.com → Settings → API Keys,
@@ -318,7 +335,19 @@ BOM не добавляют, это часть доставки файла в `r
   защита приватных эндпоинтов — не CORS, а `JWT_SECRET`/`ADMIN_TOKEN`.
 - Сгенерировать `ADMIN_TOKEN` (`openssl rand -hex 32`) и держать в секрете —
   им защищены модерационные эндпоинты отзывов (`GET /reviews/pending`,
-  `POST /reviews/:id/approve|reject`).
+  `POST /reviews/:id/approve|reject`) и страница `/admin/reviews.html`.
+- (Опционально) Настроить Telegram-уведомление о новых отзывах:
+  1. Написать `@BotFather` в Telegram → `/newbot` → следовать подсказкам
+     (имя бота, username) → скопировать выданный токен вида
+     `123456789:AA...` → `TELEGRAM_BOT_TOKEN`.
+  2. Написать своему новому боту любое сообщение (например «привет») — это
+     обязательно, иначе бот не может первым написать пользователю.
+  3. Открыть в браузере `https://api.telegram.org/bot<TELEGRAM_BOT_TOKEN>/getUpdates`
+     и найти в JSON-ответе `message.chat.id` — это и есть `TELEGRAM_CHAT_ID`
+     (число, может быть отрицательным для групповых чатов).
+  4. Задать обе переменные в `.env` (или в Variables на Railway) и
+     перезапустить сервер. Без них `POST /reviews` продолжает работать как
+     раньше — уведомления просто не приходят.
 - В проде убедиться, что папка `server/uploads/avatars/` сохраняется между
   деплоями/рестартами процесса (обычный эфемерный контейнер её потеряет) —
   либо примонтировать постоянный volume, либо (на будущее) перенести

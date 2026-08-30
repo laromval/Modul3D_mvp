@@ -1,0 +1,442 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Modul3D — модерация отзывов</title>
+<style>
+  :root {
+    --bg: #101317;
+    --bg-2: #16191e;
+    --panel: #1b1f26;
+    --border: #262c35;
+    --text: #eef3f8;
+    --text-2: #bcccdc;
+    --accent: #00c2ff;
+    --accent-2: #38d4ff;
+    --accent-ink: #06131a;
+    --accent-soft: rgba(0, 194, 255, .14);
+    --danger: #ff5c72;
+    --danger-soft: rgba(255, 92, 114, .14);
+    --ok: #34d399;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    min-height: 100vh;
+    background: var(--bg);
+    color: var(--text);
+    font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+  }
+  header {
+    padding: 20px 24px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+  header h1 {
+    margin: 0;
+    font-size: 18px;
+    font-weight: 700;
+  }
+  header h1 b { color: var(--accent); }
+  main {
+    max-width: 880px;
+    margin: 0 auto;
+    padding: 24px;
+  }
+  .hint { color: var(--text-2); font-size: 13px; }
+
+  /* --- Экран входа --- */
+  #login-screen {
+    max-width: 420px;
+    margin: 60px auto;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 28px;
+  }
+  #login-screen h2 { margin: 0 0 8px; font-size: 16px; }
+  #login-screen p { color: var(--text-2); margin: 0 0 18px; font-size: 13px; }
+  input[type="password"], input[type="text"] {
+    width: 100%;
+    background: var(--bg-2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--text);
+    padding: 10px 12px;
+    font-size: 14px;
+    outline: none;
+  }
+  input[type="password"]:focus, input[type="text"]:focus {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px var(--accent-soft);
+  }
+  button {
+    cursor: pointer;
+    border: none;
+    border-radius: 8px;
+    padding: 10px 16px;
+    font-size: 14px;
+    font-weight: 600;
+    font-family: inherit;
+  }
+  .btn-primary {
+    background: var(--accent);
+    color: var(--accent-ink);
+  }
+  .btn-primary:hover { background: var(--accent-2); }
+  .btn-ghost {
+    background: transparent;
+    color: var(--text-2);
+    border: 1px solid var(--border);
+  }
+  .btn-ghost:hover { color: var(--text); border-color: var(--accent); }
+  .btn-approve {
+    background: var(--ok);
+    color: #06231a;
+  }
+  .btn-reject {
+    background: var(--danger-soft);
+    color: var(--danger);
+  }
+  .btn-reject:hover { background: var(--danger); color: #2a0007; }
+  #login-form { display: flex; gap: 8px; margin-top: 4px; }
+  #login-form input { flex: 1; }
+  #login-error {
+    color: var(--danger);
+    font-size: 13px;
+    margin-top: 10px;
+    display: none;
+  }
+
+  /* --- Список отзывов --- */
+  #app-screen { display: none; }
+  #toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 16px;
+  }
+  #status-line { color: var(--text-2); font-size: 13px; }
+  #empty-state {
+    background: var(--panel);
+    border: 1px dashed var(--border);
+    border-radius: 12px;
+    padding: 40px 20px;
+    text-align: center;
+    color: var(--text-2);
+    font-size: 15px;
+    display: none;
+  }
+  #error-state {
+    background: var(--danger-soft);
+    border: 1px solid var(--danger);
+    color: var(--danger);
+    border-radius: 10px;
+    padding: 14px 16px;
+    margin-bottom: 16px;
+    display: none;
+    font-size: 14px;
+  }
+  #error-state button { margin-top: 10px; }
+
+  .review-card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 16px 18px;
+    margin-bottom: 14px;
+    display: flex;
+    gap: 14px;
+  }
+  .review-avatar {
+    width: 44px;
+    height: 44px;
+    border-radius: 50%;
+    background: var(--bg-2);
+    border: 1px solid var(--border);
+    flex-shrink: 0;
+    object-fit: cover;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-2);
+    font-weight: 700;
+    font-size: 16px;
+  }
+  .review-body-col { flex: 1; min-width: 0; }
+  .review-meta {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-bottom: 6px;
+  }
+  .review-nickname { font-weight: 700; }
+  .review-email { color: var(--text-2); font-size: 13px; }
+  .review-date { color: var(--text-2); font-size: 12px; margin-left: auto; }
+  .review-text {
+    white-space: pre-wrap;
+    word-break: break-word;
+    color: var(--text);
+    margin-bottom: 12px;
+  }
+  .review-actions { display: flex; gap: 8px; }
+</style>
+</head>
+<body>
+
+<div id="login-screen">
+  <h2>Модерация отзывов Modul3D</h2>
+  <p>Введите приватный ADMIN_TOKEN, чтобы посмотреть отзывы, ожидающие модерации.</p>
+  <form id="login-form">
+    <input type="password" id="token-input" placeholder="ADMIN_TOKEN" autocomplete="off">
+    <button type="submit" class="btn-primary">Войти</button>
+  </form>
+  <div id="login-error"></div>
+</div>
+
+<div id="app-screen">
+  <header>
+    <h1>Modul3D — <b>модерация</b> отзывов</h1>
+    <button class="btn-ghost" id="logout-btn">Сменить токен</button>
+  </header>
+  <main>
+    <div id="toolbar">
+      <span id="status-line">Загрузка...</span>
+      <button class="btn-ghost" id="refresh-btn">Обновить</button>
+    </div>
+    <div id="error-state">
+      <div id="error-text"></div>
+      <button class="btn-ghost" id="error-retoken-btn">Сменить токен</button>
+    </div>
+    <div id="empty-state">Нет отзывов на модерации.</div>
+    <div id="review-list"></div>
+  </main>
+</div>
+
+<script>
+(function () {
+  var STORAGE_KEY = 'modul3dAdminToken';
+
+  var loginScreen = document.getElementById('login-screen');
+  var appScreen = document.getElementById('app-screen');
+  var loginForm = document.getElementById('login-form');
+  var tokenInput = document.getElementById('token-input');
+  var loginError = document.getElementById('login-error');
+  var logoutBtn = document.getElementById('logout-btn');
+  var refreshBtn = document.getElementById('refresh-btn');
+  var statusLine = document.getElementById('status-line');
+  var errorState = document.getElementById('error-state');
+  var errorText = document.getElementById('error-text');
+  var errorRetokenBtn = document.getElementById('error-retoken-btn');
+  var emptyState = document.getElementById('empty-state');
+  var reviewList = document.getElementById('review-list');
+
+  function getToken() {
+    return localStorage.getItem(STORAGE_KEY) || '';
+  }
+
+  function setToken(token) {
+    localStorage.setItem(STORAGE_KEY, token);
+  }
+
+  function clearToken() {
+    localStorage.removeItem(STORAGE_KEY);
+  }
+
+  function showLogin(message) {
+    appScreen.style.display = 'none';
+    loginScreen.style.display = 'block';
+    if (message) {
+      loginError.textContent = message;
+      loginError.style.display = 'block';
+    } else {
+      loginError.style.display = 'none';
+    }
+  }
+
+  function showApp() {
+    loginScreen.style.display = 'none';
+    appScreen.style.display = 'block';
+  }
+
+  function escapeHtml(str) {
+    var div = document.createElement('div');
+    div.textContent = str == null ? '' : String(str);
+    return div.innerHTML;
+  }
+
+  function formatDate(iso) {
+    try {
+      var d = new Date(iso);
+      return d.toLocaleString('ru-RU');
+    } catch (e) {
+      return iso || '';
+    }
+  }
+
+  function initials(nickname) {
+    if (!nickname) return '?';
+    return nickname.trim().charAt(0).toUpperCase();
+  }
+
+  function renderReviews(reviews) {
+    reviewList.innerHTML = '';
+    if (!reviews || reviews.length === 0) {
+      emptyState.style.display = 'block';
+      statusLine.textContent = 'Отзывов на модерации нет.';
+      return;
+    }
+    emptyState.style.display = 'none';
+    statusLine.textContent = 'На модерации: ' + reviews.length;
+
+    reviews.forEach(function (review) {
+      var card = document.createElement('div');
+      card.className = 'review-card';
+      card.dataset.id = review.id;
+
+      var avatarEl;
+      if (review.avatarUrl) {
+        avatarEl = document.createElement('img');
+        avatarEl.className = 'review-avatar';
+        avatarEl.alt = '';
+        avatarEl.src = window.location.origin + review.avatarUrl;
+      } else {
+        avatarEl = document.createElement('div');
+        avatarEl.className = 'review-avatar';
+        avatarEl.textContent = initials(review.nickname);
+      }
+      card.appendChild(avatarEl);
+
+      var bodyCol = document.createElement('div');
+      bodyCol.className = 'review-body-col';
+      bodyCol.innerHTML =
+        '<div class="review-meta">' +
+          '<span class="review-nickname">' + escapeHtml(review.nickname || '(без никнейма)') + '</span>' +
+          '<span class="review-email">' + escapeHtml(review.email || '') + '</span>' +
+          '<span class="review-date">' + escapeHtml(formatDate(review.createdAt)) + '</span>' +
+        '</div>' +
+        '<div class="review-text">' + escapeHtml(review.body) + '</div>' +
+        '<div class="review-actions">' +
+          '<button class="btn-approve" data-action="approve">Одобрить</button>' +
+          '<button class="btn-reject" data-action="reject">Отклонить</button>' +
+        '</div>';
+      card.appendChild(bodyCol);
+
+      reviewList.appendChild(card);
+    });
+  }
+
+  function apiFetch(path, options) {
+    options = options || {};
+    var headers = options.headers || {};
+    headers['X-Admin-Token'] = getToken();
+    options.headers = headers;
+    return fetch(path, options);
+  }
+
+  function loadReviews() {
+    statusLine.textContent = 'Загрузка...';
+    errorState.style.display = 'none';
+    reviewList.innerHTML = '';
+    emptyState.style.display = 'none';
+
+    apiFetch('/reviews/pending').then(function (res) {
+      if (res.status === 401) {
+        showLogin('Неверный ADMIN_TOKEN. Введите его заново.');
+        clearToken();
+        return null;
+      }
+      if (!res.ok) {
+        return res.json().catch(function () { return {}; }).then(function (data) {
+          throw new Error(data.error || ('Ошибка сервера (' + res.status + ')'));
+        });
+      }
+      return res.json();
+    }).then(function (reviews) {
+      if (reviews === null) return; // уже показали экран логина
+      showApp();
+      renderReviews(reviews);
+    }).catch(function (err) {
+      showApp();
+      statusLine.textContent = '';
+      errorText.textContent = 'Не удалось загрузить отзывы: ' + err.message;
+      errorState.style.display = 'block';
+    });
+  }
+
+  function moderate(id, action, cardEl) {
+    var buttons = cardEl.querySelectorAll('button');
+    buttons.forEach(function (b) { b.disabled = true; });
+
+    apiFetch('/reviews/' + encodeURIComponent(id) + '/' + action, { method: 'POST' }).then(function (res) {
+      if (res.status === 401) {
+        showLogin('Неверный ADMIN_TOKEN. Введите его заново.');
+        clearToken();
+        return;
+      }
+      if (!res.ok) {
+        return res.json().catch(function () { return {}; }).then(function (data) {
+          throw new Error(data.error || ('Ошибка сервера (' + res.status + ')'));
+        });
+      }
+      cardEl.remove();
+      if (reviewList.children.length === 0) {
+        emptyState.style.display = 'block';
+        statusLine.textContent = 'Отзывов на модерации нет.';
+      } else {
+        statusLine.textContent = 'На модерации: ' + reviewList.children.length;
+      }
+    }).catch(function (err) {
+      buttons.forEach(function (b) { b.disabled = false; });
+      alert('Не удалось выполнить действие: ' + err.message);
+    });
+  }
+
+  reviewList.addEventListener('click', function (evt) {
+    var btn = evt.target.closest('button[data-action]');
+    if (!btn) return;
+    var card = btn.closest('.review-card');
+    if (!card) return;
+    moderate(card.dataset.id, btn.dataset.action, card);
+  });
+
+  loginForm.addEventListener('submit', function (evt) {
+    evt.preventDefault();
+    var value = tokenInput.value.trim();
+    if (!value) return;
+    setToken(value);
+    tokenInput.value = '';
+    loadReviews();
+  });
+
+  logoutBtn.addEventListener('click', function () {
+    clearToken();
+    showLogin();
+  });
+
+  errorRetokenBtn.addEventListener('click', function () {
+    clearToken();
+    showLogin();
+  });
+
+  refreshBtn.addEventListener('click', loadReviews);
+
+  // Точка входа: если токен уже сохранён — сразу показываем экран со
+  // списком (в состоянии загрузки) и пробуем его заполнить, иначе — экран входа.
+  if (getToken()) {
+    showApp();
+    loadReviews();
+  } else {
+    showLogin();
+  }
+})();
+</script>
+
+</body>
+</html>

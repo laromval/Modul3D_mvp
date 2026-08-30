@@ -31,6 +31,12 @@ app.get('/health', (req, res) => {
 // (server/.gitignore).
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
+// Статическая страница ручной модерации отзывов (server/public/admin/reviews.html).
+// Сама страница не авторизована на уровне маршрута — она сама просит
+// ADMIN_TOKEN у оператора и передаёт его в заголовке X-Admin-Token при
+// вызовах API (см. routes/reviews.js, requireAdmin).
+app.use('/admin', express.static(path.join(__dirname, 'public', 'admin')));
+
 // express.json() подключается точечно внутри routers/auth.js,
 // routers/billing.js, routers/sketch.js, routers/export.js,
 // routers/hardwareModels.js и routers/reviews.js (а не здесь глобально) —

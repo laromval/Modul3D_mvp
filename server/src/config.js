@@ -58,4 +58,16 @@ module.exports = {
   // роли, у проекта на этом этапе один владелец. Если не задан, эти
   // эндпоинты отклоняют все запросы (см. requireAdmin в routes/reviews.js).
   adminToken: process.env.ADMIN_TOKEN,
+
+  // Публичный адрес самого сервера (без завершающего слэша) — используется
+  // только для формирования ссылок (например, на страницу модерации отзывов
+  // в уведомлении в Telegram, см. services/telegramNotify.js). Не влияет на
+  // то, где сервер реально слушает.
+  publicServerUrl: process.env.PUBLIC_SERVER_URL || `http://localhost:${process.env.PORT || '4000'}`,
+
+  // Telegram-уведомление о новом отзыве (services/telegramNotify.js). Если
+  // хотя бы одна из двух переменных не задана — уведомления просто не
+  // отправляются (штатное состояние, пока владелец не настроит бота).
+  telegramBotToken: process.env.TELEGRAM_BOT_TOKEN,
+  telegramChatId: process.env.TELEGRAM_CHAT_ID,
 };

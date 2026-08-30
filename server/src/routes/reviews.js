@@ -11,12 +11,17 @@
 //
 // Модерация защищена одним приватным токеном (ADMIN_TOKEN) — не полноценные
 // роли, у проекта на этом этапе один владелец (см. server/README.md).
+//
+// После создания отзыва отправляется уведомление в Telegram владельцу
+// проекта (services/telegramNotify.js) — не блокирует ответ клиенту и не
+// падает, если TELEGRAM_BOT_TOKEN/TELEGRAM_CHAT_ID не настроены.
 
 const express = require('express');
 
 const db = require('../db');
 const config = require('../config');
 const { requireAuth } = require('../middleware/auth');
+const { notifyNewReview } = require('../services/telegramNotify');
 
 const router = express.Router();
 
@@ -52,11 +57,23 @@ router.post('/', express.json(), requireAuth, async (req, res) => {
     const { rows } = await db.query(
       `INSERT INTO reviews (user_id, body, status)
        VALUES ($1, $2, 'pending')
-       RETURNING id, body, status, created_at`,
+       RETURNING id, body, status, created_at,
+         (SELECT nickname FROM users WHERE id = $1) AS nickname`,
       [req.user.id, trimmedText]
     );
 
     const row = rows[0];
+
+    // Не блокируем и не рискуем ответом пользователю: сбой Telegram-API
+    // (или отсутствие настройки TELEGRAM_BOT_TOKEN/TELEGRAM_CHAT_ID) —
+    // штатная ситуация, логируется внутри notifyNewReview и не всплывает сюда.
+    notifyNewReview({
+      nickname: row.nickname,
+      email: req.user.email,
+      body: row.body,
+      reviewId: row.id,
+    });
+
     return res.status(201).json({
       id: row.id,
       body: row.body,
