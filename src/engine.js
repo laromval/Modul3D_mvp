@@ -1975,16 +1975,25 @@ function buildModuleParts(p) {
     const shelfZoneBottom = drawerZoneH
       ? Math.max(innerBottomY, facadeTopY, drawerBaseY + drawerZoneH)
       : innerBottomY;
-    // Ниши под встраиваемую технику (doorZones[].appliance !== 'none') —
-    // диапазоны по высоте ФАСАДА, которые нужно обойти при авто-раскладке
-    // полок (см. getShelfYs выше): полка не должна перегораживать место,
-    // отведённое под духовку/холодильник и т.п. Считаем той же функцией
-    // layoutDoorZones, что и реальные фасады во втором цикле ниже — числа
-    // обязаны совпасть, иначе полка и ниша разъедутся. warn передаём null:
-    // предупреждения о нехватке места уже даёт настоящий расчёт во втором
-    // цикле, здесь дублировать их не нужно.
-    const applianceZoneRanges = [];
-    if (Number(sec.doorZoneCount) > 1 && Array.isArray(sec.doorZones) && sec.doorZones.length) {
+    // Многозонный пенал (doorZoneCount>1) — у КАЖДОЙ зоны фасада свои
+    // съёмные полки (sec.doorZones[zi].shelves/shelfMode/shelfHeights,
+    // высота — от НИЗА этой зоны, тот же принцип, что и shelfHeights секции
+    // целиком), плюс несъёмные полки-перегородки на стыках зон
+    // (sec.zoneBoundaryShelves — высоты от дна секции, ставит
+    // placeShelvesAtZoneBoundaries в app.js). Границы зон те же, что у
+    // реальных дверей (layoutDoorZones, «второй цикл» ниже) — числа обязаны
+    // совпасть, иначе полка и дверь разъедутся. Однозонная секция
+    // (doorZoneCount<=1) не имеет понятия «зона» вовсе — там полки, как и
+    // раньше, одним плоским набором на sec.shelves/shelfHeights/shelfFixed.
+    const multiZone = Number(sec.doorZoneCount) > 1
+      && Array.isArray(sec.doorZones) && sec.doorZones.length > 0;
+    let shelfEntries = []; // { y, fixed }
+    if (sec.shelves > 0 && !multiZone && shelfZoneH < t + 40) {
+      // Если ящики заняли весь фронт, зоны под полки не остаётся — полки не
+      // строим вовсе, иначе они попадали внутрь ящиков.
+      warnings.push(`${secName}: под полки не осталось места — уменьшите число ящиков `
+        + `или увеличьте высоту модуля.`);
+    } else if (multiZone) {
       const azSlotBot = drawerZoneH ? baseH + drawerZoneH : baseH;
       const azSlotTop = baseH + frontAvail;
       const azZones = [];
@@ -1993,34 +2002,42 @@ function buildModuleParts(p) {
         azZones.push({ height: (z && Number(z.height)) || 0, appliance: (z && z.appliance) || 'none' });
       }
       const azLayout = layoutDoorZones(azZones, azSlotTop - azSlotBot, gap, null, secName);
-      for (let zi = 0; zi < azZones.length; zi++) {
-        if (azZones[zi].appliance !== 'none') {
-          const zBottom = azSlotBot + azLayout.bottoms[zi];
-          applianceZoneRanges.push([zBottom, zBottom + azLayout.heights[zi]]);
-        }
+      for (const v of (sec.zoneBoundaryShelves || [])) {
+        const bv = Number(v);
+        if (Number.isFinite(bv)) shelfEntries.push({ y: innerBottomY + bv + t / 2, fixed: true });
       }
+      // Ниша под технику (appliance !== 'none') не получает съёмных полок —
+      // sec.doorZones[zi].shelves для неё в интерфейсе не показывается и
+      // остаётся 0, отдельно исключать её диапазон не нужно.
+      for (let zi = 0; zi < azZones.length; zi++) {
+        const dz = sec.doorZones[zi] || {};
+        if (!(Number(dz.shelves) > 0)) continue;
+        const zBottom = azSlotBot + azLayout.bottoms[zi];
+        const zHeight = azLayout.heights[zi];
+        const zoneYs = getShelfYs(
+          { shelves: dz.shelves, shelfMode: dz.shelfMode, shelfHeights: dz.shelfHeights },
+          zBottom, zHeight, t, zBottom, null);
+        for (const y of zoneYs) shelfEntries.push({ y, fixed: false });
+      }
+      shelfEntries.sort((a, b) => a.y - b.y);
+    } else {
+      const zoneYs = getShelfYs(sec, shelfZoneBottom, shelfZoneH, t, innerBottomY, []);
+      // sec.shelfFixed[si] — полка на стыке зон фасада (старый, однозонный
+      // путь placeShelvesAtZoneBoundaries до появления per-zone полок выше).
+      // Индекс si совпадает с sec.shelfHeights[si] 1:1 (getShelfYs в ручном
+      // режиме отдаёт ровно по одному Y на каждый элемент shelfHeights).
+      const manualMode = sec.shelfMode === 'manual' && Array.isArray(sec.shelfFixed);
+      shelfEntries = zoneYs.map((y, si) => ({ y, fixed: manualMode && !!sec.shelfFixed[si] }));
     }
-    // Если ящики заняли весь фронт, зоны под полки не остаётся — полки не
-    // строим вовсе, иначе они попадали внутрь ящиков.
-    const shelfYs = (sec.shelves > 0 && shelfZoneH < t + 40)
-      ? (warnings.push(`${secName}: под полки не осталось места — уменьшите число ящиков `
-          + `или увеличьте высоту модуля.`), [])
-      : getShelfYs(sec, shelfZoneBottom, shelfZoneH, t, innerBottomY, applianceZoneRanges);
+    const shelfYs = shelfEntries.map((e) => e.y);
     // Запоминаем плоскости полок: по ним потом разводится присадка под петли
     // и ставятся полкодержатели.
     const infoRow = secInfo[secInfo.length - 1];
     if (infoRow) infoRow.shelfYs = shelfYs.slice();
     shelfPanelX[i] = [secX0 - t / 2, secX0 + secW + t / 2];
-    // sec.shelfFixed[si] — полка на стыке зон фасада высокого пенала
-    // (см. app.js placeShelvesAtZoneBoundaries): не съёмная на
-    // полкодержателях, а несъёмная перегородка во всю глубину корпуса на
-    // минификсах Rastex — для жёсткости конструкции. Индекс si совпадает
-    // с sec.shelfHeights[si] 1:1 (getShelfYs в ручном режиме отдаёт ровно
-    // по одному Y на каждый элемент shelfHeights, в том же порядке).
-    const manualMode = sec.shelfMode === 'manual' && Array.isArray(sec.shelfFixed);
-    for (let si = 0; si < shelfYs.length; si++) {
-      const y = shelfYs[si];
-      const isFixed = manualMode && !!sec.shelfFixed[si];
+    for (let si = 0; si < shelfEntries.length; si++) {
+      const y = shelfEntries[si].y;
+      const isFixed = shelfEntries[si].fixed;
       if (y < innerBottomY + drawerZoneH - 1 || y > innerBottomY + innerH + 1) {
         warnings.push(`${secName}: полка на высоте ${Math.round(y - innerBottomY)} мм выходит за пределы секции.`);
         continue;
