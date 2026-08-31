@@ -14,7 +14,7 @@
 (function () {
 // Версия сборки — показывается во вкладке браузера и в шапке.
 // При выпуске новой версии меняется только эта строка.
-const APP_VERSION = 'v197';
+const APP_VERSION = 'v198';
 
 // Номер версии выводим ПЕРВЫМ делом: если дальше что-то упадёт, по нему сразу
 // видно, какая сборка открыта.
@@ -1164,24 +1164,30 @@ function doorZoneEditorScreen(mod, sectionIndex, zoneIndex) {
     return `
       ${backLinkBlock()}
       <h3>Фасад · Секция ${sectionIndex + 1}</h3>
-      <div class="field">
-        <label>Фасад</label>
-        <select data-singlefacade="${sectionIndex}">
-          <option value="doorLeft" ${(sec.facade === 'doorLeft' || sec.facade === 'doors1') ? 'selected' : ''}>Дверь левая</option>
-          <option value="doorRight" ${sec.facade === 'doorRight' ? 'selected' : ''}>Дверь правая</option>
-          <option value="doors2" ${sec.facade === 'doors2' ? 'selected' : ''}>Две двери</option>
-          <option value="liftUp" ${sec.facade === 'liftUp' ? 'selected' : ''}>Открывание вверх</option>
-          <option value="open" ${sec.facade === 'open' ? 'selected' : ''}>Без дверей</option>
-        </select>
-      </div>
-      <div class="hint">Материал фасада, ручка и число зон по высоте — на экране
-      «Параметры проекта» этого модуля.</div>`;
+      <div id="doorZoneEditorRoot">
+        <div class="field">
+          <label>Фасад</label>
+          <select data-singlefacade="${sectionIndex}">
+            <option value="doorLeft" ${(sec.facade === 'doorLeft' || sec.facade === 'doors1') ? 'selected' : ''}>Дверь левая</option>
+            <option value="doorRight" ${sec.facade === 'doorRight' ? 'selected' : ''}>Дверь правая</option>
+            <option value="doors2" ${sec.facade === 'doors2' ? 'selected' : ''}>Две двери</option>
+            <option value="liftUp" ${sec.facade === 'liftUp' ? 'selected' : ''}>Открывание вверх</option>
+            <option value="open" ${sec.facade === 'open' ? 'selected' : ''}>Без дверей</option>
+          </select>
+        </div>
+        <div class="hint">Материал фасада, ручка и число зон по высоте — на экране
+        «Параметры проекта» этого модуля.</div>
+        <div class="field"><label>Полки, шт</label><input type="number" min="0" max="12" value="${sec.shelves}" data-field="shelves" data-idx="${sectionIndex}"></div>
+        ${shelfDetailBlock(sec, sectionIndex)}
+      </div>`;
   }
   const zi = Number.isFinite(zoneIndex) && zoneIndex >= 0 && zoneIndex < doorZoneCount ? zoneIndex : 0;
   return `
     ${backLinkBlock()}
     <h3>Фасад · Секция ${sectionIndex + 1}</h3>
-    <div id="doorZoneEditorRoot">${zoneCardHtml(sec, sectionIndex, zi, doorZoneCount)}</div>`;
+    <div id="doorZoneEditorRoot">
+      ${zoneCardHtml(sec, sectionIndex, zi, doorZoneCount)}
+    </div>`;
 }
 
 // Точка входа в экран редактирования детали — сюда ведёт пункт
@@ -1550,6 +1556,26 @@ function zoneCardHtml(sec, i, zi, doorZoneCount) {
   // этой зоне нет вообще, выбор «Фасад» тут ни на что не влияет
   // (см. applianceNicheOnly в engine.js), поэтому прячем его в UI.
   const nicheOnly = appliance === 'oven' || appliance === 'microwave';
+  const zoneShelves = Number(zone.shelves) || 0;
+  // Полки внутри зоны со встроенной техникой неуместны — там либо ниша под
+  // прибор, либо фасад скрывает прибор (appliance !== 'none' в обоих
+  // случаях), поэтому блок «Полки» показываем только для обычной зоны.
+  const zoneShelfDetail = zoneShelves > 0 ? `
+    <div class="sub">
+      <label>Полки</label>
+      <select data-zoneshelfmode="${zi}" data-idx="${i}">
+        <option value="auto" ${zone.shelfMode !== 'manual' ? 'selected' : ''}>Распределить равномерно</option>
+        <option value="manual" ${zone.shelfMode === 'manual' ? 'selected' : ''}>Задать высоту вручную</option>
+      </select>
+      ${zone.shelfMode === 'manual' ? `
+        <label class="mt6">Высота каждой полки от низа зоны, мм</label>
+        <div class="mini-row">
+          ${Array.from({ length: zoneShelves }, (_, s) =>
+            `<input type="number" step="10" min="0" value="${(zone.shelfHeights && zone.shelfHeights[s]) || (300 * (s + 1))}"
+                    data-zoneshelfheight="${zi}" data-idx="${i}" data-zshelf="${s}" title="Полка ${s + 1}">`
+          ).join('')}
+        </div>` : ''}
+    </div>` : '';
   return `
   <div class="sub">
     <label><strong>${esc(title)}</strong></label>
@@ -1573,6 +1599,10 @@ function zoneCardHtml(sec, i, zi, doorZoneCount) {
     </select>` : '<div class="hint">Ниша без фасада — техника показывает свою лицевую панель.</div>'}
     <label class="mt6">Высота зоны (ниши), мм</label>
     <div class="mini-row"><input type="number" min="0" step="10" value="${zone.height || ''}" placeholder="авто (остаток)" data-zoneheight="${zi}" data-idx="${i}"></div>
+    ${appliance === 'none' ? `
+    <label class="mt6">Полки, шт</label>
+    <div class="mini-row"><input type="number" min="0" max="12" value="${zoneShelves}" data-zoneshelves="${zi}" data-idx="${i}"></div>
+    ${zoneShelfDetail}` : ''}
     ${appliance !== 'none' ? `
     <label class="mt6">Габариты техники, мм (для памяти — ниша считается по высоте зоны выше)</label>
     <div class="field-row">
@@ -1675,7 +1705,7 @@ function findNeighborBottomZoneHeight(mod, sectionIndex) {
 // полку РОВНО на каждый стык между соседними зонами, используя ТУ ЖЕ
 // функцию раскладки (layoutDoorZones), что и реальные двери в engine.js —
 // не дублирует формулу, только координаты пересчитывает в конвенцию
-// sec.shelfHeights (отсчёт от dims.innerBottomY, см. getShelfYs). Берёт
+// sec.zoneBoundaryShelves (отсчёт от dims.innerBottomY, см. getShelfYs). Берёт
 // РЕАЛЬНЫЕ высоты из sec.doorZones (в т.ч. нижнюю, если она подогнана под
 // соседа, — не наивное равное деление); если пользователь потом задаст
 // зонам явные высоты вручную — полки НЕ пересчитываются автоматически,
@@ -1716,14 +1746,13 @@ function placeShelvesAtZoneBoundaries(mod, sectionIndex) {
     const bottomFaceY = boundaryY - dims.t / 2;
     heights.push(Math.round(bottomFaceY - dims.innerBottomY));
   }
-  sec.shelves = n - 1;
-  sec.shelfMode = 'manual';
-  sec.shelfHeights = heights;
   // Полки на стыках зон держат корпус пенала (боковины на всю высоту — это
-  // единственные жёсткие связи между секциями фасада) — делаем их несъёмными
-  // на минификсах Rastex, во всю глубину корпуса, а не обычными съёмными на
-  // полкодержателях (engine.js читает этот флаг в цикле построения полок).
-  sec.shelfFixed = heights.map(() => true);
+  // единственные жёсткие связи между секциями фасада) — несъёмные, на
+  // минификсах Rastex, во всю глубину корпуса. Отдельное поле от
+  // sec.shelves/shelfHeights: те теперь принадлежат съёмным полкам ВНУТРИ
+  // конкретной зоны (sec.doorZones[zi].shelves, см. engine.js buildModuleParts)
+  // и не должны стираться при каждом «Разделить на секции».
+  sec.zoneBoundaryShelves = heights;
 }
 
 // Довязка «задним числом»: когда рядом со СВЕЖЕВСТАВЛЕННЫМ модулем (индекс
@@ -1833,6 +1862,101 @@ function bindZoneFieldEvents(container, mod, refresh) {
       recompute();
     });
   });
+  container.querySelectorAll('[data-zoneshelves]').forEach((el) => {
+    el.addEventListener('change', (e) => {
+      const sec = mod.sections[Number(e.target.dataset.idx)];
+      const zi = Number(e.target.dataset.zoneshelves);
+      const zone = ensureZone(sec, zi);
+      zone.shelves = Number(e.target.value);
+      // Сброс на авторежим при смене количества — та же логика, что и у
+      // sec.shelves (bindShelfFieldEvents): новая полка честно делит высоту
+      // зоны поровну, а не наследует случайные ручные значения.
+      zone.shelfMode = 'auto';
+      zone.shelfHeights = [];
+      refreshScreen();
+      recompute();
+    });
+  });
+  container.querySelectorAll('[data-zoneshelfmode]').forEach((el) => {
+    el.addEventListener('change', (e) => {
+      const sec = mod.sections[Number(e.target.dataset.idx)];
+      const zi = Number(e.target.dataset.zoneshelfmode);
+      ensureZone(sec, zi).shelfMode = e.target.value;
+      refreshScreen();
+      recompute();
+    });
+  });
+  container.querySelectorAll('[data-zoneshelfheight]').forEach((el) => {
+    el.addEventListener('change', (e) => {
+      const sec = mod.sections[Number(e.target.dataset.idx)];
+      const zi = Number(e.target.dataset.zoneshelfheight);
+      const zone = ensureZone(sec, zi);
+      zone.shelfHeights = zone.shelfHeights || [];
+      zone.shelfHeights[Number(e.target.dataset.zshelf)] = Number(e.target.value);
+      recompute();
+    });
+  });
+}
+
+// Блок «Полки» (режим авто/вручную + высоты) — полки принадлежат секции
+// целиком (sec.shelves/shelfMode/shelfHeights), а не отдельной зоне фасада,
+// поэтому один и тот же блок используется и в карточке секции сайдбара
+// (renderSectionsList), и в компактном контекстном редакторе фасада
+// (doorZoneEditorScreen), независимо от doorZoneCount/zoneIndex.
+function shelfDetailBlock(sec, i) {
+  return sec.shelves > 0 ? `
+    <div class="sub">
+      <label>Полки</label>
+      <select data-field="shelfMode" data-idx="${i}">
+        <option value="auto" ${sec.shelfMode !== 'manual' ? 'selected' : ''}>Распределить равномерно</option>
+        <option value="manual" ${sec.shelfMode === 'manual' ? 'selected' : ''}>Задать высоту вручную</option>
+      </select>
+      ${sec.shelfMode === 'manual' ? `
+        <label class="mt6">Высота каждой полки от дна, мм</label>
+        <div class="mini-row">
+          ${Array.from({ length: sec.shelves }, (_, s) =>
+            `<input type="number" step="10" min="0" value="${(sec.shelfHeights && sec.shelfHeights[s]) || (300 * (s + 1))}"
+                    data-shelf="${s}" data-idx="${i}" title="Полка ${s + 1}">`
+          ).join('')}
+        </div>` : ''}
+    </div>` : '';
+}
+
+// Обработчики поля «Полки, шт» и shelfDetailBlock() — делегированы на
+// `container`, тот же паттерн переиспользования между сайдбаром
+// (renderSectionsList → #sectionsList, через общий делегат [data-field]
+// ниже) и компактным контекстным редактором (doorZoneEditorScreen →
+// #doorZoneEditorRoot), что и у bindZoneFieldEvents выше.
+function bindShelfFieldEvents(container, mod, refresh) {
+  const refreshScreen = refresh || renderSectionsList;
+  container.querySelectorAll('[data-field="shelves"]').forEach((el) => {
+    el.addEventListener('change', (e) => {
+      const sec = mod.sections[Number(e.target.dataset.idx)];
+      sec.shelves = Number(e.target.value);
+      // Сброс на авторежим при смене количества — см. комментарий у того же
+      // поля в общем делегате [data-field] сайдбара (renderSectionsList).
+      sec.shelfMode = 'auto';
+      sec.shelfHeights = [];
+      refreshScreen();
+      recompute();
+    });
+  });
+  container.querySelectorAll('[data-field="shelfMode"]').forEach((el) => {
+    el.addEventListener('change', (e) => {
+      const sec = mod.sections[Number(e.target.dataset.idx)];
+      sec.shelfMode = e.target.value;
+      refreshScreen();
+      recompute();
+    });
+  });
+  container.querySelectorAll('[data-shelf]').forEach((el) => {
+    el.addEventListener('change', (e) => {
+      const sec = mod.sections[Number(e.target.dataset.idx)];
+      sec.shelfHeights = sec.shelfHeights || [];
+      sec.shelfHeights[Number(e.target.dataset.shelf)] = Number(e.target.value);
+      recompute();
+    });
+  });
 }
 
 function renderSectionsList() {
@@ -1934,28 +2058,15 @@ function renderSectionsList() {
         <div class="mini-row"><input type="number" step="10" min="300" value="${sec.rodHeight || 1900}" data-field="rodHeight" data-idx="${i}"></div>` : ''}
       </div>`;
 
-    const shelfBlock = sec.shelves > 0 ? `
-      <div class="sub">
-        <label>Полки</label>
-        <select data-field="shelfMode" data-idx="${i}">
-          <option value="auto" ${sec.shelfMode !== 'manual' ? 'selected' : ''}>Распределить равномерно</option>
-          <option value="manual" ${sec.shelfMode === 'manual' ? 'selected' : ''}>Задать высоту вручную</option>
-        </select>
-        ${sec.shelfMode === 'manual' ? `
-          <label class="mt6">Высота каждой полки от дна, мм</label>
-          <div class="mini-row">
-            ${Array.from({ length: sec.shelves }, (_, s) =>
-              `<input type="number" step="10" min="0" value="${(sec.shelfHeights && sec.shelfHeights[s]) || (300 * (s + 1))}"
-                      data-shelf="${s}" data-idx="${i}" title="Полка ${s + 1}">`
-            ).join('')}
-          </div>` : ''}
-      </div>` : '';
-
     // Вертикальные зоны фасада (пенал под встроенную технику): вместо одного
     // общего select «Фасад» — карточка на каждую зону, отображаемая СВЕРХУ
     // ВНИЗ (индекс 0 в sec.doorZones — нижняя зона, поэтому порядок вывода
     // разворачиваем, как и для ящиков выше).
     const doorZoneCount = Number(sec.doorZoneCount) || 1;
+    // Многозонная секция — полки настраиваются по зонам внутри zonesBlock/
+    // zoneCardHtml ниже (engine.js игнорирует sec.shelves при multiZone),
+    // плоский блок на всю секцию для неё смысла не имеет.
+    const shelfBlock = doorZoneCount <= 1 ? shelfDetailBlock(sec, i) : '';
     const zonesBlock = (doorZoneCount > 1 && Array.isArray(sec.doorZones) && sec.doorZones.length) ? `
       <div class="field">
         <label>Зоны фасада <span class="dim">(сверху вниз)</span></label>
@@ -1971,7 +2082,7 @@ function renderSectionsList() {
           ${mod.sections.length > 1 ? `<button class="remove-section" data-remove="${i}" type="button">убрать</button>` : ''}
         </div>
         <div class="field-row">
-          <div class="field"><label>Полки, шт</label><input type="number" min="0" max="12" value="${sec.shelves}" data-field="shelves" data-idx="${i}"></div>
+          ${doorZoneCount <= 1 ? `<div class="field"><label>Полки, шт</label><input type="number" min="0" max="12" value="${sec.shelves}" data-field="shelves" data-idx="${i}"></div>` : ''}
           <div class="field"><label>Ящики, шт</label><input type="number" min="0" max="8" value="${sec.drawers}" data-field="drawers" data-idx="${i}"></div>
         </div>
         <div class="field">
@@ -2030,6 +2141,14 @@ function renderSectionsList() {
       if ((f === 'drawerMode' && e.target.value !== 'manual') || f === 'drawers') {
         sec.drawerPinned = [];
         if (f === 'drawers') sec.drawerHeights = [];
+      }
+      // Смена числа полок сбрасывает ручные высоты и возвращает в авторежим —
+      // иначе новая полка наследует чужие/устаревшие значения (см. историю
+      // секции) вместо равного деления доступной высоты, как ожидает
+      // пользователь (тот же принцип, что и сброс фиксаций у ящиков выше).
+      if (f === 'shelves') {
+        sec.shelfMode = 'auto';
+        sec.shelfHeights = [];
       }
       if (f === 'drawerOffset') sec.drawerOffset = Math.max(MIN_LIFT, Number(e.target.value) || MIN_LIFT);
       // Число вертикальных зон фасада (пенал под встроенную технику) —
@@ -2499,7 +2618,10 @@ function bindPanelEvents() {
   // renderParamsPanel (у этого экрана нет более точечной перерисовки одной
   // карточки, в отличие от renderSectionsList для сайдбара).
   const doorZoneRoot = document.getElementById('doorZoneEditorRoot');
-  if (doorZoneRoot) bindZoneFieldEvents(doorZoneRoot, mod, renderParamsPanel);
+  if (doorZoneRoot) {
+    bindZoneFieldEvents(doorZoneRoot, mod, renderParamsPanel);
+    bindShelfFieldEvents(doorZoneRoot, mod, renderParamsPanel);
+  }
   // Однозонный случай (doorZoneCount<=1) — тот же select «Фасад», что и в
   // сайдбаре, но привязан к sec.facade напрямую (не через общий делегат
   // [data-field], который слушает только #sectionsList).
