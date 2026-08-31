@@ -32,6 +32,13 @@ Paddle официально поддерживает Молдову и сам б
   `POST /reviews/:id/reject`), Telegram-уведомление владельцу о новом
   отзыве (`services/telegramNotify.js`) и статическая страница модерации
   `GET /admin/reviews.html`.
+- Подтверждение email при регистрации (`GET /auth/verify-email`,
+  `POST /auth/resend-verification`, письмо через Brevo —
+  `services/emailSender.js`) + анти-фрод фильтры регистрации (блок
+  одноразовых почтовых доменов, лимит регистраций с одного IP в сутки).
+  Пока email не подтверждён, `POST /reviews` и `POST /sketch/recognize`
+  отвечают `403` (`middleware/emailVerification.js`) — закрывает фарм
+  стартового баланса токенов регистрацией на чужие/несуществующие email.
 
 Реализовано на Этапе 3:
 - `src/services/exportGeneration.js` — построение содержимого документов
@@ -85,6 +92,10 @@ cp .env.example .env
 | `ADMIN_TOKEN` | Приватный токен владельца проекта для модерации отзывов (`GET /reviews/pending`, `POST /reviews/:id/approve\|reject`), передаётся в заголовке `X-Admin-Token`. Без него эти эндпоинты отвечают 503 |
 | `PUBLIC_SERVER_URL` | Публичный адрес сервера, используется только для ссылок (например, на `/admin/reviews.html` в Telegram-уведомлении). По умолчанию `http://localhost:<PORT>` |
 | `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` | Уведомление о новом отзыве в Telegram (`services/telegramNotify.js`). Если хоть одна не задана — уведомления просто не отправляются, `POST /reviews` работает как обычно |
+| `BREVO_API_KEY` | API-ключ транзакционной рассылки Brevo, нужен для письма подтверждения email (`services/emailSender.js`). Без него письма не отправляются (лог-warning), регистрация всё равно проходит, но email остаётся неподтверждённым |
+| `EMAIL_FROM_ADDRESS`, `EMAIL_FROM_NAME` | Отправитель письма подтверждения (адрес должен быть verified sender в Brevo) |
+| `EMAIL_VERIFICATION_TOKEN_TTL_MINUTES` | Срок жизни ссылки подтверждения email в минутах (по умолчанию 60) |
+| `REGISTRATION_IP_DAILY_LIMIT` | Анти-фрод: сколько аккаунтов можно зарегистрировать с одного IP за 24 часа (по умолчанию 3), требует `trust proxy` (см. `index.js`) |
 
 ### 2. База данных
 
@@ -97,7 +108,9 @@ npm run migrate
 Это создаст таблицы `users`, `subscriptions`, `token_balances`,
 `processed_webhook_events` (см. `src/migrations/001_init.sql`), а также
 `hardware_models` (`002_hardware_models.sql`), колонки `nickname`/
-`avatar_url` у `users` и таблицу `reviews` (`003_reviews_avatars.sql`).
+`avatar_url` у `users` и таблицу `reviews` (`003_reviews_avatars.sql`), и
+колонки `email_verified_at`/`registration_ip` у `users` + таблицу
+`email_verification_tokens` (`004_email_verification.sql`).
 Миграции идемпотентны (`CREATE TABLE IF NOT EXISTS` / `ADD COLUMN IF NOT
 EXISTS`) — повторный запуск безопасен.
 
@@ -153,6 +166,18 @@ Body: `multipart/form-data` с полями `email`, `password` (от 8 симв
 (если передана) сохраняется на диск сервера (`server/uploads/avatars/`,
 не коммитится в git) и раздаётся статически по `/uploads/avatars/<файл>`.
 
+Дополнительно (анти-фрод, см. `migrations/004_email_verification.sql`):
+- `400`, если домен email — одноразовый почтовый сервис
+  (пакет `disposable-email-domains`).
+- `429`, если с текущего IP за последние 24 часа уже создано
+  `REGISTRATION_IP_DAILY_LIMIT` аккаунтов (требует `app.set('trust proxy', 1)`
+  в `index.js`, иначе `req.ip` — адрес прокси хостинга, а не клиента).
+- После создания аккаунта сразу отправляется письмо со ссылкой
+  подтверждения email (`services/emailSender.js`, Brevo) — сам аккаунт при
+  этом уже пригоден для входа (`token` в ответе валиден сразу), но пока
+  email не подтверждён, `POST /reviews` и `POST /sketch/recognize` отвечают
+  `403` (см. `middleware/emailVerification.js`).
+
 ### `POST /auth/login`
 Body: `{ "email": "...", "password": "..." }`.
 Ответ: `{ "token": "<jwt>" }`.
@@ -164,10 +189,24 @@ Body: `{ "email": "...", "password": "..." }`.
 {
   "id": "...", "email": "...", "createdAt": "...",
   "nickname": "...", "avatarUrl": "/uploads/avatars/... | null",
+  "emailVerified": false,
   "subscription": { "status": "none|active|past_due|canceled", "currentPeriodEnd": null },
   "tokenBalance": 20
 }
 ```
+
+### `GET /auth/verify-email?token=...`
+Без авторизации (открывается прямо из письма в браузере) — отвечает
+статической HTML-страницей, не JSON. Ищет токен по sha256-хэшу (сырой
+токен нигде в БД не хранится, см. `migrations/004_email_verification.sql`),
+атомарно помечает его использованным (`used_at`) и проставляет
+`users.email_verified_at`. Повторный переход по той же ссылке, просроченная
+или неизвестная ссылка — `400` с понятным текстом на странице.
+
+### `POST /auth/resend-verification`
+Заголовок: `Authorization: Bearer <jwt>`. Без тела. Перевыпускает токен
+подтверждения (инвалидирует ранее выданные неиспользованные токены этого
+пользователя) и отправляет письмо заново. `400`, если email уже подтверждён.
 
 ### `POST /billing/checkout`
 Заголовок: `Authorization: Bearer <jwt>`.
@@ -194,7 +233,10 @@ Session), но она может прийти `null`, если hosted checkout �
 без валидной подписи (не от настоящего Paddle) отклоняются с 400.
 
 ### `POST /sketch/recognize`
-Заголовок: `Authorization: Bearer <jwt>`.
+Заголовок: `Authorization: Bearer <jwt>`. Требует подтверждённый email
+(`middleware/emailVerification.js`, `403` иначе) — проверяется до списания
+токенов, чтобы стартовый бесплатный баланс нельзя было фармить регистрацией
+непроверенных аккаунтов.
 Body: `{ "imageBase64": "<base64 без префикса data:...>", "mimeType": "image/jpeg" | "image/png" }`.
 
 Списывает `SKETCH_TOKEN_COST` токенов атомарно (conditional `UPDATE ...
@@ -259,9 +301,11 @@ BOM не добавляют, это часть доставки файла в `r
 «оформите подписку»), см. `ТЗ-МОНЕТИЗАЦИЯ.md`, 4.4.
 
 ### `POST /reviews`
-Заголовок: `Authorization: Bearer <jwt>`. Body: `{ "text": "..." }` (непустая
-строка после trim, до 2000 символов). Создаёт отзыв со статусом `pending` —
-он не виден публично, пока владелец проекта его не одобрит.
+Заголовок: `Authorization: Bearer <jwt>`. Требует подтверждённый email
+(`middleware/emailVerification.js`, `403` иначе) — иначе с автором отзыва
+невозможно связаться. Body: `{ "text": "..." }` (непустая строка после trim,
+до 2000 символов). Создаёт отзыв со статусом `pending` — он не виден
+публично, пока владелец проекта его не одобрит.
 
 ### `GET /reviews/public`
 Без авторизации. Список одобренных отзывов (`status: 'approved'`), сортировка
@@ -352,6 +396,11 @@ reviews.html`), раздаётся через `express.static` без автор
   деплоями/рестартами процесса (обычный эфемерный контейнер её потеряет) —
   либо примонтировать постоянный volume, либо (на будущее) перенести
   хранение аватарок в объектное хранилище (S3-совместимое и т.п.).
+- Завести аккаунт Brevo (brevo.com, есть бесплатный тариф с суточным лимитом
+  писем) → SMTP & API → API Keys → сгенерировать ключ → `BREVO_API_KEY`.
+  Подтвердить отправителя (Senders, Domains & Dedicated IPs → Senders →
+  Add a sender) — адрес должен совпадать с `EMAIL_FROM_ADDRESS`, иначе Brevo
+  отклонит отправку писем подтверждения email.
 
 ## Деплой на Railway (пошагово)
 
@@ -376,10 +425,13 @@ PostgreSQL — Railway (railway.app), один проект на оба серв
    `PORT` Railway передаёт автоматически, `config.js` его уже читает.
    Остальные переменные (`PADDLE_*`, `ANTHROPIC_API_KEY`,
    `STARTING_TOKEN_BALANCE`, `JWT_EXPIRES_IN`, `CHECKOUT_SUCCESS_URL`,
-   `SKETCH_TOKEN_COST`) можно не задавать сразу — без них сервер стартует,
-   просто соответствующие функции (оплата, распознавание эскиза) отвечают
-   понятной ошибкой вместо падения процесса, см. `config.js`/`paddleClient.js`/
-   `services/sketchRecognition.js`.
+   `SKETCH_TOKEN_COST`, `BREVO_API_KEY`, `EMAIL_FROM_ADDRESS`,
+   `EMAIL_VERIFICATION_TOKEN_TTL_MINUTES`, `REGISTRATION_IP_DAILY_LIMIT`)
+   можно не задавать сразу — без них сервер стартует, просто
+   соответствующие функции (оплата, распознавание эскиза, письма
+   подтверждения email) отвечают понятной ошибкой/тихим no-op вместо падения
+   процесса, см. `config.js`/`paddleClient.js`/`services/sketchRecognition.js`/
+   `services/emailSender.js`.
 6. Settings → Volumes → New Volume, mount path `/app/uploads` — иначе
    `uploads/avatars/` (см. `services/avatarUpload.js`) будет пропадать при
    каждом рестарте/редеплое контейнера.

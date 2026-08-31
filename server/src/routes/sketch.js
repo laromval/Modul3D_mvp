@@ -4,6 +4,10 @@
 //
 // Контракт:
 // - Authorization: Bearer <JWT> обязателен (requireAuth).
+// - Email должен быть подтверждён (requireVerifiedEmail, см.
+//   middleware/emailVerification.js) — проверяется до списания токенов,
+//   иначе стартовый бесплатный баланс можно фармить регистрацией новых
+//   непроверенных аккаунтов.
 // - Тело: { imageBase64: string, mimeType: 'image/jpeg' | 'image/png' }.
 // - Списание токенов — atomic conditional decrement (см. ниже), чтобы
 //   закрыть гонку при параллельных запросах одного пользователя:
@@ -21,6 +25,7 @@ const express = require('express');
 const config = require('../config');
 const db = require('../db');
 const { requireAuth } = require('../middleware/auth');
+const { requireVerifiedEmail } = require('../middleware/emailVerification');
 const { recognizeSketch } = require('../services/sketchRecognition');
 
 const router = express.Router();
@@ -30,7 +35,7 @@ const ALLOWED_MIME_TYPES = ['image/jpeg', 'image/png'];
 // express.json({ limit: '10mb' }) подключён только к этому роуту (не
 // глобально в index.js) — изображение эскиза в base64 может быть увесистым,
 // остальным роутам такой лимит не нужен.
-router.post('/recognize', express.json({ limit: '10mb' }), requireAuth, async (req, res) => {
+router.post('/recognize', express.json({ limit: '10mb' }), requireAuth, requireVerifiedEmail, async (req, res) => {
   const { imageBase64, mimeType } = req.body || {};
 
   if (typeof imageBase64 !== 'string' || imageBase64.length === 0) {

@@ -20,6 +20,14 @@ const reviewsRouter = require('./src/routes/reviews');
 
 const app = express();
 
+// Сервер почти наверняка будет развёрнут за обратным прокси облачного
+// хостинга (Railway/Render/др.) — без этого req.ip возвращает адрес самого
+// прокси, а не реального клиента, что делает бессмысленным анти-фрод лимит
+// регистраций по IP (см. config.registrationIpDailyLimit, routes/auth.js).
+// '1' — доверяем ровно одному хопу прокси перед приложением (значение из
+// заголовка X-Forwarded-For берётся один раз, а не до бесконечности).
+app.set('trust proxy', 1);
+
 app.use(cors({ origin: config.corsOrigin }));
 
 app.get('/health', (req, res) => {

@@ -7,7 +7,7 @@ const db = require('../db');
 async function getAccountStatus(userId) {
   const { rows } = await db.query(
     `SELECT
-       u.id, u.email, u.created_at, u.nickname, u.avatar_url,
+       u.id, u.email, u.created_at, u.nickname, u.avatar_url, u.email_verified_at,
        s.status AS subscription_status,
        s.current_period_end,
        tb.balance AS token_balance
@@ -27,6 +27,7 @@ async function getAccountStatus(userId) {
     createdAt: row.created_at,
     nickname: row.nickname,
     avatarUrl: row.avatar_url,
+    emailVerified: row.email_verified_at !== null,
     subscription: {
       status: row.subscription_status || 'none',
       currentPeriodEnd: row.current_period_end,

@@ -70,4 +70,32 @@ module.exports = {
   // отправляются (штатное состояние, пока владелец не настроит бота).
   telegramBotToken: process.env.TELEGRAM_BOT_TOKEN,
   telegramChatId: process.env.TELEGRAM_CHAT_ID,
+
+  // --- Подтверждение email при регистрации (services/emailSender.js,
+  // routes/auth.js) ---
+  // API-ключ транзакционной рассылки Brevo (Brevo -> SMTP & API -> API Keys).
+  // Если не задан — письма подтверждения просто не отправляются (лог-warning,
+  // тихий no-op, как Telegram выше), сама регистрация при этом не падает.
+  brevoApiKey: process.env.BREVO_API_KEY,
+  // Адрес и имя отправителя письма подтверждения — должны совпадать с тем,
+  // что подтверждено (verified sender) в аккаунте Brevo, иначе Brevo отклонит
+  // отправку.
+  emailFromAddress: process.env.EMAIL_FROM_ADDRESS || 'Modul3D <noreply@modul3d.local>',
+  emailFromName: process.env.EMAIL_FROM_NAME || 'Modul3D',
+  // Срок жизни ссылки подтверждения email в минутах — после истечения токен
+  // из email_verification_tokens больше не принимается (см. GET
+  // /auth/verify-email), пользователь должен запросить новое письмо
+  // (POST /auth/resend-verification).
+  emailVerificationTokenTtlMinutes: parseInt(
+    process.env.EMAIL_VERIFICATION_TOKEN_TTL_MINUTES || '60',
+    10
+  ),
+
+  // --- Анти-фрод при регистрации (routes/auth.js) ---
+  // Сколько новых аккаунтов допускается создать с одного IP за 24 часа —
+  // грубый, но простой барьер против массовой регистрации ради стартового
+  // баланса токенов (см. startingTokenBalance выше). Требует
+  // `app.set('trust proxy', 1)` в index.js, иначе req.ip будет адресом
+  // прокси хостинга, а не клиента, и лимит станет бессмысленным.
+  registrationIpDailyLimit: parseInt(process.env.REGISTRATION_IP_DAILY_LIMIT || '3', 10),
 };

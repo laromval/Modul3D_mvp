@@ -1,8 +1,11 @@
 // Роуты отзывов о приложении с ручной модерацией.
 //
 // Контракт:
-// - POST   /reviews          (requireAuth)  body { text } -> создаёт отзыв
-//                             со статусом 'pending'.
+// - POST   /reviews          (requireAuth + requireVerifiedEmail)
+//                             body { text } -> создаёт отзыв со статусом
+//                             'pending'. Требует подтверждённый email (см.
+//                             middleware/emailVerification.js) — иначе с
+//                             автором отзыва невозможно связаться.
 // - GET    /reviews/public   (без авторизации) -> только status='approved',
 //                             без email автора.
 // - GET    /reviews/pending  (requireAdmin) -> все status='pending', с email.
@@ -21,6 +24,7 @@ const express = require('express');
 const db = require('../db');
 const config = require('../config');
 const { requireAuth } = require('../middleware/auth');
+const { requireVerifiedEmail } = require('../middleware/emailVerification');
 const { notifyNewReview } = require('../services/telegramNotify');
 
 const router = express.Router();
@@ -41,8 +45,9 @@ function requireAdmin(req, res, next) {
   return next();
 }
 
-// POST /reviews { text } — требует авторизацию, JSON-тело.
-router.post('/', express.json(), requireAuth, async (req, res) => {
+// POST /reviews { text } — требует авторизацию, JSON-тело и подтверждённый
+// email (владелец должен иметь возможность связаться с автором отзыва).
+router.post('/', express.json(), requireAuth, requireVerifiedEmail, async (req, res) => {
   const { text } = req.body || {};
 
   if (typeof text !== 'string' || text.trim().length === 0) {
