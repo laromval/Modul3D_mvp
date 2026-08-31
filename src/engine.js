@@ -3211,6 +3211,24 @@ function buildModel(project) {
  * Модули разной высоты цоколя или разной глубины остаются со своими планками.
  * Изменяет массив parts на месте.
  */
+// Координаты отверстий детали (h.x у plinth.holes) заданы в ЛОКАЛЬНОЙ,
+// ещё не повёрнутой системе координат самой детали (см. buildModuleParts) —
+// а сама деталь в 3D/на чертеже разворачивается как жёсткое тело на угол
+// part.rot = dirRot+manualRot (см. основной цикл buildModel выше). Код ниже
+// (склейка и стыковка цоколя в углу) сопоставляет эти локальные h.x с
+// ГЛОБАЛЬНЫМИ координатами других деталей (box.x/box.z) — для этого нужно
+// знать, в какую сторону смотрит локальный «+x» детали после её разворота:
+// при повороте на 0°/270° он совпадает с ростом глобальной координаты по
+// своей оси, при 90°/180° — растёт в обратную сторону (чистый поворот без
+// отражения, проверено по DIR_U/DIR_V/DIR_ROT и формулам поворота box.x/z
+// выше). Без этой поправки отверстие под клипсу после поворота модуля
+// «съезжает» вдоль планки в сторону от реальной ноги, хотя угол разворота
+// у детали в целом остаётся верным.
+function holeAxisSign(part) {
+  const r = ((Math.round(part.rot || 0) % 360) + 360) % 360;
+  return (r === 90 || r === 180) ? -1 : 1;
+}
+
 // Опоры двух соседних модулей у стыка стоят рядом (обе на LEG_INSET от
 // шва — то есть друг от друга заметно ближе, чем обычный шаг опор внутри
 // модуля, LEG_SPAN=900). Клипса одной из них и так держит цоколь по обе
@@ -3237,7 +3255,10 @@ function dedupeAdjacentClips(parts) {
     const clipY = leg.length * 0.5; // как при сверлении — половина высоты опоры
     const pl = parts.find((p) => p.kind === 'plinth' && p.module === leg.module);
     if (!pl) continue;
-    const px = leg.box.x - pl.box.x + pl.length / 2;
+    // Планка может лежать вдоль глобального X (прямой ряд) или Z (повёрнутый
+    // ряд/прогон) — определяем ось так же, как в mergePlinths/joinCornerPlinths.
+    const ax = pl.box.d > pl.box.w ? 'z' : 'x';
+    const px = pl.length / 2 + holeAxisSign(pl) * (leg.box[ax] - pl.box[ax]);
     pl.holes = pl.holes.filter((h) => !(Math.abs(h.y - clipY) < HOLE_EPS
       && (Math.abs(h.x - (px - HALF)) < HOLE_EPS || Math.abs(h.x - (px + HALF)) < HOLE_EPS)));
   }
@@ -3284,18 +3305,27 @@ function mergePlinths(parts) {
       const hi = last.box[ax] + sizeOn(last, ax) / 2;
       const head = run[0];
       // У каждой планки в run — своя присадка под клипсу кухонной опоры
-      // (см. буквально drilling в основании выше), координаты — от ЛЕВОГО
-      // края ЭТОЙ планки. Голову растягиваем без сдвига левого края (lo
-      // не меняется), а вот у СКЛЕИВАЕМЫХ и удаляемых планок левый край
-      // уезжает — раньше их отверстия просто терялись вместе с деталью:
-      // клипсы соседних модулей оставались без присадки в цоколе. Переносим
-      // все отверстия на голову со сдвигом на разницу левых краёв.
+      // (см. буквально drilling в основании выше), координаты — от края
+      // ЭТОЙ планки, СВОЕГО (см. holeAxisSign выше): при part.rot 0°/270°
+      // это левый (нижний по ax) край, при 90°/180° — правый (верхний), т.к.
+      // локальный «+x» детали после поворота смотрит в обратную сторону.
+      // Голову растягиваем без сдвига её собственного «нулевого» края, а у
+      // СКЛЕИВАЕМЫХ и удаляемых планок этот край уезжает — раньше их
+      // отверстия просто терялись вместе с деталью: клипсы соседних модулей
+      // оставались без присадки в цоколе (а без поправки на поворот —
+      // переносились не туда). Переводим каждое отверстие в глобальную
+      // координату по СВОЕЙ ориентации детали, а затем — в локальную
+      // систему головы по ЕЁ ориентации.
+      const signHead = holeAxisSign(head);
       const mergedHoles = [];
       for (const p of run) {
+        const signP = holeAxisSign(p);
         const pLo = p.box[ax] - sizeOn(p, ax) / 2;
-        const shift = pLo - lo;
+        const pHi = p.box[ax] + sizeOn(p, ax) / 2;
         for (const h of (p.holes || [])) {
-          mergedHoles.push(Object.assign({}, h, { x: round1(h.x + shift) }));
+          const g = signP === 1 ? (pLo + h.x) : (pHi - h.x);
+          const merged = signHead === 1 ? (g - lo) : (hi - g);
+          mergedHoles.push(Object.assign({}, h, { x: round1(merged) }));
         }
       }
       head.holes = mergedHoles;
@@ -3354,10 +3384,23 @@ function joinCornerPlinths(parts) {
       else if (zHi <= xBack + EPS) { add = xBack - zHi; dirZ = 1; }    // стоит ближе по Z
       else continue;                                                   // уже пересекаются
       if (add <= EPS || add > 400) continue;
+      // Тот же перенос отверстий под клипсу, что и у продольной планки ниже
+      // (см. комментарий у signX) — свой край поперечной планки при
+      // удлинении тоже уезжает, отверстия нужно тащить вместе с ним.
+      const signZ = holeAxisSign(z);
+      const zLoBefore = zLo, zHiBefore = zHi;
       z.box.d = round1(z.box.d + add);
       z.box.z = round1(z.box.z + dirZ * add / 2);
       z.length = round1(z.length + add);
       z.note = 'Цоколь доведён до цоколя соседнего ряда (угловой стык)';
+      const zLoAfter = z.box.z - z.box.d / 2, zHiAfter = z.box.z + z.box.d / 2;
+      const edgeShiftZ = signZ === 1 ? (zLoBefore - zLoAfter) : (zHiAfter - zHiBefore);
+      if (edgeShiftZ && z.holes && z.holes.length) {
+        const EPS_HOLE = 0.5;
+        z.holes = z.holes
+          .map((h) => Object.assign({}, h, { x: round1(h.x + edgeShiftZ) }))
+          .filter((h) => h.x >= -EPS_HOLE && h.x <= z.length + EPS_HOLE);
+      }
 
       // И встречное движение по продольной планке. За углом, ЗА поперечным
       // цоколем, продольного цоколя быть не должно: там стоит корпус второго
@@ -3378,12 +3421,16 @@ function joinCornerPlinths(parts) {
         rowHi = Math.max(rowHi, q.box.x + q.box.w / 2);
       }
       const cutRight = (rowHi - zHiX) <= (zLoX - rowLo);
-      // Левый край планки — начало отсчёта x у её присадки (см. drilling
-      // клипсы выше, координата всегда «от левого края»). Отсекая или
-      // удлиняя планку СЛЕВА, этот край уезжает — отверстия раньше
-      // оставались на старом месте и «отрывались» от клипсы. Ловим сдвиг
-      // левого края ДО/ПОСЛЕ и переносим отверстия вместе с ним.
+      // Свой край планки (см. holeAxisSign выше: при part.rot 0°/270° это
+      // левый край, при 90°/180° — правый, т.к. локальный «+x» детали после
+      // поворота смотрит в обратную сторону) — начало отсчёта x у её
+      // присадки. Отсекая или удлиняя планку с этого края, он уезжает —
+      // отверстия раньше оставались на старом месте и «отрывались» от
+      // клипсы (а без поправки на поворот — переносились не в ту сторону).
+      // Ловим сдвиг СВОЕГО края ДО/ПОСЛЕ и переносим отверстия вместе с ним.
+      const signX = holeAxisSign(x);
       const xLoBefore = x.box.x - x.box.w / 2;
+      const xHiBefore = x.box.x + x.box.w / 2;
       if (cutRight && overRight > KEEP) {
         // ряд идёт слева, за угол вправо торчит лишнее — отсекаем
         const cut = overRight - KEEP;
@@ -3411,7 +3458,8 @@ function joinCornerPlinths(parts) {
         x.note = 'Цоколь доведён в угол внахлёст с цоколем соседнего ряда';
       }
       const xLoAfter = x.box.x - x.box.w / 2;
-      const edgeShift = xLoBefore - xLoAfter;
+      const xHiAfter = x.box.x + x.box.w / 2;
+      const edgeShift = signX === 1 ? (xLoBefore - xLoAfter) : (xHiAfter - xHiBefore);
       if (edgeShift && x.holes && x.holes.length) {
         // Планку в углу порой ОТРЕЗАЮТ (см. ветки cutRight/cutLeft выше) —
         // угол уходит соседнему прогону, и отверстие, оказавшееся теперь

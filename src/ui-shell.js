@@ -482,6 +482,10 @@ function initHud() {
       if (target === 'params' && window.Modul3D.app && window.Modul3D.app.setPanelView) {
         window.Modul3D.app.setPanelView('module');
       }
+      // Своё действие HUD уже выполнил (открыл нужную панель) — сам он
+      // больше не нужен и не должен висеть поверх/рядом с открывшейся
+      // панелью (см. баг: накопление панелей друг над другом).
+      hideHud();
     }
   });
   box.addEventListener('change', function (e) {
@@ -499,6 +503,15 @@ function initHud() {
     viewerInstance.onSelectModule = function (name) {
       if (typeof prev === 'function') prev.call(viewerInstance, name);
       if (name) showHud(name); else hideHud();
+    };
+    // Двойной клик — вход в Focus Mode (изоляция модуля): своё меню поверх
+    // 3D показывает уже app.js (showFocusMenu), а этот мини-HUD относится к
+    // обычному режиму просмотра и там больше не нужен — иначе он остаётся
+    // висеть под/над меню фокуса (см. баг: накопление панелей).
+    var prevIsolate = viewerInstance.onIsolateModule;
+    viewerInstance.onIsolateModule = function (name) {
+      hideHud();
+      if (typeof prevIsolate === 'function') prevIsolate.call(viewerInstance, name);
     };
   }, 60);
 }

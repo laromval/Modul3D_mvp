@@ -824,7 +824,7 @@ function makeClipTabGeo(d, THREE) {
   return geo;
 }
 
-function makeKitchenLeg(box, moduleName, isActive, hasClip, dimmed) {
+function makeKitchenLeg(box, moduleName, isActive, hasClip, dimmed, rot) {
   const g = new THREE.Group();
   const d = Math.max(box.w, box.d) * MM;
   const h = Math.max(box.h * MM, 0.001);
@@ -880,8 +880,13 @@ function makeKitchenLeg(box, moduleName, isActive, hasClip, dimmed) {
   // (X) пластины: от поверхности ствола (legR) наружу на фиксированную
   // толщину depth (10 мм по чертежу поставщика, см. makeClipTabGeo) — центр
   // пластины на legR + depth/2. Поворот всей группы ниже (g.rotation.y =
-  // -90°) уводит локальную +X ровно в глобальную +Z, к цоколю — тот же
-  // разворот, что раньше ориентировал baked-«ушко».
+  // -90° + поворот модуля) уводит локальную +X в глобальную +Z (к цоколю
+  // НЕповёрнутого модуля) — тот же разворот, что раньше ориентировал
+  // baked-«ушко»; при повороте модуля (row.rot из engine.js) к нему
+  // добавляется тот же угол, что и у самого модуля/цоколя, иначе клипса на
+  // повёрнутом модуле «смотрит» в старом мировом направлении, а не на
+  // цоколь рядом с ней (см. makeRod/pin/flange ниже — тот же приём:
+  // rotation.y = row.rot в радианах).
   if (hasClip) {
     const clip = makeClipTabGeo(d, THREE);
 
@@ -925,7 +930,13 @@ function makeKitchenLeg(box, moduleName, isActive, hasClip, dimmed) {
   }
 
   g.position.set(box.x * MM, box.y * MM, box.z * MM);
-  if (hasClip) g.rotation.y = -Math.PI / 2;   // клипса развёрнута к цоколю, к +Z
+  // Клипса развёрнута к цоколю (-90°, локальная +X → мировая +Z) ПЛЮС
+  // поворот самого модуля (rot, градусы, 0/90/180/270) — box.x/box.z уже
+  // пересчитаны в мировые координаты в engine.js, а вот ориентацию
+  // асимметричной клипсы (в отличие от круглого ствола опоры) нужно
+  // довернуть отдельно, иначе на повёрнутом модуле она продолжает смотреть
+  // в старом мировом направлении, а не на цоколь рядом с ней.
+  if (hasClip) g.rotation.y = -Math.PI / 2 + ((rot || 0) * Math.PI) / 180;
   g.userData.module = moduleName;
   g.traverse((o) => { o.userData.module = moduleName; });
   return g;
@@ -1676,7 +1687,11 @@ class Viewer3D {
       if (row.shape === 'cylinder') {
         for (const box of row.boxes) {
           this.group.add(row.legType === 'kitchen'
-            ? makeKitchenLeg(box, row.module, isActive, !!row.hasClip, dimmed)
+            // row.rot — поворот модуля в прогоне/сборке (0/90/180/270,
+            // см. engine.js part.rot) — клипсе он нужен, чтобы разворачиваться
+            // вместе с модулем; у металлической опоры (makeLeg) он не нужен —
+            // её площадка 4-кратно симметрична, поворот на ней незаметен.
+            ? makeKitchenLeg(box, row.module, isActive, !!row.hasClip, dimmed, row.rot || 0)
             : makeLeg(box, row.module, isActive, dimmed));
         }
         continue;
