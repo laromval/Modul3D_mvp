@@ -14,7 +14,7 @@
 (function () {
 // Версия сборки — показывается во вкладке браузера и в шапке.
 // При выпуске новой версии меняется только эта строка.
-const APP_VERSION = 'v200';
+const APP_VERSION = 'v201';
 
 // Номер версии выводим ПЕРВЫМ делом: если дальше что-то упадёт, по нему сразу
 // видно, какая сборка открыта.
@@ -4238,6 +4238,23 @@ try {
     if (k === 's') { e.preventDefault(); saveProjectToFile(); return; }
     if (k === 'o') { e.preventDefault(); document.getElementById('openProjectBtn').click(); }
   });
+
+  // Клик/Tab в числовое поле → значение выделяется целиком, чтобы первая
+  // введённая цифра заменяла его. Делегируем на document (полей десятки,
+  // многие рендерятся динамически). preventDefault на mouseup обязателен —
+  // иначе браузер сразу после select() сам переносит курсор в точку клика.
+  document.addEventListener('mousedown', (e) => {
+    const el = e.target;
+    if (!el || !el.matches || !el.matches('input[type="number"]')) return;
+    document.addEventListener('mouseup', (ev) => { if (ev.target === el) ev.preventDefault(); },
+      { once: true, capture: true });
+  }, true);
+  document.addEventListener('focusin', (e) => {
+    const el = e.target;
+    if (!el || !el.matches || !el.matches('input[type="number"]')) return;
+    el.select();
+  });
+
   updateHistoryButtons();
 } catch (err) {
   console.error('App init failed:', err);
