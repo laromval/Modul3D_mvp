@@ -37,6 +37,17 @@
 (function () {
 const EDGE_FRONT = 'ПВХ 2 мм';   // кромка на видимых лицевых кромках
 const EDGE_BACK  = 'ПВХ 0.4 мм'; // кромка на невидимых/технических кромках
+const EDGE_MID   = 'ПВХ 0.8 мм'; // кромка периметра фасада НЕ из ЛДСП (МДФ/массив/алюминий)
+
+// Кромка периметра фасада зависит от его материала (см. ПРАВИЛА-КОНСТРУИРОВАНИЯ.md, §4):
+// ЛДСП-фасад — ПВХ 2 мм, как и любая видимая кромка детали без фасада; стекло
+// вообще не кромкуется (торец шлифуется на стекольном производстве — см. GLASS
+// в catalog.js); любой другой фасадный материал (МДФ, массив, алюминиевый
+// профиль) — ПВХ 0.8 мм.
+function facadeEdgeType(ft) {
+  if (ft.render === 'glass') return null;
+  return ft.id === 'ldsp' ? EDGE_FRONT : EDGE_MID;
+}
 
 const PLINTH_SETBACK = 50; // утопление цоколя от переднего края, мм (норма 50–70)
 const SHELF_SETBACK  = 20; // отступ полки от переднего края корпуса, мм
@@ -2587,7 +2598,7 @@ function buildModuleParts(p) {
         length: facadeW, width: fH, qty: 1, kind: 'drawerFront', grain: true,
         holes: dh.holes.concat(fixHoles),
         note: 'Накладной' + (dh.count ? `, ручка ${dh.handle.name}` : ''),
-        edging: { long1: EDGE_FRONT, long2: EDGE_FRONT, short1: EDGE_FRONT, short2: EDGE_FRONT },
+        edging: { long1: facadeEdgeType(ft), long2: facadeEdgeType(ft), short1: facadeEdgeType(ft), short2: facadeEdgeType(ft) },
         x: fX, y: dy + dHeights[d] / 2, z: D / 2 + ft.thickness / 2,
         dims: { w: facadeW, h: fH, d: ft.thickness },
       }));
@@ -2693,7 +2704,7 @@ function buildModuleParts(p) {
             (w) => warnings.push(w), secName, ft.render === 'glass',
             isTopZone ? railBottomOnFacade(doorY, doorZoneH) : null)),
           note: doorNoteParts.join('; '),
-          edging: { long1: EDGE_FRONT, long2: EDGE_FRONT, short1: EDGE_FRONT, short2: EDGE_FRONT },
+          edging: { long1: facadeEdgeType(ft), long2: facadeEdgeType(ft), short1: facadeEdgeType(ft), short2: facadeEdgeType(ft) },
           x: fX, y: doorY, z: D / 2 + ft.thickness / 2,
           dims: { w: facadeW, h: doorZoneH, d: ft.thickness },
         }));
@@ -2731,7 +2742,7 @@ function buildModuleParts(p) {
             length: stripH, width: STRIP_W, qty: 1, kind: 'filler',
             note: `Из фасадного материала, ${STRIP_W} мм, под 90° слева от заглушки `
               + '— закрывает её торец; крепление на минификсы',
-            edging: { long1: EDGE_FRONT, long2: EDGE_FRONT, short1: EDGE_FRONT, short2: EDGE_FRONT },
+            edging: { long1: facadeEdgeType(ft), long2: facadeEdgeType(ft), short1: facadeEdgeType(ft), short2: facadeEdgeType(ft) },
             x: stripX, y: baseH + frontH / 2,
             z: round1(D / 2 + STRIP_W / 2),
             dims: { w: ftk, h: stripH, d: STRIP_W },
@@ -2831,7 +2842,7 @@ function buildModuleParts(p) {
               (w) => warnings.push(w), secName, ft.render === 'glass',
               isTopZone ? railBottomOnFacade(doorY, doorZoneH) : null)),
             note: 'Накладная, ' + doors2NoteParts.join('; ') + (dh.count ? `, ручка ${dh.handle.name}` : ''),
-            edging: { long1: EDGE_FRONT, long2: EDGE_FRONT, short1: EDGE_FRONT, short2: EDGE_FRONT },
+            edging: { long1: facadeEdgeType(ft), long2: facadeEdgeType(ft), short1: facadeEdgeType(ft), short2: facadeEdgeType(ft) },
             x: fX - facadeW / 2 + leafW / 2 + leaf * (leafW + 2 * gap), y: doorY, z: facadeZ,
             dims: { w: leafW, h: doorZoneH, d: t },
           }));
@@ -2853,7 +2864,7 @@ function buildModuleParts(p) {
           length: facadeW, width: doorZoneH, qty: 1, kind: 'door', grain: true,
           holes: dh.holes,
           note: liftNoteParts.join('; '),
-          edging: { long1: EDGE_FRONT, long2: EDGE_FRONT, short1: EDGE_FRONT, short2: EDGE_FRONT },
+          edging: { long1: facadeEdgeType(ft), long2: facadeEdgeType(ft), short1: facadeEdgeType(ft), short2: facadeEdgeType(ft) },
           x: fX, y: doorY, z: D / 2 + ft.thickness / 2,
           dims: { w: facadeW, h: doorZoneH, d: ft.thickness },
         }));
@@ -2883,7 +2894,7 @@ function buildModuleParts(p) {
           length: facadeW, width: doorZoneH, qty: 1, kind: 'door', grain: true,
           holes: [],
           note: blindNoteParts.join('; '),
-          edging: { long1: EDGE_FRONT, long2: EDGE_FRONT, short1: EDGE_FRONT, short2: EDGE_FRONT },
+          edging: { long1: facadeEdgeType(ft), long2: facadeEdgeType(ft), short1: facadeEdgeType(ft), short2: facadeEdgeType(ft) },
           x: fX, y: doorY, z: D / 2 + ft.thickness / 2,
           dims: { w: facadeW, h: doorZoneH, d: ft.thickness },
         });
@@ -3196,7 +3207,7 @@ function buildModel(project) {
           length: frontH, width: FILLER_W, qty: 1, kind: 'filler', grain: true,
           note: `Фасадный элемент для стыка в углу, ${FILLER_W} мм; `
             + `корпус соседнего ряда отставлен ещё на ${FILLER_GAP} мм`,
-          edging: { long1: EDGE_FRONT, long2: EDGE_FRONT, short1: EDGE_FRONT, short2: EDGE_FRONT },
+          edging: { long1: facadeEdgeType(ftc), long2: facadeEdgeType(ftc), short1: facadeEdgeType(ftc), short2: facadeEdgeType(ftc) },
           x: round1(gx), y: mBaseH + frontH / 2, z: round1(gz),
           dims: swap
             ? { w: FILLER_W, h: frontH, d: ftc.thickness }
@@ -3656,7 +3667,7 @@ function mergeEqualParts(parts) {
 
 window.Modul3D = window.Modul3D || {};
 window.Modul3D.engine = {
-  buildModel, buildModuleParts, EDGE_FRONT, EDGE_BACK, SIDE_LABEL, sidesLabel,
+  buildModel, buildModuleParts, EDGE_FRONT, EDGE_BACK, EDGE_MID, SIDE_LABEL, sidesLabel,
   // Чистая функция раскладки вертикальных зон фасада — переиспользуется в
   // app.js (контекстное «Разделить на секции» из 3D), чтобы не дублировать
   // формулу стыков между зонами.

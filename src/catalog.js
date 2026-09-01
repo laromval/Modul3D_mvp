@@ -69,6 +69,7 @@
   // точка чтения цены — specification.js (`EDGE_PRICES[type]?.price`).
   const EDGE_PRICES = {
     'ПВХ 2 мм': { price: 15, unit: 'пог.м', image: null },
+    'ПВХ 0.8 мм': { price: 9, unit: 'пог.м', image: null },
     'ПВХ 0.4 мм': { price: 6, unit: 'пог.м', image: null },
   };
 

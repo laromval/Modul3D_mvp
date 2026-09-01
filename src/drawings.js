@@ -1101,13 +1101,65 @@ function materialLabel(model, code) {
   return materialTitle(code) || code || '—';
 }
 
+// Ключ группировки для листа резки (не путать с mergeKey в engine.js и с
+// sign() в buildPartDrawings). Одинаковые полки из разных модулей должны
+// стать одной строкой — но только если у них СОВПАДАЕТ и присадка (holes/
+// grooves): деталь с иначе расположенными отверстиями сверлится по другому
+// шаблону, значит это другая заготовка для цеха, а не дубликат.
+// Список полей — общий для трёх мест в коде (эта таблица, деталировка на
+// экране и Excel-экспорт), поэтому набор менять нельзя без синхронизации.
+function partsTableKey(p) {
+  const holesSig = (p.holes || [])
+    .map((h) => `${h.kind}:${h.x}:${h.y}:${h.d}:${h.depth || 0}:${h.through ? 1 : 0}:${h.side || ''}`)
+    .sort().join('|');
+  const groovesSig = (p.grooves || [])
+    .map((g) => `${g.kind}:${g.x0}:${g.y0}:${g.x1}:${g.y1}:${g.w}:${g.depth}:${g.side || ''}`)
+    .sort().join('|');
+  return JSON.stringify([
+    p.name, p.material, p.thickness, p.length, p.width,
+    p.edging.long1, p.edging.long2, p.edging.short1, p.edging.short2,
+    p.grainDirection, holesSig, groovesSig,
+    // Деталь с ручной правкой (см. part.overrides в engine.js) получает своё
+    // отдельное примечание и не должна молча склеиваться ни с чем — даже с
+    // другой такой же вручную отредактированной деталью, поэтому в ключ
+    // подмешивается её собственный номер позиции.
+    p.overridden ? `override:${p.num}` : '',
+  ]);
+}
+
 function buildPartsTable(model) {
-  const rows = model.parts.filter(p => !p.hardware).map(p =>
-    `<tr><td>${p.num}</td><td>${esc(p.module || '')}</td><td>${esc(p.name)}</td>`
-    + `<td>${esc(p.section)}</td><td>${esc(materialLabel(model, p.material))}</td>`
-    + `<td>${p.length}×${p.width}</td><td>${p.thickness}</td><td>${p.qty}</td>`
-    + `<td>${esc(edgeLabel(p))}</td></tr>`
-  ).join('');
+  const list = model.parts.filter(p => !p.hardware);
+
+  // Группируем по всему проекту (across все модули), а не по одному модулю:
+  // одинаковые детали из разных модулей должны схлопнуться в одну строку.
+  const groups = {};
+  const order = [];
+  for (const p of list) {
+    const key = partsTableKey(p);
+    if (!groups[key]) {
+      groups[key] = { part: p, qty: 0, nums: [], modules: [], sections: [] };
+      order.push(key);
+    }
+    const g = groups[key];
+    g.qty += p.qty;
+    if (p.num != null && g.nums.indexOf(p.num) === -1) g.nums.push(p.num);
+    if (g.modules.indexOf(p.module || '') === -1) g.modules.push(p.module || '');
+    if (g.sections.indexOf(p.section || '') === -1) g.sections.push(p.section || '');
+  }
+
+  const rows = order.map((key) => {
+    const g = groups[key], p = g.part;
+    const numStr = g.nums.sort((a, b) => a - b).join(', ');
+    // Модуль/секция — как у всех деталей группы, если он один и тот же;
+    // если детали пришли из разных модулей/секций, перечисляем их через
+    // запятую в порядке первого появления (без дублей).
+    const moduleStr = g.modules.join(', ');
+    const sectionStr = g.sections.join(', ');
+    return `<tr><td>${numStr}</td><td>${esc(moduleStr)}</td><td>${esc(p.name)}</td>`
+      + `<td>${esc(sectionStr)}</td><td>${esc(materialLabel(model, p.material))}</td>`
+      + `<td>${p.length}×${p.width}</td><td>${p.thickness}</td><td>${g.qty}</td>`
+      + `<td>${esc(edgeLabel(p))}</td></tr>`;
+  }).join('');
   return `<table class="dw-legend dw-wide">
     <thead><tr><th>Поз.</th><th>Модуль</th><th>Деталь</th><th>Секция</th><th>Материал</th>
       <th>Размер, мм</th><th>Толщ.</th><th>Кол.</th><th>Кромка</th></tr></thead>

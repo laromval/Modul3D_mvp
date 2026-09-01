@@ -27,25 +27,101 @@ const XLSX = require('xlsx');
 const DEFAULT_CURRENCY_SYMBOL = '₽';
 
 // --- Деталировка -----------------------------------------------------------
-// 1:1 копия exportDetailing() из src/export.js, только вместо
-// XLSX.writeFile(...) (браузерное скачивание) — XLSX.write(..., { type:
-// 'buffer' }), которое возвращает Buffer для тела HTTP-ответа.
+// Раньше — 1:1 копия exportDetailing() из src/export.js (одна физическая
+// деталь = одна строка). Теперь детали с одинаковыми параметрами резки
+// (см. groupKey ниже) объединяются в одну строку с суммарным количеством —
+// та же группировка одновременно делается в экранной таблице (src/app.js) и
+// в таблице под общим чертежом (src/drawings.js), ключ группировки должен
+// совпадать с ними дословно. В ключ входит и присадка (holes/grooves):
+// одинаковые по размеру/материалу детали, но с разной сверловкой — это
+// разные детали, схлопывать их в резке нельзя. Деталь, отредактированную
+// вручную (r.overridden === true), в группу вообще ни с кем не объединяем —
+// у неё своё пояснение в примечании, и подстановка чужого номера/сечения
+// была бы ошибкой. Как и раньше, детали-фурнитура (r.hardware, например
+// опоры) в деталировку не попадают.
+//
+// Вместо XLSX.writeFile(...) (браузерное скачивание) — XLSX.write(..., {
+// type: 'buffer' }), которое возвращает Buffer для тела HTTP-ответа.
+function holesSignature(r) {
+  return (r.holes || [])
+    .map((h) => `${h.kind}:${h.x}:${h.y}:${h.d}:${h.depth || 0}:${h.through ? 1 : 0}:${h.side || ''}`)
+    .sort()
+    .join('|');
+}
+function groovesSignature(r) {
+  return (r.grooves || [])
+    .map((g) => `${g.kind}:${g.x0}:${g.y0}:${g.x1}:${g.y1}:${g.w}:${g.depth}:${g.side || ''}`)
+    .sort()
+    .join('|');
+}
+function groupKey(r) {
+  const e = r.edging || {};
+  return JSON.stringify([
+    r.name, r.material, r.thickness, r.length, r.width,
+    e.long1 || '', e.long2 || '', e.short1 || '', e.short2 || '',
+    !!r.grainDirection,
+    holesSignature(r),
+    groovesSignature(r),
+    r.overridden ? `override:${r.num}` : '',
+  ]);
+}
+
 function buildDetailingWorkbook(model, projectName) {
-  const rows = (model.parts || []).map((r) => ({
-    '№ п/п': r.num,
-    'Наименование детали': r.name,
-    'Изделие/секция': r.section,
-    'Материал': r.material,
-    'Толщина, мм': r.thickness,
-    'Длина, мм': r.length,
-    'Ширина, мм': r.width,
-    'Количество, шт': r.qty,
-    'Кромка длинная сторона 1': (r.edging && r.edging.long1) || 'без кромки',
-    'Кромка длинная сторона 2': (r.edging && r.edging.long2) || 'без кромки',
-    'Кромка короткая сторона 1': (r.edging && r.edging.short1) || 'без кромки',
-    'Кромка короткая сторона 2': (r.edging && r.edging.short2) || 'без кромки',
-    'Направление текстуры': r.grainDirection ? 'да' : 'нет',
-    'Примечание': r.note || '',
+  const groups = [];
+  const groupByKey = new Map();
+
+  for (const r of (model.parts || [])) {
+    if (r.hardware) continue; // фурнитура (опоры и т.п.) — не лист, пропускаем
+    const key = groupKey(r);
+    let g = groupByKey.get(key);
+    if (!g) {
+      const e = r.edging || {};
+      g = {
+        name: r.name,
+        material: r.material,
+        thickness: r.thickness,
+        length: r.length,
+        width: r.width,
+        long1: e.long1, long2: e.long2, short1: e.short1, short2: e.short2,
+        grainDirection: !!r.grainDirection,
+        qty: 0,
+        nums: [],
+        sections: [],
+        sectionSeen: new Set(),
+        notes: [],
+        noteSeen: new Set(),
+      };
+      groupByKey.set(key, g);
+      groups.push(g);
+    }
+    g.qty += (r.qty || 0);
+    if (r.num !== undefined && r.num !== null) g.nums.push(r.num);
+    if (r.section !== undefined && r.section !== null && !g.sectionSeen.has(r.section)) {
+      g.sectionSeen.add(r.section);
+      g.sections.push(r.section);
+    }
+    const note = r.note || '';
+    if (note && !g.noteSeen.has(note)) {
+      g.noteSeen.add(note);
+      g.notes.push(note);
+    }
+  }
+
+  const rows = groups.map((g) => ({
+    '№ п/п': g.nums.slice().sort((a, b) => a - b).join(', '),
+    'Наименование детали': g.name,
+    'Изделие/секция': g.sections.join(', '),
+    'Материал': g.material,
+    'Толщина, мм': g.thickness,
+    'Длина, мм': g.length,
+    'Ширина, мм': g.width,
+    'Количество, шт': g.qty,
+    'Кромка длинная сторона 1': g.long1 || 'без кромки',
+    'Кромка длинная сторона 2': g.long2 || 'без кромки',
+    'Кромка короткая сторона 1': g.short1 || 'без кромки',
+    'Кромка короткая сторона 2': g.short2 || 'без кромки',
+    'Направление текстуры': g.grainDirection ? 'да' : 'нет',
+    'Примечание': g.notes.join('; '),
   }));
   const ws = XLSX.utils.json_to_sheet(rows);
   ws['!cols'] = [
