@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "blender": {
+      "command": "C:\\Users\\user\\AppData\\Local\\Microsoft\\WinGet\\Links\\uvx.exe",
+      "args": ["blender-mcp"]
+    }
+  }
+}
