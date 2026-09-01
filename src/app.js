@@ -14,7 +14,7 @@
 (function () {
 // Версия сборки — показывается во вкладке браузера и в шапке.
 // При выпуске новой версии меняется только эта строка.
-const APP_VERSION = 'v198';
+const APP_VERSION = 'v199';
 
 // Номер версии выводим ПЕРВЫМ делом: если дальше что-то упадёт, по нему сразу
 // видно, какая сборка открыта.
@@ -1172,6 +1172,7 @@ function doorZoneEditorScreen(mod, sectionIndex, zoneIndex) {
             <option value="doorRight" ${sec.facade === 'doorRight' ? 'selected' : ''}>Дверь правая</option>
             <option value="doors2" ${sec.facade === 'doors2' ? 'selected' : ''}>Две двери</option>
             <option value="liftUp" ${sec.facade === 'liftUp' ? 'selected' : ''}>Открывание вверх</option>
+            <option value="blindFacade" ${sec.facade === 'blindFacade' ? 'selected' : ''}>Заглушка</option>
             <option value="open" ${sec.facade === 'open' ? 'selected' : ''}>Без дверей</option>
           </select>
         </div>
@@ -1595,6 +1596,7 @@ function zoneCardHtml(sec, i, zi, doorZoneCount) {
       <option value="doorRight" ${zone.facade === 'doorRight' ? 'selected' : ''}>Дверь правая</option>
       <option value="doors2" ${zone.facade === 'doors2' ? 'selected' : ''}>Две двери</option>
       <option value="liftUp" ${zone.facade === 'liftUp' ? 'selected' : ''}>Открывание вверх</option>
+      <option value="blindFacade" ${zone.facade === 'blindFacade' ? 'selected' : ''}>Заглушка</option>
       <option value="open" ${zone.facade === 'open' ? 'selected' : ''}>Без дверей</option>
     </select>` : '<div class="hint">Ниша без фасада — техника показывает свою лицевую панель.</div>'}
     <label class="mt6">Высота зоны (ниши), мм</label>
@@ -2108,6 +2110,7 @@ function renderSectionsList() {
             <option value="doorRight" ${sec.facade === 'doorRight' ? 'selected' : ''}>Дверь правая</option>
             <option value="doors2" ${sec.facade === 'doors2' ? 'selected' : ''}>Две двери</option>
           <option value="liftUp" ${sec.facade === 'liftUp' ? 'selected' : ''}>Открывание вверх</option>
+            <option value="blindFacade" ${sec.facade === 'blindFacade' ? 'selected' : ''}>Заглушка</option>
             <option value="open" ${sec.facade === 'open' ? 'selected' : ''}>Без дверей</option>
           </select>
         </div>` : zonesBlock}

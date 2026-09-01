@@ -2835,7 +2835,8 @@ function buildModuleParts(p) {
         if (zone.note) liftNoteParts.push(zone.note);
         parts.push(makePart({
           name: 'Фасад откидной (вверх)', section: zoneSecName, sectionIndex: i, zoneIndex: zi,
-          material: decor.code, thickness: t,
+          material: ft.material, thickness: ft.thickness,
+          facadeType: ft.id, frameW: ft.frame, insertMaterial: ft.insert, glass: ft.render === 'glass',
           length: facadeW, width: doorZoneH, qty: 1, kind: 'door', grain: true,
           holes: dh.holes,
           note: liftNoteParts.join('; '),
@@ -2850,6 +2851,58 @@ function buildModuleParts(p) {
           for (const n of chk.notes) {
             warnings.push(`${secName}: подъёмник «${chk.lift.name}» — ${n}.`);
           }
+        }
+      } else if (fac === 'blindFacade') {
+        // Глухая накладная панель: без ручки, без петель — handleHoles/
+        // hingeHoles не зовём. Крепится к боковинам секции минификсом Rastex
+        // напрямую (без промежуточных планок, в отличие от заглушки углового
+        // модуля выше). Ролью «примыкает торцом» здесь выступает БОКОВИНА —
+        // её передний торец садится на заднюю пласть заглушки, поэтому
+        // гнездо Ø15 и шток Ø8-в-торец идут в боковину, а в заглушку —
+        // только дюбель Ø8 (см. предупреждение у RASTEX: обратная раскладка
+        // гнезда/штока не собирается).
+        const blindNoteParts = ['Накладная, без ручки и петель, глухая'];
+        if (zone.note) blindNoteParts.push(zone.note);
+        const blind = makePart({
+          name: 'Заглушка (глухой фасад)', section: zoneSecName, sectionIndex: i, zoneIndex: zi,
+          material: ft.material, thickness: ft.thickness,
+          facadeType: ft.id, frameW: ft.frame, insertMaterial: ft.insert, glass: ft.render === 'glass',
+          length: facadeW, width: doorZoneH, qty: 1, kind: 'door', grain: true,
+          holes: [],
+          note: blindNoteParts.join('; '),
+          edging: { long1: EDGE_FRONT, long2: EDGE_FRONT, short1: EDGE_FRONT, short2: EDGE_FRONT },
+          x: fX, y: doorY, z: D / 2 + ft.thickness / 2,
+          dims: { w: facadeW, h: doorZoneH, d: ft.thickness },
+        });
+        parts.push(blind);
+        const blindBounds = shelfPanelX[i] || [];
+        const blindPts = jointPoints(doorZoneH);
+        for (const px of blindBounds) {
+          const panel = panelAt(px);
+          if (!panel) continue;
+          for (const py of blindPts) {
+            const worldY = doorY - doorZoneH / 2 + py;
+            const localX = round1(worldY - (panel.box.y - panel.box.h / 2));
+            panel.holes.push({ x: localX, y: round1(panel.box.d - RASTEX.camSetback),
+              d: RASTEX.camD, depth: RASTEX.camDepthFor(panel.box.w),
+              through: false, side: 'front', kind: 'minifixCam' });
+            panel.holes.push({ x: localX, y: round1(panel.box.d),
+              d: RASTEX.boltD, depth: RASTEX.boltDepth,
+              through: false, side: 'edge', kind: 'minifixBolt' });
+            // У внутренней стойки между секциями центр лежит всего в gap
+            // (1.5 мм) от кромки заглушки — почти на самом краю материала.
+            // Зажимаем в границы детали тем же отступом 8 мм, что и xFace
+            // в T-joint-присадке выше (см. :2249) — иначе Ø8 дюбель уходит
+            // частично за пределы плиты.
+            const rawX = px - (fX - facadeW / 2);
+            blind.holes.push({ x: round1(Math.min(Math.max(rawX, 8), facadeW - 8)),
+              y: round1(worldY - (doorY - doorZoneH / 2)),
+              d: RASTEX.dowelD, depth: RASTEX.dowelDepth,
+              through: false, side: 'back', kind: 'minifixDowel' });
+          }
+        }
+        if (blindBounds.length) {
+          jointRows.push({ joint: 'minifix', qty: blindPts.length * blindBounds.length });
         }
       }
       // zone.facade === 'open' → фасада нет (открытая зона)
