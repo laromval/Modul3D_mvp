@@ -14,7 +14,7 @@
 (function () {
 // Версия сборки — показывается во вкладке браузера и в шапке.
 // При выпуске новой версии меняется только эта строка.
-const APP_VERSION = 'v198';
+const APP_VERSION = 'v199';
 
 // Номер версии выводим ПЕРВЫМ делом: если дальше что-то упадёт, по нему сразу
 // видно, какая сборка открыта.
@@ -70,8 +70,13 @@ function newSection() {
     shelfMode: 'auto', shelfHeights: [],
     rod: false, rodHeight: 1900,
     drawerMode: 'auto', drawerHeights: [], drawerPinned: [], pushToOpen: false,
-    drawerBoxHeight: 'auto',   // высота короба (царги): 'auto' или код из каталога
+    drawerBoxHeight: 'auto',   // высота короба ящика: 'auto' или код из каталога
     drawerOffset: 10,   // технологический зазор от дна, чтобы ящик не тёрся
+    // Материал/толщина/система ящиков — настройка ПО СЕКЦИИ (панель «Ящики»,
+    // см. drawersPanelBlock ниже), а не общая на проект: у секции могут стоять
+    // ящики другого декора/толщины, чем у соседней. Дефолты те же, что раньше
+    // были общепроектными в state.
+    drawerDecorCode: DECORS[0].code, drawerThickness: 16, drawerSystem: 'ballBearing',
     widthMode: 'auto', width: 400,
   };
 }
@@ -96,11 +101,7 @@ const state = {
   // Глубина столешницы: по ней видимая боковина дотягивается до стены
   worktopDepth: 600,
   backCode: BACK_MATERIALS[0].code,
-  // Ящики — отдельный материал: обычно 16 мм и часто другой (внутренний) декор
-  drawerDecorCode: DECORS[0].code,
-  drawerThickness: 16,
   jointType: 'confirmat',
-  drawerSystem: 'ballBearing',
   hideFacades: false,
   // Режим проверки присадки: корпус прозрачный, отверстия подсвечены
   drillCheck: false,
@@ -138,6 +139,11 @@ const state = {
   // (side/bottom/top/back/plinth), для остальных — заглушка
   // (partKindPlaceholderBlock). Тоже чисто UI-состояние.
   selectedPart: null,
+  // Индекс секции активного модуля, для которой открыта панель «Ящики» (см.
+  // openDrawersPanel/drawersPanelBlock ниже) — число или null (панель
+  // закрыта). Тоже чисто UI-состояние, как selectedPart выше: не часть
+  // данных проекта, в snapshot()/файл не попадает.
+  drawersSectionIndex: null,
   // Открыт ли полноэкранный визуальный редактор вырезов детали (см.
   // openPartVisualEditor/closePartVisualEditor) — новый режим ПОВЕРХ экрана
   // «Деталь», не замена partBlock(). Закрытие (красный крестик) возвращает
@@ -157,6 +163,10 @@ const state = {
 function exitIsolation() {
   state.isolatedModule = null;
   state.selectedPart = null;
+  // Панель «Ящики» открыта для конкретной секции конкретного модуля — та же
+  // защита: если модуль/секция пропадает (удаление, undo/redo, открытие
+  // другого проекта), панели больше нечего показывать.
+  state.drawersSectionIndex = null;
   // Визуальный редактор вырезов открыт для конкретной детали конкретного
   // модуля — если сам модуль/фокус пропадает (удаление, undo/redo, открытие
   // другого проекта), редактору больше нечего показывать, закрываем и его.
@@ -176,8 +186,7 @@ function snapshot() {
     modules: state.modules, activeModule: state.activeModule, selected: state.selected,
     bodyThickness: state.bodyThickness, backThickness: state.backThickness, facadeThickness: state.facadeThickness,
     decorCode: state.decorCode, facadeDecorCode: state.facadeDecorCode, backCode: state.backCode,
-    drawerDecorCode: state.drawerDecorCode, drawerThickness: state.drawerThickness,
-    jointType: state.jointType, drawerSystem: state.drawerSystem, worktopDepth: state.worktopDepth,
+    jointType: state.jointType, worktopDepth: state.worktopDepth,
   });
 }
 
@@ -266,6 +275,28 @@ function saveProjectToFile() {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
+// Миграция старых файлов проекта (до v199): материал/толщина/система ящиков
+// раньше были ОДНИМИ на весь проект (data.state.drawerDecorCode/
+// drawerThickness/drawerSystem), теперь — поле каждой секции (см. newSection()
+// и drawersPanelBlock). Проставляет их только там, где у секции этих полей
+// ещё нет (новые/уже мигрированные проекты не трогает) — приоритет отдаём
+// старому проектному значению из файла, если оно там было (значит,
+// пользователь его реально настраивал), иначе тем же дефолтам, что и у новой
+// секции.
+function migrateDrawerFieldsToSections(data) {
+  const legacy = (data && data.state) || {};
+  const fallbackDecor = legacy.drawerDecorCode || DECORS[0].code;
+  const fallbackThickness = Number(legacy.drawerThickness) || 16;
+  const fallbackSystem = legacy.drawerSystem || 'ballBearing';
+  (state.modules || []).forEach((m) => {
+    (m.sections || []).forEach((sec) => {
+      if (sec.drawerDecorCode === undefined) sec.drawerDecorCode = fallbackDecor;
+      if (sec.drawerThickness === undefined) sec.drawerThickness = fallbackThickness;
+      if (sec.drawerSystem === undefined) sec.drawerSystem = fallbackSystem;
+    });
+  });
+}
+
 // Применяет сохранённое состояние проекта (из файла или автосохранения).
 // В отличие от applySnapshot() (только для истории отмены), терпима к
 // неполным/старым файлам: недостающие поля остаются как в текущем состоянии,
@@ -275,6 +306,7 @@ function restoreProjectData(data) {
     throw new Error('Файл не похож на проект «Modul3D» — нет списка модулей.');
   }
   Object.keys(data.state).forEach((k) => { state[k] = data.state[k]; });
+  migrateDrawerFieldsToSections(data);
   // Открыт другой проект (или восстановлено автосохранение) — модули заменены
   // целиком, старая изоляция/выбор детали больше не имеют смысла.
   exitIsolation();
@@ -428,6 +460,16 @@ function setPanelView(view) {
   if (viewer && currentModel) viewer.render(currentModel, viewOpts());
 }
 
+// Открывает панель «Ящики» для секции `secIndex` активного модуля — кнопка
+// «Редактировать ящики →» в renderSectionsList(). Сама панель — отдельный
+// экран panelView:'drawers' (см. drawersPanelBlock/renderParamsPanel), не
+// инлайн-блок внутри списка секций.
+function openDrawersPanel(secIndex) {
+  state.drawersSectionIndex = secIndex;
+  state.panelView = 'drawers';
+  renderParamsPanel();
+}
+
 function libraryBlock() {
   return `
     <h3>База модулей</h3>
@@ -460,8 +502,6 @@ function libraryGridBlock() {
     decor: DECORS.find(d => d.code === state.decorCode),
     facadeDecor: DECORS.find(d => d.code === state.facadeDecorCode) || DECORS.find(d => d.code === state.decorCode),
     backMaterial: BACK_MATERIALS.find(d => d.code === state.backCode),
-    drawerDecor: DECORS.find(d => d.code === state.drawerDecorCode),
-    drawerThickness: state.drawerThickness,
     worktopDepth: state.worktopDepth,
     jointType: state.jointType,
   };
@@ -481,7 +521,7 @@ function libraryGridBlock() {
             ? { type: 'plinth', plinthHeight: m.plinthHeight }
             : { type: m.baseType, legHeight: m.legHeight },
           legType: m.legType || 'metal',
-          sections: (m.sections || []).map(sc => Object.assign({}, sc, { drawerSystem: state.drawerSystem })),
+          sections: m.sections || [],
         }],
       });
       const model = buildModel(project);
@@ -1327,20 +1367,6 @@ function materialsBlock() {
     </div>
     <div class="field"><label>Толщина ХДФ</label><input id="p-backThickness" type="number" value="${state.backThickness}"></div>
 
-    <h4 class="mat-sub">Ящики (материал отдельно от корпуса)</h4>
-    <div class="field">
-      <label>Материал ящиков</label>
-      <select id="p-drawerDecor">${DECORS.map(d => `<option value="${d.code}" ${d.code === state.drawerDecorCode ? 'selected' : ''}>${esc(d.name)}</option>`).join('')}</select>
-    </div>
-    <div class="field"><label>Толщина ЛДСП ящиков</label><input id="p-drawerThickness" type="number" step="1" value="${state.drawerThickness}"></div>
-    <div class="field">
-      <label>Система ящиков (на весь проект)</label>
-      <select id="p-drawerSystem">
-        ${DRAWER_SYSTEM_ORDER.map(id =>
-          `<option value="${id}" ${id === state.drawerSystem ? 'selected' : ''}>${esc(DRAWER_SYSTEMS[id].name)}</option>`
-        ).join('')}
-      </select>
-    </div>
     <div class="field">
       <label>Тип соединения корпуса</label>
       <select id="p-joint">
@@ -1348,6 +1374,95 @@ function materialsBlock() {
         <option value="minifix" ${state.jointType === 'minifix' ? 'selected' : ''}>Эксцентриковая стяжка</option>
         <option value="dowel" ${state.jointType === 'dowel' ? 'selected' : ''}>Шкант</option>
       </select>
+    </div>`;
+}
+
+// Экран «Ящики» — отдельная панель для ОДНОЙ секции ОДНОГО модуля (не список,
+// как renderSectionsList): открывается кнопкой «Редактировать ящики →» под
+// полем «Ящики, шт» (см. openDrawersPanel). Материал/толщина/система ящиков
+// раньше были общими на весь проект (state.drawerDecorCode/drawerThickness/
+// drawerSystem) — теперь это поля секции (sec.drawerDecorCode/drawerThickness/
+// drawerSystem, см. newSection()), потому что у разных секций одного проекта
+// могут стоять разные ящики. Поля используют простые уникальные id (а не
+// делегированный обработчик [data-field] из renderSectionsList, который
+// слушает только #sectionsList — этот экран отрисован в другом месте DOM).
+function drawersPanelBlock(mod, secIndex) {
+  const sec = mod.sections[secIndex];
+  const sys = sec.drawerSystem || 'ballBearing';
+
+  // 1. Высота фасадов ящиков — режим auto/manual + список высот сверху вниз
+  // (перенесено как есть из старого инлайн-блока renderSectionsList, включая
+  // разворот индекса и кнопку «сбросить фиксацию»).
+  const heightsBlock = `
+    <h3>Высота фасадов ящиков</h3>
+    <div class="field">
+      <select id="drawersMode">
+        <option value="auto" ${sec.drawerMode !== 'manual' ? 'selected' : ''}>распределить автоматически</option>
+        <option value="manual" ${sec.drawerMode === 'manual' ? 'selected' : ''}>задать вручную</option>
+      </select>
+    </div>
+    ${sec.drawerMode === 'manual' ? `
+    <div class="field">
+      <label>Высота фасада каждого ящика, мм <span class="dim">(сверху вниз)</span></label>
+      <div class="mini-row">
+        ${Array.from({ length: sec.drawers }, (_, k) => {
+          // Поля идут СВЕРХУ ВНИЗ, как на самой мебели. В модели ящики
+          // считаются снизу, поэтому индекс разворачиваем — иначе правка
+          // «верхнего» уходила в нижний ящик.
+          const d = sec.drawers - 1 - k;
+          const pinned = !!(sec.drawerPinned && sec.drawerPinned[d]);
+          return `<input type="number" step="10" min="50" value="${manualHeights(secIndex, sec)[d]}"
+                  class="${pinned ? 'pinned' : ''}" data-drawer="${d}"
+                  title="${k === 0 ? 'Верхний ящик' : (k === sec.drawers - 1 ? 'Нижний ящик' : 'Ящик ' + (k + 1) + ' сверху')}${pinned ? ' — задан вручную, автоматически не меняется' : ' — подстраивается автоматически'}">`;
+        }).join('')}
+      </div>
+      <div class="hint">Сумма высот равна фронту секции: правите один ящик — остаток
+        разбирают только те, что ещё не задавали вручную.</div>
+      <div class="hint">Заданный вручную ящик выделяется и больше не меняется автоматически —
+        остаток разбирают только незафиксированные.
+        <button type="button" class="link-btn" id="drawersUnpinBtn">сбросить фиксацию</button></div>` : ''}`;
+
+  return `
+    ${materialsBackLinkBlock()}
+    <h3>Ящики — ${esc(mod.name)} — Секция ${secIndex + 1}</h3>
+    <div id="drawersPanelRoot">
+      ${heightsBlock}
+
+      <h3>Материал ящиков</h3>
+      <div class="field">
+        <label>Толщина ЛДСП ящиков</label>
+        <input id="drawersThickness" type="number" step="1" value="${Number(sec.drawerThickness) || 16}">
+      </div>
+      <div class="field">
+        <label>Материал ящиков</label>
+        <select id="drawersDecor">${DECORS.map(d => `<option value="${d.code}" ${d.code === sec.drawerDecorCode ? 'selected' : ''}>${esc(d.name)}</option>`).join('')}</select>
+      </div>
+      <div class="field">
+        <label>Высота короба ящика</label>
+        <select id="drawersBoxHeight">
+          <option value="auto" ${(sec.drawerBoxHeight || 'auto') === 'auto' ? 'selected' : ''}>подобрать автоматически</option>
+          ${(DRAWER_SYSTEMS[sys] || {}).heights
+            ? DRAWER_SYSTEMS[sys].heights.map((h) =>
+                `<option value="${h.code}" ${sec.drawerBoxHeight === h.code ? 'selected' : ''}>${h.code} — ${h.h} мм${h.reling ? ', с релингом' : ''} (фасад от ${h.minFront})</option>`).join('')
+            : ''}
+        </select>
+        <div class="hint">Просвет над верхним коробом — не менее 25 мм.</div>
+      </div>
+      <div class="field">
+        <label>Высота ящика от дна, мм</label>
+        <input id="drawersOffset" type="number" step="10" min="10" value="${drawerOffsetOf(sec)}">
+      </div>
+      <div class="field">
+        <label class="checkbox-inline"><input type="checkbox" id="drawersPushToOpen" ${sec.pushToOpen ? 'checked' : ''}> Push-to-open (без ручек)</label>
+      </div>
+      <div class="field">
+        <label>Система ящиков</label>
+        <select id="drawersSystem">
+          ${DRAWER_SYSTEM_ORDER.map(id =>
+            `<option value="${id}" ${id === sys ? 'selected' : ''}>${esc(DRAWER_SYSTEMS[id].name)}</option>`
+          ).join('')}
+        </select>
+      </div>
     </div>`;
 }
 
@@ -1370,6 +1485,16 @@ function renderParamsPanel() {
     state.panelView = 'module';
   }
 
+  // Экран «Ящики» (см. drawersPanelBlock ниже) привязан к конкретной секции
+  // конкретного модуля — если модуль пропал, или индекс секции протух
+  // (секцию удалили, сменили активный модуль, undo/redo), откатываем на
+  // параметры модуля: та же защита, что и у экрана «Деталь» выше.
+  if (state.panelView === 'drawers'
+      && (!mod || !Number.isInteger(state.drawersSectionIndex)
+          || state.drawersSectionIndex < 0 || state.drawersSectionIndex >= mod.sections.length)) {
+    state.panelView = 'module';
+  }
+
   // Пустой проект (или потеря последнего модуля) — параметрам модуля/детали/
   // материалов показывать нечего, панель «Библиотека» теперь отдельная и
   // сама панель параметров сюда пользователя не перекидывает.
@@ -1378,6 +1503,8 @@ function renderParamsPanel() {
     screen = emptyProjectBlock();
   } else if (state.panelView === 'materials') {
     screen = materialsBackLinkBlock() + materialsBlock();
+  } else if (state.panelView === 'drawers') {
+    screen = drawersPanelBlock(mod, state.drawersSectionIndex);
   } else if (state.panelView === 'part') {
     if (!state.selectedPart) {
       screen = partPlaceholderBlock();
@@ -1965,47 +2092,6 @@ function renderSectionsList() {
   if (!mod || !list) return;      // пустой проект — секций нет
 
   list.innerHTML = mod.sections.map((sec, i) => {
-    const drawerBlock = sec.drawers > 0 ? `
-      <div class="sub">
-        <label>Высота ящика от дна, мм</label>
-        <div class="mini-row"><input type="number" step="10" min="10" value="${drawerOffsetOf(sec)}" data-field="drawerOffset" data-idx="${i}"></div>
-        <label class="mt6 checkbox-inline"><input type="checkbox" data-field="pushToOpen" data-idx="${i}" ${sec.pushToOpen ? 'checked' : ''}> Push-to-open (без ручек)</label>
-        <label class="mt6">Высота короба (царги)</label>
-        <select data-field="drawerBoxHeight" data-idx="${i}">
-          <option value="auto" ${(sec.drawerBoxHeight || 'auto') === 'auto' ? 'selected' : ''}>подобрать автоматически</option>
-          ${(DRAWER_SYSTEMS[state.drawerSystem] || {}).heights
-            ? DRAWER_SYSTEMS[state.drawerSystem].heights.map((h) =>
-                `<option value="${h.code}" ${sec.drawerBoxHeight === h.code ? 'selected' : ''}>${h.code} — ${h.h} мм${h.reling ? ', с релингом' : ''} (фасад от ${h.minFront})</option>`).join('')
-            : ''}
-        </select>
-        <div class="hint">Просвет над верхним коробом — не менее 25 мм.</div>
-
-        <label class="mt6">Высоты фасадов ящиков</label>
-        <select data-field="drawerMode" data-idx="${i}">
-          <option value="auto" ${sec.drawerMode !== 'manual' ? 'selected' : ''}>распределить автоматически</option>
-          <option value="manual" ${sec.drawerMode === 'manual' ? 'selected' : ''}>задать вручную</option>
-        </select>
-        ${sec.drawerMode === 'manual' ? `
-        <label class="mt6">Высота фасада каждого ящика, мм <span class="dim">(сверху вниз)</span></label>
-        <div class="mini-row">
-          ${Array.from({ length: sec.drawers }, (_, k) => {
-            // Поля идут СВЕРХУ ВНИЗ, как на самой мебели. В модели ящики
-            // считаются снизу, поэтому индекс разворачиваем — иначе правка
-            // «верхнего» уходила в нижний ящик.
-            const d = sec.drawers - 1 - k;
-            const pinned = !!(sec.drawerPinned && sec.drawerPinned[d]);
-            return `<input type="number" step="10" min="50" value="${manualHeights(i, sec)[d]}"
-                    class="${pinned ? 'pinned' : ''}" data-drawer="${d}" data-idx="${i}"
-                    title="${k === 0 ? 'Верхний ящик' : (k === sec.drawers - 1 ? 'Нижний ящик' : 'Ящик ' + (k + 1) + ' сверху')}${pinned ? ' — задан вручную, автоматически не меняется' : ' — подстраивается автоматически'}">`;
-          }).join('')}
-        </div>
-        <div class="hint">Сумма высот равна фронту секции: правите один ящик — остаток
-          разбирают только те, что ещё не задавали вручную.</div>
-        <div class="hint">Заданный вручную ящик выделяется и больше не меняется автоматически —
-          остаток разбирают только незафиксированные.
-          <button type="button" class="link-btn" data-unpin="${i}">сбросить фиксацию</button></div>` : ''}
-      </div>` : '';
-
     const ftId = sec.facadeType || 'ldsp';
     const ftInfo = FACADE_TYPES[ftId] || FACADE_TYPES.ldsp;
     const glassBlock = (secEffectiveFacades(sec).every((f) => f === 'open') && !sec.drawers) ? '' : `
@@ -2085,6 +2171,7 @@ function renderSectionsList() {
           ${doorZoneCount <= 1 ? `<div class="field"><label>Полки, шт</label><input type="number" min="0" max="12" value="${sec.shelves}" data-field="shelves" data-idx="${i}"></div>` : ''}
           <div class="field"><label>Ящики, шт</label><input type="number" min="0" max="8" value="${sec.drawers}" data-field="drawers" data-idx="${i}"></div>
         </div>
+        ${sec.drawers > 0 ? `<button class="btn materials-link-btn" data-drawers-open="${i}" type="button">Редактировать ящики <span class="arrow">→</span></button>` : ''}
         <div class="field">
           <label>Ширина проёма секции</label>
           <select data-field="widthMode" data-idx="${i}">
@@ -2115,7 +2202,6 @@ function renderSectionsList() {
         ${glassBlock}
         ${handleBlock}
         ${liftBlock}
-        ${drawerBlock}
         ${shelfBlock}
         ${rodBlock}
       </div>`;
@@ -2126,21 +2212,17 @@ function renderSectionsList() {
     el.addEventListener('change', (e) => {
       const sec = mod.sections[Number(e.target.dataset.idx)];
       const f = e.target.dataset.field;
-      sec[f] = (f === 'facade' || f === 'drawerSystem' || f === 'shelfMode'
-                || f === 'widthMode' || f === 'drawerMode'
+      sec[f] = (f === 'facade' || f === 'shelfMode'
+                || f === 'widthMode'
                 || f === 'handle' || f === 'lift' || f === 'handleOrient'
-                || f === 'drawerBoxHeight' || f === 'facadeType')
+                || f === 'facadeType')
         ? e.target.value
         : (e.target.type === 'checkbox' ? e.target.checked : Number(e.target.value));
-      // Переход в ручной режим не должен обнулять ящики: фиксируем то, что
-      // только что было распределено автоматически.
-      if (f === 'drawerMode' && e.target.value === 'manual') {
-        sec.drawerHeights = manualHeights(Number(e.target.dataset.idx), sec);
-      }
-      // Возврат в авторежим и смена количества ящиков снимают все фиксации.
-      if ((f === 'drawerMode' && e.target.value !== 'manual') || f === 'drawers') {
+      // Смена количества ящиков снимает все фиксации высот фасадов (панель
+      // «Ящики» этой секции переоткрывается с чистого автораспределения).
+      if (f === 'drawers') {
         sec.drawerPinned = [];
-        if (f === 'drawers') sec.drawerHeights = [];
+        sec.drawerHeights = [];
       }
       // Смена числа полок сбрасывает ручные высоты и возвращает в авторежим —
       // иначе новая полка наследует чужие/устаревшие значения (см. историю
@@ -2150,7 +2232,6 @@ function renderSectionsList() {
         sec.shelfMode = 'auto';
         sec.shelfHeights = [];
       }
-      if (f === 'drawerOffset') sec.drawerOffset = Math.max(MIN_LIFT, Number(e.target.value) || MIN_LIFT);
       // Число вертикальных зон фасада (пенал под встроенную технику) —
       // сама логика вынесена в setDoorZoneCount(), переиспользуется и здесь
       // (сайдбар), и кнопкой «Разделить на секции» в контекстном меню 3D.
@@ -2173,16 +2254,6 @@ function renderSectionsList() {
       recompute();
     });
   });
-  // высоты ящиков
-  list.querySelectorAll('[data-drawer]').forEach((el) => {
-    el.addEventListener('change', (e) => {
-      const si = Number(e.target.dataset.idx);
-      const sec = mod.sections[si];
-      sec.drawerHeights = redistributeDrawers(si, sec, Number(e.target.dataset.drawer), Number(e.target.value));
-      renderSectionsList();
-      recompute();
-    });
-  });
   // высоты полок
   list.querySelectorAll('[data-shelf]').forEach((el) => {
     el.addEventListener('change', (e) => {
@@ -2197,21 +2268,19 @@ function renderSectionsList() {
   // все зоны секции), и в компактном контекстном редакторе одной зоны
   // (doorZoneEditorScreen, открывается кликом по фасаду в 3D).
   bindZoneFieldEvents(list, mod);
-  list.querySelectorAll('[data-unpin]').forEach((el) => {
-    el.addEventListener('click', (e) => {
-      const sec = mod.sections[Number(e.target.dataset.unpin)];
-      sec.drawerPinned = [];
-      sec.drawerHeights = [];
-      sec.drawerMode = 'auto';
-      renderSectionsList();
-      recompute();
-    });
-  });
   list.querySelectorAll('[data-remove]').forEach((el) => {
     el.addEventListener('click', (e) => {
       mod.sections.splice(Number(e.target.dataset.remove), 1);
       renderSectionsList();
       recompute();
+    });
+  });
+  // «Редактировать ящики →» — открывает отдельную панель «Ящики» для этой
+  // секции (см. openDrawersPanel/drawersPanelBlock). e.currentTarget, а не
+  // e.target: клик может попасть на внутренний <span class="arrow">.
+  list.querySelectorAll('[data-drawers-open]').forEach((el) => {
+    el.addEventListener('click', (e) => {
+      openDrawersPanel(Number(e.currentTarget.dataset.drawersOpen));
     });
   });
 }
@@ -2246,7 +2315,9 @@ function addPresetToProject(catId, presetId) {
       // не трогаем, иначе кухня получится целиком белой.
       if (state.decorCode !== white.code) state.facadeDecorCode = state.decorCode;
       state.decorCode = white.code;
-      state.drawerDecorCode = white.code;
+      // Материал ящиков — поле секции (см. newSection()/drawersPanelBlock),
+      // красим ящики нового кухонного модуля в тот же белый, что и корпус.
+      (m.sections || []).forEach((sec) => { sec.drawerDecorCode = white.code; });
     }
   }
   insertModule(m);
@@ -2538,10 +2609,7 @@ function bindPanelEvents() {
   on('p-bodyThickness', 'change', (e) => { state.bodyThickness = Number(e.target.value); recompute(); });
   on('p-facadeThickness', 'change', (e) => { state.facadeThickness = Number(e.target.value); recompute(); });
   on('p-backThickness', 'change', (e) => { state.backThickness = Number(e.target.value); recompute(); });
-  on('p-drawerDecor', 'change', (e) => { state.drawerDecorCode = e.target.value; recompute(); });
-  on('p-drawerThickness', 'change', (e) => { state.drawerThickness = Number(e.target.value) || 16; recompute(); });
   on('p-joint', 'change', (e) => { state.jointType = e.target.value; recompute(); });
-  on('p-drawerSystem', 'change', (e) => { state.drawerSystem = e.target.value; recompute(); });
 
   on('addSection', 'click', () => {
     mod.sections.push(newSection());
@@ -2633,6 +2701,71 @@ function bindPanelEvents() {
       recompute();
     });
   });
+
+  // Экран «Ящики» (drawersPanelBlock) — поля привязаны напрямую к
+  // mod.sections[state.drawersSectionIndex] по простым уникальным id
+  // (экран показывает ровно одну секцию, делегат [data-field] сайдбара
+  // здесь не подходит — он слушает только #sectionsList).
+  const drawersRoot = document.getElementById('drawersPanelRoot');
+  if (drawersRoot) {
+    const si = state.drawersSectionIndex;
+    const sec = mod.sections[si];
+    if (sec) {
+      on('drawersMode', 'change', (e) => {
+        sec.drawerMode = e.target.value;
+        // Переход в ручной режим фиксирует то, что только что было
+        // распределено автоматически (не обнуляет ящики); возврат в авто —
+        // снимает все фиксации. Та же логика, что и раньше в делегате
+        // renderSectionsList для 'drawerMode'.
+        if (e.target.value === 'manual') sec.drawerHeights = manualHeights(si, sec);
+        else sec.drawerPinned = [];
+        renderParamsPanel();
+        recompute();
+      });
+      drawersRoot.querySelectorAll('[data-drawer]').forEach((el) => {
+        el.addEventListener('change', (e) => {
+          sec.drawerHeights = redistributeDrawers(si, sec, Number(e.target.dataset.drawer), Number(e.target.value));
+          renderParamsPanel();
+          recompute();
+        });
+      });
+      on('drawersUnpinBtn', 'click', () => {
+        sec.drawerPinned = [];
+        sec.drawerHeights = [];
+        sec.drawerMode = 'auto';
+        renderParamsPanel();
+        recompute();
+      });
+      on('drawersThickness', 'change', (e) => {
+        sec.drawerThickness = Number(e.target.value) || 16;
+        recompute();
+      });
+      on('drawersDecor', 'change', (e) => {
+        sec.drawerDecorCode = e.target.value;
+        recompute();
+      });
+      on('drawersBoxHeight', 'change', (e) => {
+        sec.drawerBoxHeight = e.target.value;
+        recompute();
+      });
+      on('drawersOffset', 'change', (e) => {
+        sec.drawerOffset = Math.max(MIN_LIFT, Number(e.target.value) || MIN_LIFT);
+        recompute();
+      });
+      on('drawersPushToOpen', 'change', (e) => {
+        sec.pushToOpen = e.target.checked;
+        recompute();
+      });
+      on('drawersSystem', 'change', (e) => {
+        sec.drawerSystem = e.target.value;
+        // Список опций «Высота короба ящика» зависит от системы — как и у
+        // drawerMode выше, перерисовываем экран целиком, чтобы список сразу
+        // совпал с новой системой.
+        renderParamsPanel();
+        recompute();
+      });
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -2649,8 +2782,6 @@ function recompute(isRetry) {
     decor: DECORS.find(d => d.code === state.decorCode),
     facadeDecor: DECORS.find(d => d.code === state.facadeDecorCode) || DECORS.find(d => d.code === state.decorCode),
     backMaterial: BACK_MATERIALS.find(d => d.code === state.backCode),
-    drawerDecor: DECORS.find(d => d.code === state.drawerDecorCode),
-    drawerThickness: state.drawerThickness,
     worktopDepth: state.worktopDepth,
     jointType: state.jointType,
     modules: state.modules.map(m => ({
@@ -2663,7 +2794,7 @@ function recompute(isRetry) {
         ? { type: 'plinth', plinthHeight: m.plinthHeight }
         : { type: m.baseType, legHeight: m.legHeight },
       legType: m.legType || 'metal',
-      sections: m.sections.map(sc => Object.assign({}, sc, { drawerSystem: state.drawerSystem })),
+      sections: m.sections,
       // Ручные правки конкретных деталей (толщина/материал/доп. отверстия) —
       // см. applyPartOverrides() в engine.js и partBlock()/bindPanelEvents()
       // выше, где этот объект заполняется с экрана «Деталь».
@@ -3080,17 +3211,36 @@ function renderSpecTable(spec) {
 function drawerPassportHtml() {
   const { buildDrawerPassport } = window.Modul3D.specification || {};
   if (!buildDrawerPassport) return '';
-  const pass = buildDrawerPassport(state.drawerSystem);
-  if (!pass) return '';
-  const rows = pass.rows.map((r) =>
-    `<tr><td>${esc(r.name)}</td><td>${esc(String(r.value))}</td><td>${esc(r.note)}</td></tr>`).join('');
-  const warn = pass.assumed.length
-    ? `<div class="passport-warn">⚠ Не подтверждено документом: ${
-      pass.assumed.map((a) => esc(a)).join('; ')}. Сверьте с инструкцией производителя.</div>`
-    : '<div class="passport-ok">Все размеры взяты из документа производителя.</div>';
-  return `<h4 class="spec-title">5. Паспорт системы ящиков</h4>${warn}
-    <table><thead><tr><th>Параметр</th><th>Значение</th><th>Примечание</th></tr></thead>
-    <tbody>${rows}</tbody></table>`;
+  // Система ящиков — теперь настройка ПО СЕКЦИИ (sec.drawerSystem, см.
+  // newSection()/drawersPanelBlock), а не одна на весь проект — собираем
+  // множество РЕАЛЬНО используемых систем (только там, где в секции есть
+  // ящики) и выводим паспорт на каждую отдельно, без дублей.
+  const systemIds = [];
+  state.modules.forEach((m) => {
+    (m.sections || []).forEach((sec) => {
+      if (!(Number(sec.drawers) > 0)) return;
+      const sysId = sec.drawerSystem || 'ballBearing';
+      if (systemIds.indexOf(sysId) === -1) systemIds.push(sysId);
+    });
+  });
+  if (!systemIds.length) return '';
+
+  const passports = systemIds.map((sysId) => {
+    const pass = buildDrawerPassport(sysId);
+    if (!pass) return '';
+    const rows = pass.rows.map((r) =>
+      `<tr><td>${esc(r.name)}</td><td>${esc(String(r.value))}</td><td>${esc(r.note)}</td></tr>`).join('');
+    const warn = pass.assumed.length
+      ? `<div class="passport-warn">⚠ Не подтверждено документом: ${
+        pass.assumed.map((a) => esc(a)).join('; ')}. Сверьте с инструкцией производителя.</div>`
+      : '<div class="passport-ok">Все размеры взяты из документа производителя.</div>';
+    const sysName = (DRAWER_SYSTEMS[sysId] || {}).name || sysId;
+    return `<h5>${esc(sysName)}</h5>${warn}
+      <table><thead><tr><th>Параметр</th><th>Значение</th><th>Примечание</th></tr></thead>
+      <tbody>${rows}</tbody></table>`;
+  }).join('');
+
+  return `<h4 class="spec-title">5. Паспорт системы ящиков</h4>${passports}`;
 }
 
 // ---------------------------------------------------------------------------
