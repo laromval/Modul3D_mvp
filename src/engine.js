@@ -1597,9 +1597,13 @@ function buildModuleParts(p) {
     // она занимает только свою толщину, а жёсткость даже выше.
     const onEdge = p.topType === 'railsEdge';
     const RAIL_W = onEdge ? railTopH : Math.max(60, Math.min(Number(p.railWidth) || 100, D / 2 - 10));
+    // Передняя планка НА РЕБРО утоплена вглубь корпуса от переднего края —
+    // иначе винты крепления ручки фасада (идут сзади фасада вперёд) упираются
+    // в планку. Задняя планка на ребро (ниже) не трогаем — ей ручка не мешает.
+    const FRONT_RAIL_EDGE_SETBACK = 4; // мм, фиксировано
     for (const r of [
       { nm: 'Планка верхняя передняя',
-        z: onEdge ? D / 2 - t / 2 : D / 2 - RAIL_W / 2, edge: EDGE_FRONT },
+        z: onEdge ? D / 2 - t / 2 - FRONT_RAIL_EDGE_SETBACK : D / 2 - RAIL_W / 2, edge: EDGE_FRONT },
       { nm: 'Планка верхняя задняя',
         z: onEdge ? -D / 2 + t / 2 : -D / 2 + RAIL_W / 2, edge: null },
     ]) {

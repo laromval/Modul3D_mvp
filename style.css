@@ -777,6 +777,10 @@ input[type='number'] { font-family: var(--ff-mono); }
 
 .add-section-btn { width: 100%; margin-top: var(--sp-2); padding: 9px 12px; }
 
+/* Экран «Деталь» → крыша из планок, переключатель «на ребро» (partBlock() в
+   app.js). Цвет вкл/выкл — обычный .btn/.active, здесь только раскладка. */
+.part-top-edge-btn { display: block; width: 100%; margin: var(--sp-2) 0 var(--sp-3); text-align: center; }
+
 /* Экран «Деталь» → список ручных доп. отверстий (см. partBlock() в app.js) */
 .extra-hole-row { margin-bottom: var(--sp-2); padding-bottom: var(--sp-2); border-bottom: 1px dashed var(--border); }
 .extra-hole-row:last-child { border-bottom: none; }
