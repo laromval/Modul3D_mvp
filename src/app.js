@@ -1152,8 +1152,9 @@ function partKindPlaceholderBlock(kind) {
 }
 
 // Компактный редактор ОДНОЙ зоны фасада — открывается «Редактировать» в
-// контекстном меню фокуса (openPartEditor) для kind:'door'. Альтернатива
-// «простыне» карточек всех зон в сайдбаре (renderSectionsList → zonesBlock):
+// контекстном меню фокуса (openPartEditor) для kind:'door'. Это единственное
+// место, где настраиваются зоны многозонного фасада (в сайдбаре, см.
+// renderSectionsList, для такой секции — только подсказка со ссылкой сюда):
 // показывает поля только той зоны, по которой кликнули в 3D. Модель данных
 // фасада (sec.facade / sec.doorZones[]) — не в mod.partOverrides, поэтому
 // это отдельная от partBlock() функция, не через OVERRIDABLE_PART_KINDS.
@@ -1186,8 +1187,9 @@ function doorZoneEditorScreen(mod, sectionIndex, zoneIndex) {
             <option value="open" ${sec.facade === 'open' ? 'selected' : ''}>Без дверей</option>
           </select>
         </div>
-        <div class="hint">Материал фасада, ручка и число зон по высоте — на экране
-        «Параметры проекта» этого модуля.</div>
+        <div class="hint">Материал фасада и ручка — на экране «Параметры проекта»
+        этого модуля. Число зон по высоте меняется через «Разделить на секции
+        по вертикали» в контекстном меню фасада в 3D.</div>
         <div class="field"><label>Полки, шт</label><input type="number" min="0" max="12" value="${sec.shelves}" data-field="shelves" data-idx="${sectionIndex}"></div>
         ${shelfDetailBlock(sec, sectionIndex)}
       </div>`;
@@ -1548,12 +1550,11 @@ function secEffectiveFacades(sec) {
 
 // Разметка ОДНОЙ карточки зоны фасада (техника/фасад/высота/габариты/
 // заметка) — чистая функция рендера без побочных эффектов и завязки на
-// замыкание конкретного места вызова. Используется дважды: в общем списке
-// секций сайдбара (renderSectionsList → zonesBlock, карточки на все зоны
-// сразу) и в компактном контекстном редакторе одной зоны, открываемом
-// кликом по фасаду в 3D (doorZoneEditorScreen, только карточка КОНКРЕТНОЙ
-// зоны) — оба места обязаны показывать и сохранять поля идентично, иначе
-// то, что настроено через один путь, будет выглядеть иначе через другой.
+// замыкание конкретного места вызова. Используется в компактном контекстном
+// редакторе одной зоны, открываемом кликом по фасаду в 3D
+// (doorZoneEditorScreen, карточка только КОНКРЕТНОЙ зоны) — это единственный
+// способ настроить зоны многозонного фасада, поэтому сайдбар для такой
+// секции ограничивается подсказкой (см. renderSectionsList).
 // `i` — индекс секции в mod.sections (для data-idx у полей), `zi` — индекс
 // зоны в sec.doorZones, `doorZoneCount` — общее число зон секции (для
 // заголовка «Нижняя/Верхняя/Зона N»).
@@ -1630,9 +1631,9 @@ function zoneCardHtml(sec, i, zi, doorZoneCount) {
 // 1..4 и подгоняет длину sec.doorZones под новое количество, не теряя уже
 // настроенные зоны (уменьшение НЕ усекает массив — «лишние» элементы просто
 // не используются, пока doorZoneCount не увеличат обратно; engine.js и
-// zonesBlock/zoneCardHtml читают только первые doorZoneCount элементов).
-// Переиспользуется и сайдбаром (поле «Зон по высоте, шт»), и кнопкой
-// «Разделить на секции по вертикали» в контекстном меню 3D.
+// zoneCardHtml читают только первые doorZoneCount элементов).
+// Вызывается кнопкой «Разделить на секции по вертикали» в контекстном меню
+// фасада в 3D (единственный способ задать это число, см. viewer.onSelectPart).
 function setDoorZoneCount(sec, value) {
   const n = Math.max(1, Math.min(4, Math.round(Number(value)) || 1));
   sec.doorZoneCount = n;
@@ -2070,22 +2071,16 @@ function renderSectionsList() {
         <div class="mini-row"><input type="number" step="10" min="300" value="${sec.rodHeight || 1900}" data-field="rodHeight" data-idx="${i}"></div>` : ''}
       </div>`;
 
-    // Вертикальные зоны фасада (пенал под встроенную технику): вместо одного
-    // общего select «Фасад» — карточка на каждую зону, отображаемая СВЕРХУ
-    // ВНИЗ (индекс 0 в sec.doorZones — нижняя зона, поэтому порядок вывода
-    // разворачиваем, как и для ящиков выше).
+    // Вертикальные зоны фасада (пенал под встроенную технику): деление на
+    // зоны и карточка каждой зоны живут только в 3D-фокусе (клик по фасаду →
+    // doorZoneEditorScreen/zoneCardHtml), здесь для многозонной секции —
+    // просто ссылка на этот способ, без общего select «Фасад».
     const doorZoneCount = Number(sec.doorZoneCount) || 1;
-    // Многозонная секция — полки настраиваются по зонам внутри zonesBlock/
-    // zoneCardHtml ниже (engine.js игнорирует sec.shelves при multiZone),
-    // плоский блок на всю секцию для неё смысла не имеет.
+    // Многозонная секция — полки настраиваются по зонам в zoneCardHtml
+    // (доступно кликом по фасаду в 3D, см. doorZoneEditorScreen); engine.js
+    // игнорирует sec.shelves при multiZone, плоский блок на всю секцию для
+    // неё смысла не имеет.
     const shelfBlock = doorZoneCount <= 1 ? shelfDetailBlock(sec, i) : '';
-    const zonesBlock = (doorZoneCount > 1 && Array.isArray(sec.doorZones) && sec.doorZones.length) ? `
-      <div class="field">
-        <label>Зоны фасада <span class="dim">(сверху вниз)</span></label>
-        ${Array.from({ length: doorZoneCount }, (_, zi) => zi).reverse()
-          .map((zi) => zoneCardHtml(sec, i, zi, doorZoneCount)).join('')}
-        <div class="hint">Высота 0 или пусто — зона получает остаток после зон с заданной высотой. Полки секции автоматически обходят ниши под технику.</div>
-      </div>` : '';
 
     return `
       <div class="section-card">
@@ -2107,11 +2102,6 @@ function renderSectionsList() {
             ? `<div class="mini-row mt6"><input type="number" step="10" min="50" value="${sec.width || 400}" data-field="width" data-idx="${i}"></div>`
             : ''}
         </div>
-        <div class="field">
-          <label>Зон по высоте, шт</label>
-          <input type="number" min="1" max="4" value="${sec.doorZoneCount || 1}" data-field="doorZoneCount" data-idx="${i}">
-          <div class="hint">1 — один фасад на всю секцию, как обычно. Больше — несколько дверей/ниш друг над другом (пенал под встроенную технику).</div>
-        </div>
         ${doorZoneCount <= 1 ? `
         <div class="field">
           <label>Фасад</label>
@@ -2123,7 +2113,10 @@ function renderSectionsList() {
             <option value="blindFacade" ${sec.facade === 'blindFacade' ? 'selected' : ''}>Заглушка</option>
             <option value="open" ${sec.facade === 'open' ? 'selected' : ''}>Без дверей</option>
           </select>
-        </div>` : zonesBlock}
+        </div>` : `
+        <div class="field">
+          <div class="hint">Секция разделена на зоны по высоте. Деление и настройка зон (фасад, встраиваемая техника, полки) — кликом по фасаду в 3D в режиме фокуса: двойной клик по модулю → клик по фасаду → «Разделить на секции по вертикали» / «Редактировать секцию».</div>
+        </div>`}
         ${facadeWidthBlock}
         ${glassBlock}
         ${handleBlock}
@@ -2164,23 +2157,6 @@ function renderSectionsList() {
         sec.shelfHeights = [];
       }
       if (f === 'drawerOffset') sec.drawerOffset = Math.max(MIN_LIFT, Number(e.target.value) || MIN_LIFT);
-      // Число вертикальных зон фасада (пенал под встроенную технику) —
-      // сама логика вынесена в setDoorZoneCount(), переиспользуется и здесь
-      // (сайдбар), и кнопкой «Разделить на секции» в контекстном меню 3D.
-      // Ниже — тот же путь, что и у кнопки «Разделить на секции» в 3D
-      // (viewer.onSelectPart, onApply): подгонка нижней зоны под соседа и
-      // перестановка полок на стыки зон, чтобы оба способа вели себя
-      // одинаково.
-      if (f === 'doorZoneCount') {
-        const applied = setDoorZoneCount(sec, Number(e.target.value));
-        if (applied >= 2) {
-          if (!sec.doorZones[0].height) {
-            const neighborH = findNeighborBottomZoneHeight(mod, Number(e.target.dataset.idx));
-            if (neighborH) sec.doorZones[0].height = neighborH;
-          }
-          placeShelvesAtZoneBoundaries(mod, Number(e.target.dataset.idx));
-        }
-      }
       // менялось количество/режим — перерисовываем блок, чтобы поля появились
       renderSectionsList();
       recompute();
@@ -3358,10 +3334,11 @@ function initHeaderControls() {
       viewer.render(currentModel, viewOpts());
       const items = [];
       // Клик по фасаду — сверху пункт быстрого разбиения секции на N зон
-      // по вертикали (пенал под встроенную технику), альтернатива полю
-      // «Зон по высоте, шт» в сайдбаре: доступен прямо в 3D, где сразу
-      // видно фасад, который делим. При применении заодно расставляет
-      // полки на стыках новых зон (см. placeShelvesAtZoneBoundaries).
+      // по вертикали (пенал под встроенную технику) — единственный способ
+      // задать это число (в сайдбаре поля больше нет, см. renderSectionsList):
+      // доступен прямо в 3D, где сразу видно фасад, который делим. При
+      // применении заодно расставляет полки на стыках новых зон (см.
+      // placeShelvesAtZoneBoundaries).
       if (kind === 'door' && Number.isFinite(sectionIndex)) {
         const mm = state.modules.find((m) => m.name === module);
         const sec = mm && mm.sections[sectionIndex];
