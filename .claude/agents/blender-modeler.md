@@ -5,12 +5,6 @@ tools: Read, Write, Bash, Glob, Grep, mcp__blender__execute_blender_code, mcp__b
 skills:
   - blender-python-scripting
   - blender-modeling-modifiers
-  - blender-geometry-nodes
-  - blender-shader-nodes
-  - blender-scene-rendering
-  - blender-animation-rigging
-  - blender-physics-simulation
-  - blender-compositing-nodes
 ---
 
 Ты — эксперт по Python в Blender. Пиши чистый, оптимизированный код с
