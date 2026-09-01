@@ -14,7 +14,7 @@
 (function () {
 // Версия сборки — показывается во вкладке браузера и в шапке.
 // При выпуске новой версии меняется только эта строка.
-const APP_VERSION = 'v198';
+const APP_VERSION = 'v199';
 
 // Номер версии выводим ПЕРВЫМ делом: если дальше что-то упадёт, по нему сразу
 // видно, какая сборка открыта.
@@ -1058,6 +1058,16 @@ function partBlock(mod) {
     ${visible ? `
     <div class="hint">Эта боковина видимая — режется в декоре фасада.</div>
     <button class="link-btn" id="partToFacadeDecor" type="button">Изменить декор фасада →</button>` : ''}`;
+  } else if (kind === 'top' && (mod.topType === 'rails' || mod.topType === 'railsEdge')) {
+    // Верх модуля из двух планок можно положить плашмя (толщина детали
+    // лежит по вертикали) или поставить на ребро (толщина лежит по
+    // глубине) — сама геометрия обоих вариантов уже в engine.js
+    // (buildModel, topType 'rails'/'railsEdge'), кнопка только переключает
+    // mod.topType между ними (см. bindPanelEvents ниже).
+    const onEdge = mod.topType === 'railsEdge';
+    kindSpecific = `
+    <h3>${esc(part.name || kindTitle)}</h3>
+    <button class="btn part-top-edge-btn${onEdge ? ' active' : ''}" id="partTopOnEdgeToggle" type="button">Расположить на ребро</button>`;
   } else {
     kindSpecific = `<h3>${esc(part.name || kindTitle)}</h3>`;
   }
@@ -2555,6 +2565,15 @@ function bindPanelEvents() {
   // только какая деталь сейчас редактируется — recompute() не нужен.
   on('partSubIndex', 'change', (e) => {
     if (state.selectedPart) state.selectedPart.subIndex = Number(e.target.value) || 0;
+    renderParamsPanel();
+  });
+
+  // Экран «Деталь» → крыша из планок: переключатель «плашмя ⇄ на ребро».
+  // Меняет геометрию всего верха модуля (обе планки), поэтому — recompute()
+  // как для обычного параметра модуля, а не override отдельной детали.
+  on('partTopOnEdgeToggle', 'click', () => {
+    mod.topType = mod.topType === 'railsEdge' ? 'rails' : 'railsEdge';
+    recompute();
     renderParamsPanel();
   });
 
