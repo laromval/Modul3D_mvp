@@ -1952,12 +1952,21 @@ function buildModuleParts(p) {
     const runnerYs = [];
     const boxInfo = [];
     if (drawerHeights.length) {
+      // Материал/толщина ящиков — по умолчанию проектные (drawerDecor/drawerT),
+      // но секция может переопределить их своими sec.drawerDecorCode/
+      // sec.drawerThickness (панель «Ящики» в UI). Fallback нужен для секций
+      // без этих полей — старые пресеты (presets.js создаёт секции через
+      // sec({...}) без них) и проекты, ещё не прошедшие миграцию.
+      const secDrawerDecor = (sec.drawerDecorCode
+        && window.Modul3D.catalog.DECORS.find((d) => d.code === sec.drawerDecorCode))
+        || drawerDecor;
+      const secDrawerT = Number(sec.drawerThickness) || drawerT;
       buildDrawerBoxes({
         parts, warnings, sec, secName, secCenterX, drawerHeights,
         sectionOpening: secW, innerDepth: D - tb, t, decor, back, backT: tb,
         frontZ: D / 2, boxInfo,
         facadeBaseY: baseH, gap,
-        drawerDecor, drawerT,
+        drawerDecor: secDrawerDecor, drawerT: secDrawerT,
         baseY: drawerBaseY, innerTopY: innerBottomY + innerH,
         runnerYs,
       });
