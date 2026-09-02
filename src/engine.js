@@ -1558,8 +1558,17 @@ function buildModuleParts(p) {
     if (ftv.id === 'wood' || ftv.id === 'woodGlass') {
       return { code: 'FAC-VENEER', name: 'МДФ шпон' };
     }
-    // Стекло и алюминиевый профиль на боковину не годятся — ЛДСП фасадный
-    if (ftv.id === 'glass4' || ftv.id === 'alu') return { code: 'FAC-LDSP', name: 'ЛДСП фасадный' };
+    // Стекло и алюминиевый профиль на боковину не годятся — идёт ЛДСП
+    // фасадный, но В ДЕКОРЕ ПРОЕКТА (как и у ldsp-фасада выше, см.
+    // facadeTypeOf()), а не безымянный каталожный код сам по себе — иначе у
+    // соседних модулей с одинаковым декором, но разным facadeType (ldsp и
+    // glass4/alu), расходится код материала цоколя/боковины, и mergePlinths()
+    // не сливает их цоколь в одну планку (ключ группировки сверяет материал
+    // буквально).
+    if (ftv.id === 'glass4' || ftv.id === 'alu') {
+      const fdec = p.facadeDecor || decor;
+      return { code: fdec.code, name: 'ЛДСП фасадный' };
+    }
     return { code: ftv.material, name: ftv.name.replace('Фасад ', '') };
   };
 

@@ -2039,7 +2039,7 @@ for (const glass of [false, true]) {
   }
   // Цоколь — тоже видимая деталь: он в материале фасада, а под дерево — шпон
   for (const [ft, want] of [['ldsp', oak.code], ['mdf', 'FAC-MDF'],
-    ['wood', 'FAC-VENEER'], ['glass4', 'FAC-LDSP']]) {
+    ['wood', 'FAC-VENEER'], ['glass4', oak.code]]) {
     const mm = mk('onBottom', ft);
     const pl = mm.parts.filter((q) => q.kind === 'plinth')[0];
     if (!pl) { problems.push(`цоколь не построен при фасаде ${ft}`); continue; }
