@@ -300,6 +300,11 @@ const HIGHLIGHT_COLOR = {
   leg: 0x41667f,
 };
 
+// Прозрачность ВСЕГО выделенного модуля (клик по модулю/вкладке в панели) —
+// поверх синей подсветки, чтобы видно было наполнение корпуса (полки, ящики
+// за фасадом).
+const ACTIVE_MODULE_OPACITY = 0.4;
+
 // Подсветка фасада ВЫБРАННОЙ СЕКЦИИ (клик по двери/ящику в Focus Mode →
 // «Редактировать секцию»): плотная бирюзовая полупрозрачная заливка поверх
 // обычного цвета фасада — грани и контур детали видны сквозь неё. В отличие
@@ -323,8 +328,9 @@ function makeFramedFacade(box, row, isActive, ghost, sectionHi) {
     color: frameColor, roughness: row.facadeType === 'alu' ? 0.3 : 0.7,
     metalness: row.facadeType === 'alu' ? 0.8 : 0.05,
     emissive: sectionHi ? SECTION_HI_EMISSIVE : 0x000000,
-    transparent: ghost || sectionHi, opacity: sectionHi ? SECTION_HI_OPACITY : (ghost ? 0.22 : 1),
-    depthWrite: !(ghost || sectionHi),
+    transparent: ghost || sectionHi || isActive,
+    opacity: sectionHi ? SECTION_HI_OPACITY : (ghost ? 0.22 : (isActive ? ACTIVE_MODULE_OPACITY : 1)),
+    depthWrite: !(ghost || sectionHi || isActive),
   });
   const addBar = (w, h, x, y) => {
     const m = new THREE.Mesh(new THREE.BoxGeometry(Math.max(w, 0.001), Math.max(h, 0.001), T), matFrame);
@@ -344,9 +350,10 @@ function makeFramedFacade(box, row, isActive, ghost, sectionHi) {
     color: sectionHi ? SECTION_HI_COLOR : (isGlass ? GLASS4_COLOR : (isActive ? 0x7fb0d8 : 0xd8c8a8)),
     roughness: isGlass ? 0.08 : 0.7, metalness: 0.02,
     emissive: sectionHi ? SECTION_HI_EMISSIVE : 0x000000,
-    transparent: isGlass || ghost || sectionHi,
-    opacity: sectionHi ? SECTION_HI_OPACITY : (ghost ? 0.2 : (isGlass ? GLASS4_OPACITY : 1)),
-    depthWrite: !(isGlass || ghost || sectionHi),
+    transparent: isGlass || ghost || sectionHi || isActive,
+    opacity: sectionHi ? SECTION_HI_OPACITY
+      : (ghost ? 0.2 : (isGlass ? GLASS4_OPACITY : (isActive ? ACTIVE_MODULE_OPACITY : 1))),
+    depthWrite: !(isGlass || ghost || sectionHi || isActive),
   });
   const ins = new THREE.Mesh(new THREE.BoxGeometry(iw, ih, T * (isGlass ? 0.25 : 0.6)), matIns);
   ins.position.z = isGlass ? 0 : -T * 0.15;
@@ -369,7 +376,9 @@ function makeHandle(box, shape, moduleName, isActive, cc, rotDeg, dimmed) {
   const mat = new THREE.MeshStandardMaterial({
     color: isActive ? 0x9fc3de : 0xc9ccd0, roughness: 0.25, metalness: 0.9,
     emissive: isActive ? 0x14314a : 0x000000,
-    transparent: !!dimmed, opacity: dimmed ? 0.22 : 1, depthWrite: !dimmed,
+    transparent: !!dimmed || isActive,
+    opacity: dimmed ? 0.22 : (isActive ? ACTIVE_MODULE_OPACITY : 1),
+    depthWrite: !(dimmed || isActive),
   });
   const out = box.d * MM;                       // вылет от фасада
 
@@ -423,7 +432,9 @@ function makeRod(box, moduleName, isActive, rotDeg, dimmed) {
   const steel = new THREE.MeshStandardMaterial({
     color: isActive ? 0x9fc3de : 0xd9dde0, roughness: 0.18, metalness: 0.95,
     emissive: isActive ? 0x14314a : 0x000000,
-    transparent: !!dimmed, opacity: dimmed ? 0.22 : 1, depthWrite: !dimmed,
+    transparent: !!dimmed || isActive,
+    opacity: dimmed ? 0.22 : (isActive ? ACTIVE_MODULE_OPACITY : 1),
+    depthWrite: !(dimmed || isActive),
   });
   const mesh = new THREE.Mesh(new THREE.CylinderGeometry(d / 2, d / 2, len, 20), steel);
   mesh.rotation.z = Math.PI / 2;            // ось трубы — вдоль X
@@ -466,7 +477,9 @@ function legRubberMaterial(isActive, dimmed) {
   return new THREE.MeshStandardMaterial({
     color: isActive ? 0x1c2733 : 0x101112, roughness: 0.9, metalness: 0,
     emissive: isActive ? 0x0a1a2a : 0x000000,
-    transparent: !!dimmed, opacity: dimmed ? 0.22 : 1, depthWrite: !dimmed,
+    transparent: !!dimmed || isActive,
+    opacity: dimmed ? 0.22 : (isActive ? ACTIVE_MODULE_OPACITY : 1),
+    depthWrite: !(dimmed || isActive),
   });
 }
 
@@ -487,7 +500,9 @@ function makeLeg(box, moduleName, isActive, dimmed) {
     color: isActive ? 0x9fc7d6 : 0xdedad0,
     specular: 0xffffff, shininess: 110,
     emissive: isActive ? 0x14314a : 0x000000,
-    transparent: !!dimmed, opacity: dimmed ? 0.22 : 1, depthWrite: !dimmed,
+    transparent: !!dimmed || isActive,
+    opacity: dimmed ? 0.22 : (isActive ? ACTIVE_MODULE_OPACITY : 1),
+    depthWrite: !(dimmed || isActive),
   });
   const rubber = legRubberMaterial(isActive, dimmed);
 
@@ -845,7 +860,9 @@ function makeKitchenLeg(box, moduleName, isActive, hasClip, dimmed, rot) {
   const plastic = new THREE.MeshStandardMaterial({
     color: isActive ? 0x232a30 : 0x020201, roughness: 0.5, metalness: 0.02,
     emissive: isActive ? 0x0d1a26 : 0x000000,
-    transparent: !!dimmed, opacity: dimmed ? 0.22 : 1, depthWrite: !dimmed,
+    transparent: !!dimmed || isActive,
+    opacity: dimmed ? 0.22 : (isActive ? ACTIVE_MODULE_OPACITY : 1),
+    depthWrite: !(dimmed || isActive),
   });
 
   const LM = window.Modul3D.legMeshes;
@@ -1747,7 +1764,9 @@ class Viewer3D {
             new THREE.CylinderGeometry(d / 2, d / 2, Math.max(box.w * MM, 0.001), 20),
             new THREE.MeshStandardMaterial({
               color: isActive ? 0x9fc3de : 0xd9dde0, roughness: 0.25, metalness: 0.9,
-              transparent: dimmed, opacity: dimmed ? 0.22 : 1, depthWrite: !dimmed,
+              transparent: dimmed || isActive,
+              opacity: dimmed ? 0.22 : (isActive ? ACTIVE_MODULE_OPACITY : 1),
+              depthWrite: !(dimmed || isActive),
             })
           );
           mesh.rotation.z = Math.PI / 2;                 // ось диска — вдоль X
@@ -1851,10 +1870,11 @@ class Viewer3D {
         roughness: glass ? 0.1 : (isMdf ? 0.12 : 0.75),
         metalness: isMdf ? 0.05 : 0.02,
         emissive: hiCyan ? SECTION_HI_EMISSIVE : (isActive ? 0x14314a : 0x000000),
-        transparent: hiCyan || ghostLike || glass || drillCheck,
+        transparent: hiCyan || ghostLike || glass || drillCheck || isActive,
         opacity: hiCyan ? SECTION_HI_OPACITY
-          : (ghostLike ? 0.22 : (glassFacade ? GLASS4_OPACITY : (glass ? 0.35 : (drillCheck ? 0.22 : 1)))),
-        depthWrite: !(hiCyan || ghostLike || glass || drillCheck),
+          : (ghostLike ? 0.22 : (glassFacade ? GLASS4_OPACITY
+            : (glass ? 0.35 : (drillCheck ? 0.22 : (isActive ? ACTIVE_MODULE_OPACITY : 1))))),
+        depthWrite: !(hiCyan || ghostLike || glass || drillCheck || isActive),
       });
       if (tex) {
         // Грань детали строится в slabGeometry() как THREE.Shape с
@@ -1988,8 +2008,9 @@ class Viewer3D {
             color: hiCyan ? SECTION_HI_COLOR : (isActive ? 0x6fa3cd : 0xe6e2da),
             roughness: 0.14, metalness: 0.05,
             emissive: hiCyan ? SECTION_HI_EMISSIVE : 0x000000,
-            transparent: hiCyan, opacity: hiCyan ? SECTION_HI_OPACITY : 1,
-            depthWrite: !hiCyan,
+            transparent: hiCyan || isActive,
+            opacity: hiCyan ? SECTION_HI_OPACITY : (isActive ? ACTIVE_MODULE_OPACITY : 1),
+            depthWrite: !(hiCyan || isActive),
           });
           const field = new THREE.Mesh(new THREE.BoxGeometry(w, h, depth), fieldMat);
           field.position.z = box.d / 2 * MM - depth / 2;   // утоплено внутрь
