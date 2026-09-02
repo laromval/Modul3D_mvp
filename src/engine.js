@@ -3469,7 +3469,7 @@ function mergePlinths(parts) {
       setSize(head, ax, hi - lo);
       head.length = round1(hi - lo);
       head.note = 'Сквозной цоколь на весь ряд, утоплен от фасада';
-      head.module = run.map(p => p.module).filter((v, i, a) => a.indexOf(v) === i).join(' + ');
+      head.module = moduleListLabel(run.map(p => p.module));
       for (let i = 1; i < run.length; i++) removed.add(run[i]);
       run = [];
     };
@@ -3710,6 +3710,18 @@ function mergeDisplayName(kind, names) {
   return MERGED_DISPLAY_NAME[kind] || names.join(' / ');
 }
 
+// Список модулей-источников для колонки «Модуль» в деталировке — заголовок
+// колонки уже говорит, что там модуль, поэтому «Модуль 1 + Модуль 2» —
+// лишнее повторение слова и на десятке модулей займёт всю ширину колонки.
+// Модуль по умолчанию называется «Модуль N» (см. buildModel, name = m.name
+// || `Модуль ${idx+1}`) — для него оставляем только номер; у модуля с
+// собственным именем (пользователь переименовал) префикса «Модуль » нет,
+// показываем имя как есть.
+function moduleListLabel(names) {
+  const uniq = names.filter((v, i, a) => a.indexOf(v) === i);
+  return uniq.map((n) => (n || '').replace(/^Модуль /, '')).join(', ');
+}
+
 // Объединяет одинаковые детали суммируя qty — требование п.13 ТЗ
 // ("корректно суммирует количество одинаковых деталей").
 //
@@ -3750,11 +3762,10 @@ function mergeEqualParts(parts) {
     merged.push(Object.assign({}, row, {
       num, boxes: row._boxes,
       name: mergeDisplayName(row.kind, row._names),
-      // Модуль(и), из которых реально пришли склеенные детали — тот же
-      // формат («А + Б»), что уже используется при слиянии цоколей соседних
-      // модулей (см. ниже, run.map(...).join(' + ')), для единообразия
-      // колонки «Модуль» в деталировке.
-      module: row._modules.join(' + '),
+      // Модуль(и), из которых реально пришли склеенные детали — см.
+      // moduleListLabel: только номер для модулей по умолчанию, без слова
+      // «Модуль» на каждый (иначе на десятке модулей колонка не влезает).
+      module: moduleListLabel(row._modules),
     }));
   }
   return { merged, numByKey };
