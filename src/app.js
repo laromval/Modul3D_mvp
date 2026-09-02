@@ -14,7 +14,7 @@
 (function () {
 // Версия сборки — показывается во вкладке браузера и в шапке.
 // При выпуске новой версии меняется только эта строка.
-const APP_VERSION = 'v202';
+const APP_VERSION = 'v203';
 
 // Номер версии выводим ПЕРВЫМ делом: если дальше что-то упадёт, по нему сразу
 // видно, какая сборка открыта.
@@ -886,7 +886,7 @@ function moduleTabsBlock(mod) {
     <div class="mod-tabs" id="modTabs">
       ${state.modules.map((m, i) =>
         `<button class="mod-tab tip tip-down ${i === state.activeModule ? 'active' : ''}" data-mod="${i}" type="button"
-                 data-tip="ПКМ: переименование, поворот, удаление">${esc(m.name)}${m.rotation ? ` ↻${m.rotation}°` : ''}</button>`
+                 data-tip="ПКМ: переименование">${esc(m.name)}${m.rotation ? ` ↻${m.rotation}°` : ''}</button>`
       ).join('')}
       <button class="mod-add tip tip-down" id="addModule" type="button" data-tip="Добавить модуль" aria-label="Добавить модуль">+</button>
     </div>`;
@@ -1895,6 +1895,54 @@ function placeShelvesAtZoneBoundaries(mod, sectionIndex) {
   sec.zoneBoundaryShelves = heights;
 }
 
+// Мост для ui-shell.js (HUD в 3D, см. renderHud/initHud): состояние модуля,
+// нужное HUD и для подсветки текущего поворота, и для решения — показывать
+// ли кнопку «Разделить на секции по высоте» (по явному решению — только
+// когда в модуле ровно одна секция, иначе неоднозначно какую делить, и
+// пользователь идёт через Focus Mode как раньше). Применимость самой кнопки
+// проверяем ТОЙ ЖЕ логикой, что определяет её в showFocusMenu выше (клик по
+// фасаду — kind === 'door', см. viewer.onSelectPart) — только не по клику
+// на конкретную деталь, а по уже построенной модели (currentModel.partsRaw,
+// см. overridablePartCandidates выше — тот же источник для 3D→деталь).
+function getModuleHudState(moduleName) {
+  const mod = state.modules.find((m) => m.name === moduleName);
+  if (!mod) return null;
+  const rotation = Number(mod.rotation) || 0;
+  const singleSection = Array.isArray(mod.sections) && mod.sections.length === 1;
+  const sec = singleSection ? mod.sections[0] : null;
+  const doorZoneCount = sec ? (Number(sec.doorZoneCount) || 1) : 1;
+  const rows = (currentModel && currentModel.partsRaw) || [];
+  const canSplitByHeight = !!(singleSection && rows.some(
+    (r) => r.module === moduleName && r.kind === 'door' && r.sectionIndex === 0
+  ));
+  return { rotation, canSplitByHeight, doorZoneCount };
+}
+
+// Мост для ui-shell.js: «Разделить на секции по высоте» из HUD в 3D — та же
+// логика, что применяет числовой пункт «Разделить на секции по вертикали» в
+// showFocusMenu выше (setDoorZoneCount + подгонка высоты нижней зоны под
+// соседа + расстановка полок на стыках), но без обязательного клика по
+// конкретному фасаду в Focus Mode: секция здесь однозначна — единственная,
+// sectionIndex 0 (см. getModuleHudState — кнопка в HUD видна только тогда).
+function setModuleDoorZoneCount(moduleName, n) {
+  const mod = state.modules.find((m) => m.name === moduleName);
+  if (!mod || !Array.isArray(mod.sections) || mod.sections.length !== 1) return;
+  const sec = mod.sections[0];
+  const applied = setDoorZoneCount(sec, n);
+  if (applied >= 2) {
+    // Нижняя зона по умолчанию — вровень с фасадом соседа (единая
+    // горизонтальная линия по ряду), если высота ещё не задана вручную;
+    // уже настроенную высоту не трогаем.
+    if (!sec.doorZones[0].height) {
+      const neighborH = findNeighborBottomZoneHeight(mod, 0);
+      if (neighborH) sec.doorZones[0].height = neighborH;
+    }
+    placeShelvesAtZoneBoundaries(mod, 0);
+  }
+  renderParamsPanel();
+  recompute();
+}
+
 // Довязка «задним числом»: когда рядом со СВЕЖЕВСТАВЛЕННЫМ модулем (индекс
 // `at` в state.modules ПОСЛЕ вставки) уже стоит пенал с разбивкой на зоны,
 // у которого нижняя зона осталась «авто» (высота не задана — соседа не было
@@ -2312,10 +2360,14 @@ function addPresetToProject(catId, presetId) {
   insertModule(m);
 }
 
-// Контекстное меню модуля: поворот вокруг вертикальной оси и удаление.
-// Вызывается правой кнопкой по вкладке модуля в левом верхнем углу панели.
+// Повороты модуля вокруг вертикальной оси — общий список подписей для
+// HUD-меню в 3D (клик по модулю, см. ui-shell.js: renderHud() берёт его
+// через window.Modul3D.app.getRotations(), чтобы не дублировать список).
 // Подписи соответствуют фактическому развороту деталей в модели
 // (проверяется в tools/geometry.js): 90° уводит фасад ВПРАВО, 270° — ВЛЕВО.
+// Запись [0, ...] здесь ТОЛЬКО для текста текущего состояния в HUD — сама
+// кнопка поворота в HUD одна и работает инкрементально (см. rotateModuleStep
+// ниже), отдельной кнопки на «без поворота» больше нет.
 const ROTATIONS = [
   [0,   'без поворота — фасад вперёд'],
   [90,  'на 90° — фасад вправо'],
@@ -2323,32 +2375,47 @@ const ROTATIONS = [
   [270, 'на 270° — фасад влево'],
 ];
 
+// Применяет поворот модуля — общая логика для HUD-меню в 3D (см.
+// window.Modul3D.app.rotateModule/rotateModuleStep ниже).
+function rotateModule(moduleName, deg) {
+  const mod = state.modules.find((m) => m.name === moduleName);
+  if (!mod) return;
+  mod.rotation = Number(deg) || 0;
+  renderParamsPanel();
+  recompute();
+}
+
+// Поворот «на шаг» — одна кнопка в HUD (см. ui-shell.js) вместо трёх
+// отдельных 90/180/270: каждый клик доворачивает ЕЩЁ на 90° по кругу
+// (270° + 90° = 360° = 0°, то есть так же можно вернуться к «без поворота»,
+// без отдельной кнопки на это значение — так попросил пользователь).
+function rotateModuleStep(moduleName) {
+  const mod = state.modules.find((m) => m.name === moduleName);
+  if (!mod) return;
+  const cur = Number(mod.rotation) || 0;
+  rotateModule(moduleName, (cur + 90) % 360);
+}
+
 function closeModuleMenu() {
   const old = document.getElementById('moduleMenu');
   if (old && old.remove) old.remove();
 }
 
+// Контекстное меню модуля: только переименование. Поворот переехал в
+// HUD-меню в 3D (клик по модулю, см. ui-shell.js/rotateModule выше),
+// удаление — в иконку в шапке программы (delBtn, см. ниже).
+// Вызывается правой кнопкой по вкладке модуля в левом верхнем углу панели.
 function showModuleMenu(modIndex, x, y) {
   closeModuleMenu();
   const mod = state.modules[modIndex];
   if (!mod) return;
-  const cur = Number(mod.rotation) || 0;
 
   const menu = document.createElement('div');
   menu.id = 'moduleMenu';
   menu.className = 'ctx-menu';
   menu.style.left = Math.round(x) + 'px';
   menu.style.top = Math.round(y) + 'px';
-  menu.innerHTML = `
-    <input class="ctx-title ctx-title-input" id="ctxModName" type="text" value="${esc(mod.name)}">
-    <div class="ctx-group">Повернуть</div>
-    ${ROTATIONS.map(([deg, label]) =>
-      `<button type="button" class="ctx-item ${deg === cur ? 'on' : ''}" data-rot="${deg}">${label}</button>`
-    ).join('')}
-    <div class="ctx-sep"></div>
-    <button type="button" class="ctx-item danger" data-del="1"
-      title="${state.modules.length <= 1 ? 'В проекте должен остаться хотя бы один модуль' : ''}"
-      >Удалить модуль</button>`;
+  menu.innerHTML = `<input class="ctx-title ctx-title-input" id="ctxModName" type="text" value="${esc(mod.name)}">`;
   document.body.appendChild(menu);
 
   // Переименование модуля прямо из контекстного меню (поле в заголовке).
@@ -2373,21 +2440,6 @@ function showModuleMenu(modIndex, x, y) {
       }
     });
   }
-
-  menu.querySelectorAll('[data-rot]').forEach((el) => {
-    el.addEventListener('click', () => {
-      mod.rotation = Number(el.dataset.rot) || 0;
-      closeModuleMenu();
-      renderParamsPanel();
-      recompute();
-    });
-  });
-  menu.querySelectorAll('[data-del]').forEach((el) => {
-    el.addEventListener('click', () => {
-      closeModuleMenu();
-      deleteModule(modIndex);
-    });
-  });
 }
 
 // ---------------------------------------------------------------------------
@@ -2550,7 +2602,8 @@ function bindPanelEvents() {
     });
   });
 
-  // Правая кнопка на вкладке модуля — меню с поворотом и удалением.
+  // Правая кнопка на вкладке модуля — меню переименования (поворот — в
+  // HUD в 3D, удаление — иконкой в шапке программы, см. rotateModule/delBtn).
   document.querySelectorAll('.mod-tab').forEach((b) => {
     b.addEventListener('contextmenu', (e) => {
       e.preventDefault();
@@ -4238,8 +4291,20 @@ function refreshCurrency() {
 // refreshCurrency() после смены валюты (см. ui-shell.js: setCurrency);
 // isProjectEmpty() нужен restoreUI(), чтобы при пустом проекте открывать
 // «Библиотеку» вместо панели «Параметры», где иначе видна только заглушка
-// (см. emptyProjectBlock()).
-window.Modul3D.app = { setPanelView: setPanelView, refreshCurrency: refreshCurrency, isProjectEmpty: function () { return state.modules.length === 0; } };
+// (см. emptyProjectBlock()). getRotations/rotateModule/getModuleHudState/
+// setModuleDoorZoneCount — для HUD-меню в 3D (клик по модулю): поворот и
+// разделение секции по высоте прямо из HUD, без захода в контекстное меню
+// или Focus Mode (см. renderHud/initHud в ui-shell.js).
+window.Modul3D.app = {
+  setPanelView: setPanelView,
+  refreshCurrency: refreshCurrency,
+  isProjectEmpty: function () { return state.modules.length === 0; },
+  getRotations: function () { return ROTATIONS.map((r) => r.slice()); },
+  rotateModule: rotateModule,
+  rotateModuleStep: rotateModuleStep,
+  getModuleHudState: getModuleHudState,
+  setModuleDoorZoneCount: setModuleDoorZoneCount,
+};
 
 // ---------------------------------------------------------------------------
 // Запуск

@@ -21,6 +21,10 @@ var viewerInstance = null;
 var lastPointer = { x: 0, y: 0 };
 var openPanel = null;
 var hudModule = null;
+// Раскрыт ли инлайн-степпер «Разделить на секции по высоте» в HUD (см.
+// renderHud) — сбрасывается при каждом показе/скрытии HUD, чтобы степпер не
+// оставался развёрнутым при переключении на другой модуль.
+var hudSplitOpen = false;
 var syncingDocs = false;
 
 /* ---------------------------------------------------------------------------
@@ -410,6 +414,36 @@ function pushField(id, value) {
 function renderHud() {
   var box = hudEl();
   if (!box || !hudModule) return;
+  var app = window.Modul3D.app;
+  var hudState = (app && app.getModuleHudState) ? app.getModuleHudState(hudModule) : null;
+  var rotations = (app && app.getRotations) ? app.getRotations() : [];
+  var curRot = hudState ? hudState.rotation : 0;
+
+  // Блок «Повернуть» — ОДНА кнопка вместо трёх (90/180/270°): каждый клик
+  // доворачивает модуль ещё на 90° по кругу (см. app.js: rotateModuleStep),
+  // так можно докрутить и обратно к «без поворота» без отдельной кнопки на
+  // это значение. Текущее состояние подписано текстом рядом — иначе не
+  // понятно, сколько раз кликать; подпись берётся из общего списка
+  // ROTATIONS через мост, чтобы не дублировать текст.
+  var curLabelRow = rotations.filter(function (r) { return r[0] === curRot; })[0];
+  var curLabel = curLabelRow ? curLabelRow[1] : '';
+  var rotateHtml = !rotations.length ? '' :
+    '<div class="hud-group">Поворот: ' + escapeHtml(curLabel) + '</div>' +
+    '<button type="button" class="btn hud-full" data-hud-rotate-step>⟳ Повернуть на 90°</button>';
+
+  // Кнопка «Разделить на секции по высоте» — только когда в модуле ровно
+  // одна секция и у неё есть фасад-дверь (см. app.js: getModuleHudState).
+  // По клику раскрывается компактный инлайн-степпер вместо самой кнопки.
+  var splitHtml = '';
+  if (hudState && hudState.canSplitByHeight) {
+    splitHtml = hudSplitOpen ?
+      '<div class="hud-numrow">' +
+        '<input type="number" min="1" max="4" value="' + (hudState.doorZoneCount || 1) + '" data-hud-split-input>' +
+        '<button type="button" class="btn" data-hud-split-apply>Разделить</button>' +
+      '</div>' :
+      '<button type="button" class="btn hud-full" data-hud-split-open>Разделить на секции по высоте</button>';
+  }
+
   box.innerHTML =
     '<div class="hud-title"><span>' + escapeHtml(hudModule) + '</span>' +
     '<button type="button" class="hud-close" data-hud-close aria-label="Закрыть">✕</button></div>' +
@@ -417,10 +451,29 @@ function renderHud() {
       hudDim('В', 'm-height') + hudDim('Ш', 'm-width') + hudDim('Г', 'm-depth') +
     '</div>' +
     '<div class="hud-meta">Материал: ' + escapeHtml(selectedText('p-decor')) + '</div>' +
+    rotateHtml +
     '<div class="hud-actions">' +
       '<button type="button" class="btn" data-hud-open="params">Параметры</button>' +
       '<button type="button" class="btn" data-hud-open="docs">Документы</button>' +
-    '</div>';
+    '</div>' +
+    '<button type="button" class="btn hud-full" data-hud-focus>Редактировать детали</button>' +
+    splitHtml;
+}
+
+// Применяет «Разделить на секции по высоте» из инлайн-степпера HUD (см.
+// renderHud/data-hud-split-apply) — читает число из поля и зовёт мост
+// app.js: setModuleDoorZoneCount, затем сворачивает степпер обратно в
+// кнопку и перерисовывает HUD, чтобы показать новое число зон.
+function applyHudSplit() {
+  var box = hudEl();
+  var input = box && box.querySelector('[data-hud-split-input]');
+  if (!input || !hudModule) return;
+  var n = Number(input.value) || 1;
+  if (window.Modul3D.app && window.Modul3D.app.setModuleDoorZoneCount) {
+    window.Modul3D.app.setModuleDoorZoneCount(hudModule, n);
+  }
+  hudSplitOpen = false;
+  renderHud();
 }
 
 function hudDim(label, id) {
@@ -439,6 +492,7 @@ function showHud(name) {
   var box = hudEl();
   if (!box) return;
   hudModule = name;
+  hudSplitOpen = false;
   renderHud();
   box.setAttribute('aria-hidden', 'false');
   box.classList.add('open');
@@ -463,6 +517,7 @@ function hideHud() {
   var box = hudEl();
   if (!box) return;
   hudModule = null;
+  hudSplitOpen = false;
   box.classList.remove('open');
   box.setAttribute('aria-hidden', 'true');
 }
@@ -473,6 +528,38 @@ function initHud() {
 
   box.addEventListener('click', function (e) {
     if (e.target.closest('[data-hud-close]')) { hideHud(); return; }
+
+    if (e.target.closest('[data-hud-rotate-step]')) {
+      if (hudModule && window.Modul3D.app && window.Modul3D.app.rotateModuleStep) {
+        window.Modul3D.app.rotateModuleStep(hudModule);
+      }
+      // Перерисовываем HUD, чтобы текст текущего поворота обновился на
+      // только что применённое значение.
+      renderHud();
+      return;
+    }
+
+    if (e.target.closest('[data-hud-focus]')) {
+      // То же самое, что двойной клик по модулю в 3D — вход в Focus Mode
+      // (viewer.onIsolateModule уже обёрнут ниже так, чтобы сам скрыть
+      // HUD, см. блок «Подключаемся к выбору модуля» дальше в этой функции).
+      if (hudModule && viewerInstance && typeof viewerInstance.onIsolateModule === 'function') {
+        viewerInstance.onIsolateModule(hudModule);
+      }
+      return;
+    }
+
+    if (e.target.closest('[data-hud-split-open]')) {
+      hudSplitOpen = true;
+      renderHud();
+      return;
+    }
+
+    if (e.target.closest('[data-hud-split-apply]')) {
+      applyHudSplit();
+      return;
+    }
+
     var open = e.target.closest('[data-hud-open]');
     if (open) {
       var target = open.getAttribute('data-hud-open');
@@ -486,6 +573,14 @@ function initHud() {
       // больше не нужен и не должен висеть поверх/рядом с открывшейся
       // панелью (см. баг: накопление панелей друг над другом).
       hideHud();
+    }
+  });
+  box.addEventListener('keydown', function (e) {
+    // Enter в поле инлайн-степпера применяет разделение — по образцу
+    // числового пункта showFocusMenu в app.js (там та же клавиша так же
+    // подтверждает значение вместо клика по кнопке).
+    if (e.key === 'Enter' && e.target.matches && e.target.matches('[data-hud-split-input]')) {
+      applyHudSplit();
     }
   });
   box.addEventListener('change', function (e) {

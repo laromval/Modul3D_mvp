@@ -957,10 +957,19 @@ h4.spec-title { margin: var(--sp-5) 0 var(--sp-2); font-size: var(--fs-md); font
   background: var(--surface-solid); color: var(--text);
 }
 .hud-meta { font-size: var(--fs-xs); color: var(--muted); margin-bottom: var(--sp-2); line-height: 1.45; overflow-wrap: anywhere; }
+.hud-group { font-size: 10px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin-bottom: 4px; }
 .hud-actions { display: flex; gap: 6px; }
 .hud-actions .btn { flex: 1; padding: 6px 8px; font-size: var(--fs-xs); text-align: center; }
+.hud-full { display: block; width: 100%; margin-top: 6px; text-align: center; }
+.hud-numrow { display: flex; gap: 6px; margin-top: 6px; align-items: center; }
+.hud-numrow input[type="number"] {
+  width: 56px; box-sizing: border-box; font-family: inherit; font-size: var(--fs-sm);
+  border: 1px solid var(--border); border-radius: var(--r-sm);
+  background: var(--surface-2); color: var(--text); padding: 5px 6px;
+}
+.hud-numrow .btn { flex: 1; }
 
-/* ---------- 11. КОНТЕКСТНОЕ МЕНЮ (поворот/удаление модуля) ---------------- */
+/* ---------- 11. КОНТЕКСТНОЕ МЕНЮ (переименование модуля, меню фокуса) ----- */
 
 .ctx-menu {
   position: fixed; z-index: 60; min-width: 214px; padding: 6px;
