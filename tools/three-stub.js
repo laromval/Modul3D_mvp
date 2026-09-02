@@ -67,6 +67,8 @@ class Path {
   moveTo(...a) { this.ops.push(['m', a]); }
   lineTo(...a) { this.ops.push(['l', a]); }
   absarc(...a) { this.ops.push(['a', a]); }
+  quadraticCurveTo(...a) { this.ops.push(['q', a]); }
+  closePath(...a) { this.ops.push(['z', a]); }
 }
 class Shape extends Path { constructor() { super(); this.holes = []; } }
 

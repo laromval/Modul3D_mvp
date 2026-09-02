@@ -28,7 +28,14 @@ class El {
     this.attrs = attrs;
     this.dataset = {};
     for (const k of Object.keys(attrs)) {
-      if (k.indexOf('data-') === 0) this.dataset[k.slice(5)] = attrs[k];
+      // Настоящий DOM переводит «data-drawers-open» в dataset.drawersOpen
+      // (camelCase) — без этого Number(e.target.dataset.drawersOpen) даёт
+      // NaN на любом составном имени (поймано на клике «Редактировать
+      // ящики →», который из-за этого откатывал экран назад).
+      if (k.indexOf('data-') === 0) {
+        const camel = k.slice(5).replace(/-([a-z0-9])/g, (_, c) => c.toUpperCase());
+        this.dataset[camel] = attrs[k];
+      }
     }
     this.style = {};
     this.value = attrs.value !== undefined ? attrs.value : '';
@@ -56,8 +63,23 @@ class El {
   }
   removeEventListener() {}
   dispatch(type, ev) {
-    const list = this._listeners.get(type) || [];
-    for (const fn of list) fn(Object.assign({ target: this, preventDefault() {}, stopPropagation() {} }, ev || {}));
+    // Снимок СПИСКА, а не живая ссылка на массив: id, отсутствующий в новой
+    // разметке после innerHTML, в registry не забывается (см. harvest ниже)
+    // — обработчик вроде «Материалы модуля» вешается на тот же устаревший
+    // объект заново при каждом renderParamsPanel(). Без снимка push() внутри
+    // ещё выполняющегося listener'а дописывает элемент в ТОТ ЖЕ массив, что
+    // уже перебирает этот for-of, и цикл никогда не заканчивается — ровно
+    // так поймали реальное зависание на клике по «Материалы модуля».
+    // Настоящий DOM ведёт себя так же: слушатели, добавленные во время
+    // диспетчеризации, в неё уже не попадают.
+    const list = (this._listeners.get(type) || []).slice();
+    // currentTarget — элемент, на который повешен слушатель (всегда this для
+    // прямого addEventListener, в отличие от делегирования); часть кода
+    // (например, обработчик «Редактировать ящики →») читает именно его, а не
+    // target, — см. e.currentTarget.dataset в app.js/bindPanelEvents.
+    for (const fn of list) {
+      fn(Object.assign({ target: this, currentTarget: this, preventDefault() {}, stopPropagation() {} }, ev || {}));
+    }
     return list.length;
   }
   click() { return this.dispatch('click'); }
@@ -68,6 +90,15 @@ class El {
   getBoundingClientRect() { return { left: 0, top: 0, width: 900, height: 600, right: 900, bottom: 600 }; }
   querySelector(sel) { return this.querySelectorAll(sel)[0] || null; }
   querySelectorAll(sel) {
+    // Вложенный контейнер (напр. #drawersPanelRoot внутри #paramsPanel)
+    // получает разметку не своим innerHTML, а innerHTML РОДИТЕЛЯ — здесь у
+    // него самого _html остаётся пустой. Настоящий DOM в этом случае всё
+    // равно находит вложенные элементы (это единое дерево); наш плоский
+    // regex-разбор — нет, поэтому без отката обработчики вроде change на
+    // высотах ящиков молча не вешались бы ни на что (поймано на сценарии
+    // ящиков — правка поля не двигала соседей). Откатываемся на глобальный
+    // поиск, как уже делает document.querySelectorAll ниже.
+    if (!this._html) return document.querySelectorAll(sel);
     // Разбираем один раз на перерисовку: приложение вешает обработчики на
     // полученные отсюда объекты, и прогон должен дёргать ИМЕННО их — причём
     // по любому селектору, каким бы элемент ни искали.
@@ -131,12 +162,25 @@ function parseElements(html) {
   }
   return list;
 }
+// [attr] / [attr="value"] — сравнивать нужно ИМЯ и ЗНАЧЕНИЕ атрибута, а не
+// искать имя атрибута подстрокой внутри текста селектора: старая проверка
+// `sel.indexOf(k) !== -1` считала совпадением любой элемент с атрибутом,
+// чья буква встречается где-то в селекторе (напр. атрибут SVG-пути `d`
+// матчился селектором «[data-field="shelves"]», ведь буква «d» в нём есть) —
+// поймано на «отмена возвращает число полок»: селектор находил 34 левых
+// элемента вместо нужного поля.
+const ATTR_SEL = /^\[([\w-]+)(?:="([^"]*)")?\]$/;
 function queryAll(list, sel) {
+  const attrMatch = sel.startsWith('[') ? ATTR_SEL.exec(sel) : null;
   return list.filter((x) => {
     const cls = (x.attrs.class || '').split(/\s+/);
     if (sel.startsWith('.')) return cls.indexOf(sel.slice(1)) !== -1;
     if (sel.startsWith('#')) return x.attrs.id === sel.slice(1);
-    if (sel.startsWith('[')) return Object.keys(x.attrs).some((k) => sel.indexOf(k) !== -1);
+    if (attrMatch) {
+      const [, name, val] = attrMatch;
+      if (!(name in x.attrs)) return false;
+      return val === undefined ? true : x.attrs[name] === val;
+    }
     return x.tag.toLowerCase() === sel.toLowerCase();
   }).map((x) => x.el);
 }
@@ -237,8 +281,13 @@ function closeAllMenus() {
   const m = document.getElementById('moduleMenu');
   if (m && m.remove) m.remove();
 }
+// Строгое сравнение с `false` маскировало реальные провалы: проверка вида
+// `el && Number(el.attrs.value) === 18` при отсутствующем el вернёт `null`,
+// а не `false`, и молча считалась пройденной — так пропала часть проверок
+// после переезда полей в отдельные экраны панели. Любой «ложный» результат
+// (null/undefined/0/'') теперь тоже провал, как и должно быть у assert.
 const check = (name, fn) => {
-  try { if (fn() === false) fails.push(name); } catch (e) { fails.push(name + ': ' + e.message); }
+  try { if (!fn()) fails.push(name); } catch (e) { fails.push(name + ': ' + e.message); }
 };
 
 const panel = $('paramsPanel');
@@ -250,7 +299,9 @@ check('заголовок с версией', () => /^Modul3D v\d+/.test(documen
 
 // --- старт: проект пуст, первый модуль выбирает пользователь ---------------
 check('стартует без модулей', () => document.querySelectorAll('.mod-tab').length === 0);
-check('на старте видна база модулей', () => /База модулей/.test(panel.innerHTML));
+// «База модулей» теперь в отдельной панели «Библиотека» (#libraryPanel),
+// не в #paramsPanel — см. app.js libraryBlock/renderLibraryPanel.
+check('на старте видна база модулей', () => /База модулей/.test($('libraryPanel').innerHTML));
 check('на старте есть подсказка о пустом проекте', () => /Проект пуст/.test(panel.innerHTML));
 check('на чертежах написано, что проект пуст', () => /Проект пуст/.test($('tab-drawings').innerHTML));
 check('пустой проект не даёт ошибок', () => panel.innerHTML.indexOf('Ошибка') === -1);
@@ -270,15 +321,45 @@ check('в чертежах напечатан материал деталей', 
 check('спецификация не пуста', () => $('tab-spec').innerHTML.indexOf('<table') !== -1);
 check('чертежи не пусты', () => $('tab-drawings').innerHTML.length > 200);
 
+// Материалы (декор/толщины/соединение корпуса) — отдельный экран панели
+// (state.panelView:'materials', см. materialsBlock), открывается кнопкой
+// #materialsLinkBtn на экране модуля, назад — кнопкой #panelBack.
+check('кнопка «Материалы модуля» открывает экран материалов', () => {
+  const b = document.getElementById('materialsLinkBtn');
+  if (!b) return false;
+  b.click();
+  return !!document.getElementById('p-decor');
+});
 check('корпус по умолчанию 18 мм', () => {
   const el = document.getElementById('p-bodyThickness');
-  return el && Number(el.attrs.value) === 18;
+  return !!el && Number(el.attrs.value) === 18;
 });
-check('ящики по умолчанию 16 мм', () => {
-  const el = document.getElementById('p-drawerThickness');
-  return el && Number(el.attrs.value) === 16;
+for (const id of ['p-decor', 'p-back', 'p-joint']) {
+  const el0 = document.getElementById(id);
+  if (!el0) { fails.push('нет элемента #' + id); continue; }
+  for (const v of (el0._options || [el0.value])) {
+    check(id + ' = ' + v, () => {
+      const cur = document.getElementById(id);   // панель могла перерисоваться
+      if (!cur) return false;
+      cur.value = v;
+      cur.dispatch('change', { target: cur });
+      return !/Ошибка/.test($('paramsPanel').innerHTML);
+    });
+  }
+}
+check('кнопка «назад» возвращает на экран модуля', () => {
+  const b = document.getElementById('panelBack');
+  if (!b) return false;
+  b.click();
+  // Регистр DOM-заглушки не забывает id старых элементов между рендерами —
+  // отсутствие проверяем по самой HTML-разметке панели, а не по registry.
+  const html = $('paramsPanel').innerHTML;
+  return html.indexOf('id="p-decor"') === -1 && html.indexOf('id="sectionsList"') !== -1;
 });
-check('есть выбор декора ящиков', () => !!document.getElementById('p-drawerDecor'));
+// Материал/толщина ящиков раньше были общими на проект (p-drawerDecor/
+// p-drawerThickness), теперь — поля секции (#drawersDecor/#drawersThickness
+// на экране «Ящики», см. drawersPanelBlock); проверка — ниже, в сценарии
+// ящиков (drawerScenario).
 check('вариант «до пола» есть при любом основании', () => {
   const bt = document.getElementById('m-baseType');
   if (!bt) return false;
@@ -343,7 +424,7 @@ check('заголовок секций начинается с модуля', ()
 check('карточка секции подписана «Модуль N · Секция M»', () =>
   /Модуль \d+ · Секция 1/.test($('sectionsList').innerHTML));
 
-for (const id of ['m-leftSide', 'm-rightSide', 'm-baseType', 'p-decor', 'p-back', 'p-joint', 'p-drawerDecor']) {
+for (const id of ['m-leftSide', 'm-rightSide', 'm-baseType']) {
   const el0 = document.getElementById(id);
   if (!el0) { fails.push('нет элемента #' + id); continue; }
   for (const v of (el0._options || [el0.value])) {
@@ -356,8 +437,10 @@ for (const id of ['m-leftSide', 'm-rightSide', 'm-baseType', 'p-decor', 'p-back'
     });
   }
 }
+// Имя модуля больше не поле панели (m-name удалён) — переименование только
+// через контекстное меню правой кнопкой (#ctxModName), см. moduleMenuScenario.
 for (const pair of [['m-width', 1200], ['m-height', 600], ['m-depth', 350],
-                    ['m-baseHeight', 150], ['m-name', 'Тумба'], ['m-baseHeight', 0]]) {
+                    ['m-baseHeight', 150], ['m-baseHeight', 0]]) {
   check(pair[0] + ' = ' + pair[1], () => {
     const el = document.getElementById(pair[0]);
     if (!el) return false;
@@ -386,19 +469,39 @@ for (const id of Array.from(registry.keys())) {
 // Модуль приводим к заведомо известному состоянию: фронт 800-100 = 700 мм,
 // три ящика без дверей. Автораспределение обязано дать 240/230/230.
 (function drawerScenario() {
-  const list = document.getElementById('sectionsList');
   const fld = (name) => document.getElementById('sectionsList')
     .querySelectorAll('[data-field]').filter((e) => e.attrs['data-field'] === name)[0];
   const set = (name, v) => { const el = fld(name); if (!el) return false; el.value = v; el.dispatch('change', { target: el }); return true; };
   const setTop = (id, v) => { const el = document.getElementById(id); if (!el) return false; el.value = v; el.dispatch('change', { target: el }); return true; };
-  const inputs = () => document.getElementById('sectionsList').querySelectorAll('[data-drawer]');
+  // Экран «Ящики» рисуется внутри #paramsPanel (см. app.js drawersPanelBlock),
+  // не внутри #sectionsList — а querySelectorAll('[data-drawer]') должен
+  // читать из элемента с АКТУАЛЬНЫМ _html, иначе попадёт на пустую заглушку
+  // registry (см. комментарий у document.querySelectorAll выше в файле).
+  const inputs = () => $('paramsPanel').querySelectorAll('[data-drawer]');
   const AVAIL = 700;
 
   check('подготовка модуля', () => setTop('m-height', 800) && setTop('m-baseType', 'plinth') && setTop('m-baseHeight', 100));
   check('секция: 3 ящика без дверей', () => set('facade', 'open') && set('shelves', 0) && set('drawers', 3));
   check('нет NaN в деталировке (авто)', () => $('tab-detailing').innerHTML.indexOf('NaN') === -1);
 
-  check('переход в ручной режим', () => set('drawerMode', 'manual'));
+  // «Редактировать ящики →» в карточке секции открывает отдельную панель
+  // «Ящики» (state.panelView:'drawers', см. openDrawersPanel/drawersPanelBlock)
+  // вместо старого инлайн-блока в #sectionsList.
+  check('«Редактировать ящики →» открывает панель ящиков', () => {
+    const b = document.getElementById('sectionsList').querySelectorAll('[data-drawers-open]')[0];
+    if (!b) return false;
+    b.click();
+    return $('paramsPanel').innerHTML.indexOf('id="drawersPanelRoot"') !== -1;
+  });
+  // Материал/толщина ящиков — теперь поля СЕКЦИИ на этом экране (были общими
+  // на проект, см. #drawersDecor/#drawersThickness в drawersPanelBlock).
+  check('ящики по умолчанию 16 мм', () => {
+    const el = document.getElementById('drawersThickness');
+    return !!el && Number(el.attrs.value) === 16;
+  });
+  check('есть выбор декора ящиков', () => !!document.getElementById('drawersDecor'));
+
+  check('переход в ручной режим', () => setTop('drawersMode', 'manual'));
   check('поля ручных высот заполнены', () => {
     const el = inputs();
     return el.length === 3 && el.every((x) => Number(x.attrs.value) > 0);
@@ -411,9 +514,8 @@ for (const id of Array.from(registry.keys())) {
   });
 
   // Поля идут сверху вниз, поэтому для сравнения приводим их к порядку модели
-  const setDrawer = (d, v) => { const el = inputs()[d]; el.value = v; el.dispatch('change', { target: el }); };
+  const setDrawer = (d, v) => { const el = inputs()[d]; if (!el) return; el.value = v; el.dispatch('change', { target: el }); };
   const heights = () => inputs().map((x) => Number(x.attrs.value));
-  const modelIndexOf = (k) => Number(inputs()[k].attrs['data-drawer']);
 
   check('поля высот идут сверху вниз', () => {
     const idx = inputs().map((x) => Number(x.attrs['data-drawer']));
@@ -443,28 +545,35 @@ for (const id of Array.from(registry.keys())) {
   });
   check('смена высоты модуля двигает только свободный ящик', () => {
     setTop('m-height', 900);                       // фронт стал 800
+    // m-height принадлежит экрану «Модуль», его обработчик (см. app.js)
+    // зовёт только recompute(), без renderParamsPanel() — панель «Ящики»
+    // сама не перерисуется. Форсируем её обновление тем же переключателем
+    // экрана, что и HUD в 3D (sandbox.Modul3D.app.setPanelView — вне vm
+    // window не определён, обращаемся к песочнице напрямую).
+    sandbox.Modul3D.app.setPanelView('drawers');
     const v = heights();
     return v[0] === 100 && v[1] === 100 && Math.abs(v.reduce((a, b) => a + b, 0) - 800) < 1.5;
   });
   check('сброс фиксации возвращает авторежим', () => {
-    const b = document.getElementById('sectionsList').querySelectorAll('[data-unpin]')[0];
+    const b = document.getElementById('drawersUnpinBtn');
     if (!b) return false;
     b.click();
-    return document.getElementById('sectionsList').querySelectorAll('[data-drawer]').length === 0;
+    return $('paramsPanel').querySelectorAll('[data-drawer]').length === 0;
   });
   check('после сброса вернулись к ручному режиму для остальных проверок', () => {
     setTop('m-height', 800);
-    return set('drawerMode', 'manual');
+    return setTop('drawersMode', 'manual');
   });
   check('нет NaN после правки', () => $('tab-detailing').innerHTML.indexOf('NaN') === -1);
   check('подъём ящика от дна не меньше 10 мм', () => {
-    if (!set('drawerOffset', 0)) return false;
-    return Number(fld('drawerOffset').attrs.value) >= 10;
+    if (!setTop('drawersOffset', 0)) return false;
+    return Number(document.getElementById('drawersOffset').attrs.value) >= 10;
   });
 })();
 
 // --- панель: у кухонного модуля нет штанги, выбора верха нет ни у кого -----
 (function panelFieldsScenario() {
+  sandbox.Modul3D.app.setPanelView('module');   // вернулись с экрана «Ящики»
   const panelHtml = () => $('paramsPanel').innerHTML;
   check('в панели нет выбора «Верх модуля»', () => panelHtml().indexOf('m-topType') === -1);
   check('в панели нет «Ширина планки»', () => panelHtml().indexOf('m-railWidth') === -1);
@@ -484,10 +593,13 @@ for (const id of Array.from(registry.keys())) {
   check('категория «Кухонный модуль» есть', () => !!kitchen);
   check('у кухонного модуля штанги нет', () => {
     if (!kitchen) return false;
+    // Категория теперь раскрывается ИНЛАЙН в #libraryPanel (сетка миниатюр
+    // .lib-item[data-preset]), без плавающего #moduleMenu — клик по миниатюре
+    // сразу добавляет модуль в проект (см. app.js bindLibraryEvents).
     kitchen.click();
-    const m = document.getElementById('moduleMenu');
-    if (!m) return false;
-    m.querySelectorAll('[data-preset]')[0].click();
+    const item = document.getElementById('libraryPanel').querySelectorAll('[data-preset]')[0];
+    if (!item) return false;
+    item.click();
     return sectionsHtml().indexOf('Штанга для одежды') === -1;
   });
   check('кухонный модуль всё равно строится с двумя планками', () =>
@@ -495,44 +607,46 @@ for (const id of Array.from(registry.keys())) {
 })();
 
 // --- база готовых модулей: категория → вариант → модуль в проекте ----------
+// Категория раскрывается ИНЛАЙН в #libraryPanel (сетка миниатюр
+// .lib-item[data-preset]) — плавающего #moduleMenu для выбора пресета больше
+// нет, клик по миниатюре сразу добавляет модуль (см. app.js libraryBlock/
+// libraryGridBlock/bindLibraryEvents).
 (function presetScenario() {
   const cats = () => document.querySelectorAll('.lib-cat');
   check('кнопки категорий базы есть', () => cats().length >= 2);
 
   const tabsCount = () => document.querySelectorAll('.mod-tab').length;
   const before = tabsCount();
+  const gridItems = () => document.getElementById('libraryPanel').querySelectorAll('[data-preset]');
 
   check('категория открывает список вариантов', () => {
-    const c = cats()[0];
-    c.click();
-    const m = document.getElementById('moduleMenu');
-    return !!m && m.querySelectorAll('[data-preset]').length >= 2;
+    cats()[0].click();
+    return gridItems().length >= 2;
   });
   check('выбор варианта добавляет модуль в проект', () => {
-    const m = document.getElementById('moduleMenu');
-    const item = m.querySelectorAll('[data-preset]')[0];
+    const item = gridItems()[0];
+    if (!item) return false;
     item.click();
     return tabsCount() === before + 1;
   });
   check('модуль из базы построился без ошибок', () =>
     $('tab-detailing').innerHTML.indexOf('NaN') === -1 && $('tab-detailing').innerHTML.indexOf('<table') !== -1);
   check('в деталировке появились детали шкафа', () => /Боковина|Полка/.test($('tab-detailing').innerHTML));
-  check('меню базы закрылось', () => !document.getElementById('moduleMenu'));
+  cats()[0].click();   // закрыть категорию, открытую проверками выше (клик — переключатель)
 
   // все варианты всех категорий добавляются без исключений
   let added = 0;
   for (const c of cats()) {
-    c.click();
-    const m = document.getElementById('moduleMenu');
-    if (!m) { fails.push('база: меню не открылось для ' + (c.attrs['data-cat'] || '?')); continue; }
-    for (const it of m.querySelectorAll('[data-preset]')) {
+    c.click();                                    // открыть категорию
+    const items = gridItems();
+    if (!items.length) { fails.push('база: список вариантов пуст для ' + (c.attrs['data-cat'] || '?')); continue; }
+    for (const it of items) {
       const n = tabsCount();
       it.click();
       if (tabsCount() !== n + 1) { fails.push('база: вариант не добавился — ' + it.attrs['data-preset']); }
       else added += 1;
-      c.click();                                  // открыть меню заново
     }
-    closeAllMenus();
+    c.click();                                    // закрыть категорию перед следующей
   }
   check('добавились все варианты базы', () => added >= 8);
   check('после всех вариантов деталировка цела', () => $('tab-detailing').innerHTML.indexOf('NaN') === -1);
@@ -540,22 +654,21 @@ for (const id of Array.from(registry.keys())) {
 
 // --- нумерация и место вставки модулей -------------------------------------
 (function moduleOrderScenario() {
-  const tabNames = () => document.querySelectorAll('.mod-tab').map((t) => t.attrs.title ? t.attrs['data-mod'] : t.attrs['data-mod']);
   const count = () => document.querySelectorAll('.mod-tab').length;
-  const panelTitle = () => {
-    const r = /СЕКЦИИ — ([^<]+)</i.exec($('paramsPanel').innerHTML.toUpperCase().replace(/&NBSP;/g, ' '));
-    return r ? r[1].trim() : '';
+  // Имя активного модуля больше не читается из поля m-name (его убрали,
+  // переименование только через контекстное меню) — берём из заголовка
+  // секций: `<h3>${esc(mod.name)} — секции</h3>` (см. app.js moduleFieldsBlock).
+  const activeModuleName = () => {
+    const r = /<h3>([^<]*) — секции<\/h3>/.exec($('paramsPanel').innerHTML);
+    return r ? r[1] : '';
   };
-  const nameField = () => (document.getElementById('m-name') || {}).attrs || {};
 
-  // сводим проект к одному модулю
+  // сводим проект к одному модулю — удаление теперь иконкой в шапке
+  // (#delModule), в контекстном меню (см. moduleMenuScenario ниже) остался
+  // только пункт переименования (см. app.js showModuleMenu).
   const delOnce2 = () => {
-    const t = document.querySelectorAll('.mod-tab')[0];
-    t.dispatch('contextmenu', { target: t, clientX: 10, clientY: 10 });
-    const mm = document.getElementById('moduleMenu');
-    const d = mm && mm.querySelectorAll('[data-del]')[0];
+    const d = document.getElementById('delModule');
     if (d) d.click();
-    closeAllMenus();
   };
   let guard = 40;
   while (count() > 1 && guard-- > 0) delOnce2();
@@ -565,32 +678,33 @@ for (const id of Array.from(registry.keys())) {
   const add = () => document.getElementById('addModule');
   check('добавление даёт имя «Модуль 2»', () => {
     add().click();
-    return count() === 2 && /Модуль 2/.test(nameField().value || '');
+    return count() === 2 && /Модуль 2/.test(activeModuleName());
   });
   check('ещё один модуль — «Модуль 3»', () => {
     add().click();
-    return count() === 3 && /Модуль 3/.test(nameField().value || '');
+    return count() === 3 && /Модуль 3/.test(activeModuleName());
   });
   check('новый модуль встаёт за выделенным, а не в конец', () => {
     // делаем активным первый модуль и добавляем — он должен стать вторым
     const first = document.querySelectorAll('.mod-tab')[0];
     first.click();
     add().click();
-    return count() === 4 && /Модуль 2/.test(nameField().value || '');
+    return count() === 4 && /Модуль 2/.test(activeModuleName());
   });
   check('имена из базы не попадают в модули', () => {
     // чистим проект, чтобы в деталировке остался ТОЛЬКО модуль под мойку
-  let guard = 60;
-  while (document.querySelectorAll('.mod-tab').length && guard-- > 0) {
-    const d = document.getElementById('delModule');
-    if (!d) break;
-    d.click();
-  }
-  const cats = document.querySelectorAll('.lib-cat');
+    let guard2 = 60;
+    while (document.querySelectorAll('.mod-tab').length && guard2-- > 0) {
+      const d = document.getElementById('delModule');
+      if (!d) break;
+      d.click();
+    }
+    const cats = document.querySelectorAll('.lib-cat');
     cats[0].click();
-    const mm = document.getElementById('moduleMenu');
-    mm.querySelectorAll('[data-preset]')[0].click();
-    return /^Модуль \d+$/.test(nameField().value || '');
+    const item = document.getElementById('libraryPanel').querySelectorAll('[data-preset]')[0];
+    if (!item) return false;
+    item.click();
+    return /^Модуль \d+$/.test(activeModuleName());
   });
 })();
 
@@ -602,19 +716,27 @@ for (const id of Array.from(registry.keys())) {
   const tabs = () => document.querySelectorAll('.mod-tab');
   check('вкладки модулей есть', () => tabs().length >= 2);
 
-  check('правая кнопка открывает меню', () => {
+  // Контекстное меню модуля теперь — только переименование (поворот переехал
+  // в HUD 3D, удаление — в иконку в шапке, см. app.js showModuleMenu).
+  check('правая кнопка открывает меню переименования', () => {
     const t = tabs()[0];
+    t.click();                       // активный модуль — тот же, что дальше сверяем по имени
     t.dispatch('contextmenu', { target: t, clientX: 40, clientY: 60 });
-    return !!document.getElementById('moduleMenu');
+    return !!document.getElementById('moduleMenu') && !!document.getElementById('ctxModName');
   });
-  check('в меню есть все варианты поворота', () => {
-    const m = document.getElementById('moduleMenu');
-    return m && m.querySelectorAll('[data-rot]').length === 4;
-  });
-  // Подписи обязаны совпадать с фактическим разворотом (см. tools/geometry.js)
-  check('подписи поворота: 90° вправо, 270° влево', () => {
-    const html = document.getElementById('moduleMenu').innerHTML;
-    return /data-rot="90"[^>]*>[^<]*вправо/.test(html) && /data-rot="270"[^>]*>[^<]*влево/.test(html);
+  closeAllMenus();
+
+  // Поворот — мост sandbox.Modul3D.app.rotateModule/getRotations/
+  // getModuleHudState для HUD-меню в 3D (см. app.js/ui-shell.js), а не
+  // пункт меню. Подписи обязаны совпадать с фактическим разворотом деталей
+  // (проверяется отдельно в tools/geometry.js).
+  check('в списке поворотов 4 варианта, подписи 90°/270° верные', () => {
+    const app = sandbox.Modul3D.app;
+    if (!app || typeof app.getRotations !== 'function') return false;
+    const rot = app.getRotations();
+    const r90 = rot.filter((r) => r[0] === 90)[0];
+    const r270 = rot.filter((r) => r[0] === 270)[0];
+    return rot.length === 4 && !!r90 && /вправо/.test(r90[1]) && !!r270 && /влево/.test(r270[1]);
   });
   // Поворот проверяем по факту: у проекта меняется габарит в ряду, потому что
   // повёрнутый модуль занимает свою глубину, а не ширину.
@@ -622,16 +744,20 @@ for (const id of Array.from(registry.keys())) {
     const r = /Габарит проекта ([\d.]+)×([\d.]+)×([\d.]+)/.exec($('tab-drawings').innerHTML);
     return r ? r[1] + 'x' + r[3] : '';
   };
+  const activeModuleName = () => {
+    const r = /<h3>([^<]*) — секции<\/h3>/.exec($('paramsPanel').innerHTML);
+    return r ? r[1] : '';
+  };
   const before = projSize();
   check('поворот на 90° применяется', () => {
-    const m = document.getElementById('moduleMenu');
-    const item = m.querySelectorAll('[data-rot]').filter((x) => x.attrs['data-rot'] === '90')[0];
-    if (!item) return false;
-    item.click();
+    const name = activeModuleName();
+    const app = sandbox.Modul3D.app;
+    if (!name || !app) return false;
+    app.rotateModule(name, 90);
+    const rotOk = app.getModuleHudState(name).rotation === 90;
     const after = projSize();
-    return before !== '' && after !== '' && after !== before;
+    return rotOk && before !== '' && after !== '' && after !== before;
   });
-  check('меню закрылось после выбора', () => !document.getElementById('moduleMenu'));
 
   // Кнопка удаления активного модуля и история (Ctrl+Z / Ctrl+Y)
   check('кнопка «Удалить модуль» убирает активный модуль', () => {
@@ -714,23 +840,12 @@ for (const id of Array.from(registry.keys())) {
     return String(document.getElementById('m-width').value) === String(was);
   });
 
-  check('удаление модуля из меню', () => {
-    const before = document.querySelectorAll('.mod-tab').length;
-    const t = document.querySelectorAll('.mod-tab')[0];
-    t.dispatch('contextmenu', { target: t, clientX: 40, clientY: 60 });
-    const m = document.getElementById('moduleMenu');
-    const del = m && m.querySelectorAll('[data-del]')[0];
-    if (!del) return false;
-    del.click();
-    return document.querySelectorAll('.mod-tab').length === before - 1;
-  });
+  // Удаление — иконка в шапке (#delModule), в контекстном меню (правая
+  // кнопка по вкладке) остался только пункт переименования, см.
+  // moduleMenuScenario выше и app.js showModuleMenu.
   const delOnce = () => {
-    const t = document.querySelectorAll('.mod-tab')[0];
-    t.dispatch('contextmenu', { target: t, clientX: 40, clientY: 60 });
-    const m = document.getElementById('moduleMenu');
-    const del = m && m.querySelectorAll('[data-del]')[0];
-    if (del) del.click();
-    closeAllMenus();
+    const d = document.getElementById('delModule');
+    if (d) d.click();
   };
   check('удаляются все модули, включая последний', () => {
     let guard = 60;
@@ -823,17 +938,17 @@ for (const el of document.querySelectorAll('.tab-btn')) {
     d.click();
   }
   const cats = document.querySelectorAll('.lib-cat');
-  const kitchen = Array.from(cats).filter((c) => c.dataset.cat === 'kitchen')[0];
+  const kitchen = cats.filter((c) => c.dataset.cat === 'kitchen')[0];
   if (!kitchen) fails.push('база модулей: нет категории «Кухонный модуль»');
   else {
+    // Категория раскрывается ИНЛАЙН в #libraryPanel — без плавающего
+    // #moduleMenu, см. app.js libraryBlock/bindLibraryEvents.
     kitchen.click();
-    const menu = document.getElementById('moduleMenu');
-    const item = menu && Array.from(menu.querySelectorAll('[data-preset]'))
+    const item = document.getElementById('libraryPanel').querySelectorAll('[data-preset]')
       .filter((b) => b.dataset.preset === 'cornerSink')[0];
     if (!item) fails.push('база модулей: нет варианта «под мойку»');
     else {
       item.click();
-      const model = sandbox.__lastModel || null;
       const tabs = $('tab-detailing').innerHTML;
       if (/Задняя стенка/.test(tabs)) {
         fails.push('под мойку: в деталировке осталась задняя стенка');
@@ -842,16 +957,15 @@ for (const el of document.querySelectorAll('.tab-btn')) {
         && !/НА РЕБРО/.test(tabs)) {
         fails.push('под мойку: планки не встали на ребро (нет отметки в деталировке)');
       }
-      void model;
     }
+    kitchen.click();                              // закрыть категорию за собой
   }
 }
 
 // Кухонный пресет должен ставить белый корпус и белые ящики, а декор
 // пользователя переносить на фасад.
 {
-  const kitchen = Array.from(document.querySelectorAll('.lib-cat'))
-    .filter((c) => c.dataset.cat === 'kitchen')[0];
+  const kitchen = document.querySelectorAll('.lib-cat').filter((c) => c.dataset.cat === 'kitchen')[0];
   if (kitchen) {
     let guard = 60;
     while (document.querySelectorAll('.mod-tab').length && guard-- > 0) {
@@ -860,19 +974,30 @@ for (const el of document.querySelectorAll('.tab-btn')) {
       d.click();
     }
     kitchen.click();
-    const menu = document.getElementById('moduleMenu');
-    const item = menu && Array.from(menu.querySelectorAll('[data-preset]'))
+    const item = document.getElementById('libraryPanel').querySelectorAll('[data-preset]')
       .filter((b) => b.dataset.preset === 'lower600drawers')[0];
     if (item) {
       item.click();
+      const isWhite = (v) => /U702|бел/i.test(String(v || ''));
+      // Материалы корпуса/фасада — экран «Материалы» (см. #materialsLinkBtn).
+      const mb = document.getElementById('materialsLinkBtn');
+      if (mb) mb.click();
       const body = document.getElementById('p-decor');
-      const drawer = document.getElementById('p-drawerDecor');
       const facade = document.getElementById('p-facadeDecor');
-      const isWhite = (el) => el && /U702|бел/i.test(String(el.value));
-      if (!isWhite(body)) fails.push('кухня: корпус не стал белым');
-      if (drawer && !isWhite(drawer)) fails.push('кухня: ящики не стали белыми');
-      if (facade && isWhite(facade)) fails.push('кухня: декор фасада тоже побелел');
+      if (!isWhite(body && body.value)) fails.push('кухня: корпус не стал белым');
+      if (facade && isWhite(facade.value)) fails.push('кухня: декор фасада тоже побелел');
+      const back = document.getElementById('panelBack');
+      if (back) back.click();
+      // Материал ящиков — поле СЕКЦИИ на экране «Ящики» (#drawersDecor,
+      // были общими на проект — см. drawersPanelBlock).
+      const openBtn = document.getElementById('sectionsList').querySelectorAll('[data-drawers-open]')[0];
+      if (openBtn) {
+        openBtn.click();
+        const drawer = document.getElementById('drawersDecor');
+        if (!isWhite(drawer && drawer.value)) fails.push('кухня: ящики не стали белыми');
+      }
     }
+    kitchen.click();
   }
 }
 

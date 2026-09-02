@@ -16,6 +16,11 @@ const { buildModel } = window.Modul3D.engine;
 const { buildSpecification } = window.Modul3D.specification;
 const { buildDrawings } = window.Modul3D.drawings;
 const { DECORS, BACK_MATERIALS, DRAWER_SYSTEM_ORDER } = window.Modul3D.catalog;
+// С Этапа 3 монетизации формирование CSV/DXF для ЧПУ переехало на сервер
+// (window.Modul3D.cnc в браузере теперь только шлёт запрос и качает готовый
+// файл) — здесь, в headless-прогоне, берём саму логику формирования файла
+// напрямую из серверного модуля, а не через window.Modul3D.cnc.
+const { buildDrillCsv, buildDrillDxf } = require(path.join(ROOT, 'server', 'src', 'services', 'exportGeneration.js'));
 
 const EPS = 0.51;                       // допуск: меньше — это стык, не нахлёст
 function overlaps(a, b) {
@@ -744,12 +749,19 @@ for (const bt of ['plinth', 'legsPlinth', 'legs']) {
   if (lf && lf.holes.some((h) => h.kind === 'hingeCup')) problems.push('откидной фасад: откуда-то взялись чашки петель');
 
   // скоба горизонтально и отступ от края до КРАЙНЕГО отверстия
+  // У обычной листовой двери (ЛДСП/МДФ, без рамочного профиля) отступ ручки
+  // от края открывания — 30 мм (HANDLE_EDGE_SHEET_DOOR в engine.js,
+  // подтверждено пользователем), а не 50 (50 — только у ящика/откидного
+  // фасада, см. doorHandleEdge).
   {
+    const DOOR_HANDLE_EDGE = 30;
     const v = mk({ shelves: 1, drawers: 0, facade: 'doorLeft', handle: 'bow128', handleOrient: 'vertical', drawerSystem: 'ballBearing' });
     const dv = v.parts.filter((p) => p.kind === 'door')[0];
     const hv = dv.holes.filter((h) => h.through);
     const topGap = dv.width - Math.max(hv[0].y, hv[1].y);
-    if (Math.abs(topGap - 50) > 0.6) problems.push(`скоба вертикально: до верхнего торца ${topGap} вместо 50`);
+    if (Math.abs(topGap - DOOR_HANDLE_EDGE) > 0.6) {
+      problems.push(`скоба вертикально: до верхнего торца ${topGap} вместо ${DOOR_HANDLE_EDGE}`);
+    }
     if (Math.abs(hv[0].x - hv[1].x) > 0.6) problems.push('скоба вертикально: отверстия не на одной вертикали');
 
     const g = mk({ shelves: 1, drawers: 0, facade: 'doorLeft', handle: 'bow128', handleOrient: 'horizontal', drawerSystem: 'ballBearing' });
@@ -757,8 +769,8 @@ for (const bt of ['plinth', 'legsPlinth', 'legs']) {
     const hg = dg.holes.filter((h) => h.through);
     if (Math.abs(hg[0].y - hg[1].y) > 0.6) problems.push('скоба горизонтально: отверстия не на одной горизонтали');
     if (Math.abs(Math.abs(hg[0].x - hg[1].x) - 128) > 0.6) problems.push('скоба горизонтально: межосевое не 128');
-    if (Math.abs(dg.length - Math.max(hg[0].x, hg[1].x) - 50) > 0.6) {
-      problems.push('скоба горизонтально: нет отступа 50 мм от края открывания');
+    if (Math.abs(dg.length - Math.max(hg[0].x, hg[1].x) - DOOR_HANDLE_EDGE) > 0.6) {
+      problems.push(`скоба горизонтально: нет отступа ${DOOR_HANDLE_EDGE} мм от края открывания`);
     }
     cases += 2;
   }
@@ -846,8 +858,8 @@ for (const bt of ['plinth', 'legsPlinth', 'legs']) {
 
   // выгрузка для ЧПУ
   const model = mk({ shelves: 0, drawers: 3, facade: 'open', handle: 'bow160', drawerSystem: 'ballBearing' });
-  const csv = window.Modul3D.cnc.buildDrillCsv(model);
-  const dxf = window.Modul3D.cnc.buildDrillDxf(model);
+  const csv = buildDrillCsv(model);
+  const dxf = buildDrillDxf(model);
   const rows = csv.trim().split('\r\n');
   // В CSV идут и отверстия, и пазы — операций больше, чем отверстий
   const totalHoles = model.parts.filter((p) => p.holes).reduce((s, p) => s + p.holes.length, 0);   // включая чашки
@@ -1438,8 +1450,8 @@ for (const glass of [false, true]) {
   if (!glassParts.some((p) => (p.holes || []).length)) {
     problems.push('стекло: у стеклянной двери нет отверстий в модели');
   }
-  const csv = window.Modul3D.cnc.buildDrillCsv(model);
-  const dxf = window.Modul3D.cnc.buildDrillDxf(model);
+  const csv = buildDrillCsv(model);
+  const dxf = buildDrillDxf(model);
   for (const p of glassParts) {
     if (csv.indexOf(p.material) !== -1) problems.push(`ЧПУ: стекло ${p.material} попало в CSV`);
     if (dxf.indexOf(p.name) !== -1) problems.push(`ЧПУ: стекло «${p.name}» попало в DXF`);
@@ -1468,8 +1480,8 @@ for (const glass of [false, true]) {
   // всё, что насверлено, обязано попасть и в CSV, и в DXF
   const total = model.parts.filter((p) => !p.hardware)
     .reduce((s, p) => s + (p.holes || []).length + ((p.grooves || []).length), 0);
-  const csv = window.Modul3D.cnc.buildDrillCsv(model);
-  const dxf = window.Modul3D.cnc.buildDrillDxf(model);
+  const csv = buildDrillCsv(model);
+  const dxf = buildDrillDxf(model);
   if (csv.trim().split('\r\n').length - 1 !== total) problems.push('присадка: CSV не совпал с моделью');
   const holesOnly = model.parts.filter((p) => !p.hardware)
     .reduce((s, p) => s + (p.holes || []).length, 0);
@@ -2065,9 +2077,9 @@ for (const glass of [false, true]) {
       if (g.w < 3 || g.w > 9) problems.push(`ширина паза ${g.w} не под ХДФ`);
       if (g.y0 < 0 || g.y0 > vs.width) problems.push('паз лежит за пределами детали');
     }
-    const csv = window.Modul3D.cnc.buildDrillCsv(m);
+    const csv = buildDrillCsv(m);
     if (!/паз/i.test(csv)) problems.push('ЧПУ: паза нет в CSV');
-    const dxf = window.Modul3D.cnc.buildDrillDxf(m);
+    const dxf = buildDrillDxf(m);
     if (!/GROOVE_/.test(dxf)) problems.push('ЧПУ: паза нет в DXF');
     // В таблице чертежа модуля обязан быть столбец «Материал»
     const html = String(buildDrawings(m, true));
