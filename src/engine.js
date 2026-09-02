@@ -1586,8 +1586,11 @@ function buildModuleParts(p) {
       facadeType: vm ? 'sidePanel' : null,
       note: sideNote(s.v) + (vm ? `; видимая — в материале фасада (${vm.name})` : ''),
       // Передний торец — 2мм, если реально виден (открыт или за стеклом),
-      // иначе техническая кромка (закрыт фасадом). Задний — всегда технической.
-      edging: { long1: frontHidden ? EDGE_BACK : EDGE_FRONT, long2: EDGE_BACK, short1: null, short2: null },
+      // иначе техническая кромка (закрыт фасадом). Остальные стороны —
+      // техническая кромка по всему периметру (включая короткие торцы у
+      // дна/крыши — по требованию: весь корпус кромится по периметру, без
+      // исключения для стыков).
+      edging: { long1: frontHidden ? EDGE_BACK : EDGE_FRONT, long2: EDGE_BACK, short1: EDGE_BACK, short2: EDGE_BACK },
       x: s.x, y: (sideTop + bottomY) / 2, z: visible ? sideZ : 0,
       dims: { w: t, h, d: visible ? sideDepth : D },
     }));
@@ -1617,7 +1620,7 @@ function buildModuleParts(p) {
   parts.push(makePart({
     name: 'Дно', section: 'Корпус', material: decor.code, thickness: t,
     length: bottomLen, width: D, qty: 1, kind: 'bottom', note: bottomNote,
-    edging: { long1: bodyFrontHidden ? EDGE_BACK : EDGE_FRONT, long2: EDGE_BACK, short1: null, short2: null },
+    edging: { long1: bodyFrontHidden ? EDGE_BACK : EDGE_FRONT, long2: EDGE_BACK, short1: EDGE_BACK, short2: EDGE_BACK },
     x: (bottomLeft + bottomRight) / 2, y: baseH + t / 2, z: 0,
     dims: { w: bottomLen, h: t, d: D },
   }));
@@ -1650,13 +1653,14 @@ function buildModuleParts(p) {
           : 'Вкладная между боковинами, плашмя; через неё крепится столешница',
         // Планки НА РЕБРО стоят вертикально — их long1/long2 не смотрят
         // на фасад, это отдельная (редкая, под мойку) геометрия, видимость
-        // фасада к ней не применяется. Плашмя — передняя видна, только если
-        // не закрыта фасадом; задняя всегда технической кромкой (не joint —
-        // просто задний край, отдельного стыка с чем-либо у неё нет).
+        // фасада к ней не применяется (long1 — та же 2мм-кромка, что и
+        // сейчас). Плашмя — передняя видна, только если не закрыта фасадом;
+        // задняя всегда технической кромкой. В обоих случаях — весь
+        // периметр минимум технической кромкой, без исключения для стыков.
         edging: onEdge
-          ? { long1: EDGE_FRONT, long2: null, short1: null, short2: null }
+          ? { long1: EDGE_FRONT, long2: EDGE_BACK, short1: EDGE_BACK, short2: EDGE_BACK }
           : { long1: r.front ? (bodyFrontHidden ? EDGE_BACK : EDGE_FRONT) : EDGE_BACK,
-              long2: EDGE_BACK, short1: null, short2: null },
+              long2: EDGE_BACK, short1: EDGE_BACK, short2: EDGE_BACK },
         x: 0, y: onEdge ? H - RAIL_W / 2 : H - t / 2, z: r.z,
         dims: onEdge ? { w: Wi, h: RAIL_W, d: t } : { w: Wi, h: t, d: RAIL_W },
       }));
@@ -1667,7 +1671,7 @@ function buildModuleParts(p) {
       name: 'Крыша (топ)', section: 'Корпус', material: decor.code, thickness: t,
       length: Wi, width: D, qty: 1, kind: 'top',
       note: 'Вкладная между боковинами',
-      edging: { long1: bodyFrontHidden ? EDGE_BACK : EDGE_FRONT, long2: EDGE_BACK, short1: null, short2: null },
+      edging: { long1: bodyFrontHidden ? EDGE_BACK : EDGE_FRONT, long2: EDGE_BACK, short1: EDGE_BACK, short2: EDGE_BACK },
       x: 0, y: H - t / 2, z: 0,
       dims: { w: Wi, h: t, d: D },
     }));
@@ -1702,7 +1706,7 @@ function buildModuleParts(p) {
         ? `Навесной, на клипсах к опорам, утоплен от фасада на ${PLINTH_SETBACK} мм`
         : `Утоплен от фасада на ${PLINTH_SETBACK} мм`)
         + `; видимая деталь — в материале фасада (${plinthMat.name})`,
-      edging: { long1: EDGE_FRONT, long2: null, short1: null, short2: null },
+      edging: { long1: EDGE_FRONT, long2: EDGE_BACK, short1: EDGE_BACK, short2: EDGE_BACK },
       x: plinthX, y: baseH / 2, z: D / 2 - t / 2 - PLINTH_SETBACK,
       dims: { w: plinthLen, h: baseH, d: t },
     }));
@@ -1970,7 +1974,7 @@ function buildModuleParts(p) {
         name: 'Стойка вертикальная', section: 'Корпус', material: decor.code, thickness: t,
         length: innerH, width: D - tb, qty: 1, kind: 'divider',
         note: `Вкладная между дном и крышей, отступ слева ${Math.round(secX0 + secW + Wi / 2)} мм`,
-        edging: { long1: dividerHidden ? EDGE_BACK : EDGE_FRONT, long2: EDGE_BACK, short1: null, short2: null },
+        edging: { long1: dividerHidden ? EDGE_BACK : EDGE_FRONT, long2: EDGE_BACK, short1: EDGE_BACK, short2: EDGE_BACK },
         x: secX0 + secW + t / 2, y: innerBottomY + innerH / 2, z: tb / 2,
         dims: { w: t, h: innerH, d: D - tb },
       }));
@@ -3656,12 +3660,28 @@ function toSingleModuleProject(p) {
   };
 }
 
+// Названия «Боковина левая/правая» и «Планка верхняя передняя/задняя» — это
+// зеркальные детали ОДНОГО вида (kind: 'side'/'top'): при прочих равных
+// (размер, материал, кромка, присадка) они физически одна и та же заготовка,
+// левое/правое — не признак различия для раскроя, а подпись для чертежа
+// (её сохраняет НЕсклеенный partsRaw). Без нормализации имени они никогда не
+// склеятся в деталировке просто из-за слова в названии.
+function mergeNameKey(part) {
+  if (part.kind === 'side' || part.kind === 'top') {
+    // \b не годится: в JS без /u он основан на \w, а кириллица в \w не входит,
+    // поэтому граница слова после кириллического слова не определяется —
+    // используем явный лукахед на «(» (для «...(видимая)») или конец строки.
+    return part.name.replace(/\s*(левая|правая|передняя|задняя)(?=\s*\(|$)/, '');
+  }
+  return part.name;
+}
+
 // Ключ склейки: детали считаются одинаковыми, если совпадают все значимые
 // поля. Секция в ключ НЕ входит — одинаковые полки из разных секций это одна
 // строка деталировки.
 function mergeKey(part) {
   return JSON.stringify([
-    part.name, part.material, part.thickness, part.length, part.width,
+    mergeNameKey(part), part.material, part.thickness, part.length, part.width,
     part.edging.long1, part.edging.long2, part.edging.short1, part.edging.short2,
     part.grainDirection, part.note,
     // Присадка/пазы/тип фасада — иначе две иначе одинаковые детали с разной

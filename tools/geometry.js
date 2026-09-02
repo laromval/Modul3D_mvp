@@ -367,12 +367,18 @@ for (const topType of ['panel', 'rails']) {
       sections: [{ shelves: 1, drawers: 0, facade: 'doorLeft', drawerSystem: 'ballBearing' }] }],
   }));
   inspect(model, `верх ${topType}`);
-  const tops = model.parts.filter((p) => p.kind === 'top');
+  // Физическое число деталей — из partsRaw (несклеенный список): если
+  // передняя и задняя планка одинаковы по кромке (секция закрыта фасадом
+  // целиком), они законно схлопываются в одну строку model.parts с qty=2 —
+  // это не дефект геометрии, а работа склейки одинаковых деталей (engine.js
+  // mergeKey/mergeNameKey), поэтому считать физическое количество деталей
+  // нужно по partsRaw, а не по числу строк в уже склеенном model.parts.
+  const topsRaw = model.partsRaw.filter((p) => p.kind === 'top');
   if (topType === 'rails') {
-    if (tops.length !== 2) problems.push('верх rails: должно быть две планки, а не ' + tops.length);
-    if (tops.some((t) => t.width > 200)) problems.push('верх rails: планка шире 200 мм');
-    if (tops.some((t) => /Крыша/.test(t.name))) problems.push('верх rails: осталась цельная крышка');
-  } else if (tops.length !== 1) {
+    if (topsRaw.length !== 2) problems.push('верх rails: должно быть две планки, а не ' + topsRaw.length);
+    if (topsRaw.some((t) => t.width > 200)) problems.push('верх rails: планка шире 200 мм');
+    if (topsRaw.some((t) => /Крыша/.test(t.name))) problems.push('верх rails: осталась цельная крышка');
+  } else if (topsRaw.length !== 1) {
     problems.push('верх panel: должна быть одна крышка');
   }
 }
