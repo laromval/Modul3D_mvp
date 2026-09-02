@@ -14,7 +14,7 @@
 (function () {
 // Версия сборки — показывается во вкладке браузера и в шапке.
 // При выпуске новой версии меняется только эта строка.
-const APP_VERSION = 'v204';
+const APP_VERSION = 'v205';
 
 // Номер версии выводим ПЕРВЫМ делом: если дальше что-то упадёт, по нему сразу
 // видно, какая сборка открыта.
@@ -3191,87 +3191,30 @@ function materialName(code) {
   return code || '—';
 }
 
-// Ключ группировки для экранной деталировки (не путать с mergeKey в
-// engine.js). Одинаковые детали из разных модулей схлопываются в одну
-// строку — но только если совпадает и присадка (holes/grooves): деталь
-// с иначе расположенными отверстиями сверлится по другому шаблону, значит
-// это другая заготовка, а не дубликат. Список полей — общий для трёх мест
-// в коде (эта таблица, таблица под общим чертежом в src/drawings.js и
-// Excel-экспорт в server/src/services/exportGeneration.js), поэтому набор
-// менять нельзя без синхронизации со всеми тремя.
-function detailingHolesSignature(r) {
-  return (r.holes || [])
-    .map((h) => `${h.kind}:${h.x}:${h.y}:${h.d}:${h.depth || 0}:${h.through ? 1 : 0}:${h.side || ''}`)
-    .sort().join('|');
-}
-function detailingGroovesSignature(r) {
-  return (r.grooves || [])
-    .map((g) => `${g.kind}:${g.x0}:${g.y0}:${g.x1}:${g.y1}:${g.w}:${g.depth}:${g.side || ''}`)
-    .sort().join('|');
-}
-function detailingGroupKey(r) {
-  return JSON.stringify([
-    r.name, r.material, r.thickness, r.length, r.width,
-    r.edging.long1, r.edging.long2, r.edging.short1, r.edging.short2,
-    r.grainDirection, detailingHolesSignature(r), detailingGroovesSignature(r),
-    // Деталь с ручной правкой (part.overrides в engine.js) получает своё
-    // отдельное примечание и не должна молча склеиваться ни с чем — даже
-    // с другой такой же вручную отредактированной деталью, поэтому в ключ
-    // подмешивается её собственный номер позиции.
-    r.overridden ? `override:${r.num}` : '',
-  ]);
-}
-
 function renderDetailingTable(model) {
   const el = document.getElementById('tab-detailing');
   // Ножки — фурнитура, а не деталь из листа: в деталировку не попадают,
-  // их количество считается в спецификации.
-  // Группируем по ВСЕМУ проекту (across все модули), а не по одному модулю:
-  // одинаковые детали из разных модулей должны стать одной строкой с
-  // суммарным количеством.
-  const groups = {};
-  const order = [];
-  for (const r of model.parts.filter(r => !r.hardware)) {
-    const key = detailingGroupKey(r);
-    if (!groups[key]) {
-      groups[key] = { part: r, qty: 0, nums: [], modules: [], sections: [], notes: [] };
-      order.push(key);
-    }
-    const g = groups[key];
-    g.qty += r.qty;
-    if (r.num != null && g.nums.indexOf(r.num) === -1) g.nums.push(r.num);
-    if (g.modules.indexOf(r.module || '') === -1) g.modules.push(r.module || '');
-    if (g.sections.indexOf(r.section || '') === -1) g.sections.push(r.section || '');
-    const note = r.note || '';
-    if (note && g.notes.indexOf(note) === -1) g.notes.push(note);
-  }
-
-  const rows = order.map((key) => {
-    const g = groups[key], r = g.part;
-    const numStr = g.nums.slice().sort((a, b) => a - b).join(', ');
-    // Модуль/секция — как у всех деталей группы, если он один и тот же;
-    // если детали пришли из разных модулей/секций, перечисляем их через
-    // запятую в порядке первого появления (без дублей).
-    const moduleStr = g.modules.join(', ');
-    const sectionStr = g.sections.join(', ');
-    return `
+  // их количество считается в спецификации. Объединение одинаковых деталей
+  // (сумма qty, общий номер позиции) уже сделано в engine.js — mergeEqualParts/
+  // mergeKey — model.parts приходит СЮДА уже склеенным, повторно группировать
+  // не нужно.
+  const rows = model.parts.filter(r => !r.hardware).map(r => `
     <tr>
-      <td>${esc(numStr)}</td>
-      <td>${esc(moduleStr)}</td>
+      <td>${r.num}</td>
+      <td>${esc(r.module || '')}</td>
       <td>${esc(r.name)}</td>
-      <td>${esc(sectionStr)}</td>
+      <td>${esc(r.section)}</td>
       <td>${esc(materialName(r.material))}, ${r.thickness} мм</td>
       <td>${r.length}</td>
       <td>${r.width}</td>
-      <td>${g.qty}</td>
+      <td>${r.qty}</td>
       <td>${r.edging.long1 || '—'}</td>
       <td>${r.edging.long2 || '—'}</td>
       <td>${r.edging.short1 || '—'}</td>
       <td>${r.edging.short2 || '—'}</td>
       <td>${r.grainDirection ? 'да' : 'нет'}</td>
-      <td>${esc(g.notes.join('; '))}</td>
-    </tr>`;
-  }).join('');
+      <td>${esc(r.note || '')}</td>
+    </tr>`).join('');
   el.innerHTML = `
     <table>
       <thead><tr>
