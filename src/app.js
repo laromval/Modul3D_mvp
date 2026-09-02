@@ -14,7 +14,7 @@
 (function () {
 // Версия сборки — показывается во вкладке браузера и в шапке.
 // При выпуске новой версии меняется только эта строка.
-const APP_VERSION = 'v216';
+const APP_VERSION = 'v217';
 
 // Номер версии выводим ПЕРВЫМ делом: если дальше что-то упадёт, по нему сразу
 // видно, какая сборка открыта.
@@ -1711,6 +1711,21 @@ function secEffectiveFacades(sec) {
     : [sec.facade];
 }
 
+// Реальная построенная ширина фасада секции — источник для плейсхолдера поля
+// «Ширина фасада, мм» в режиме авто (sec.facadeWidth не задан), чтобы
+// пользователь видел фактическое число вместо голого «0». Источник —
+// currentModel.partsRaw (та же построенная модель) — первая деталь-фасад
+// (дверь или фасад ящика — откидной фасад и заглушка тоже строятся с
+// kind:'door', см. makePart в engine.js) нужного модуля и секции.
+// Возвращает null, если модель ещё не построена или деталь не найдена
+// (пустой проект, только что добавленная секция до пересчёта и т.п.).
+function secActualFacadeWidth(mod, i) {
+  const rows = (currentModel && currentModel.partsRaw) || [];
+  const kinds = ['door', 'drawerFront'];
+  const part = rows.find((p) => p.module === mod.name && p.sectionIndex === i && kinds.includes(p.kind));
+  return (part && part.box && Number.isFinite(part.box.w)) ? Math.round(part.box.w) : null;
+}
+
 // Разметка ОДНОЙ карточки зоны фасада (техника/фасад/высота/габариты/
 // заметка) — чистая функция рендера без побочных эффектов и завязки на
 // замыкание конкретного места вызова. Используется в компактном контекстном
@@ -2260,7 +2275,7 @@ function renderSectionsList() {
           ${HANDLE_ORDER.map((id) => `<option value="${id}" ${sec.handle === id ? 'selected' : ''}>${esc(HANDLES[id].name)}</option>`).join('')}
         </select>
         ${(HANDLES[sec.handle] || {}).holes === 2 && secEffectiveFacades(sec).some((f) => f !== 'open') ? `
-        <label class="mt6">Скоба на двери</label>
+        <label class="mt6">Присадка ручки</label>
         <select data-field="handleOrient" data-idx="${i}">
           <option value="vertical" ${sec.handleOrient !== 'horizontal' ? 'selected' : ''}>вертикально</option>
           <option value="horizontal" ${sec.handleOrient === 'horizontal' ? 'selected' : ''}>горизонтально</option>
@@ -2280,10 +2295,24 @@ function renderSectionsList() {
         <div class="hint">${esc((LIFTS[sec.lift] || LIFTS.aventosHK).note)} · фасад ${(LIFTS[sec.lift] || LIFTS.aventosHK).minH}–${(LIFTS[sec.lift] || LIFTS.aventosHK).maxH} мм</div>
       </div>` : '';
 
+    const facadeWidthActual = secActualFacadeWidth(mod, i);
     const facadeWidthBlock = sec.facade === 'open' ? '' : `
       <div class="sub">
-        <label>Ширина фасада, мм <span class="dim">(0 — во всю секцию)</span></label>
-        <div class="mini-row"><input type="number" step="10" min="0" value="${sec.facadeWidth || 0}" data-field="facadeWidth" data-idx="${i}"></div>
+        <label>Ширина фасада, мм <span class="dim">(пусто — во всю секцию)</span></label>
+        <div class="mini-row"><input type="number" step="10" min="0" value="${sec.facadeWidth > 0 ? sec.facadeWidth : ''}" placeholder="${facadeWidthActual != null ? facadeWidthActual : ''}" data-field="facadeWidth" data-idx="${i}"></div>
+      </div>`;
+
+    // Показываем только когда секций 2+ — если секция одна, делить нечего.
+    const widthModeBlock = mod.sections.length <= 1 ? '' : `
+      <div class="field">
+        <label>Ширина проёма секции</label>
+        <select data-field="widthMode" data-idx="${i}">
+          <option value="auto" ${sec.widthMode !== 'fixed' ? 'selected' : ''}>авто</option>
+          <option value="fixed" ${sec.widthMode === 'fixed' ? 'selected' : ''}>задать в мм</option>
+        </select>
+        ${sec.widthMode === 'fixed'
+          ? `<div class="mini-row mt6"><input type="number" step="10" min="50" value="${sec.width || 400}" data-field="width" data-idx="${i}"></div>`
+          : ''}
       </div>`;
 
     // Штанга для одежды в кухонном модуле не бывает — блок не показываем.
@@ -2350,16 +2379,7 @@ function renderSectionsList() {
         </div>
         ${drawersRow}
         ${doorZoneCount <= 1 ? shelvesRow : ''}
-        <div class="field">
-          <label>Ширина проёма секции</label>
-          <select data-field="widthMode" data-idx="${i}">
-            <option value="auto" ${sec.widthMode !== 'fixed' ? 'selected' : ''}>авто (делить поровну)</option>
-            <option value="fixed" ${sec.widthMode === 'fixed' ? 'selected' : ''}>задать в мм</option>
-          </select>
-          ${sec.widthMode === 'fixed'
-            ? `<div class="mini-row mt6"><input type="number" step="10" min="50" value="${sec.width || 400}" data-field="width" data-idx="${i}"></div>`
-            : ''}
-        </div>
+        ${widthModeBlock}
         ${doorZoneCount <= 1 ? `
         <div class="field">
           <label>Фасад</label>

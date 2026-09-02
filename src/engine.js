@@ -88,6 +88,18 @@ function sidesLabel(s) {
 function layoutSections(sections, Wi, t) {
   const n = sections.length;
   const avail = Wi - (n - 1) * t;               // чистая ширина всех проёмов
+
+  // Секция ровно одна — делить и фиксировать нечего, ей всегда положена вся
+  // доступная ширина проёма. Игнорируем sec.widthMode/sec.width, даже если
+  // на секции остался залипший widthMode:'fixed' от прежней раскладки с
+  // несколькими секциями (после удаления остальных секций контрол «Ширина
+  // проёма секции» пропадает из UI, и сбросить fixed-режим руками больше
+  // нечем) — иначе в раскладке возникает необъяснимый зазор или ложный
+  // overflow-предупреждение.
+  if (n === 1) {
+    return { widths: [avail], x0: [-Wi / 2], overflow: 0 };
+  }
+
   const fixed = sections.map((s) => {
     const v = Number(s.width);
     return (s.widthMode === 'fixed' && Number.isFinite(v) && v > 0) ? v : null;
