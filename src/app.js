@@ -14,7 +14,7 @@
 (function () {
 // Версия сборки — показывается во вкладке браузера и в шапке.
 // При выпуске новой версии меняется только эта строка.
-const APP_VERSION = 'v212';
+const APP_VERSION = 'v214';
 
 // Номер версии выводим ПЕРВЫМ делом: если дальше что-то упадёт, по нему сразу
 // видно, какая сборка открыта.
@@ -467,7 +467,7 @@ function setPanelView(view) {
 }
 
 // Открывает панель «Ящики» для секции `secIndex` активного модуля — кнопка
-// «Редактировать ящики →» в renderSectionsList(). Сама панель — отдельный
+// «Редактировать →» в renderSectionsList(). Сама панель — отдельный
 // экран panelView:'drawers' (см. drawersPanelBlock/renderParamsPanel), не
 // инлайн-блок внутри списка секций.
 function openDrawersPanel(secIndex) {
@@ -968,14 +968,13 @@ function moduleFieldsBlock(mod) {
   return `
     <button class="btn materials-link-btn" id="materialsLinkBtn" type="button">Материалы модуля <span class="arrow">→</span></button>
 
-    <h3>Габариты модуля, мм</h3>
+    <h3>Конструктив модуля</h3>
     <div class="field-row3">
       <div class="field"><label>Высота</label><input id="m-height" type="number" step="10" value="${mod.height}"></div>
       <div class="field"><label>Ширина</label><input id="m-width" type="number" step="10" value="${mod.width}"></div>
       <div class="field"><label>Глубина</label><input id="m-depth" type="number" step="10" value="${mod.depth}"></div>
     </div>
 
-    <h3>Конструктив модуля</h3>
     <div class="field-row">
       <div class="field">
         <label>Левая боковина</label>
@@ -1011,7 +1010,6 @@ function moduleFieldsBlock(mod) {
       </div>
     </div>` : ''}
 
-    <h3>${esc(mod.name)} — секции</h3>
     <div id="sectionsList"></div>`;
 }
 
@@ -1429,7 +1427,7 @@ function materialsBlock() {
 }
 
 // Экран «Ящики» — отдельная панель для ОДНОЙ секции ОДНОГО модуля (не список,
-// как renderSectionsList): открывается кнопкой «Редактировать ящики →» под
+// как renderSectionsList): открывается кнопкой «Редактировать →» под
 // полем «Ящики, шт» (см. openDrawersPanel). Материал/толщина/система ящиков
 // раньше были общими на весь проект (state.drawerDecorCode/drawerThickness/
 // drawerSystem) — теперь это поля секции (sec.drawerDecorCode/drawerThickness/
@@ -1741,8 +1739,8 @@ function zoneCardHtml(sec, i, zi, doorZoneCount) {
     <div class="sub">
       <label>Полки</label>
       <select data-zoneshelfmode="${zi}" data-idx="${i}">
-        <option value="auto" ${zone.shelfMode !== 'manual' ? 'selected' : ''}>Распределить равномерно</option>
-        <option value="manual" ${zone.shelfMode === 'manual' ? 'selected' : ''}>Задать высоту вручную</option>
+        <option value="auto" ${zone.shelfMode !== 'manual' ? 'selected' : ''}>Равномерно</option>
+        <option value="manual" ${zone.shelfMode === 'manual' ? 'selected' : ''}>Вручную</option>
       </select>
       ${zone.shelfMode === 'manual' ? `
         <label class="mt6">Высота каждой полки от низа зоны, мм</label>
@@ -2124,27 +2122,50 @@ function bindZoneFieldEvents(container, mod, refresh) {
   });
 }
 
+// select режима распределения полок (авто/вручную) и список инпутов высоты
+// каждой полки — вынесены из shelfDetailBlock() отдельными функциями, чтобы
+// карточка секции сайдбара (renderSectionsList) могла расположить сам select
+// В ОДНОЙ СТРОКЕ с полем «Полки, шт» (см. там), а не под ним. shelfDetailBlock()
+// ниже по-прежнему собирает их в исходную разметку (label «Полки» + select +
+// список высот внутри одного .sub) — этим она пользуется компактный
+// контекстный редактор фасада (doorZoneEditorScreen), вид которого менять не
+// нужно.
+// Текст опций короткий («Равномерно»/«Вручную», а не «Распределить
+// равномерно»/«Задать высоту вручную») — этот select стоит рядом с полем
+// «Полки, шт» в узкой половинной колонке .field-row (~140px в панели), и
+// полная фраза обрезалась серединой слова прямо в закрытом состоянии.
+function shelfModeSelect(sec, i) {
+  return `
+    <select data-field="shelfMode" data-idx="${i}">
+      <option value="auto" ${sec.shelfMode !== 'manual' ? 'selected' : ''}>Равномерно</option>
+      <option value="manual" ${sec.shelfMode === 'manual' ? 'selected' : ''}>Вручную</option>
+    </select>`;
+}
+
+function shelfHeightsInputs(sec, i) {
+  return `
+    <div class="mini-row">
+      ${Array.from({ length: sec.shelves }, (_, s) =>
+        `<input type="number" step="10" min="0" value="${(sec.shelfHeights && sec.shelfHeights[s]) || (300 * (s + 1))}"
+                data-shelf="${s}" data-idx="${i}" title="Полка ${s + 1}">`
+      ).join('')}
+    </div>`;
+}
+
 // Блок «Полки» (режим авто/вручную + высоты) — полки принадлежат секции
 // целиком (sec.shelves/shelfMode/shelfHeights), а не отдельной зоне фасада,
 // поэтому один и тот же блок используется и в карточке секции сайдбара
-// (renderSectionsList), и в компактном контекстном редакторе фасада
-// (doorZoneEditorScreen), независимо от doorZoneCount/zoneIndex.
+// (renderSectionsList — там она собирает select/высоты сама, см. выше), и в
+// компактном контекстном редакторе фасада (doorZoneEditorScreen),
+// независимо от doorZoneCount/zoneIndex.
 function shelfDetailBlock(sec, i) {
   return sec.shelves > 0 ? `
     <div class="sub">
       <label>Полки</label>
-      <select data-field="shelfMode" data-idx="${i}">
-        <option value="auto" ${sec.shelfMode !== 'manual' ? 'selected' : ''}>Распределить равномерно</option>
-        <option value="manual" ${sec.shelfMode === 'manual' ? 'selected' : ''}>Задать высоту вручную</option>
-      </select>
+      ${shelfModeSelect(sec, i)}
       ${sec.shelfMode === 'manual' ? `
         <label class="mt6">Высота каждой полки от дна, мм</label>
-        <div class="mini-row">
-          ${Array.from({ length: sec.shelves }, (_, s) =>
-            `<input type="number" step="10" min="0" value="${(sec.shelfHeights && sec.shelfHeights[s]) || (300 * (s + 1))}"
-                    data-shelf="${s}" data-idx="${i}" title="Полка ${s + 1}">`
-          ).join('')}
-        </div>` : ''}
+        ${shelfHeightsInputs(sec, i)}` : ''}
     </div>` : '';
 }
 
@@ -2278,22 +2299,52 @@ function renderSectionsList() {
     // doorZoneEditorScreen/zoneCardHtml), здесь для многозонной секции —
     // просто ссылка на этот способ, без общего select «Фасад».
     const doorZoneCount = Number(sec.doorZoneCount) || 1;
-    // Многозонная секция — полки настраиваются по зонам в zoneCardHtml
-    // (доступно кликом по фасаду в 3D, см. doorZoneEditorScreen); engine.js
-    // игнорирует sec.shelves при multiZone, плоский блок на всю секцию для
-    // неё смысла не имеет.
-    const shelfBlock = doorZoneCount <= 1 ? shelfDetailBlock(sec, i) : '';
+
+    // Строка «Ящики, шт» — при наличии ящиков рядом (не под полем, а сбоку
+    // от него) стоит кнопка перехода в отдельный редактор ящиков, чтобы обе
+    // связанные настройки читались одной строкой.
+    const drawersRow = sec.drawers > 0 ? `
+      <div class="field-row">
+        <div class="field"><label>Ящики, шт</label><input type="number" min="0" max="8" value="${sec.drawers}" data-field="drawers" data-idx="${i}"></div>
+        <div class="field field-row-action">
+          <label>&nbsp;</label>
+          <button class="btn materials-link-btn field-row-btn" data-drawers-open="${i}" type="button">Редактировать <span class="arrow">→</span></button>
+        </div>
+      </div>` : `
+      <div class="field"><label>Ящики, шт</label><input type="number" min="0" max="8" value="${sec.drawers}" data-field="drawers" data-idx="${i}"></div>`;
+
+    // Строка «Полки, шт» — тем же приёмом: при наличии полок рядом с полем
+    // стоит select режима распределения (shelfModeSelect), а не под ним
+    // отдельным блоком. Список высот вручную (при shelfMode:'manual') —
+    // отдельным блоком сразу под этой строкой. Многозонная секция — полки
+    // настраиваются по зонам в zoneCardHtml (доступно кликом по фасаду в 3D,
+    // см. doorZoneEditorScreen); engine.js игнорирует sec.shelves при
+    // multiZone, эта строка для неё не показывается вовсе.
+    // .field-row-shelf-mode — колонки не 50/50: полю «Полки, шт» хватает
+    // ширины под 1-2 цифры, а select с текстом опций («Равномерно»/
+    // «Вручную») нужно больше места, иначе текст обрезается (см. style.css).
+    const shelvesRow = sec.shelves > 0 ? `
+      <div class="field-row field-row-shelf-mode">
+        <div class="field"><label>Полки, шт</label><input type="number" min="0" max="12" value="${sec.shelves}" data-field="shelves" data-idx="${i}"></div>
+        <div class="field field-row-action">
+          <label>&nbsp;</label>
+          ${shelfModeSelect(sec, i)}
+        </div>
+      </div>
+      ${sec.shelfMode === 'manual' ? `
+      <div class="sub">
+        <label>Высота каждой полки от дна, мм</label>
+        ${shelfHeightsInputs(sec, i)}
+      </div>` : ''}` : `
+      <div class="field"><label>Полки, шт</label><input type="number" min="0" max="12" value="${sec.shelves}" data-field="shelves" data-idx="${i}"></div>`;
 
     return `
       <div class="section-card">
         <div class="section-card-title">
           <span>${esc(mod.name)} · Секция ${i + 1}</span>
         </div>
-        <div class="field-row">
-          ${doorZoneCount <= 1 ? `<div class="field"><label>Полки, шт</label><input type="number" min="0" max="12" value="${sec.shelves}" data-field="shelves" data-idx="${i}"></div>` : ''}
-          <div class="field"><label>Ящики, шт</label><input type="number" min="0" max="8" value="${sec.drawers}" data-field="drawers" data-idx="${i}"></div>
-        </div>
-        ${sec.drawers > 0 ? `<button class="btn materials-link-btn" data-drawers-open="${i}" type="button">Редактировать ящики <span class="arrow">→</span></button>` : ''}
+        ${drawersRow}
+        ${doorZoneCount <= 1 ? shelvesRow : ''}
         <div class="field">
           <label>Ширина проёма секции</label>
           <select data-field="widthMode" data-idx="${i}">
@@ -2323,7 +2374,6 @@ function renderSectionsList() {
         ${glassBlock}
         ${handleBlock}
         ${liftBlock}
-        ${shelfBlock}
         ${rodBlock}
       </div>`;
   })();
@@ -2436,7 +2486,7 @@ function renderSectionsList() {
   // все зоны секции), и в компактном контекстном редакторе одной зоны
   // (doorZoneEditorScreen, открывается кликом по фасаду в 3D).
   bindZoneFieldEvents(list, mod);
-  // «Редактировать ящики →» — открывает отдельную панель «Ящики» для этой
+  // «Редактировать →» — открывает отдельную панель «Ящики» для этой
   // секции (см. openDrawersPanel/drawersPanelBlock). e.currentTarget, а не
   // e.target: клик может попасть на внутренний <span class="arrow">.
   list.querySelectorAll('[data-drawers-open]').forEach((el) => {

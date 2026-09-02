@@ -75,7 +75,7 @@ class El {
     const list = (this._listeners.get(type) || []).slice();
     // currentTarget — элемент, на который повешен слушатель (всегда this для
     // прямого addEventListener, в отличие от делегирования); часть кода
-    // (например, обработчик «Редактировать ящики →») читает именно его, а не
+    // (например, обработчик «Редактировать →») читает именно его, а не
     // target, — см. e.currentTarget.dataset в app.js/bindPanelEvents.
     for (const fn of list) {
       fn(Object.assign({ target: this, currentTarget: this, preventDefault() {}, stopPropagation() {} }, ev || {}));
@@ -419,8 +419,9 @@ check('кнопка «скрыть фасады» переключается', (
   b.click();
   return on;
 });
-// Иерархия в подписях: сначала модуль, потом секция внутри него
-check('заголовок секций начинается с модуля', () => /Модуль \d+ — секции/.test($('paramsPanel').innerHTML));
+// Иерархия в подписях: заголовок «Модуль N — секции» над списком секций
+// убран (v213, дублировал активную вкладку модуля) — хватает подписи
+// карточки секции «Модуль N · Секция M», где имя модуля тоже видно.
 check('карточка секции подписана «Модуль N · Секция M»', () =>
   /Модуль \d+ · Секция 1/.test($('sectionsList').innerHTML));
 
@@ -506,10 +507,10 @@ for (const id of Array.from(registry.keys())) {
   check('секция: 3 ящика без дверей', () => set('facade', 'open') && set('shelves', 0) && set('drawers', 3));
   check('нет NaN в деталировке (авто)', () => $('tab-detailing').innerHTML.indexOf('NaN') === -1);
 
-  // «Редактировать ящики →» в карточке секции открывает отдельную панель
+  // «Редактировать →» в карточке секции открывает отдельную панель
   // «Ящики» (state.panelView:'drawers', см. openDrawersPanel/drawersPanelBlock)
   // вместо старого инлайн-блока в #sectionsList.
-  check('«Редактировать ящики →» открывает панель ящиков', () => {
+  check('«Редактировать →» открывает панель ящиков', () => {
     const b = document.getElementById('sectionsList').querySelectorAll('[data-drawers-open]')[0];
     if (!b) return false;
     b.click();
@@ -682,11 +683,13 @@ for (const id of Array.from(registry.keys())) {
 (function moduleOrderScenario() {
   const count = () => document.querySelectorAll('.mod-tab').length;
   // Имя активного модуля больше не читается из поля m-name (его убрали,
-  // переименование только через контекстное меню) — берём из заголовка
-  // секций: `<h3>${esc(mod.name)} — секции</h3>` (см. app.js moduleFieldsBlock).
+  // переименование только через контекстное меню) и больше не из заголовка
+  // секций (убран в v213) — берём прямо из подписи активной вкладки модуля:
+  // `<button class="mod-tab ... active" ...>${esc(m.name)}${rotation}</button>`
+  // (см. app.js moduleTabsBlock). Хвост «↻N°» (поворот) отрезаем отдельно.
   const activeModuleName = () => {
-    const r = /<h3>([^<]*) — секции<\/h3>/.exec($('paramsPanel').innerHTML);
-    return r ? r[1] : '';
+    const r = /<button class="mod-tab[^"]*\bactive\b[^"]*"[\s\S]*?>([^<]*)<\/button>/.exec($('paramsPanel').innerHTML);
+    return r ? r[1].replace(/\s*↻\d+°\s*$/, '') : '';
   };
 
   // сводим проект к одному модулю — удаление теперь иконкой в шапке
@@ -770,9 +773,11 @@ for (const id of Array.from(registry.keys())) {
     const r = /Габарит проекта ([\d.]+)×([\d.]+)×([\d.]+)/.exec($('tab-drawings').innerHTML);
     return r ? r[1] + 'x' + r[3] : '';
   };
+  // Имя активной вкладки модуля — см. тот же приём и комментарий в
+  // moduleOrderScenario() выше (заголовок секций с именем модуля убран в v213).
   const activeModuleName = () => {
-    const r = /<h3>([^<]*) — секции<\/h3>/.exec($('paramsPanel').innerHTML);
-    return r ? r[1] : '';
+    const r = /<button class="mod-tab[^"]*\bactive\b[^"]*"[\s\S]*?>([^<]*)<\/button>/.exec($('paramsPanel').innerHTML);
+    return r ? r[1].replace(/\s*↻\d+°\s*$/, '') : '';
   };
   const before = projSize();
   check('поворот на 90° применяется', () => {

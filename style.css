@@ -243,6 +243,13 @@ body {
 }
 .materials-link-btn:hover { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
 .materials-link-btn .arrow { font-weight: 700; }
+/* Кнопка/select рядом со СВОИМ полем-счётчиком в .field-row (карточка секции,
+   renderSectionsList): «Ящики, шт» + «Редактировать →», «Полки, шт» + режим
+   распределения. У поля есть label над input, у кнопки/select своей подписи
+   нет — без сброса margin-top кнопка/select уезжали бы ниже input соседней
+   колонки. См. .field-row-action ниже — там же невидимая label-заглушка,
+   которая ставит кнопку/select на ту же высоту, что и input. */
+.field-row-btn { width: 100%; margin-top: 0; }
 /* Кнопка «назад» (стрелка слева) переиспользует .materials-link-btn, но
    стрелка+текст должны идти одной группой у левого края, а не разъезжаться
    по краям, как у кнопки «вперёд» (space-between в базовом классе). */
@@ -730,6 +737,13 @@ input[type='number'] { font-family: var(--ff-mono); }
   background-size: 5px 5px, 5px 5px;
   background-repeat: no-repeat;
   padding-right: 26px;
+  /* Подстраховка на случай тесной колонки (см. .field-row-shelf-mode выше):
+     если текст опции всё же не влезает, обрезаем его многоточием, а не
+     серединой слова. В Firefox на закрытом <select> может не сработать —
+     тогда просто вернётся к обычной обрезке, не хуже, чем было. */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .field input:focus, .field select:focus, select:focus, input:focus {
   outline: none;
@@ -739,8 +753,18 @@ input[type='number'] { font-family: var(--ff-mono); }
 .field input[type='checkbox'] { width: auto; }
 
 .field-row { display: grid; grid-template-columns: 1fr 1fr; gap: var(--sp-2); }
+/* Строка «Полки, шт» (renderSectionsList): числовому полю хватает 1-2 цифр,
+   а select режима распределения («Равномерно»/«Вручную») читается тесно на
+   ровно половине узкой боковой панели — перекашиваем колонки в его пользу. */
+.field-row-shelf-mode { grid-template-columns: 0.7fr 1.3fr; }
 .field-row3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
 .field-row3 .field input { padding: 7px 6px; text-align: center; }
+/* Вторая колонка .field-row, где вместо своего поля стоит кнопка/select без
+   подписи (см. .field-row-btn выше, «Ящики, шт»/«Полки, шт» в карточке
+   секции) — label остаётся в разметке (&nbsp;) только чтобы занять ту же
+   высоту, что и подпись соседнего поля, сам текст не нужен и не читается
+   скринридером. */
+.field-row-action > label { visibility: hidden; }
 
 .checkbox-field label,
 .checkbox-inline {
@@ -766,7 +790,7 @@ input[type='number'] { font-family: var(--ff-mono); }
    край при прокрутке. */
 .mod-tabs-row { display: flex; align-items: flex-start; gap: var(--sp-1); margin-bottom: var(--sp-2); }
 .mod-tabs {
-  display: flex; flex-wrap: nowrap; overflow-x: auto; gap: var(--sp-1);
+  display: flex; flex-wrap: nowrap; overflow-x: auto; overflow-y: hidden; gap: var(--sp-1);
   flex: 1 1 auto; min-width: 0; padding-bottom: 2px;
 }
 .mod-tab {
@@ -786,7 +810,7 @@ input[type='number'] { font-family: var(--ff-mono); }
    .mod-tabs-row выше. */
 .sec-tabs-row { display: flex; align-items: flex-start; gap: var(--sp-1); margin-bottom: var(--sp-2); }
 .sec-tabs {
-  display: flex; flex-wrap: nowrap; overflow-x: auto; gap: var(--sp-1);
+  display: flex; flex-wrap: nowrap; overflow-x: auto; overflow-y: hidden; gap: var(--sp-1);
   flex: 1 1 auto; min-width: 0; padding-bottom: 2px;
 }
 .sec-tab {
