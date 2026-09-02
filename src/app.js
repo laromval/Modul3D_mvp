@@ -14,7 +14,7 @@
 (function () {
 // Версия сборки — показывается во вкладке браузера и в шапке.
 // При выпуске новой версии меняется только эта строка.
-const APP_VERSION = 'v218';
+const APP_VERSION = 'v219';
 
 // Номер версии выводим ПЕРВЫМ делом: если дальше что-то упадёт, по нему сразу
 // видно, какая сборка открыта.
@@ -66,7 +66,7 @@ const { exportDrillCsv, exportDrillDxf } = window.Modul3D.cnc;
 
 function newSection() {
   return {
-    shelves: 3, drawers: 0, facade: 'doorLeft',
+    shelves: 3, drawers: 0, facade: 'doorLeft', handle: 'bow160',
     shelfMode: 'auto', shelfHeights: [],
     rod: false, rodHeight: 1900,
     drawerMode: 'auto', drawerHeights: [], drawerPinned: [], pushToOpen: false,
@@ -92,6 +92,18 @@ function newModule(name) {
     sections: [newSection()],
     activeSection: 0,   // какая вкладка секции сейчас раскрыта (renderSectionsList)
   };
+}
+// Симметричная навеска фасадов: левая половина секций модуля открывается
+// влево, правая — вправо (единственная секция — всегда влево). Перезаписывает
+// sec.facade у ВСЕХ секций модуля по позиции — вызывать сразу после
+// добавления/удаления секции, до renderSectionsList()/recompute(). Отдельные
+// дверные зоны секции (sec.doorZones[].facade) этим правилом не затрагиваются.
+function rebalanceSectionFacades(mod) {
+  const n = mod.sections.length;
+  if (n === 1) { mod.sections[0].facade = 'doorLeft'; return; }
+  mod.sections.forEach((sec, i) => {
+    sec.facade = i < Math.floor(n / 2) ? 'doorLeft' : 'doorRight';
+  });
 }
 
 const state = {
@@ -2445,6 +2457,7 @@ function renderSectionsList() {
     el.addEventListener('click', () => {
       mod.sections.push(newSection());
       mod.activeSection = mod.sections.length - 1;
+      rebalanceSectionFacades(mod);
       renderSectionsList();
       recompute();
     });
@@ -2461,6 +2474,7 @@ function renderSectionsList() {
       // После удаления активной секции переключаемся на соседнюю — тот же
       // клэмп, что и у state.activeModule в deleteModule().
       mod.activeSection = Math.min(idx, mod.sections.length - 1);
+      rebalanceSectionFacades(mod);
       renderSectionsList();
       recompute();
     });
