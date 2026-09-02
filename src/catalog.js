@@ -43,7 +43,7 @@
     // ставят МДФ в шпоне того же дерева.
     'FAC-VENEER': { code: 'FAC-VENEER', name: 'МДФ шпонированный 18 мм (видимая боковина)',
                     sheetPrice: 7400, sheetW: 2800, sheetH: 2070, unit: 'лист', image: null },
-    'GLASS-4':  { code: 'GLASS-4',  name: 'Стекло 4 мм (фасад)', sheetPrice: 2600, sheetW: 2000, sheetH: 1000, unit: 'лист', image: null },
+    'GLASS-4':  { code: 'GLASS-4',  name: 'Стекло сатин бронз 4 мм (фасад)', sheetPrice: 2600, sheetW: 2000, sheetH: 1000, unit: 'лист', image: null },
   };
 
   const FACADE_TYPES = {

@@ -266,6 +266,16 @@ const DRILL_TITLE = {
   dowelFace: 'Нагель Ø8 в пласть',
 };
 
+// Стеклянный фасад (материал GLASS-4, «сатин бронз») — тёплый тонированный
+// бежево-бронзовый цвет двери/вставки, заметный в 3D. Один и тот же тон и
+// прозрачность используются везде, где рисуется именно фасад из GLASS-4
+// (сплошная стеклянная дверь и стеклянная вставка в рамке woodGlass/alu).
+// НЕ путать со стеклянной полкой (материал GLASS-6, за таким фасадом) — она
+// рисуется тем же флагом row.glass, но остаётся прозрачно-голубоватой, это
+// другой материал, его тут не трогаем.
+const GLASS4_COLOR = 0xbe9669;
+const GLASS4_OPACITY = 0.6;
+
 const KIND_COLOR = {
   side: 0xd8c8a8, top: 0xd8c8a8, bottom: 0xd8c8a8, divider: 0xd8c8a8, plinth: 0xb9a67e,
   shelf: 0xe0d2b4, back: 0xf2efe6,
@@ -331,11 +341,11 @@ function makeFramedFacade(box, row, isActive, ghost, sectionHi) {
   const ih = Math.max(H - 2 * fw + 0.006, 0.001);
   const isGlass = row.insertMaterial === 'GLASS-4';
   const matIns = new THREE.MeshStandardMaterial({
-    color: sectionHi ? SECTION_HI_COLOR : (isGlass ? 0xbfe3ea : (isActive ? 0x7fb0d8 : 0xd8c8a8)),
+    color: sectionHi ? SECTION_HI_COLOR : (isGlass ? GLASS4_COLOR : (isActive ? 0x7fb0d8 : 0xd8c8a8)),
     roughness: isGlass ? 0.08 : 0.7, metalness: 0.02,
     emissive: sectionHi ? SECTION_HI_EMISSIVE : 0x000000,
     transparent: isGlass || ghost || sectionHi,
-    opacity: sectionHi ? SECTION_HI_OPACITY : (ghost ? 0.2 : (isGlass ? 0.35 : 1)),
+    opacity: sectionHi ? SECTION_HI_OPACITY : (ghost ? 0.2 : (isGlass ? GLASS4_OPACITY : 1)),
     depthWrite: !(isGlass || ghost || sectionHi),
   });
   const ins = new THREE.Mesh(new THREE.BoxGeometry(iw, ih, T * (isGlass ? 0.25 : 0.6)), matIns);
@@ -1642,6 +1652,12 @@ class Viewer3D {
       const dimmed = false;
       const ghostLike = ghost;
       const glass = !!row.glass;                 // стекло рисуем прозрачным
+      // row.glass один и тот же флаг у сплошного стеклянного фасада (GLASS-4,
+      // facadeType glass4) и у стеклянной полки за таким фасадом (GLASS-6,
+      // engine.js glassShelf) — их нужно красить РАЗНО: полка остаётся
+      // прозрачно-голубоватой (обычное прозрачное стекло), а фасад — тёплым
+      // бронзовым (см. GLASS4_COLOR), чтобы дверь была заметна.
+      const glassFacade = glass && isFacade;
       const framed = (row.frameW || 0) > 0 && row.facadeType !== 'mdfMilled';
       const milled = row.facadeType === 'mdfMilled';   // фрезеровка на пласти
       const isActive = highlight && row.module === highlight;
@@ -1830,14 +1846,14 @@ class Viewer3D {
       const tex = (ldspLike && !isActive && !hiCyan) ? woodTexture() : null;
       const mat = new THREE.MeshStandardMaterial({
         color: hiCyan ? SECTION_HI_COLOR
-          : (glass ? 0xbfe3ea : (isMdf ? (isActive ? 0x7fb0d8 : 0xf2efe9) : color)),
+          : (glassFacade ? GLASS4_COLOR : (glass ? 0xbfe3ea : (isMdf ? (isActive ? 0x7fb0d8 : 0xf2efe9) : color))),
         map: tex || null,
         roughness: glass ? 0.1 : (isMdf ? 0.12 : 0.75),
         metalness: isMdf ? 0.05 : 0.02,
         emissive: hiCyan ? SECTION_HI_EMISSIVE : (isActive ? 0x14314a : 0x000000),
         transparent: hiCyan || ghostLike || glass || drillCheck,
         opacity: hiCyan ? SECTION_HI_OPACITY
-          : (ghostLike ? 0.22 : (glass ? 0.35 : (drillCheck ? 0.22 : 1))),
+          : (ghostLike ? 0.22 : (glassFacade ? GLASS4_OPACITY : (glass ? 0.35 : (drillCheck ? 0.22 : 1)))),
         depthWrite: !(hiCyan || ghostLike || glass || drillCheck),
       });
       if (tex) {
@@ -2195,13 +2211,18 @@ function renderThumbnail(model, opts) {
       const asFacade = !!row.facadeType;
       const color = look ? look.color
         : (KIND_COLOR[row.kind] ?? (asFacade ? KIND_COLOR.door : KIND_COLOR.side));
+      // row.glass — общий флаг у стеклянного фасада (GLASS-4) и стеклянной
+      // полки за ним (GLASS-6, engine.js glassShelf) — красим по-разному,
+      // см. пояснение у GLASS4_COLOR выше. asFacade (row.facadeType задан
+      // только у двери/ящика) отличает фасад от полки.
+      const glassFacade = !!row.glass && asFacade;
 
       const geo = new THREE.BoxGeometry(
         Math.max(box.w * MM, 0.001), Math.max(box.h * MM, 0.001), Math.max(box.d * MM, 0.001));
       const mat = new THREE.MeshStandardMaterial({
-        color: row.glass ? 0xbfe3ea : (neutral ? 0xf1efe8 : color),
+        color: glassFacade ? GLASS4_COLOR : (row.glass ? 0xbfe3ea : (neutral ? 0xf1efe8 : color)),
         roughness: 0.7, metalness: 0.03,
-        transparent: !!row.glass, opacity: row.glass ? 0.4 : 1,
+        transparent: !!row.glass, opacity: glassFacade ? GLASS4_OPACITY : (row.glass ? 0.4 : 1),
       });
       geoms.push(geo); mats.push(mat);
 
