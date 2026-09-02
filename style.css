@@ -290,7 +290,7 @@ select:focus-visible {
   font-weight: 600;
 }
 
-.mod-add { padding: 7px 11px; font-weight: 700; color: var(--accent); border-style: dashed; border-color: var(--border-strong); }
+.mod-add { padding: 7px 11px; font-weight: 700; color: var(--accent); border-style: dashed; border-color: var(--border-strong); flex: 0 0 auto; }
 .mod-add:hover { border-color: var(--accent); color: var(--accent); }
 .sec-add { padding: 6px 10px; font-weight: 700; color: var(--accent); border-style: dashed; border-color: var(--border-strong); flex: 0 0 auto; }
 .sec-add:hover { border-color: var(--accent); color: var(--accent); }
@@ -758,8 +758,22 @@ input[type='number'] { font-family: var(--ff-mono); }
 .sub { margin-top: var(--sp-2); padding-left: var(--sp-2); border-left: 2px solid var(--border); }
 .sub label { font-size: var(--fs-sm); color: var(--text-2); }
 
-.mod-tabs { display: flex; flex-wrap: wrap; gap: var(--sp-1); margin-bottom: var(--sp-2); }
-.mod-tab { padding: 6px 10px; font-size: var(--fs-sm); border-radius: var(--r-sm); }
+/* Ряд вкладок модулей проекта (moduleTabsBlock() в app.js) — не переносится
+   на вторую строку: при 50+ модулях перенос заполнил бы всю панель. Вместо
+   этого ряд скроллится по горизонтали (nowrap + overflow-x, колесо мыши —
+   см. bindPanelEvents), та же визуальная логика, что и у .sec-tabs ниже.
+   «+» (.mod-add) — вне этого ряда, в .mod-tabs-row, чтобы не уезжать за
+   край при прокрутке. */
+.mod-tabs-row { display: flex; align-items: flex-start; gap: var(--sp-1); margin-bottom: var(--sp-2); }
+.mod-tabs {
+  display: flex; flex-wrap: nowrap; overflow-x: auto; gap: var(--sp-1);
+  flex: 1 1 auto; min-width: 0; padding-bottom: 2px;
+}
+.mod-tab {
+  display: flex; align-items: center; flex: 0 0 auto;
+  padding: 6px 10px; font-size: var(--fs-sm); border-radius: var(--r-sm); white-space: nowrap;
+}
+.mod-search { margin-bottom: var(--sp-2); }
 
 /* Вкладки секций внутри модуля (renderSectionsList() в app.js) — та же
    визуальная логика, что и у .mod-tabs/.mod-tab выше (те же переменные,
@@ -767,10 +781,13 @@ input[type='number'] { font-family: var(--ff-mono); }
    на вторую строку, а скроллится по горизонтали (nowrap + overflow-x —
    секций внутри модуля может быть 5-6+, вторая строка тут менее уместна,
    чем горизонтальная прокрутка), и крестик-удаление есть только у активной
-   (раскрытой) вкладки — на свёрнутых вкладках его нет. */
+   (раскрытой) вкладки — на свёрнутых вкладках его нет. «+» (.sec-add) — вне
+   скроллящегося ряда, в .sec-tabs-row, по тому же принципу, что и у
+   .mod-tabs-row выше. */
+.sec-tabs-row { display: flex; align-items: flex-start; gap: var(--sp-1); margin-bottom: var(--sp-2); }
 .sec-tabs {
   display: flex; flex-wrap: nowrap; overflow-x: auto; gap: var(--sp-1);
-  margin-bottom: var(--sp-2); padding-bottom: 2px;
+  flex: 1 1 auto; min-width: 0; padding-bottom: 2px;
 }
 .sec-tab {
   display: flex; align-items: center; gap: 6px; flex: 0 0 auto;

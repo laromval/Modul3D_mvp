@@ -14,7 +14,7 @@
 (function () {
 // Версия сборки — показывается во вкладке браузера и в шапке.
 // При выпуске новой версии меняется только эта строка.
-const APP_VERSION = 'v211';
+const APP_VERSION = 'v212';
 
 // Номер версии выводим ПЕРВЫМ делом: если дальше что-то упадёт, по нему сразу
 // видно, какая сборка открыта.
@@ -122,6 +122,11 @@ const state = {
   // редактируемые таблицы каталога материалов, 'hardware' — фурнитура.
   // Чисто UI-состояние, в историю отмены/файл проекта не попадает.
   libraryTab: 'modules',
+  // Текст в строке поиска по вкладкам модулей проекта (moduleTabsBlock,
+  // поле видно только когда модулей больше 8 — см. там же). Чисто
+  // UI-состояние, как libraryTab выше: в историю отмены/файл проекта не
+  // попадает.
+  moduleSearchQuery: '',
   // Какой экран сейчас показан в панели «Параметры проекта» (панель
   // «Библиотека» — отдельная, самостоятельная, за неё отвечает libraryTab
   // выше): 'module' — поля активного модуля, 'materials' — общие на проект
@@ -881,16 +886,49 @@ function initLibraryPanel() {
 // Отменить/Вернуть/Удалить модуль переехали в шапку программы (иконки рядом
 // с «Сохранить»/«Открыть» — см. index.html и initHeaderControls() ниже);
 // «Библиотека» — отдельная панель со своей кнопкой на рейке.
+// Ряд не переносится на вторую строку — при большом числе модулей (и так
+// бывает: 50+) перенос заполнил бы всю панель. Вместо этого ряд скроллится
+// по горизонтали (nowrap + overflow-x, колесо мыши — см. bindPanelEvents),
+// как и .sec-tabs у секций ниже. «+» вынесена из скроллящегося ряда в
+// отдельную ячейку .mod-tabs-row, чтобы всегда быть на виду, а не уезжать
+// за край при прокрутке; строка поиска (тоже вне фильтруемого ряда) видна,
+// только когда модулей больше 8 — для меньших проектов она не нужна.
 function moduleTabsBlock(mod) {
+  const showSearch = state.modules.length > 8;
   return `
     <h3>Модули проекта</h3>
-    <div class="mod-tabs" id="modTabs">
-      ${state.modules.map((m, i) =>
-        `<button class="mod-tab tip tip-down ${i === state.activeModule ? 'active' : ''}" data-mod="${i}" type="button"
-                 data-tip="ПКМ: переименование">${esc(m.name)}${m.rotation ? ` ↻${m.rotation}°` : ''}</button>`
-      ).join('')}
+    ${showSearch ? `
+    <div class="drawer-search mod-search">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="6"/><path d="M15.5 15.5 20 20"/></svg>
+      <input type="search" id="moduleSearch" placeholder="Поиск модуля…" autocomplete="off" value="${esc(state.moduleSearchQuery || '')}">
+    </div>` : ''}
+    <div class="mod-tabs-row">
+      <div class="mod-tabs" id="modTabs">
+        ${state.modules.map((m, i) =>
+          `<button class="mod-tab tip tip-down ${i === state.activeModule ? 'active' : ''}" data-mod="${i}"
+                   data-search="${esc(m.name.toLowerCase())}" type="button"
+                   data-tip="ПКМ: переименование">${esc(m.name)}${m.rotation ? ` ↻${m.rotation}°` : ''}</button>`
+        ).join('')}
+      </div>
       <button class="mod-add tip tip-down" id="addModule" type="button" data-tip="Добавить модуль" aria-label="Добавить модуль">+</button>
     </div>`;
+}
+
+// Фильтр строки поиска над вкладками модулей — та же логика, что и
+// applyLibrarySearch() у панели «Библиотека»: скрывает несовпавшие кнопки
+// через .dim-out, без перерисовки панели (иначе поле теряло бы фокус на
+// каждом введённом символе). Значение сохраняем в state.moduleSearchQuery,
+// чтобы пережить следующую перерисовку панели (recompute() дальше по коду
+// перерисовывает её целиком).
+function applyModuleSearch() {
+  const input = document.getElementById('moduleSearch');
+  const list = document.getElementById('modTabs');
+  if (!input || !list) return;
+  state.moduleSearchQuery = input.value || '';
+  const q = state.moduleSearchQuery.trim().toLowerCase();
+  list.querySelectorAll('.mod-tab').forEach((el) => {
+    el.classList.toggle('dim-out', !!q && el.getAttribute('data-search').indexOf(q) < 0);
+  });
 }
 
 // Экран пустого проекта: показывается вместо параметров модуля, пока в
@@ -2167,12 +2205,14 @@ function renderSectionsList() {
   const activeIdx = mod.activeSection;
 
   const tabsHtml = `
-    <div class="sec-tabs" id="secTabs">
-      ${mod.sections.map((s, si) => `
-        <button class="sec-tab ${si === activeIdx ? 'active' : ''}" data-sec="${si}" type="button">
-          Секция ${si + 1}${si === activeIdx && mod.sections.length > 1
-            ? `<span class="sec-tab-remove" data-remove-sec="${si}" title="Убрать секцию">✕</span>` : ''}
-        </button>`).join('')}
+    <div class="sec-tabs-row">
+      <div class="sec-tabs" id="secTabs">
+        ${mod.sections.map((s, si) => `
+          <button class="sec-tab ${si === activeIdx ? 'active' : ''}" data-sec="${si}" type="button">
+            Секция ${si + 1}${si === activeIdx && mod.sections.length > 1
+              ? `<span class="sec-tab-remove" data-remove-sec="${si}" title="Убрать секцию">✕</span>` : ''}
+          </button>`).join('')}
+      </div>
       <button class="sec-add tip tip-down" data-add-section type="button"
               data-tip="Добавить секцию" aria-label="Добавить секцию">+</button>
     </div>`;
@@ -2662,6 +2702,33 @@ function bindPanelEvents() {
   // openPartVisualEditor ниже) для той же самой детали, что показана в
   // partBlock() — resolveSelectedPart() внутри найдёт её той же логикой.
   on('openPartVisualEditorBtn', 'click', () => openPartVisualEditor());
+
+  // Поиск по вкладкам модулей (виден только когда модулей больше 8 — см.
+  // moduleTabsBlock) и прокрутка их ряда колесом мыши — оба независимы от
+  // того, есть ли активный модуль, поэтому привязываются до ранних return
+  // ниже. Ряд #modTabs — moduleTabsBlock() каждый раз пересоздаёт его,
+  // слушатель нужно вешать заново при каждом вызове bindPanelEvents(), тот
+  // же приём, что и у #secTabs в renderSectionsList().
+  on('moduleSearch', 'input', applyModuleSearch);
+  applyModuleSearch();
+  const modTabsEl = document.getElementById('modTabs');
+  if (modTabsEl) {
+    modTabsEl.addEventListener('wheel', (e) => {
+      if (e.deltaY === 0) return;
+      e.preventDefault();
+      modTabsEl.scrollLeft += e.deltaY;
+    }, { passive: false });
+    // Подкручиваем ряд так, чтобы активная вкладка была видна целиком —
+    // без этого смена активного модуля НЕ кликом по видимой кнопке
+    // (insertModule() при добавлении, undo/redo, выбор в 3D, переименование
+    // через контекстное меню) могла бы оставить подсветку .active за
+    // пределами видимой области длинного скроллящегося ряда. Тот же приём
+    // и по той же причине, что и у #secTabs в renderSectionsList().
+    const activeModTabEl = modTabsEl.querySelector('.mod-tab.active');
+    if (activeModTabEl && activeModTabEl.scrollIntoView) {
+      activeModTabEl.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+    }
+  }
 
   // Без модулей в панели есть только подсказка (emptyProjectBlock) и «+» на
   // вкладках модулей — остальные поля не отрисованы, обращаться к ним нельзя.
