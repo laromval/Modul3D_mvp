@@ -65,6 +65,7 @@ function decorLook(code) {
   if (/чёрн|черн/i.test(nm)) return { color: 0x35332f, wood: false };
   if (/шпон|дуб|сонома|крафт|массив|орех|ясен/i.test(nm)) return { color: 0xc9a76a, wood: true };
   if (/крашен|эмал|плёнк|пленк|мдф/i.test(nm)) return { color: 0xf2efe9, wood: false };
+  if (/лдсп|дсп/i.test(nm) && !/стенк/i.test(nm)) return { color: 0xc9a76a, wood: true };
   return null;
 }
 
