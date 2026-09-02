@@ -14,7 +14,7 @@
 (function () {
 // Версия сборки — показывается во вкладке браузера и в шапке.
 // При выпуске новой версии меняется только эта строка.
-const APP_VERSION = 'v220';
+const APP_VERSION = 'v221';
 
 // Номер версии выводим ПЕРВЫМ делом: если дальше что-то упадёт, по нему сразу
 // видно, какая сборка открыта.
@@ -1844,18 +1844,25 @@ function setDoorZoneCount(sec, value) {
 // см. findNeighborBottomZoneHeight). null — не удалось посчитать (нет ещё
 // посчитанной модели, или у секции есть ящики — тогда бюджет зоны сдвинут
 // на drawerZoneH, которую здесь сознательно не учитываем, см. тот же guard
-// в placeShelvesAtZoneBoundaries ниже).
+// в placeShelvesAtZoneBoundaries ниже), а также если у самой секции
+// sectionIndex нет реального деления на зоны (doorZoneCount отсутствует
+// или === 1, обычная цельная дверь на всю высоту) — тогда у неё физически
+// нет «нижней зоны» как отдельной величины, и подставлять её полную высоту
+// фасада как ориентир для выравнивания соседа неверно (баг: одна зона
+// «съедала» почти всю высоту новой секции, остальным зонам не хватало
+// места — см. findNeighborBottomZoneHeight).
 function sectionBottomZoneHeight(mod, sectionIndex) {
   const sec = mod.sections[sectionIndex];
   if (!sec) return null;
+  const n = Number(sec.doorZoneCount) || 1;
+  if (n <= 1) return null;
   const mi = state.modules.indexOf(mod);
   const dims = currentModel && currentModel.modules[mi] && currentModel.modules[mi].dims;
   if (!dims) return null;
   const secDims = dims.sections && dims.sections[sectionIndex];
   if (secDims && Array.isArray(secDims.drawerHeights) && secDims.drawerHeights.length) return null;
   const { layoutDoorZones } = window.Modul3D.engine;
-  const n = Number(sec.doorZoneCount) || 1;
-  const zones = (n > 1 && Array.isArray(sec.doorZones) && sec.doorZones.length)
+  const zones = (Array.isArray(sec.doorZones) && sec.doorZones.length)
     ? sec.doorZones.slice(0, n).map((z) => ({ height: (z && Number(z.height)) || 0 }))
     : [{ height: 0 }];
   const layout = layoutDoorZones(zones, dims.H - dims.baseH, dims.gap, null, '');
