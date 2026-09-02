@@ -334,7 +334,7 @@ check('корпус по умолчанию 18 мм', () => {
   const el = document.getElementById('p-bodyThickness');
   return !!el && Number(el.attrs.value) === 18;
 });
-for (const id of ['p-decor', 'p-back', 'p-joint']) {
+for (const id of ['p-decor', 'p-back']) {
   const el0 = document.getElementById(id);
   if (!el0) { fails.push('нет элемента #' + id); continue; }
   for (const v of (el0._options || [el0.value])) {

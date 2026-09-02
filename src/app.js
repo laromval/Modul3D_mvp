@@ -14,7 +14,7 @@
 (function () {
 // Версия сборки — показывается во вкладке браузера и в шапке.
 // При выпуске новой версии меняется только эта строка.
-const APP_VERSION = 'v222';
+const APP_VERSION = 'v223';
 
 // Номер версии выводим ПЕРВЫМ делом: если дальше что-то упадёт, по нему сразу
 // видно, какая сборка открыта.
@@ -594,17 +594,24 @@ function libSwatchHtml(group, key, image) {
 }
 
 function libSheetTable(title, group, items) {
+  // Толщина — своя (редактируемая) колонка только у задней стенки: у неё
+  // это единственный источник state.backThickness (см. bindPanelEvents →
+  // #p-back). У декоров/фасадов толщина общая на проект и задаётся отдельными
+  // полями bodyThickness/facadeThickness в «Параметрах проекта», поэтому
+  // в этой таблице для них колонка не нужна.
+  const hasThickness = group === 'back';
   const rows = items.map((it) => `
     <tr data-search="${esc(String(it.name || '').toLowerCase())}">
       ${libEditCell(group, it.code, 'name', 'text', it.name)}
       ${libEditCell(group, it.code, 'unit', 'text', it.unit || 'лист')}
       <td>${libSwatchHtml(group, it.code, it.image)}</td>
       ${libEditCell(group, it.code, 'sheetPrice', 'number', it.sheetPrice)}
+      ${hasThickness ? libEditCell(group, it.code, 'thickness', 'number', it.thickness) : ''}
     </tr>`).join('');
   return `
     <h4 class="mat-sub">${esc(title)}</h4>
     <table class="lib-table"><thead><tr>
-      <th>Наименование</th><th>Ед. изм.</th><th>Образец</th><th>Цена, ${esc(curSym())}</th>
+      <th>Наименование</th><th>Ед. изм.</th><th>Образец</th><th>Цена, ${esc(curSym())}</th>${hasThickness ? `<th>Толщина, мм</th>` : ''}
     </tr></thead><tbody>${rows}</tbody></table>
     <button type="button" class="link-btn lib-add" data-add="${group}">+ Добавить материал</button>`;
 }
@@ -734,6 +741,14 @@ function libSaveEdit(group, key, field, value) {
   const it = libFindItem(group, key);
   if (!it) return;
   it[field] = value;
+  // Толщина задней стенки кэшируется в state.backThickness в момент выбора
+  // материала (см. bindPanelEvents → #p-back) — если сейчас правят толщину
+  // именно того материала, что уже выбран как задняя стенка проекта, нужно
+  // обновить и state.backThickness той же точкой, иначе правка через
+  // «Библиотеку» применится только после повторного выбора в выпадающем списке.
+  if (group === 'back' && field === 'thickness' && key === state.backCode) {
+    state.backThickness = value;
+  }
   // Каталог — не часть snapshot()/файла проекта, полный recompute() не
   // обязателен для пересчёта чисел, но нужен, чтобы обновить спецификацию
   // (новая цена) и деталировку (переименованный материал) на лету.
@@ -764,7 +779,10 @@ function libAddRow(group) {
   } else if (group === 'decors') {
     DECORS.push({ code: 'NEW-' + Date.now(), name: 'Новый материал', sheetPrice: 0, sheetW: 2750, sheetH: 1830, unit: 'лист', image: null });
   } else if (group === 'back') {
-    BACK_MATERIALS.push({ code: 'NEW-' + Date.now(), name: 'Новый материал', sheetPrice: 0, sheetW: 2440, sheetH: 1220, unit: 'лист', image: null });
+    // thickness обязателен: это единственный источник state.backThickness
+    // при выборе материала в «Параметрах проекта» (ручного поля-дублёра
+    // больше нет) — без него расчёт в engine.js получит undefined.
+    BACK_MATERIALS.push({ code: 'NEW-' + Date.now(), name: 'Новый материал', sheetPrice: 0, sheetW: 2440, sheetH: 1220, thickness: 3, unit: 'лист', image: null });
   } else if (group === 'facade') {
     const code = 'FAC-NEW-' + Date.now();
     cat.FACADE_MATERIALS[code] = { code, name: 'Новый материал фасада', sheetPrice: 0, sheetW: 2750, sheetH: 1830, unit: 'лист', image: null };
@@ -1425,16 +1443,6 @@ function materialsBlock() {
     <div class="field">
       <label>Задняя стенка</label>
       <select id="p-back">${BACK_MATERIALS.map(d => `<option value="${d.code}" ${d.code === state.backCode ? 'selected' : ''}>${esc(d.name)}</option>`).join('')}</select>
-    </div>
-    <div class="field"><label>Толщина ХДФ</label><input id="p-backThickness" type="number" value="${state.backThickness}"></div>
-
-    <div class="field">
-      <label>Тип соединения корпуса</label>
-      <select id="p-joint">
-        <option value="confirmat" ${state.jointType === 'confirmat' ? 'selected' : ''}>Конфирмат</option>
-        <option value="minifix" ${state.jointType === 'minifix' ? 'selected' : ''}>Эксцентриковая стяжка</option>
-        <option value="dowel" ${state.jointType === 'dowel' ? 'selected' : ''}>Шкант</option>
-      </select>
     </div>`;
 }
 
@@ -2893,11 +2901,16 @@ function bindPanelEvents() {
   on('p-decor', 'change', (e) => { state.decorCode = e.target.value; recompute(); });
   on('p-facadeDecor', 'change', (e) => { state.facadeDecorCode = e.target.value; recompute(); });
   on('p-worktop', 'change', (e) => { state.worktopDepth = Number(e.target.value) || 0; recompute(); });
-  on('p-back', 'change', (e) => { state.backCode = e.target.value; recompute(); });
+  on('p-back', 'change', (e) => {
+    state.backCode = e.target.value;
+    // Толщина ХДФ больше не вводится вручную — берём из выбранного материала
+    // (у каждого элемента BACK_MATERIALS теперь есть числовое поле thickness).
+    const back = BACK_MATERIALS.find(m => m.code === state.backCode);
+    if (back) state.backThickness = back.thickness;
+    recompute();
+  });
   on('p-bodyThickness', 'change', (e) => { state.bodyThickness = Number(e.target.value); recompute(); });
   on('p-facadeThickness', 'change', (e) => { state.facadeThickness = Number(e.target.value); recompute(); });
-  on('p-backThickness', 'change', (e) => { state.backThickness = Number(e.target.value); recompute(); });
-  on('p-joint', 'change', (e) => { state.jointType = e.target.value; recompute(); });
 
   // Добавление секции переехало в ряд вкладок секций (кнопка «+» рядом с
   // ними) — обработчик делегирован внутри renderSectionsList() на
@@ -3498,7 +3511,7 @@ function renderSpecTable(spec) {
     section('1. Листовые материалы', sheetRows, ['№', 'Позиция', 'Артикул', 'Площадь', 'Листов', `Цена, ${cur}`, `Сумма, ${cur}`]) +
     section('2. Кромочный материал', edgeRows, ['№', 'Позиция', 'Кол-во', `Цена, ${cur}/м`, `Сумма, ${cur}`]) +
     section('3. Фурнитура', hwRows, ['№', 'Позиция', 'Артикул', 'Кол-во', `Цена, ${cur}`, `Сумма, ${cur}`]) +
-    section(`4. Крепёж и метизы (${esc(spec.jointTypeLabel)})`, fRows, ['№', 'Позиция', 'Артикул', 'Кол-во', `Цена, ${cur}`, `Сумма, ${cur}`]) +
+    section('4. Крепёж и метизы', fRows, ['№', 'Позиция', 'Артикул', 'Кол-во', `Цена, ${cur}`, `Сумма, ${cur}`]) +
     `<div class="total-line">ИТОГО: ${spec.totalCost.toLocaleString('ru-RU')} ${cur}</div>`
     + drawerPassportHtml();
 }

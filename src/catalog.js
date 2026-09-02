@@ -16,8 +16,8 @@
   ];
 
   const BACK_MATERIALS = [
-    { code: 'HDF-3', name: 'ХДФ белый 3мм', sheetPrice: 900, sheetW: 2440, sheetH: 1220, unit: 'лист', image: null },
-    { code: 'HDF-8', name: 'ЛДСП 8мм (усиленная задняя стенка)', sheetPrice: 1500, sheetW: 2750, sheetH: 1830, unit: 'лист', image: null },
+    { code: 'HDF-3', name: 'ХДФ белый 3мм', sheetPrice: 900, sheetW: 2440, sheetH: 1220, thickness: 3, unit: 'лист', image: null },
+    { code: 'HDF-8', name: 'ЛДСП 8мм (усиленная задняя стенка)', sheetPrice: 1500, sheetW: 2750, sheetH: 1830, thickness: 8, unit: 'лист', image: null },
   ];
 
   // Стекло для полок и фасадов: считается по площади, кромка не нужна —
