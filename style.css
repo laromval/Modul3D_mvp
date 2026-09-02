@@ -485,6 +485,21 @@ select:focus-visible {
 .tip.tip-down::after { left: 50%; top: calc(100% + 8px); transform: translateX(-50%) scale(.96); }
 .tip.tip-down:hover::after { transform: translateX(-50%) scale(1); }
 
+/* подсказка из нескольких пар «клавиша — действие» (например, кнопка
+   горячих клавиш) — каждая пара на своей строке по литеральному переносу
+   в data-tip, без обрезания и без разрыва пары посередине. Модификатор
+   отдельный от .tip::after, чтобы не задеть остальные (однострочные)
+   подсказки в проекте.
+   width: max-content нужен из-за того, что containing block у ::after —
+   сама кнопка (узкая, ~36px): без явного width браузер считает
+   shrink-to-fit от доступного места СПРАВА от кнопки внутри неё же, а не
+   от текста, и сжимает подсказку до ширины одного слова, разрывая пары
+   "клавиша — действие" на две строки. */
+.tip.tip-lines::after {
+  white-space: pre-line; width: max-content; max-width: 260px;
+  font-size: 12px; line-height: 1.5;
+}
+
 /* нижняя плавающая панель видов */
 .stage-dock {
   position: absolute; left: 50%; bottom: var(--sp-4); transform: translateX(-50%);
