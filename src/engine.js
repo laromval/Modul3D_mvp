@@ -1190,6 +1190,16 @@ function facadeTypeOf(sec, decor, t, facadeDecor, facadeThickness) {
   };
 }
 
+// Торец детали корпуса (боковина/дно/крыша/полка/стойка), обращённый к
+// фасаду секции, СКРЫТ (не виден снаружи), если у секции есть фасад И этот
+// фасад не стеклянный — сквозь стекло видно то, что за ним (см.
+// ПРАВИЛА-КОНСТРУИРОВАНИЯ.md §4). Секция без фасада (открытая) — торец
+// всегда виден.
+function sectionFrontHidden(sec, decor, t, facadeDecor, facadeThickness) {
+  if (!sectionHasAnyFacade(sec)) return false;
+  return !facadeTypeOf(sec, decor, t, facadeDecor, facadeThickness).glassInside;
+}
+
 // ПРАВИЛО ВЫБОРА КРЕПЕЖА КОРПУСА.
 // Крепёж не должен быть виден с лицевой стороны:
 //   • боковина «до пола» или «сбоку дна» — дно вкладное, конфирмат пришлось бы
@@ -1554,22 +1564,30 @@ function buildModuleParts(p) {
   const sideZ = round1(D / 2 - sideDepth / 2);   // растёт назад, к стене
 
   for (const s of [
-    { nm: 'Боковина левая', x: -sideX, v: sides.left },
-    { nm: 'Боковина правая', x: sideX, v: sides.right },
+    { nm: 'Боковина левая', x: -sideX, v: sides.left, sec: sections[0] },
+    { nm: 'Боковина правая', x: sideX, v: sides.right, sec: sections[n - 1] },
   ]) {
     const bottomY = sideBottomY(s.v);
     const h = sideTop - bottomY;
     const visible = p.visibleSides !== false
       && (s.v === 'floor' || s.v === 'besideBottom');
     const vm = visible ? visibleSideMat() : null;
+    // Передний торец виден, только если он не закрыт фасадом секции (или
+    // фасад стеклянный) — см. sectionFrontHidden. Флаг visible выше — про
+    // ДРУГОЕ: открытую наружу ПЛАСТЬ крайней боковины (материал в тон
+    // фасада), а не про её передний торец у проёма — торец за своей же
+    // закрытой дверью прячется независимо от того, видна ли пласть боковины
+    // снаружи корпуса.
+    const frontHidden = sectionFrontHidden(s.sec, decor, t, p.facadeDecor, p.facadeThickness);
     parts.push(makePart({
       name: s.nm + (visible ? ' (видимая)' : ''), section: 'Корпус',
       material: vm ? vm.code : decor.code, thickness: t,
       length: h, width: visible ? sideDepth : D, qty: 1, grain: true, kind: 'side',
       facadeType: vm ? 'sidePanel' : null,
       note: sideNote(s.v) + (vm ? `; видимая — в материале фасада (${vm.name})` : ''),
-      // Кромкуется передний торец (лицевой). Задний — технической кромкой.
-      edging: { long1: EDGE_FRONT, long2: EDGE_BACK, short1: null, short2: null },
+      // Передний торец — 2мм, если реально виден (открыт или за стеклом),
+      // иначе техническая кромка (закрыт фасадом). Задний — всегда технической.
+      edging: { long1: frontHidden ? EDGE_BACK : EDGE_FRONT, long2: EDGE_BACK, short1: null, short2: null },
       x: s.x, y: (sideTop + bottomY) / 2, z: visible ? sideZ : 0,
       dims: { w: t, h, d: visible ? sideDepth : D },
     }));
@@ -1590,10 +1608,16 @@ function buildModuleParts(p) {
     : (!leftInset && !rightInset) ? 'Накладное, боковины стоят на нём'
     : 'Одна боковина на нём, вторая рядом с ним';
 
+  // Дно/крыша/верхние планки идут на ВСЮ ширину модуля, то есть граничат
+  // сразу со всеми секциями — их передний торец скрыт, только если фасад
+  // есть у КАЖДОЙ секции (хотя бы одна открытая — и торец виден на её участке).
+  const bodyFrontHidden = sections.every(
+    (sec) => sectionFrontHidden(sec, decor, t, p.facadeDecor, p.facadeThickness));
+
   parts.push(makePart({
     name: 'Дно', section: 'Корпус', material: decor.code, thickness: t,
     length: bottomLen, width: D, qty: 1, kind: 'bottom', note: bottomNote,
-    edging: { long1: EDGE_FRONT, long2: null, short1: null, short2: null },
+    edging: { long1: bodyFrontHidden ? EDGE_BACK : EDGE_FRONT, long2: EDGE_BACK, short1: null, short2: null },
     x: (bottomLeft + bottomRight) / 2, y: baseH + t / 2, z: 0,
     dims: { w: bottomLen, h: t, d: D },
   }));
@@ -1614,9 +1638,9 @@ function buildModuleParts(p) {
     const FRONT_RAIL_EDGE_SETBACK = 4; // мм, фиксировано
     for (const r of [
       { nm: 'Планка верхняя передняя',
-        z: onEdge ? D / 2 - t / 2 - FRONT_RAIL_EDGE_SETBACK : D / 2 - RAIL_W / 2, edge: EDGE_FRONT },
+        z: onEdge ? D / 2 - t / 2 - FRONT_RAIL_EDGE_SETBACK : D / 2 - RAIL_W / 2, front: true },
       { nm: 'Планка верхняя задняя',
-        z: onEdge ? -D / 2 + t / 2 : -D / 2 + RAIL_W / 2, edge: null },
+        z: onEdge ? -D / 2 + t / 2 : -D / 2 + RAIL_W / 2, front: false },
     ]) {
       parts.push(makePart({
         name: r.nm, section: 'Корпус', material: decor.code, thickness: t,
@@ -1624,9 +1648,15 @@ function buildModuleParts(p) {
         note: onEdge
           ? 'Вкладная между боковинами, НА РЕБРО — проём сверху свободен под мойку'
           : 'Вкладная между боковинами, плашмя; через неё крепится столешница',
+        // Планки НА РЕБРО стоят вертикально — их long1/long2 не смотрят
+        // на фасад, это отдельная (редкая, под мойку) геометрия, видимость
+        // фасада к ней не применяется. Плашмя — передняя видна, только если
+        // не закрыта фасадом; задняя всегда технической кромкой (не joint —
+        // просто задний край, отдельного стыка с чем-либо у неё нет).
         edging: onEdge
           ? { long1: EDGE_FRONT, long2: null, short1: null, short2: null }
-          : { long1: r.edge, long2: null, short1: null, short2: null },
+          : { long1: r.front ? (bodyFrontHidden ? EDGE_BACK : EDGE_FRONT) : EDGE_BACK,
+              long2: EDGE_BACK, short1: null, short2: null },
         x: 0, y: onEdge ? H - RAIL_W / 2 : H - t / 2, z: r.z,
         dims: onEdge ? { w: Wi, h: RAIL_W, d: t } : { w: Wi, h: t, d: RAIL_W },
       }));
@@ -1637,7 +1667,7 @@ function buildModuleParts(p) {
       name: 'Крыша (топ)', section: 'Корпус', material: decor.code, thickness: t,
       length: Wi, width: D, qty: 1, kind: 'top',
       note: 'Вкладная между боковинами',
-      edging: { long1: EDGE_FRONT, long2: null, short1: null, short2: null },
+      edging: { long1: bodyFrontHidden ? EDGE_BACK : EDGE_FRONT, long2: EDGE_BACK, short1: null, short2: null },
       x: 0, y: H - t / 2, z: 0,
       dims: { w: Wi, h: t, d: D },
     }));
@@ -1931,11 +1961,16 @@ function buildModuleParts(p) {
     // Вертикальная стойка справа от секции (кроме последней).
     // Её положение задаётся ширинами секций — можно поставить не по центру.
     if (i < n - 1) {
+      // Стойка видна (2мм), только если хотя бы одна из двух секций,
+      // которые она разделяет, открыта (без фасада или за стеклом) —
+      // если обе закрыты, её передний торец не виден.
+      const dividerHidden = sectionFrontHidden(sections[i], decor, t, p.facadeDecor, p.facadeThickness)
+        && sectionFrontHidden(sections[i + 1], decor, t, p.facadeDecor, p.facadeThickness);
       parts.push(makePart({
         name: 'Стойка вертикальная', section: 'Корпус', material: decor.code, thickness: t,
         length: innerH, width: D - tb, qty: 1, kind: 'divider',
         note: `Вкладная между дном и крышей, отступ слева ${Math.round(secX0 + secW + Wi / 2)} мм`,
-        edging: { long1: EDGE_FRONT, long2: null, short1: null, short2: null },
+        edging: { long1: dividerHidden ? EDGE_BACK : EDGE_FRONT, long2: EDGE_BACK, short1: null, short2: null },
         x: secX0 + secW + t / 2, y: innerBottomY + innerH / 2, z: tb / 2,
         dims: { w: t, h: innerH, d: D - tb },
       }));
@@ -2076,6 +2111,9 @@ function buildModuleParts(p) {
       const glassShelf = !isFixed
         && facadeTypeOf(sec, decor, t, p.facadeDecor, p.facadeThickness).glassInside;
       const GL = window.Modul3D.catalog.GLASS;
+      // Полка видна (2мм), только если секция открыта или за стеклом —
+      // закрытая фасадом полка кромится технической кромкой (не видна).
+      const shelfFrontHidden = sectionFrontHidden(sec, decor, t, p.facadeDecor, p.facadeThickness);
       parts.push(makePart({
         name: glassShelf ? 'Полка стеклянная' : 'Полка', section: secName,
         material: glassShelf ? GL.code : decor.code,
@@ -2090,7 +2128,7 @@ function buildModuleParts(p) {
             : 'Съёмная, на полкодержателях'),
         edging: glassShelf
           ? { long1: null, long2: null, short1: null, short2: null }
-          : { long1: EDGE_FRONT, long2: null, short1: null, short2: null },
+          : { long1: shelfFrontHidden ? EDGE_BACK : EDGE_FRONT, long2: EDGE_BACK, short1: EDGE_BACK, short2: EDGE_BACK },
         x: secCenterX, y, z: isFixed ? 0 : (D / 2 - SHELF_SETBACK) - shelfDepth / 2,
         dims: { w: secW - 2, h: glassShelf ? GL.thickness : t, d: width },
       }));
