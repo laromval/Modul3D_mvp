@@ -14,7 +14,7 @@
 (function () {
 // Версия сборки — показывается во вкладке браузера и в шапке.
 // При выпуске новой версии меняется только эта строка.
-const APP_VERSION = 'v219';
+const APP_VERSION = 'v220';
 
 // Номер версии выводим ПЕРВЫМ делом: если дальше что-то упадёт, по нему сразу
 // видно, какая сборка открыта.
@@ -84,7 +84,7 @@ function newModule(name) {
   return {
     name: name || 'Модуль', width: 800, height: 2100, depth: 560,
     leftSide: 'floor', rightSide: 'floor',
-    baseType: 'plinth', plinthHeight: 100, legHeight: 100, legType: 'metal',
+    baseType: 'legsPlinth', plinthHeight: 100, legHeight: 100, legType: 'kitchen',
     family: 'custom',                   // 'kitchen' — кухонный, у него нет штанги
     topType: 'panel', railWidth: 100,   // верх: цельная крышка или две планки
     corner: false,      // угловой: после него ряд поворачивает на 90°
