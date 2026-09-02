@@ -205,6 +205,8 @@ body {
 .lib-cat,
 .mod-tab,
 .mod-add,
+.sec-tab,
+.sec-add,
 .view-btn {
   font-family: inherit;
   font-size: var(--fs-sm);
@@ -226,6 +228,8 @@ body {
 .lib-cat:hover,
 .mod-tab:hover,
 .mod-add:hover,
+.sec-tab:hover,
+.sec-add:hover,
 .view-btn:hover {
   color: var(--text);
   border-color: var(--border-strong);
@@ -278,6 +282,7 @@ select:focus-visible {
 .btn-header.active,
 .btn.active,
 .mod-tab.active,
+.sec-tab.active,
 .view-btn.active {
   background: var(--accent-soft);
   border-color: var(--accent);
@@ -287,6 +292,8 @@ select:focus-visible {
 
 .mod-add { padding: 7px 11px; font-weight: 700; color: var(--accent); border-style: dashed; border-color: var(--border-strong); }
 .mod-add:hover { border-color: var(--accent); color: var(--accent); }
+.sec-add { padding: 6px 10px; font-weight: 700; color: var(--accent); border-style: dashed; border-color: var(--border-strong); flex: 0 0 auto; }
+.sec-add:hover { border-color: var(--accent); color: var(--accent); }
 
 .link-btn {
   border: none; background: none; padding: 0;
@@ -753,6 +760,29 @@ input[type='number'] { font-family: var(--ff-mono); }
 
 .mod-tabs { display: flex; flex-wrap: wrap; gap: var(--sp-1); margin-bottom: var(--sp-2); }
 .mod-tab { padding: 6px 10px; font-size: var(--fs-sm); border-radius: var(--r-sm); }
+
+/* Вкладки секций внутри модуля (renderSectionsList() в app.js) — та же
+   визуальная логика, что и у .mod-tabs/.mod-tab выше (те же переменные,
+   радиусы, отступы), но с ДВУМЯ осознанными отличиями: ряд не переносится
+   на вторую строку, а скроллится по горизонтали (nowrap + overflow-x —
+   секций внутри модуля может быть 5-6+, вторая строка тут менее уместна,
+   чем горизонтальная прокрутка), и крестик-удаление есть только у активной
+   (раскрытой) вкладки — на свёрнутых вкладках его нет. */
+.sec-tabs {
+  display: flex; flex-wrap: nowrap; overflow-x: auto; gap: var(--sp-1);
+  margin-bottom: var(--sp-2); padding-bottom: 2px;
+}
+.sec-tab {
+  display: flex; align-items: center; gap: 6px; flex: 0 0 auto;
+  padding: 6px 10px; font-size: var(--fs-sm); border-radius: var(--r-sm); white-space: nowrap;
+}
+.sec-tab-remove {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 15px; height: 15px; border-radius: 50%; flex: 0 0 auto;
+  font-size: 10px; line-height: 1; color: var(--muted);
+  transition: all var(--dur) var(--ease);
+}
+.sec-tab-remove:hover { color: var(--danger); background: var(--danger-soft); }
 
 .section-card {
   border: 1px solid var(--border);

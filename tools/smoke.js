@@ -450,9 +450,31 @@ for (const pair of [['m-width', 1200], ['m-height', 600], ['m-depth', 350],
   });
 }
 
+// Секции теперь переключаются вкладками (renderSectionsList в app.js) —
+// видна только раскрытая (mod.activeSection), «+» больше не статический
+// #addSection, а делегированная кнопка [data-add-section] в ряду вкладок.
 check('добавление секции', () => {
-  const b = document.getElementById('addSection');
+  const b = document.querySelector('[data-add-section]');
   return b ? (b.click(), true) : false;
+});
+check('вкладки секций: после добавления раскрыта новая (Секция 2)', () =>
+  /Модуль \d+ · Секция 2/.test($('sectionsList').innerHTML));
+check('вкладки секций: переключение на первую вкладку раскрывает Секцию 1', () => {
+  const tabs = document.querySelectorAll('.sec-tab');
+  if (!tabs.length) return false;
+  tabs[0].click();
+  return /Модуль \d+ · Секция 1/.test($('sectionsList').innerHTML);
+});
+check('вкладки секций: крестик есть только у активной вкладки', () => {
+  const removers = document.querySelectorAll('[data-remove-sec]');
+  return removers.length === 1;
+});
+check('вкладки секций: крестик убирает секцию', () => {
+  const before = document.querySelectorAll('.sec-tab').length;
+  const b = document.querySelector('[data-remove-sec]');
+  if (!b) return false;
+  b.click();
+  return document.querySelectorAll('.sec-tab').length === before - 1;
 });
 for (const id of Array.from(registry.keys())) {
   if (!/^s\d+-/.test(id)) continue;

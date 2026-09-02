@@ -14,7 +14,7 @@
 (function () {
 // Версия сборки — показывается во вкладке браузера и в шапке.
 // При выпуске новой версии меняется только эта строка.
-const APP_VERSION = 'v208';
+const APP_VERSION = 'v209';
 
 // Номер версии выводим ПЕРВЫМ делом: если дальше что-то упадёт, по нему сразу
 // видно, какая сборка открыта.
@@ -90,6 +90,7 @@ function newModule(name) {
     corner: false,      // угловой: после него ряд поворачивает на 90°
     rotation: 0,        // поворот вокруг вертикальной оси: 0/90/180/270°
     sections: [newSection()],
+    activeSection: 0,   // какая вкладка секции сейчас раскрыта (renderSectionsList)
   };
 }
 
@@ -973,8 +974,7 @@ function moduleFieldsBlock(mod) {
     </div>` : ''}
 
     <h3>${esc(mod.name)} — секции</h3>
-    <div id="sectionsList"></div>
-    <button class="add-section-btn" id="addSection" type="button">+ Добавить секцию</button>`;
+    <div id="sectionsList"></div>`;
 }
 
 // Виды деталей, для которых движок (engine.js, applyPartOverrides) умеет
@@ -2147,12 +2147,40 @@ function bindShelfFieldEvents(container, mod, refresh) {
   });
 }
 
+// Секции модуля показываются вкладками-«закладками» (как у moduleTabsBlock
+// выше, но с горизонтальной прокруткой вместо переноса строк — при 5-6+
+// секциях ряд скроллится по горизонтали, а не растягивает панель — и с
+// крестиком-удалением только на РАСКРЫТОЙ вкладке, не на свёрнутых). Видна
+// одновременно только ОДНА раскрытая секция — иначе панель превращается в
+// длинную простыню при 2+ секциях. Какая секция раскрыта — хранится на самом
+// объекте модуля (mod.activeSection), по аналогии с state.activeModule.
 function renderSectionsList() {
   const mod = state.modules[state.activeModule];
   const list = document.getElementById('sectionsList');
   if (!mod || !list) return;      // пустой проект — секций нет
 
-  list.innerHTML = mod.sections.map((sec, i) => {
+  // Клэмп индекса раскрытой секции — на случай, если секция, которая была
+  // активна, успела исчезнуть (удаление секции, смена модуля, undo/redo),
+  // тот же принцип, что и у клэмпа state.activeModule в deleteModule().
+  if (!Number.isInteger(mod.activeSection)) mod.activeSection = 0;
+  mod.activeSection = Math.max(0, Math.min(mod.activeSection, mod.sections.length - 1));
+  const activeIdx = mod.activeSection;
+
+  const tabsHtml = `
+    <div class="sec-tabs" id="secTabs">
+      ${mod.sections.map((s, si) => `
+        <button class="sec-tab ${si === activeIdx ? 'active' : ''}" data-sec="${si}" type="button">
+          Секция ${si + 1}${si === activeIdx && mod.sections.length > 1
+            ? `<span class="sec-tab-remove" data-remove-sec="${si}" title="Убрать секцию">✕</span>` : ''}
+        </button>`).join('')}
+      <button class="sec-add tip tip-down" data-add-section type="button"
+              data-tip="Добавить секцию" aria-label="Добавить секцию">+</button>
+    </div>`;
+
+  // Раскрыта только ОДНА секция — остальные свёрнуты в узкие вкладки выше.
+  const i = activeIdx;
+  const sec = mod.sections[i];
+  const contentHtml = (() => {
     const ftId = sec.facadeType || 'ldsp';
     const ftInfo = FACADE_TYPES[ftId] || FACADE_TYPES.ldsp;
     const glassBlock = (secEffectiveFacades(sec).every((f) => f === 'open') && !sec.drawers) ? '' : `
@@ -2220,7 +2248,6 @@ function renderSectionsList() {
       <div class="section-card">
         <div class="section-card-title">
           <span>${esc(mod.name)} · Секция ${i + 1}</span>
-          ${mod.sections.length > 1 ? `<button class="remove-section" data-remove="${i}" type="button">убрать</button>` : ''}
         </div>
         <div class="field-row">
           ${doorZoneCount <= 1 ? `<div class="field"><label>Полки, шт</label><input type="number" min="0" max="12" value="${sec.shelves}" data-field="shelves" data-idx="${i}"></div>` : ''}
@@ -2259,7 +2286,56 @@ function renderSectionsList() {
         ${shelfBlock}
         ${rodBlock}
       </div>`;
-  }).join('');
+  })();
+
+  list.innerHTML = tabsHtml + contentHtml;
+
+  // Секций может быть больше, чем помещается по ширине ряда — .sec-tabs
+  // скроллится по горизонтали (overflow-x: auto, см. style.css). После
+  // каждой перерисовки подкручиваем ряд так, чтобы активная вкладка была
+  // видна целиком, иначе при добавлении/переключении на вкладку за
+  // пределами видимой области пользователь не видит, что вообще открылась
+  // другая секция. block: 'nearest' не даёт задеть вертикальный скролл
+  // панели параметров — тот же приём, что и в setDocsTab() ниже.
+  const activeTabEl = list.querySelector('.sec-tab.active');
+  if (activeTabEl && activeTabEl.scrollIntoView) {
+    activeTabEl.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  }
+
+  // переключение вкладок секций — просто перерисовка панели, без recompute():
+  // геометрия не меняется, меняется только то, что показано в панели (тот же
+  // принцип, что и у переключения partSubIndex — см. bindPanelEvents).
+  list.querySelectorAll('.sec-tab').forEach((el) => {
+    el.addEventListener('click', (e) => {
+      mod.activeSection = Number(e.currentTarget.dataset.sec);
+      renderSectionsList();
+    });
+  });
+  // «+» в ряду вкладок — добавляет секцию и сразу раскрывает её.
+  list.querySelectorAll('[data-add-section]').forEach((el) => {
+    el.addEventListener('click', () => {
+      mod.sections.push(newSection());
+      mod.activeSection = mod.sections.length - 1;
+      renderSectionsList();
+      recompute();
+    });
+  });
+  // крестик на активной вкладке — убирает секцию; e.stopPropagation() не даёт
+  // клику всплыть до обработчика переключения вкладки (span лежит внутри
+  // <button class="sec-tab">, по тому же принципу, что и поле переименования
+  // модуля в showModuleMenu — см. комментарий там).
+  list.querySelectorAll('[data-remove-sec]').forEach((el) => {
+    el.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const idx = Number(e.currentTarget.dataset.removeSec);
+      mod.sections.splice(idx, 1);
+      // После удаления активной секции переключаемся на соседнюю — тот же
+      // клэмп, что и у state.activeModule в deleteModule().
+      mod.activeSection = Math.min(idx, mod.sections.length - 1);
+      renderSectionsList();
+      recompute();
+    });
+  });
 
   // поля секции
   list.querySelectorAll('[data-field]').forEach((el) => {
@@ -2305,13 +2381,6 @@ function renderSectionsList() {
   // все зоны секции), и в компактном контекстном редакторе одной зоны
   // (doorZoneEditorScreen, открывается кликом по фасаду в 3D).
   bindZoneFieldEvents(list, mod);
-  list.querySelectorAll('[data-remove]').forEach((el) => {
-    el.addEventListener('click', (e) => {
-      mod.sections.splice(Number(e.target.dataset.remove), 1);
-      renderSectionsList();
-      recompute();
-    });
-  });
   // «Редактировать ящики →» — открывает отдельную панель «Ящики» для этой
   // секции (см. openDrawersPanel/drawersPanelBlock). e.currentTarget, а не
   // e.target: клик может попасть на внутренний <span class="arrow">.
@@ -2653,11 +2722,10 @@ function bindPanelEvents() {
   on('p-backThickness', 'change', (e) => { state.backThickness = Number(e.target.value); recompute(); });
   on('p-joint', 'change', (e) => { state.jointType = e.target.value; recompute(); });
 
-  on('addSection', 'click', () => {
-    mod.sections.push(newSection());
-    renderSectionsList();
-    recompute();
-  });
+  // Добавление секции переехало в ряд вкладок секций (кнопка «+» рядом с
+  // ними) — обработчик делегирован внутри renderSectionsList() на
+  // [data-add-section], как и переключение/удаление секций, поскольку эта
+  // кнопка перерисовывается вместе со списком, а не живёт статическим id.
 
   // Экран «Деталь»: переключение конкретной детали, когда деталей одного
   // вида в модуле несколько (крыша из двух планок) — см. partBlock/
