@@ -14,7 +14,7 @@
 (function () {
 // Версия сборки — показывается во вкладке браузера и в шапке.
 // При выпуске новой версии меняется только эта строка.
-const APP_VERSION = 'v215';
+const APP_VERSION = 'v216';
 
 // Номер версии выводим ПЕРВЫМ делом: если дальше что-то упадёт, по нему сразу
 // видно, какая сборка открыта.
@@ -2302,13 +2302,15 @@ function renderSectionsList() {
 
     // Строка «Ящики, шт» — при наличии ящиков рядом (не под полем, а сбоку
     // от него) стоит кнопка перехода в отдельный редактор ящиков, чтобы обе
-    // связанные настройки читались одной строкой.
+    // связанные настройки читались одной строкой. Текст кнопки полный
+    // («Редактировать ящики →», не сокращённый), поэтому колонки — не 50/50,
+    // а .field-row-wide-action (см. style.css), как и у строки «Полки, шт».
     const drawersRow = sec.drawers > 0 ? `
-      <div class="field-row">
+      <div class="field-row field-row-wide-action">
         <div class="field"><label>Ящики, шт</label><input type="number" min="0" max="8" value="${sec.drawers}" data-field="drawers" data-idx="${i}"></div>
         <div class="field field-row-action">
           <label>&nbsp;</label>
-          <button class="btn materials-link-btn field-row-btn" data-drawers-open="${i}" type="button">Редактировать <span class="arrow">→</span></button>
+          <button class="btn materials-link-btn field-row-btn" data-drawers-open="${i}" type="button">Редактировать ящики <span class="arrow">→</span></button>
         </div>
       </div>` : `
       <div class="field"><label>Ящики, шт</label><input type="number" min="0" max="8" value="${sec.drawers}" data-field="drawers" data-idx="${i}"></div>`;
@@ -2320,11 +2322,14 @@ function renderSectionsList() {
     // настраиваются по зонам в zoneCardHtml (доступно кликом по фасаду в 3D,
     // см. doorZoneEditorScreen); engine.js игнорирует sec.shelves при
     // multiZone, эта строка для неё не показывается вовсе.
-    // .field-row-shelf-mode — колонки не 50/50: полю «Полки, шт» хватает
-    // ширины под 1-2 цифры, а select с текстом опций («Равномерно»/
-    // «Вручную») нужно больше места, иначе текст обрезается (см. style.css).
+    // .field-row-wide-action — колонки не 50/50: полю «Полки, шт» хватает
+    // ширины под 1-2 цифры, а select/кнопке с текстом («Равномерно»/
+    // «Вручную», «Редактировать ящики →» у строки «Ящики, шт» выше) нужно
+    // больше места, иначе текст обрезается или переносится (см. style.css).
+    // Тот же модификатор у обеих строк — чтобы кнопка и select были одной
+    // ширины друг с другом.
     const shelvesRow = sec.shelves > 0 ? `
-      <div class="field-row field-row-shelf-mode">
+      <div class="field-row field-row-wide-action">
         <div class="field"><label>Полки, шт</label><input type="number" min="0" max="12" value="${sec.shelves}" data-field="shelves" data-idx="${i}"></div>
         <div class="field field-row-action">
           <label>&nbsp;</label>

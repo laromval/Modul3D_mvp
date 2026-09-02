@@ -752,7 +752,8 @@ input[type='number'] { font-family: var(--ff-mono); }
   background-size: 5px 5px, 5px 5px;
   background-repeat: no-repeat;
   padding-right: 26px;
-  /* Подстраховка на случай тесной колонки (см. .field-row-shelf-mode выше):
+  /* Подстраховка на случай тесной колонки (см. .field-row-wide-action ниже
+     по файлу):
      если текст опции всё же не влезает, обрезаем его многоточием, а не
      серединой слова. В Firefox на закрытом <select> может не сработать —
      тогда просто вернётся к обычной обрезке, не хуже, чем было. */
@@ -768,10 +769,13 @@ input[type='number'] { font-family: var(--ff-mono); }
 .field input[type='checkbox'] { width: auto; }
 
 .field-row { display: grid; grid-template-columns: 1fr 1fr; gap: var(--sp-2); }
-/* Строка «Полки, шт» (renderSectionsList): числовому полю хватает 1-2 цифр,
-   а select режима распределения («Равномерно»/«Вручную») читается тесно на
-   ровно половине узкой боковой панели — перекашиваем колонки в его пользу. */
-.field-row-shelf-mode { grid-template-columns: 0.7fr 1.3fr; }
+/* Строки «Ящики, шт» и «Полки, шт» (renderSectionsList): числовому полю
+   хватает 1-2 цифр, а соседняя кнопка/select с текстом («Редактировать
+   ящики →», «Равномерно»/«Вручную») читается тесно на ровно половине узкой
+   боковой панели — перекашиваем колонки в их пользу. Один и тот же
+   модификатор у обеих строк, чтобы кнопка ящиков и select полок были одной
+   ширины друг с другом. */
+.field-row-wide-action { grid-template-columns: 0.5fr 1.5fr; }
 .field-row3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
 .field-row3 .field input { padding: 7px 6px; text-align: center; }
 /* Вторая колонка .field-row, где вместо своего поля стоит кнопка/select без
