@@ -2007,7 +2007,11 @@ for (const glass of [false, true]) {
       sections: [{ shelves: 1, drawers: 0, facade: 'doorLeft', facadeType, handle: 'bow160' }],
     }],
   }));
-  const sideMat = (m, re) => (m.parts.filter((p) => re.test(p.name))[0] || {}).material;
+  // partsRaw, не parts: ищем КОНКРЕТНУЮ (левую/правую) физическую боковину по
+  // имени — в уже склеенном model.parts одинаковые боковины теперь могут
+  // схлопнуться в одну строку «Боковины» (см. mergeEqualParts/mergeNameKey
+  // в engine.js), и по регулярке искать там нечего.
+  const sideMat = (m, re) => (m.partsRaw.filter((p) => re.test(p.name))[0] || {}).material;
   for (const side of ['floor', 'besideBottom']) {
     const m = mk(side, 'ldsp');
     if (sideMat(m, /Боковина левая/) !== oak.code) {
@@ -2063,7 +2067,10 @@ for (const glass of [false, true]) {
       sections: [{ shelves: 1, drawers: 0, facade: 'doorLeft', handle: 'bow160' }],
     }],
   }));
-  const get = (m, re) => m.parts.filter((p) => re.test(p.name))[0];
+  // partsRaw: конкретная левая/правая боковина по имени — в склеенном
+  // model.parts одинаковые боковины могут схлопнуться в общую «Боковины»
+  // (см. mergeEqualParts/mergeNameKey в engine.js).
+  const get = (m, re) => m.partsRaw.filter((p) => re.test(p.name))[0];
   for (const side of ['floor', 'besideBottom']) {
     const m = mk(side, 600);
     inspect(m, `крайний модуль «${side}»`);
@@ -2801,8 +2808,11 @@ for (const glass of [false, true]) {
   else {
     const chunk = html.slice(i);
     const titles = [...chunk.matchAll(/<div class="dw-title">([^<]+)<\/div>/g)].map((m2) => m2[1]);
-    // каждая непустая деталь с присадкой обязана получить лист
-    const need = model.parts.filter((p) => !p.hardware
+    // Физический список (partsRaw), не склеенный model.parts: одинаковые
+    // боковины/планки могут схлопнуться в одну строку деталировки («Боковины»,
+    // см. mergeEqualParts в engine.js), а чертежи присадки по-прежнему
+    // строятся на партиях panelsRaw — сверяем с тем же источником.
+    const need = model.partsRaw.filter((p) => !p.hardware
       && !/Дверь|Фасад/.test(p.name)
       && (((p.holes || []).length) || ((p.grooves || []).length)));
     // Зеркальные детали (левая/правая боковина, передняя/задняя планка)

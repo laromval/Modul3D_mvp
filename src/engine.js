@@ -3698,6 +3698,18 @@ function mergeKey(part) {
   ]);
 }
 
+// Зеркальные детали (mergeNameKey уже свела «левая»/«правая»/«передняя»/
+// «задняя» к общему ключу) после склейки показывать под старым частным
+// именем нельзя — строка с qty=4 «Боковина левая» вводит в заблуждение
+// (там на самом деле и левые, и правые). Если в группу попало больше одного
+// исходного названия — заменяем на общее название вида, иначе оставляем
+// исходное как есть (единственное название группы).
+const MERGED_DISPLAY_NAME = { side: 'Боковины', top: 'Планки верхние' };
+function mergeDisplayName(kind, names) {
+  if (names.length <= 1) return names[0];
+  return MERGED_DISPLAY_NAME[kind] || names.join(' / ');
+}
+
 // Объединяет одинаковые детали суммируя qty — требование п.13 ТЗ
 // ("корректно суммирует количество одинаковых деталей").
 //
@@ -3713,20 +3725,38 @@ function mergeEqualParts(parts) {
       const existing = map.get(key);
       existing.qty += part.qty;
       existing._boxes.push(part.box);
+      if (existing._names.indexOf(part.name) === -1) existing._names.push(part.name);
+      if (existing._modules.indexOf(part.module) === -1) existing._modules.push(part.module);
     } else {
-      map.set(key, Object.assign({}, part, { _boxes: [part.box] }));
+      map.set(key, Object.assign({}, part, {
+        _boxes: [part.box], _names: [part.name], _modules: [part.module],
+      }));
     }
   }
   // Номера позиций проставляются только деталям из листа: фурнитура (ножки)
   // в деталировке не участвует, иначе в нумерации появлялись бы дыры.
+  // Важно: ключ для numByKey считаем ДО подмены имени/модуля на дисплейные
+  // (mergeDisplayName/join) — partsRaw ищет номер по mergeKey() СВОЕГО
+  // (исходного, ещё не склеенного) имени, и он должен совпасть с ключом,
+  // под которым эта группа лежала в map, а не с тем, что показывается
+  // в деталировке после склейки.
   let idx = 0;
-  const merged = Array.from(map.values()).map((row) => {
-    const num = row.hardware ? null : (idx += 1);
-    return Object.assign({}, row, { num, boxes: row._boxes });
-  });
-  // key -> номер позиции, чтобы проставить его несклеенным деталям
+  const merged = [];
   const numByKey = new Map();
-  for (const row of merged) numByKey.set(mergeKey(row), row.num);
+  for (const row of map.values()) {
+    const key = mergeKey(row);
+    const num = row.hardware ? null : (idx += 1);
+    numByKey.set(key, num);
+    merged.push(Object.assign({}, row, {
+      num, boxes: row._boxes,
+      name: mergeDisplayName(row.kind, row._names),
+      // Модуль(и), из которых реально пришли склеенные детали — тот же
+      // формат («А + Б»), что уже используется при слиянии цоколей соседних
+      // модулей (см. ниже, run.map(...).join(' + ')), для единообразия
+      // колонки «Модуль» в деталировке.
+      module: row._modules.join(' + '),
+    }));
+  }
   return { merged, numByKey };
 }
 
