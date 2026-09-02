@@ -14,7 +14,7 @@
 (function () {
 // Версия сборки — показывается во вкладке браузера и в шапке.
 // При выпуске новой версии меняется только эта строка.
-const APP_VERSION = 'v210';
+const APP_VERSION = 'v211';
 
 // Номер версии выводим ПЕРВЫМ делом: если дальше что-то упадёт, по нему сразу
 // видно, какая сборка открыта.
@@ -2300,6 +2300,21 @@ function renderSectionsList() {
   const activeTabEl = list.querySelector('.sec-tab.active');
   if (activeTabEl && activeTabEl.scrollIntoView) {
     activeTabEl.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  }
+
+  // Колесо мыши над рядом вкладок секций — по умолчанию браузер скроллит по
+  // вертикали всю панель параметров (у самого ряда вертикального overflow
+  // нет). Переводим вертикальную дельту колеса в горизонтальный скролл
+  // ряда и глушим событие, чтобы панель под курсором не дёргалась вверх/
+  // вниз. Перевешивается при каждой перерисовке — list.innerHTML выше
+  // каждый раз пересоздаёт #secTabs.
+  const secTabsEl = document.getElementById('secTabs');
+  if (secTabsEl) {
+    secTabsEl.addEventListener('wheel', (e) => {
+      if (e.deltaY === 0) return;
+      e.preventDefault();
+      secTabsEl.scrollLeft += e.deltaY;
+    }, { passive: false });
   }
 
   // переключение вкладок секций — просто перерисовка панели, без recompute():
