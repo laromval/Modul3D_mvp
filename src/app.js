@@ -14,7 +14,7 @@
 (function () {
 // Версия сборки — показывается во вкладке браузера и в шапке.
 // При выпуске новой версии меняется только эта строка.
-const APP_VERSION = 'v217';
+const APP_VERSION = 'v218';
 
 // Номер версии выводим ПЕРВЫМ делом: если дальше что-то упадёт, по нему сразу
 // видно, какая сборка открыта.
@@ -2334,15 +2334,14 @@ function renderSectionsList() {
     // связанные настройки читались одной строкой. Текст кнопки полный
     // («Редактировать ящики →», не сокращённый), поэтому колонки — не 50/50,
     // а .field-row-wide-action (см. style.css), как и у строки «Полки, шт».
-    const drawersRow = sec.drawers > 0 ? `
+    const drawersRow = `
       <div class="field-row field-row-wide-action">
         <div class="field"><label>Ящики, шт</label><input type="number" min="0" max="8" value="${sec.drawers}" data-field="drawers" data-idx="${i}"></div>
         <div class="field field-row-action">
           <label>&nbsp;</label>
-          <button class="btn materials-link-btn field-row-btn" data-drawers-open="${i}" type="button">Редактировать ящики <span class="arrow">→</span></button>
+          <button class="btn materials-link-btn field-row-btn" data-drawers-open="${i}" type="button" ${sec.drawers > 0 ? '' : 'disabled'}>Редактировать ящики <span class="arrow">→</span></button>
         </div>
-      </div>` : `
-      <div class="field"><label>Ящики, шт</label><input type="number" min="0" max="8" value="${sec.drawers}" data-field="drawers" data-idx="${i}"></div>`;
+      </div>`;
 
     // Строка «Полки, шт» — тем же приёмом: при наличии полок рядом с полем
     // стоит select режима распределения (shelfModeSelect), а не под ним
@@ -2377,8 +2376,6 @@ function renderSectionsList() {
         <div class="section-card-title">
           <span>${esc(mod.name)} · Секция ${i + 1}</span>
         </div>
-        ${drawersRow}
-        ${doorZoneCount <= 1 ? shelvesRow : ''}
         ${widthModeBlock}
         ${doorZoneCount <= 1 ? `
         <div class="field">
@@ -2395,10 +2392,12 @@ function renderSectionsList() {
         <div class="field">
           <div class="hint">Секция разделена на зоны по высоте. Деление и настройка зон (фасад, встраиваемая техника, полки) — кликом по фасаду в 3D в режиме фокуса: двойной клик по модулю → клик по фасаду → «Разделить на секции по вертикали» / «Редактировать секцию».</div>
         </div>`}
-        ${facadeWidthBlock}
         ${glassBlock}
         ${handleBlock}
         ${liftBlock}
+        ${facadeWidthBlock}
+        ${drawersRow}
+        ${doorZoneCount <= 1 ? shelvesRow : ''}
         ${rodBlock}
       </div>`;
   })();
