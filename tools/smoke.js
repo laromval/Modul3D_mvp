@@ -1009,7 +1009,14 @@ for (const el of document.querySelectorAll('.tab-btn')) {
       .filter((b) => b.dataset.preset === 'lower600drawers')[0];
     if (item) {
       item.click();
-      const isWhite = (v) => /U702|бел/i.test(String(v || ''));
+      // Код «белого» декора не хардкодим (раньше тут был /U702|бел/i под
+      // конкретный код — сломалось, когда U702ST9 переименовали в «Серый
+      // кашемир», реальный белый декор внезапно оказался под другим кодом:
+      // H3450ST22 «Флитвуд белый»). Берём ту же логику, что и app.js
+      // (см. «Первый кухонный модуль...» — DECORS.filter(/бел/i.test(name))[0]),
+      // чтобы тест не рассыпался при следующей смене каталога.
+      const whiteDecor = (sandbox.Modul3D.catalog.DECORS || []).filter((d) => /бел/i.test(d.name))[0];
+      const isWhite = (v) => !!whiteDecor && String(v || '') === whiteDecor.code;
       // Материалы корпуса/фасада — экран «Материалы» (см. #materialsLinkBtn).
       const mb = document.getElementById('materialsLinkBtn');
       if (mb) mb.click();

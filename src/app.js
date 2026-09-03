@@ -3734,7 +3734,9 @@ function renderSpecTable(spec) {
     <tbody>${rows}</tbody></table>`;
 
   const sheetRows = spec.sheetMaterials.map((m, i) =>
-    `<tr><td>${i + 1}</td><td>${esc(m.name)}</td><td>${esc(m.code)}</td><td>${m.area_m2} м²</td><td>${m.sheets}</td><td>${m.price}</td><td>${m.sum}</td></tr>`).join('');
+    // sheets === null — изделие под заказ (стекло, фасад из массива, см.
+    // catalog.js: customOrder), считается по площади, а не по листам.
+    `<tr><td>${i + 1}</td><td>${esc(m.name)}</td><td>${esc(m.code)}</td><td>${m.area_m2} м²</td><td>${m.sheets == null ? '—' : m.sheets}</td><td>${m.price}</td><td>${m.sum}</td></tr>`).join('');
   const edgeRows = spec.edging.map((e, i) =>
     `<tr><td>${i + 1}</td><td>Кромка ${esc(e.type)}</td><td>${e.length_m} пог.м</td><td>${e.price_per_m}</td><td>${e.sum}</td></tr>`).join('');
   const hwRows = spec.hardware.map((h, i) =>

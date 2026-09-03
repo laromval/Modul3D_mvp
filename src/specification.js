@@ -48,6 +48,17 @@ function buildSpecification(model) {
   }
   const WASTE_FACTOR = 1.15; // технологический запас на раскрой/отходы
   const sheetMaterials = Array.from(areaByMaterial.entries()).map(([code, acc]) => {
+    // customOrder (см. catalog.js: GLASS/GLASS-4/FAC-WOOD-*) — не плитный
+    // материал, кроятся не из закупленных листов, а изготавливаются на
+    // заказ точно по площади: без запаса на раскрой и без округления до
+    // целых «листов» (sheetW/sheetH у таких позиций и не задаются).
+    if (acc.info.customOrder) {
+      return {
+        code, name: acc.info.name, area_m2: round2(acc.area_m2),
+        sheetArea_m2: null, sheets: null, price: acc.info.sheetPrice,
+        sum: round2(acc.area_m2 * acc.info.sheetPrice),
+      };
+    }
     const sheetArea = (acc.info.sheetW * acc.info.sheetH) / 1_000_000;
     const sheets = Math.ceil((acc.area_m2 * WASTE_FACTOR) / sheetArea);
     return {

@@ -37,12 +37,19 @@
   ];
 
   // Стекло для полок и фасадов: считается по площади, кромка не нужна —
-  // торцы шлифуются на производстве стекла.
-  // На mobilier.md листовое стекло под мебель не продаётся (только
-  // инструменты для стекла, полкодержатели и петли) — стекло режут на
-  // заказ у стекольщиков. Цена осталась условной.
-  const GLASS = { code: 'GLASS-6', name: 'Стекло 6 мм (полки, фасады)',
-                  sheetPrice: 3200, sheetW: 2000, sheetH: 1000, thickness: 6, unit: 'лист', image: null };
+  // торцы шлифуются на производстве стекла. На mobilier.md листовое стекло
+  // под мебель не продаётся — его режут на заказ у стекольщиков, поэтому
+  // это не «лист определённого размера», а изделие по площади (customOrder,
+  // см. specification.js — для такого материала не применяется технологический
+  // запас 15% и округление до целых листов, только area_m2 × sheetPrice).
+  // Цена ПРИБЛИЗИТЕЛЬНАЯ: точных расценок на мебельное стекло 4-6мм в
+  // Молдове найти не удалось, взята нижняя граница диапазона на ЗАКАЛЁННОЕ
+  // стекло 8мм (750-1100 MDL/м²) как ориентир — источник glassinterior.md,
+  // статья 2026 года. Наше стекло тоньше, реальная цена может быть ниже.
+  const GLASS = { code: 'GLASS-6', name: 'Стекло 6 мм (полки, фасады) (цена приближённая — уточняйте у поставщика)',
+                  sheetPrice: 750, customOrder: true,
+                  sourceUrl: 'https://glassinterior.md/blog/cat-costa-sticla-securizata-in-republica-moldova-in-2026/',
+                  unit: 'м²', thickness: 6, image: null };
 
   // ---------------------------------------------------------------------------
   // ТИПЫ ФАСАДОВ
@@ -56,18 +63,41 @@
   const FACADE_MATERIALS = {
     'FAC-LDSP': { code: 'FAC-LDSP', name: 'ЛДСП 18 мм (фасад)', sheetPrice: 1535, sourceUrl: 'https://mobilier.md/materiale-placi/pal-melaminat/dsp_egger-ro/w1000-st9-alb-premium-2800x2070x18-eg-pal-melaminat.html', sheetW: 2750, sheetH: 1830, unit: 'лист', image: null },
     'FAC-MDF':  { code: 'FAC-MDF',  name: 'МДФ крашеный 19 мм', sheetPrice: 5199, sourceUrl: 'https://mobilier.md/materiale-placi/fatade-din-mdf/mdf-egger-ro/mdf-u250-pmst9-bej-caramel-19-2800x2070-eg-perfectsense.html', sheetW: 2800, sheetH: 2070, unit: 'лист', image: null },
-    // Массив дуба листами не продаётся (столярный щит режется на заказ),
-    // алюминиевый профиль для фасадов — узкоспециализированный товар,
-    // на mobilier.md не найден. Цены остались условными.
-    'FAC-WOOD': { code: 'FAC-WOOD', name: 'Массив дуба 20 мм', sheetPrice: 18500, sheetW: 2000, sheetH: 1000, unit: 'лист', image: null },
+    // Массив дуба листами не продаётся — это не плитный материал, а
+    // рамочное столярное изделие (рама + филёнка/стекло) под заказ.
+    // Цена — ОРИЕНТИР по прайсу молдавской фабрики ARAMA (arama.md,
+    // прайс-лист от 01.09.2026, породу дерева не уточняют — брать окрашенный
+    // вариант). Курс ≈20 MDL/€ (BNM). customOrder: true — как и стекло выше,
+    // считается area_m2 × sheetPrice без запаса на раскрой (это не лист).
+    // 'FAC-WOOD-FILON' — рама с цельной филёнкой (тип фасада `wood`,
+    // render:'frame'): ARAMA «Fronturi cu filon vopsit», 150 €/м² → ≈3000 MDL.
+    'FAC-WOOD-FILON': { code: 'FAC-WOOD-FILON', name: 'Фасад из массива с филёнкой (цена ориентировочная — уточняйте у изготовителя)',
+                         sheetPrice: 3000, customOrder: true,
+                         sourceUrl: 'https://arama.md/images/price/servicii_general_arama.pdf',
+                         unit: 'м²', image: null },
+    // 'FAC-WOOD-FRAME' — просто рама, вставка (стекло/витраж) отдельно
+    // (тип фасада `woodGlass`, render:'frameGlass'): ARAMA «Fronturi ramă
+    // vopsit», 120 €/м² → ≈2400 MDL.
+    'FAC-WOOD-FRAME': { code: 'FAC-WOOD-FRAME', name: 'Фасад из массива рамочный, под стекло/витраж (цена ориентировочная — уточняйте у изготовителя)',
+                         sheetPrice: 2400, customOrder: true,
+                         sourceUrl: 'https://arama.md/images/price/servicii_general_arama.pdf',
+                         unit: 'м²', image: null },
+    // Алюминиевый профиль для рамочных фасадов — узкоспециализированный
+    // товар, в Молдове не нашли ни одного продавца с открытыми ценой или
+    // чертежом сечения (проверены mobilier.md, numina.md, ARAMA, дилеры
+    // Rehau/Samet — профильной системы под фасады нет ни у кого). Цена
+    // осталась условной.
     'FAC-ALU':  { code: 'FAC-ALU',  name: 'Алюминиевый профиль (рамка)', sheetPrice: 9800, sheetW: 2000, sheetH: 1000, unit: 'лист', image: null },
     // Видимая боковина под деревянный фасад: массивом её не делают —
     // ставят МДФ в шпоне того же дерева.
     'FAC-VENEER': { code: 'FAC-VENEER', name: 'МДФ шпонированный 18 мм (видимая боковина)',
                     sheetPrice: 5796, sourceUrl: 'https://mobilier.md/materiale-placi/placi-cu-furnir/mdf-furnir-stejar-nature-19-2800x2070-mk-austria.html', sheetW: 2800, sheetH: 2070, unit: 'лист', image: null },
-    // Листовое стекло на mobilier.md не продаётся (см. GLASS выше) — цена
-    // осталась условной.
-    'GLASS-4':  { code: 'GLASS-4',  name: 'Стекло сатин бронз 4 мм (фасад)', sheetPrice: 2600, sheetW: 2000, sheetH: 1000, unit: 'лист', image: null },
+    // Листовое стекло на mobilier.md не продаётся (см. GLASS выше) — та же
+    // приближённая цена и тот же источник (glassinterior.md), customOrder.
+    'GLASS-4':  { code: 'GLASS-4',  name: 'Стекло сатин бронз 4 мм (фасад) (цена приближённая — уточняйте у поставщика)',
+                  sheetPrice: 750, customOrder: true,
+                  sourceUrl: 'https://glassinterior.md/blog/cat-costa-sticla-securizata-in-republica-moldova-in-2026/',
+                  unit: 'м²', image: null },
   };
 
   const FACADE_TYPES = {
@@ -79,9 +109,9 @@
                  render: 'milled', frame: 80, glassInside: false },
     glass4:    { id: 'glass4', name: 'Фасад стекло 4 мм', material: 'GLASS-4', thickness: 4,
                  render: 'glass', glassInside: true },
-    wood:      { id: 'wood', name: 'Фасад деревянный', material: 'FAC-WOOD', thickness: 20,
+    wood:      { id: 'wood', name: 'Фасад деревянный', material: 'FAC-WOOD-FILON', thickness: 20,
                  render: 'frame', frame: 70, glassInside: false },
-    woodGlass: { id: 'woodGlass', name: 'Фасад деревянный с витражом', material: 'FAC-WOOD', thickness: 20,
+    woodGlass: { id: 'woodGlass', name: 'Фасад деревянный с витражом', material: 'FAC-WOOD-FRAME', thickness: 20,
                  render: 'frameGlass', frame: 70, insert: 'GLASS-4', glassInside: true },
     alu:       { id: 'alu', name: 'Фасад из алюминиевого профиля', material: 'FAC-ALU', thickness: 20,
                  render: 'frameGlass', frame: 24, insert: 'GLASS-4', glassInside: true },
