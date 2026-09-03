@@ -1,27 +1,39 @@
 // catalog.js
 // ============================================================================
 // Справочник материалов, фурнитуры и крепежа со стоимостью (п.3 Material &
-// Hardware Library). Цены условные — заменяются на реальный прайс закупки.
+// Hardware Library). Цены сверены с сайтом mobilier.md (см.
+// CATALOG_SOURCE.lastSync); позиции без sourceUrl — цены условные,
+// соответствие на сайте не найдено.
 //
 // Классический скрипт (без import/export): подключается через <script src>
 // без type="module", чтобы приложение открывалось прямо с диска (file://)
 // двойным кликом, без локального сервера. Публикует себя в window.Modul3D.
 // ============================================================================
 (function () {
+  const CATALOG_SOURCE = { site: 'mobilier.md', lastSync: '2026-09-03' };
+
+  // Egger H1180 ST10, H3450 ST36 и U999 ST2 на mobilier.md не найдены —
+  // магазин держит эти декоры только в других структурах (H1180 только
+  // ST37, H3450 только ST22, U999 без ST2 вовсе). Цены остались условными.
   const DECORS = [
     { code: 'H1180ST10', name: 'ЛДСП Egger H1180 ST10 Дуб Сонома', sheetPrice: 2800, sheetW: 2750, sheetH: 1830, unit: 'лист', image: null },
-    { code: 'U702ST9',   name: 'ЛДСП Egger U702 ST9 Белый',        sheetPrice: 2450, sheetW: 2750, sheetH: 1830, unit: 'лист', image: null },
+    { code: 'U702ST9',   name: 'ЛДСП Egger U702 ST9 Серый кашемир', sheetPrice: 1535, sourceUrl: 'https://mobilier.md/materiale-placi/pal-melaminat/dsp_egger-ro/u702-st9-gri-casmir-2800x2070x18-eg-pal-melaminat.html', sheetW: 2750, sheetH: 1830, unit: 'лист', image: null },
     { code: 'H3450ST36',  name: 'ЛДСП Egger H3450 ST36 Дуб Крафт', sheetPrice: 3100, sheetW: 2750, sheetH: 1830, unit: 'лист', image: null },
     { code: 'U999ST2',   name: 'ЛДСП Egger U999 ST2 Чёрный',       sheetPrice: 2900, sheetW: 2750, sheetH: 1830, unit: 'лист', image: null },
   ];
 
+  // ЛДСП 8мм (тонкая усиленная задняя стенка) на mobilier.md не продаётся —
+  // ЛДСП/PAL melaminat там начинается от 16мм, цена осталась условной.
   const BACK_MATERIALS = [
-    { code: 'HDF-3', name: 'ХДФ белый 3мм', sheetPrice: 900, sheetW: 2440, sheetH: 1220, thickness: 3, unit: 'лист', image: null },
+    { code: 'HDF-3', name: 'ХДФ белый 3мм', sheetPrice: 193, sourceUrl: 'https://mobilier.md/materiale-placi/hdf-dvp/hdf-110-alb-3-2850x2070.html', sheetW: 2440, sheetH: 1220, thickness: 3, unit: 'лист', image: null },
     { code: 'HDF-8', name: 'ЛДСП 8мм (усиленная задняя стенка)', sheetPrice: 1500, sheetW: 2750, sheetH: 1830, thickness: 8, unit: 'лист', image: null },
   ];
 
   // Стекло для полок и фасадов: считается по площади, кромка не нужна —
   // торцы шлифуются на производстве стекла.
+  // На mobilier.md листовое стекло под мебель не продаётся (только
+  // инструменты для стекла, полкодержатели и петли) — стекло режут на
+  // заказ у стекольщиков. Цена осталась условной.
   const GLASS = { code: 'GLASS-6', name: 'Стекло 6 мм (полки, фасады)',
                   sheetPrice: 3200, sheetW: 2000, sheetH: 1000, thickness: 6, unit: 'лист', image: null };
 
@@ -35,14 +47,19 @@
   // glassInside: за таким фасадом полки делаются из стекла
   // ---------------------------------------------------------------------------
   const FACADE_MATERIALS = {
-    'FAC-LDSP': { code: 'FAC-LDSP', name: 'ЛДСП 18 мм (фасад)', sheetPrice: 2800, sheetW: 2750, sheetH: 1830, unit: 'лист', image: null },
-    'FAC-MDF':  { code: 'FAC-MDF',  name: 'МДФ крашеный 19 мм', sheetPrice: 6900, sheetW: 2800, sheetH: 2070, unit: 'лист', image: null },
+    'FAC-LDSP': { code: 'FAC-LDSP', name: 'ЛДСП 18 мм (фасад)', sheetPrice: 1535, sourceUrl: 'https://mobilier.md/materiale-placi/pal-melaminat/dsp_egger-ro/w1000-st9-alb-premium-2800x2070x18-eg-pal-melaminat.html', sheetW: 2750, sheetH: 1830, unit: 'лист', image: null },
+    'FAC-MDF':  { code: 'FAC-MDF',  name: 'МДФ крашеный 19 мм', sheetPrice: 5199, sourceUrl: 'https://mobilier.md/materiale-placi/fatade-din-mdf/mdf-egger-ro/mdf-u250-pmst9-bej-caramel-19-2800x2070-eg-perfectsense.html', sheetW: 2800, sheetH: 2070, unit: 'лист', image: null },
+    // Массив дуба листами не продаётся (столярный щит режется на заказ),
+    // алюминиевый профиль для фасадов — узкоспециализированный товар,
+    // на mobilier.md не найден. Цены остались условными.
     'FAC-WOOD': { code: 'FAC-WOOD', name: 'Массив дуба 20 мм', sheetPrice: 18500, sheetW: 2000, sheetH: 1000, unit: 'лист', image: null },
     'FAC-ALU':  { code: 'FAC-ALU',  name: 'Алюминиевый профиль (рамка)', sheetPrice: 9800, sheetW: 2000, sheetH: 1000, unit: 'лист', image: null },
     // Видимая боковина под деревянный фасад: массивом её не делают —
     // ставят МДФ в шпоне того же дерева.
     'FAC-VENEER': { code: 'FAC-VENEER', name: 'МДФ шпонированный 18 мм (видимая боковина)',
-                    sheetPrice: 7400, sheetW: 2800, sheetH: 2070, unit: 'лист', image: null },
+                    sheetPrice: 5796, sourceUrl: 'https://mobilier.md/materiale-placi/placi-cu-furnir/mdf-furnir-stejar-nature-19-2800x2070-mk-austria.html', sheetW: 2800, sheetH: 2070, unit: 'лист', image: null },
+    // Листовое стекло на mobilier.md не продаётся (см. GLASS выше) — цена
+    // осталась условной.
     'GLASS-4':  { code: 'GLASS-4',  name: 'Стекло сатин бронз 4 мм (фасад)', sheetPrice: 2600, sheetW: 2000, sheetH: 1000, unit: 'лист', image: null },
   };
 
@@ -68,34 +85,43 @@
   // (вкладка «Материалы») редактирует price/image на месте, единственная
   // точка чтения цены — specification.js (`EDGE_PRICES[type]?.price`).
   const EDGE_PRICES = {
-    'ПВХ 2 мм': { price: 15, unit: 'пог.м', image: null },
-    'ПВХ 0.8 мм': { price: 9, unit: 'пог.м', image: null },
-    'ПВХ 0.4 мм': { price: 6, unit: 'пог.м', image: null },
+    'ПВХ 2 мм': { price: 15, sourceUrl: 'https://mobilier.md/materiale-placi/cant/egger/cant-abs-w1000-st9-23x20-uw.html', unit: 'пог.м', image: null },
+    'ПВХ 0.8 мм': { price: 10, sourceUrl: 'https://mobilier.md/materiale-placi/cant/egger/cant-abs-w1000-st9-23x08.html', unit: 'пог.м', image: null },
+    'ПВХ 0.4 мм': { price: 5, sourceUrl: 'https://mobilier.md/materiale-placi/cant/egger/cant-abs-w1000-st9-22x04.html', unit: 'пог.м', image: null },
   };
 
   const HARDWARE_PRICES = {
+    // Блюм на mobilier.md не продаётся вообще (0 совпадений по бренду) —
+    // цена оставлена условной, соответствие не найдено.
     hinge: { name: 'Петля накладная Blum CLIP 110°', article: 'BLUM-CLIP', price: 210, unit: 'шт', category: 'hinge', hardwareModelSlot: 'hingeCup' },
-    handle: { name: 'Ручка мебельная скоба 128мм', article: 'RH-128', price: 90, unit: 'шт', category: 'handle' },
-    drawerRunnerPair: { name: 'Направляющие шариковые 500мм (пара)', article: 'DR-500', price: 350, unit: 'пара', category: 'runner' },
-    leg: { name: 'Опора мебельная никелированная Ø50, регулируемая h100', article: 'LEG-D50-100', price: 145, unit: 'шт', category: 'leg' },
-    legPlastic: { name: 'Опора пластиковая регулируемая h100 (кухонная)', article: 'LEG-PL-100', price: 45, unit: 'шт', category: 'leg' },
-    shelfSupport: { name: 'Полкодержатель штифт 5мм', article: 'SUP-5', price: 5, unit: 'шт', category: 'support' },
+    handle: { name: 'Ручка мебельная скоба 128мм', article: 'RH-128', price: 76, sourceUrl: 'https://mobilier.md/accesorii-pentru-mobilier/furnitura-decorativa/minere-pentru-mobila/modern-1/ua-b31112806mj-miner-ua-b311-128mm-inox.html', unit: 'шт', category: 'handle' },
+    // Цена — пара штук по цене за 1 шт (GTV GX1 H45 L500, бренд Blum
+    // на сайте отсутствует, направляющая эконом-класса).
+    drawerRunnerPair: { name: 'Направляющие шариковые 500мм (пара)', article: 'DR-500', price: 216, sourceUrl: 'https://mobilier.md/accesorii-pentru-mobilier/furnitura-functionala/glisiere/pk-0h45500gx1-glisiere-cu-bila-gtv-gx1-h-45-l-500mm.html', unit: 'пара', category: 'runner' },
+    leg: { name: 'Опора мебельная алюминиевая Ø50, регулируемая h100', article: 'LEG-D50-100', price: 105, sourceUrl: 'https://mobilier.md/accesorii-pentru-mobilier/furnitura-decorativa/picioare-si-rotile/nm-bd-739-05-picior-bd-739-h-100-aluminiu.html', unit: 'шт', category: 'leg' },
+    legPlastic: { name: 'Опора пластиковая регулируемая h100 (кухонная)', article: 'LEG-PL-100', price: 32, sourceUrl: 'https://mobilier.md/accesorii-pentru-mobilier/furnitura-decorativa/picioare-si-rotile/nm-dak27-100-10-picior-dak-27-dak-26-h-100-cu-reglare-alb.html', unit: 'шт', category: 'leg' },
+    shelfSupport: { name: 'Полкодержатель штифт 5мм', article: 'SUP-5', price: 0.5, sourceUrl: 'https://mobilier.md/accesorii-pentru-mobilier/furnitura-rejs-ro/td01020401062-suport-polita-zincat-rejs.html', unit: 'шт', category: 'support' },
     shelfSupportGlass: { name: 'Полкодержатель для стекла с силиконовой пяткой Ø5',
-                         article: 'SUP-5G', price: 28, unit: 'шт', category: 'support' },
+                         article: 'SUP-5G', price: 6, sourceUrl: 'https://mobilier.md/accesorii-pentru-mobilier/furnitura-functionala/elemente-de-asamblare/pp-gl-b48-01-suport-polita-din-b48-4-8mm.html', unit: 'шт', category: 'support' },
+    // На сайте есть только зажимная петля для стекла без Ø26 (GTV
+    // ZP-CIG-07UZE, 16 MDL) — другой тип крепления, не аналог, поэтому
+    // не подставлена; цена осталась условной.
     hingeGlass: { name: 'Петля для стеклянной двери (отверстие Ø26)',
                   article: 'HNG-GLASS', price: 520, unit: 'шт', category: 'hinge', hardwareModelSlot: 'hingeGlass' },
-    plinthClip: { name: 'Крепление цоколя', article: 'PLC-1', price: 25, unit: 'шт', category: 'plinth' },
-    pushToOpen: { name: 'Механизм Push-to-open (толкатель)', article: 'PTO-1', price: 320, unit: 'шт', category: 'mechanism' },
-    rod: { name: 'Штанга для одежды хромированная Ø25', article: 'ROD-D25', price: 120, unit: 'пог.м', category: 'rod' },
-    rodHolder: { name: 'Держатель штанги Ø25 (пара)', article: 'ROD-H25', price: 70, unit: 'пара', category: 'rod' },
+    plinthClip: { name: 'Крепление цоколя', article: 'PLC-1', price: 2, sourceUrl: 'https://mobilier.md/accesorii-pentru-mobilier/furnitura-decorativa/picioare-si-rotile/nm-kl-dpa-20-clipsa-picior-bucatarie-dpa-h-100150-negru.html', unit: 'шт', category: 'plinth' },
+    pushToOpen: { name: 'Механизм Push-to-open (толкатель)', article: 'PTO-1', price: 14, sourceUrl: 'https://mobilier.md/accesorii-pentru-mobilier/furnitura-functionala/amortizatoare/ro-am-bocz01-60-push-to-open-cu-reglare-adaptor-drept-22616.html', unit: 'шт', category: 'mechanism' },
+    // На сайте штанга продаётся хлыстом 3м за 97 MDL — цена пересчитана
+    // на 1 пог.м (97/3 ≈ 32).
+    rod: { name: 'Штанга для одежды хромированная Ø25', article: 'ROD-D25', price: 32, sourceUrl: 'https://mobilier.md/accesorii-pentru-mobilier/furnitura-functionala/sisteme-pt-garderoba-dulap/rr-250630h01-bara-d-25-grosimea-metalului-08mm-l-3m-crom.html', unit: 'пог.м', category: 'rod' },
+    rodHolder: { name: 'Держатель штанги Ø25 (пара)', article: 'ROD-H25', price: 38, sourceUrl: 'https://mobilier.md/accesorii-pentru-mobilier/furnitura-functionala/accesorii-pentru-bucatarie/mr-wp-010-01-suport-reglabil-wp-10-pentru-bara-cu-d-25-crom.html', unit: 'пара', category: 'rod' },
   };
 
   const FASTENER_PRICES = {
-    confirmat: { name: 'Конфирмат 7х50', article: 'CONF-50', price: 3, unit: 'шт', category: 'fastener' },
-    minifixBolt: { name: 'Rastex шток', article: 'RASTEX-BOLT-8', price: 6, unit: 'шт', category: 'fastener' },
-    minifixCam: { name: 'Rastex эксцентрик', article: 'RASTEX-CAM-15', price: 12, unit: 'шт', category: 'fastener' },
-    dowel: { name: 'Шкант 8х30', article: 'DWL-30', price: 1, unit: 'шт', category: 'fastener' },
-    backPanelScrew: { name: 'Шуруп-стяжка задней стенки', article: 'SCR-15', price: 1.5, unit: 'шт', category: 'fastener' },
+    confirmat: { name: 'Конфирмат 7х50', article: 'CONF-50', price: 0.5, sourceUrl: 'https://mobilier.md/accesorii-pentru-mobilier/furnitura-functionala/elemente-de-asamblare/wk-cf0750-01-eurosurub-gtv-70x50-mm.html', unit: 'шт', category: 'fastener' },
+    minifixBolt: { name: 'Rastex шток', article: 'RASTEX-BOLT-8', price: 3, sourceUrl: 'https://mobilier.md/accesorii-pentru-mobilier/furnitura-functionala/elemente-de-asamblare/sz-008-00-01t-surub-de-legatura-intre-corpuri-d-8-mm-crom.html', unit: 'шт', category: 'fastener' },
+    minifixCam: { name: 'Rastex эксцентрик', article: 'RASTEX-CAM-15', price: 1, sourceUrl: 'https://mobilier.md/accesorii-pentru-mobilier/furnitura-functionala/elemente-de-asamblare/wk-cam-15-13-d-cama-minifix-d-15-l-13mm.html', unit: 'шт', category: 'fastener' },
+    dowel: { name: 'Шкант 8х30', article: 'DWL-30', price: 0.2, sourceUrl: 'https://mobilier.md/accesorii-pentru-mobilier/furnitura-rejs-ro/tk01758117000-cep-din-lemn-8x30-mm.html', unit: 'шт', category: 'fastener' },
+    backPanelScrew: { name: 'Шуруп-стяжка задней стенки', article: 'SCR-15', price: 0.5, sourceUrl: 'https://mobilier.md/accesorii-pentru-mobilier/furnitura-functionala/elemente-de-asamblare/wz-sctylpr-wk-suport-spate-pfl-cu-surub-35x20mm.html', unit: 'шт', category: 'fastener' },
   };
 
   const JOINT_LABEL = {
@@ -112,6 +138,9 @@
   // ВНИМАНИЕ: производители меняют серии и размеры. Перед запуском в
   // производство сверять с актуальным каталогом конкретной серии.
   // ==========================================================================
+  // Blum и Hettich на mobilier.md не продаются вообще (0 совпадений по
+  // каждому бренду) — setPrice для tandembox/legrabox/innotech/quadro/
+  // quadroSlide ниже остались условными, соответствие не найдено.
   const DRAWER_SYSTEMS = {
     tandembox: {
       src: 'Blum, каталог TANDEMBOX antaro, раздел «Cutting»',
@@ -307,7 +336,11 @@
         { code: '200', h: 200, minFront: 230 },
         { code: '250', h: 250, minFront: 280 },
       ],
-      setPrice: 350,
+      // Готового комплекта короб+направляющие на сайте нет — цена взята
+      // как пара направляющих GTV GX1 H45 L500 (эконом-класс, бренд не
+      // указан у производителя), тот же товар, что и HARDWARE_PRICES.drawerRunnerPair.
+      setPrice: 216,
+      sourceUrl: 'https://mobilier.md/accesorii-pentru-mobilier/furnitura-functionala/glisiere/pk-0h45500gx1-glisiere-cu-bila-gtv-gx1-h-45-l-500mm.html',
       setName: 'Направляющие шариковые полного выдвижения (пара)',
     },
   };
@@ -324,14 +357,19 @@
   const HANDLE_HOLE_D = 5;          // диаметр отверстия под винт ручки, мм
   const HANDLES = {
     none:    { id: 'none', name: 'Без ручек', holes: 0, price: 0, category: 'handle' },
-    knob:    { id: 'knob', name: 'Ручка-кнопка', holes: 1, cc: 0, price: 120,
+    knob:    { id: 'knob', name: 'Ручка-кнопка', holes: 1, cc: 0, price: 39,
+               sourceUrl: 'https://mobilier.md/accesorii-pentru-mobilier/furnitura-decorativa/minere-pentru-mobila/minere-clasice/gz-point-1-06-miner-buton-point-inox.html',
                article: 'H-KNOB', note: 'Одно отверстие Ø5', category: 'handle' },
-    bow96:   { id: 'bow96', name: 'Ручка-скоба 96 мм', holes: 2, cc: 96, price: 90, article: 'H-96', category: 'handle' },
-    bow128:  { id: 'bow128', name: 'Ручка-скоба 128 мм', holes: 2, cc: 128, price: 100, article: 'H-128', category: 'handle' },
-    bow160:  { id: 'bow160', name: 'Ручка-скоба 160 мм', holes: 2, cc: 160, price: 120, article: 'H-160', category: 'handle' },
-    bow192:  { id: 'bow192', name: 'Ручка-скоба 192 мм', holes: 2, cc: 192, price: 140, article: 'H-192', category: 'handle' },
-    bow224:  { id: 'bow224', name: 'Ручка-скоба 224 мм', holes: 2, cc: 224, price: 160, article: 'H-224', category: 'handle' },
-    bow320:  { id: 'bow320', name: 'Ручка-скоба 320 мм', holes: 2, cc: 320, price: 210, article: 'H-320', category: 'handle' },
+    bow96:   { id: 'bow96', name: 'Ручка-скоба 96 мм', holes: 2, cc: 96, price: 70, sourceUrl: 'https://mobilier.md/accesorii-pentru-mobilier/furnitura-decorativa/minere-pentru-mobila/modern-1/ua-b31109606mj-miner-ua-b311-96mm-inox.html', article: 'H-96', category: 'handle' },
+    bow128:  { id: 'bow128', name: 'Ручка-скоба 128 мм', holes: 2, cc: 128, price: 76, sourceUrl: 'https://mobilier.md/accesorii-pentru-mobilier/furnitura-decorativa/minere-pentru-mobila/modern-1/ua-b31112806mj-miner-ua-b311-128mm-inox.html', article: 'H-128', category: 'handle' },
+    bow160:  { id: 'bow160', name: 'Ручка-скоба 160 мм', holes: 2, cc: 160, price: 81, sourceUrl: 'https://mobilier.md/accesorii-pentru-mobilier/furnitura-decorativa/minere-pentru-mobila/modern-1/ua-b31116006mj-miner-ua-b311-160mm-inox.html', article: 'H-160', category: 'handle' },
+    // Точного 192мм на сайте нет — взята ближайшая доступная 160мм (та же
+    // линейка UA-B311) вместо 192мм.
+    bow192:  { id: 'bow192', name: 'Ручка-скоба 192 мм', holes: 2, cc: 192, price: 81, sourceUrl: 'https://mobilier.md/accesorii-pentru-mobilier/furnitura-decorativa/minere-pentru-mobila/modern-1/ua-b31116006mj-miner-ua-b311-160mm-inox.html', article: 'H-192', category: 'handle' },
+    // Точного 224мм на сайте нет — взята ближайшая доступная 256мм (та же
+    // линейка UA-B311) вместо 224мм.
+    bow224:  { id: 'bow224', name: 'Ручка-скоба 224 мм', holes: 2, cc: 224, price: 105, sourceUrl: 'https://mobilier.md/accesorii-pentru-mobilier/furnitura-decorativa/minere-pentru-mobila/modern-1/ua-b31125606mj-miner-ua-b311-256mm-inox.html', article: 'H-224', category: 'handle' },
+    bow320:  { id: 'bow320', name: 'Ручка-скоба 320 мм', holes: 2, cc: 320, price: 120, sourceUrl: 'https://mobilier.md/accesorii-pentru-mobilier/furnitura-decorativa/minere-pentru-mobila/modern-1/ua-b31132006mj-miner-ua-b311-320mm-inox.html', article: 'H-320', category: 'handle' },
     // Межосевое задаётся вручную: нестандартная или дизайнерская скоба.
     custom:  { id: 'custom', name: 'Скоба — задать межосевое', holes: 2, cc: 0, price: 200,
                article: 'H-CUSTOM', custom: true, category: 'handle' },
@@ -343,6 +381,9 @@
   // Область применения — по высоте фасада и ширине корпуса, по каталогам
   // производителей. minH/maxH — высота фасада, maxW — ширина корпуса, мм.
   // ---------------------------------------------------------------------------
+  // Blum, Hettich и Samet на mobilier.md не продаются вообще (0 совпадений
+  // по каждому бренду) — цены во всех восьми позициях ниже условные,
+  // соответствие на сайте не найдено.
   const LIFTS = {
     aventosHK:  { id: 'aventosHK', brand: 'Blum', name: 'Blum AVENTOS HK (откидной)',
                   article: 'AVENTOS-HK', price: 4200, minH: 240, maxH: 600, maxW: 1800,
@@ -399,6 +440,7 @@
 
   window.Modul3D = window.Modul3D || {};
   window.Modul3D.catalog = {
+    CATALOG_SOURCE,
     DECORS, BACK_MATERIALS, EDGE_PRICES, HARDWARE_PRICES, FASTENER_PRICES, JOINT_LABEL,
     DRAWER_SYSTEMS, DRAWER_SYSTEM_ORDER, pickNL, GLASS,
     FACADE_TYPES, FACADE_TYPE_ORDER, FACADE_MATERIALS,

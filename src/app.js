@@ -583,6 +583,34 @@ function libEditCell(group, key, field, type, value) {
   return `<td class="lib-edit-cell" data-group="${esc(group)}" data-key="${esc(key)}" data-field="${field}" data-type="${type}">${esc(value == null ? '' : String(value))}</td>`;
 }
 
+// Дата ISO ('2026-09-03', см. catalog.js: CATALOG_SOURCE.lastSync) → русский
+// формат ДД.ММ.ГГГГ. Разбор строки вручную, а не через new Date(), — чтобы
+// не словить сдвиг на сутки из-за часового пояса браузера при дате без времени.
+function formatDateRu(iso) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(iso || ''));
+  return m ? `${m[3]}.${m[2]}.${m[1]}` : String(iso || '');
+}
+
+// Подсказка о синхронизации цен с сайтом-источником (см. CATALOG_SOURCE в
+// catalog.js) — выводится наверху вкладок «Материалы» и «Фурнитура».
+function libSourceHint() {
+  const src = window.Modul3D.catalog.CATALOG_SOURCE;
+  if (!src || !src.site) return '';
+  return `<p class="hint">Цены сверены с сайтом <a href="https://${esc(src.site)}" target="_blank" rel="noopener">${esc(src.site)}</a> · обновлено ${esc(formatDateRu(src.lastSync))}</p>`;
+}
+
+// Компактная ссылка-иконка на карточку товара у поставщика (item.sourceUrl,
+// см. catalog.js) — только когда она есть в каталоге (не у всех позиций
+// нашлось соответствие на сайте). Отдельная маленькая <td>, НЕ часть
+// .lib-edit-cell: клик по ней должен открыть sourceUrl в новой вкладке, а не
+// провалиться в делегированный обработчик инлайн-редактирования (см.
+// initLibraryPanel → panel.addEventListener('click', ...) → startCellEdit) —
+// closest('.lib-edit-cell') на этой ячейке не сработает, конфликта нет.
+function libSourceLinkCell(item) {
+  if (!item || !item.sourceUrl) return '<td class="lib-source-cell"></td>';
+  return `<td class="lib-source-cell"><a class="lib-source-link" href="${esc(item.sourceUrl)}" target="_blank" rel="noopener" title="Открыть карточку товара на сайте поставщика">↗</a></td>`;
+}
+
 // Карточка цвета/образца — превью из поля image (dataURL) или заглушка «+»,
 // клик открывает системный выбор файла (см. openLibImagePicker).
 function libSwatchHtml(group, key, image) {
@@ -603,6 +631,7 @@ function libSheetTable(title, group, items) {
   const rows = items.map((it) => `
     <tr data-search="${esc(String(it.name || '').toLowerCase())}">
       ${libEditCell(group, it.code, 'name', 'text', it.name)}
+      ${libSourceLinkCell(it)}
       ${libEditCell(group, it.code, 'unit', 'text', it.unit || 'лист')}
       <td>${libSwatchHtml(group, it.code, it.image)}</td>
       ${libEditCell(group, it.code, 'sheetPrice', 'number', it.sheetPrice)}
@@ -611,7 +640,7 @@ function libSheetTable(title, group, items) {
   return `
     <h4 class="mat-sub">${esc(title)}</h4>
     <table class="lib-table"><thead><tr>
-      <th>Наименование</th><th>Ед. изм.</th><th>Образец</th><th>Цена, ${esc(curSym())}</th>${hasThickness ? `<th>Толщина, мм</th>` : ''}
+      <th>Наименование</th><th></th><th>Ед. изм.</th><th>Образец</th><th>Цена, ${esc(curSym())}</th>${hasThickness ? `<th>Толщина, мм</th>` : ''}
     </tr></thead><tbody>${rows}</tbody></table>
     <button type="button" class="link-btn lib-add" data-add="${group}">+ Добавить материал</button>`;
 }
@@ -627,6 +656,7 @@ function libEdgeTable() {
     return `
     <tr data-search="${esc(name.toLowerCase())}">
       <td>${esc(name)}</td>
+      ${libSourceLinkCell(it)}
       ${libEditCell('edge', name, 'unit', 'text', it.unit || 'пог.м')}
       <td>${libSwatchHtml('edge', name, it.image)}</td>
       ${libEditCell('edge', name, 'price', 'number', it.price)}
@@ -635,7 +665,7 @@ function libEdgeTable() {
   return `
     <h4 class="mat-sub">Кромка</h4>
     <table class="lib-table"><thead><tr>
-      <th>Наименование</th><th>Ед. изм.</th><th>Образец</th><th>Цена, ${esc(curSym())}</th>
+      <th>Наименование</th><th></th><th>Ед. изм.</th><th>Образец</th><th>Цена, ${esc(curSym())}</th>
     </tr></thead><tbody>${rows}</tbody></table>
     <button type="button" class="link-btn lib-add" data-add="edge">+ Добавить кромку</button>`;
 }
@@ -647,10 +677,11 @@ function libGlassTable() {
   return `
     <h4 class="mat-sub">Стекло</h4>
     <table class="lib-table"><thead><tr>
-      <th>Наименование</th><th>Ед. изм.</th><th>Образец</th><th>Цена, ${esc(curSym())}</th>
+      <th>Наименование</th><th></th><th>Ед. изм.</th><th>Образец</th><th>Цена, ${esc(curSym())}</th>
     </tr></thead><tbody>
       <tr data-search="${esc(String(g.name).toLowerCase())}">
         ${libEditCell('glass', g.code, 'name', 'text', g.name)}
+        ${libSourceLinkCell(g)}
         ${libEditCell('glass', g.code, 'unit', 'text', g.unit || 'лист')}
         <td>${libSwatchHtml('glass', g.code, g.image)}</td>
         ${libEditCell('glass', g.code, 'sheetPrice', 'number', g.sheetPrice)}
@@ -662,6 +693,7 @@ function libraryMaterialsBlock() {
   const cat = window.Modul3D.catalog;
   return `
     <h3>Материалы</h3>
+    ${libSourceHint()}
     ${libSheetTable('Материалы корпуса', 'decors', DECORS)}
     ${libSheetTable('Материалы задней стенки', 'back', BACK_MATERIALS)}
     ${libSheetTable('Материалы фасадов', 'facade', Object.values(cat.FACADE_MATERIALS))}
@@ -698,18 +730,19 @@ function libraryHardwareBlock() {
     const rows = items.map(({ src, key, item }) => `
       <tr data-search="${esc(String(item.name || '').toLowerCase())}">
         ${libEditCell('hw:' + src, key, 'name', 'text', item.name)}
+        ${libSourceLinkCell(item)}
         ${libEditCell('hw:' + src, key, 'unit', 'text', item.unit || 'шт')}
         ${libEditCell('hw:' + src, key, 'price', 'number', item.price)}
       </tr>`).join('');
     return `
       <h4 class="mat-sub">${esc(label[c] || c)}</h4>
       <table class="lib-table"><thead><tr>
-        <th>Наименование</th><th>Ед. изм.</th><th>Цена, ${esc(curSym())}</th>
-      </tr></thead><tbody>${rows || '<tr><td colspan="3" class="hint">Пока нет позиций</td></tr>'}</tbody></table>
+        <th>Наименование</th><th></th><th>Ед. изм.</th><th>Цена, ${esc(curSym())}</th>
+      </tr></thead><tbody>${rows || '<tr><td colspan="4" class="hint">Пока нет позиций</td></tr>'}</tbody></table>
       <button type="button" class="link-btn lib-add" data-add="hwadd:${c}">+ Добавить позицию</button>`;
   }).join('');
 
-  return `<h3>Фурнитура</h3>${sections}`;
+  return `<h3>Фурнитура</h3>${libSourceHint()}${sections}`;
 }
 
 // ---------------------------------------------------------------------------

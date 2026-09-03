@@ -795,6 +795,7 @@ input[type='number'] { font-family: var(--ff-mono); }
 .checkbox-field input { width: auto !important; margin: 0; accent-color: var(--accent); }
 
 .hint { font-size: var(--fs-xs); line-height: 1.45; color: var(--muted); margin: 4px 0 var(--sp-2); }
+.hint a { color: var(--accent); text-decoration: underline; text-underline-offset: 2px; }
 .dim { color: var(--muted); font-weight: 400; }
 .mt6 { margin-top: 6px; display: block; font-size: var(--fs-sm); color: var(--text-2); }
 .mini-row { display: flex; gap: 6px; margin-top: 4px; }
@@ -1172,6 +1173,18 @@ h4.spec-title { margin: var(--sp-5) 0 var(--sp-2); font-size: var(--fs-md); font
   background: var(--surface-solid); color: var(--text);
 }
 .lib-add { display: inline-block; margin: 0 0 var(--sp-4); }
+
+/* Компактная ссылка-иконка на карточку товара у поставщика (item.sourceUrl,
+   см. catalog.js) — отдельная узкая колонка рядом с «Наименование», не
+   часть .lib-edit-cell (см. app.js: libSourceLinkCell) */
+.lib-source-cell { width: 1%; padding-left: 2px; padding-right: 2px; text-align: center; }
+.lib-source-link {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 20px; height: 20px; border-radius: var(--r-sm);
+  color: var(--muted); text-decoration: none; font-size: 13px; line-height: 1;
+  transition: all var(--dur) var(--ease);
+}
+.lib-source-link:hover { color: var(--accent); background: var(--accent-soft); }
 
 /* Карточка цвета/образца материала — клик открывает загрузку файла */
 .lib-swatch {

@@ -29,9 +29,10 @@ var syncingDocs = false;
 
 /* ---------------------------------------------------------------------------
    0. Валюта проекта — единое глобальное состояние (window.Modul3D.currency).
-   По умолчанию ₽ RUB — прежнее поведение, чтобы у существующих пользователей
-   ничего не изменилось при первом открытии после обновления. Читается из
-   app.js (спецификация, таблицы «Библиотеки») через getSymbol().
+   По умолчанию лей MDL — цены каталога (src/catalog.js) сверены с сайтом
+   mobilier.md и реально указаны в молдавских леях, поэтому дефолт следует
+   за источником цен, а не наоборот. Читается из app.js (спецификация,
+   таблицы «Библиотеки») через getSymbol().
 --------------------------------------------------------------------------- */
 var CURRENCY_PRESETS = [
   { code: 'RUB', symbol: '₽', label: '₽ Российский рубль' },
@@ -39,13 +40,13 @@ var CURRENCY_PRESETS = [
   { code: 'EUR', symbol: '€', label: '€ Евро' },
   { code: 'MDL', symbol: 'лей', label: 'лей Молдавский лей' }
 ];
-var currencyState = { code: 'RUB', symbol: '₽', custom: false };
+var currencyState = { code: 'MDL', symbol: 'лей', custom: false };
 
 function loadCurrency() {
   try {
     var saved = JSON.parse(localStorage.getItem(CURRENCY_KEY) || 'null');
     if (saved && saved.symbol) currencyState = saved;
-  } catch (e) { /* приватный режим / битые данные — остаёмся на ₽ RUB */ }
+  } catch (e) { /* приватный режим / битые данные — остаёмся на лей MDL */ }
 }
 function saveCurrencyState() {
   try { localStorage.setItem(CURRENCY_KEY, JSON.stringify(currencyState)); } catch (e) { /* ok */ }
