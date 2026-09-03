@@ -89,7 +89,7 @@ function inspect(model, label) {
   const nums = model.parts.filter((p) => !p.hardware).map((p) => p.num);
   if (nums.some((v, i) => v !== i + 1)) problems.push(`${label}: разрыв в нумерации деталировки`);
   const sp = buildSpecification(model);
-  const rows = [].concat(sp.sheetMaterials || [], sp.edging || [], sp.hardware || [], sp.fasteners || []);
+  const rows = [].concat(sp.sheetMaterials || [], sp.edging || [], sp.countertopMaterials || [], sp.hardware || [], sp.fasteners || []);
   const sum = rows.reduce((a, r) => a + (Number(r.sum) || 0), 0);
   const total = Number(sp.totalCost);
   // Внимание: сравнение с NaN всегда ложно, поэтому конечность проверяем явно —
@@ -2965,6 +2965,110 @@ for (const glass of [false, true]) {
       const near = legFix.filter((h) => Math.abs(h.x - lx) <= 26.5 && Math.abs(h.y - lz) <= 26.5);
       if (near.length !== 4) problems.push(`опоры: у опоры (${Math.round(lx)}, ${Math.round(lz)}) отверстий ${near.length} вместо 4`);
     }
+  }
+  cases += 1;
+}
+
+// --- столешница: прямой стык между соседними тумбами ------------------------
+// Регрессия на joinCountertopSeams(): у двух тумб подряд с включённой
+// столешницей должен появиться РОВНО один прямой стык с эксцентриковой
+// стяжкой (не слияние в одну деталь, как у цоколя — своя деталь на каждую).
+{
+  const model = buildModel(Object.assign({}, base, {
+    modules: [
+      { name: 'Тумба 1', width: 600, height: 820, depth: 560, leftSide: 'onBottom', rightSide: 'onBottom',
+        topType: 'rails', base: { type: 'legsPlinth', legHeight: 100 },
+        countertop: { enabled: true, material: 'ldsp38' },
+        sections: [{ shelves: 1, drawers: 0, facade: 'doorLeft', drawerSystem: 'ballBearing' }] },
+      { name: 'Тумба 2', width: 800, height: 820, depth: 560, leftSide: 'onBottom', rightSide: 'onBottom',
+        topType: 'rails', base: { type: 'legsPlinth', legHeight: 100 },
+        countertop: { enabled: true, material: 'ldsp38' },
+        sections: [{ shelves: 1, drawers: 2, facade: 'doorRight', drawerSystem: 'ballBearing' }] },
+    ],
+  }));
+  inspect(model, 'столешница: прямой стык');
+
+  const tops = model.parts.filter((p) => p.kind === 'countertop');
+  if (tops.length !== 2) problems.push(`столешница: деталей countertop ${tops.length} вместо 2 (не должна сливаться, как цоколь)`);
+
+  const joints = model.hardwareContext.countertopJoints || [];
+  const straight = joints.filter((j) => j.type === 'straight');
+  if (straight.length !== 1) problems.push(`столешница: прямых стыков ${straight.length} вместо 1`);
+  else {
+    const tie = (straight[0].hardware || []).find((h) => h.key === 'countertopStraightTie');
+    if (!tie) problems.push('столешница: у прямого стыка нет countertopStraightTie в hardware');
+    else if (tie.qty !== 2) problems.push(`столешница: прямой стык — стяжек ${tie.qty} вместо 2 (глубина 600 &lt; шага 600)`);
+  }
+  cases += 1;
+}
+
+// --- столешница: угловой 90° стык -------------------------------------------
+// Угловой корпусный модуль сам по себе НЕ доводит столешницу до соседнего
+// перпендикулярного прогона (между ними доборная планка/зазор угла) — без
+// достаточного свеса вперёд остаётся честный зазор, а не наложение.
+{
+  const mk = (overhangFront) => buildModel(Object.assign({}, base, {
+    modules: [
+      { name: 'Мойка', width: 984, height: 820, depth: 560, corner: true,
+        leftSide: 'onBottom', rightSide: 'onBottom', topType: 'railsEdge', noBack: true,
+        blindPanel: true, blindStrip: 78,
+        base: { type: 'legsPlinth', legHeight: 100 },
+        countertop: { enabled: true, material: 'ldsp38', overhangFront },
+        sections: [{ shelves: 0, drawers: 0, facade: 'doorLeft', handle: 'bow160' }] },
+      { name: 'След', width: 600, height: 820, depth: 560, leftSide: 'onBottom', rightSide: 'onBottom',
+        topType: 'rails', base: { type: 'legsPlinth', legHeight: 100 },
+        countertop: { enabled: true, material: 'ldsp38' },
+        sections: [{ shelves: 1, drawers: 0, facade: 'doorLeft', drawerSystem: 'ballBearing' }] },
+    ],
+  }));
+
+  // Без свеса — реальный зазор (доборная планка угла), не наложение: должно
+  // остаться понятное предупреждение с точным недостающим расстоянием, а не
+  // тихий пропуск и не выдуманное автоудлинение.
+  const gapModel = mk(0);
+  inspect(gapModel, 'столешница: угловой стык, зазор без свеса');
+  const gapJoints = (gapModel.hardwareContext.countertopJoints || []).filter((j) => j.type === 'corner');
+  if (gapJoints.length !== 0) problems.push(`столешница: угловой зазор без свеса — стык ${gapJoints.length} построен, а должен быть 0`);
+  if (!gapModel.warnings.some((w) => /не сходятся, не хватает/.test(w))) {
+    problems.push('столешница: нет предупреждения о зазоре углового стыка без достаточного свеса');
+  }
+
+  // С достаточным свесом (>58 мм, реально измеренный зазор в этой раскладке)
+  // столешницы должны сойтись и подрезаться в стык без наложения — это уже
+  // проверяет общий inspect() выше через overlaps().
+  const joinModel = mk(80);
+  inspect(joinModel, 'столешница: угловой стык, со свесом');
+  const corner = (joinModel.hardwareContext.countertopJoints || []).filter((j) => j.type === 'corner');
+  if (corner.length !== 1) problems.push(`столешница: угловых стыков со свесом ${corner.length} вместо 1`);
+  cases += 2;
+}
+
+// --- столешница: компакт-плита без верхней планки под стыком — предупреждение
+{
+  const model = buildModel(Object.assign({}, base, {
+    modules: [
+      { name: 'Тумба 1', width: 600, height: 820, depth: 650, leftSide: 'onBottom', rightSide: 'onBottom',
+        topType: 'panel', base: { type: 'legsPlinth', legHeight: 100 },
+        countertop: { enabled: true, material: 'compact12' },
+        sections: [{ shelves: 1, drawers: 0, facade: 'doorLeft', drawerSystem: 'ballBearing' }] },
+      { name: 'Тумба 2', width: 600, height: 820, depth: 650, leftSide: 'onBottom', rightSide: 'onBottom',
+        topType: 'rails', base: { type: 'legsPlinth', legHeight: 100 },
+        countertop: { enabled: true, material: 'compact12' },
+        sections: [{ shelves: 1, drawers: 0, facade: 'doorRight', drawerSystem: 'ballBearing' }] },
+    ],
+  }));
+  inspect(model, 'столешница: компакт без планки');
+
+  if (!model.warnings.some((w) => /под краем нет верхней планки/.test(w))) {
+    problems.push('столешница: нет предупреждения про компакт-плиту без планки под стыком');
+  }
+  const joints = model.hardwareContext.countertopJoints || [];
+  const seam = joints[0];
+  if (!seam || !(seam.hardware || []).some((h) => h.key === 'countertopSealant')) {
+    problems.push('столешница: у стыка компакт-плиты нет countertopSealant');
+  }
+  if (seam && (seam.hardware || []).some((h) => h.key === 'countertopStraightTie' || h.key === 'countertopCornerTie')) {
+    problems.push('столешница: у стыка компакт-плиты не должно быть механических стяжек');
   }
   cases += 1;
 }

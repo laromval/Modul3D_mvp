@@ -778,6 +778,10 @@ input[type='number'] { font-family: var(--ff-mono); }
 .field-row-wide-action { grid-template-columns: 0.5fr 1.5fr; }
 .field-row3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
 .field-row3 .field input { padding: 7px 6px; text-align: center; }
+/* Свесы столешницы (панель «Столешница»): 4 узких числовых поля в один ряд —
+   тот же приём, что и .field-row3 выше, только на 4 колонки. */
+.field-row4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+.field-row4 .field input { padding: 7px 4px; text-align: center; }
 /* Вторая колонка .field-row, где вместо своего поля стоит кнопка/select без
    подписи (см. .field-row-btn выше, «Ящики, шт»/«Полки, шт» в карточке
    секции) — label остаётся в разметке (&nbsp;) только чтобы занять ту же
@@ -1451,3 +1455,21 @@ body.is-focus .scrim { opacity: 0 !important; }
   background: none; border: none; cursor: pointer; padding: 0; text-decoration: underline;
 }
 .detail-empty-row td { text-align: center; color: var(--muted); padding: 14px 9px; white-space: normal; }
+
+/* ---------- 19. СТОЛЕШНИЦА (панель списка тумб проекта) ------------------ */
+/* Список модулей проекта в панели «Столешница» (countertopPanelBlock в
+   app.js) — по образцу .df-check-row выше (та же логика: checkbox + текст в
+   один ряд), но не в поповере, а прямо в теле панели, поэтому своя, чуть
+   просторнее набранная разновидность. */
+.ctop-mod-list { margin-bottom: var(--sp-3); border: 1px solid var(--border); border-radius: var(--r-sm); overflow: hidden; }
+.ctop-mod-row {
+  display: flex !important; align-items: center; gap: var(--sp-2);
+  padding: 8px 10px; font-size: var(--fs-sm); color: var(--text); cursor: pointer; user-select: none;
+}
+.ctop-mod-row + .ctop-mod-row { border-top: 1px solid var(--border); }
+.ctop-mod-row:hover { background: var(--surface-2); }
+.ctop-mod-row input { width: auto !important; margin: 0; accent-color: var(--accent); flex: none; }
+/* Навесной модуль (не тумба) — виден в списке, но неактивен: приглушённый и
+   без hover/курсора-указателя, чтобы не выглядел кликабельным. */
+.ctop-mod-row.disabled { color: var(--muted); opacity: .6; cursor: default; }
+.ctop-mod-row.disabled:hover { background: none; }

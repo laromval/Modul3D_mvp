@@ -9,7 +9,7 @@
 // ============================================================================
 (function () {
 const { EDGE_PRICES, HARDWARE_PRICES, FASTENER_PRICES, JOINT_LABEL, DRAWER_SYSTEMS,
-        HANDLES, LIFTS, GLASS, FACADE_MATERIALS, DECORS, BACK_MATERIALS } = window.Modul3D.catalog;
+        HANDLES, LIFTS, GLASS, FACADE_MATERIALS, DECORS, BACK_MATERIALS, COUNTERTOP_MATERIALS } = window.Modul3D.catalog;
 
 function round2(v) { return Math.round(v * 100) / 100; }
 
@@ -82,6 +82,28 @@ function buildSpecification(model) {
   const edging = Array.from(edgeLenByType.entries()).map(([type, length_m]) => {
     const price = EDGE_PRICES[type]?.price ?? 0;
     return { type, length_m: round2(length_m), price_per_m: price, sum: round2(length_m * price) };
+  });
+
+  // ---------- Столешница (погонный метр) ----------
+  // Реальные позиции COUNTERTOP_MATERIALS продаются погонным метром, а не
+  // листом — считаем длину, не площадь, тем же паттерном, что и кромка выше.
+  // doubleLdsp сюда не попадает: это не каталожная позиция, её площадь уже
+  // посчитана в листовом блоке выше (материал = decor.code проекта, qty:2).
+  const ctLenByCode = new Map();
+  for (const row of parts) {
+    if (row.kind !== 'countertop') continue;
+    const info = (COUNTERTOP_MATERIALS || []).find((m) => m.code === row.material);
+    if (!info) continue;
+    ctLenByCode.set(row.material, (ctLenByCode.get(row.material) || 0) + (row.length * row.qty) / 1000);
+  }
+  const countertopMaterials = Array.from(ctLenByCode.entries()).map(([code, length_m]) => {
+    const info = COUNTERTOP_MATERIALS.find((m) => m.code === code);
+    const price = info.pricePerMeter;
+    return {
+      code, name: info.name, length_m: round2(length_m),
+      price_per_m: price, sum: price != null ? round2(length_m * price) : null,
+      priceConfirmed: price != null,
+    };
   });
 
   // ---------- 3. Фурнитура ----------
@@ -229,14 +251,40 @@ function buildSpecification(model) {
   const screwsPerBack = 10;
   if (backCount > 0) fasteners.push(fRow(FASTENER_PRICES.backPanelScrew, backCount * screwsPerBack));
 
+  // ---------- Столешница: крепёж ----------
+  // Шаг расчёта количества (ширина/400, минимум 2) намеренно повторяет
+  // существующую формулу clipCount выше (крепление цоколя) — тот же принцип
+  // редкого крепежа вдоль планки шириной модуля, а не новая придуманная
+  // константа.
+  let worktopScrewQty = 0, worktopRastexQty = 0;
+  for (const m of mods) {
+    if (!m.countertop || !m.countertop.enabled) continue;
+    if (m.topType === 'rails' || m.topType === 'railsEdge') {
+      worktopScrewQty += Math.max(2, Math.round(Number(m.width) / 400));
+    } else {
+      worktopRastexQty += 2;
+    }
+  }
+  if (worktopScrewQty) fasteners.push(fRow(FASTENER_PRICES.worktopScrew, worktopScrewQty));
+  if (worktopRastexQty) {
+    fasteners.push(fRow(FASTENER_PRICES.minifixBolt, worktopRastexQty));
+    fasteners.push(fRow(FASTENER_PRICES.minifixCam, worktopRastexQty));
+  }
+  for (const j of (hardwareContext.countertopJoints || [])) {
+    for (const h of j.hardware) {
+      const info = HARDWARE_PRICES[h.key];
+      if (info) hardware.push(hwRow(info, h.qty));
+    }
+  }
+
   // ---------- Итог ----------
-  const sumOf = (arr) => arr.reduce((s, r) => s + r.sum, 0);
+  const sumOf = (arr) => arr.reduce((s, r) => s + (r.sum || 0), 0);
   const totalCost = round2(
-    sumOf(sheetMaterials) + sumOf(edging) + sumOf(hardware) + sumOf(fasteners)
+    sumOf(sheetMaterials) + sumOf(edging) + sumOf(countertopMaterials) + sumOf(hardware) + sumOf(fasteners)
   );
 
   return {
-    sheetMaterials, edging, hardware, fasteners,
+    sheetMaterials, edging, countertopMaterials, hardware, fasteners,
     jointTypeLabel: JOINT_LABEL[jointType],
     totalCost,
     warnings: model.warnings,

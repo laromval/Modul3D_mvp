@@ -36,6 +36,33 @@
     { code: 'HDF-8', name: 'ЛДСП 8мм (усиленная задняя стенка)', sheetPrice: 1500, sheetW: 2750, sheetH: 1830, thickness: 8, unit: 'лист', image: null },
   ];
 
+  // Столешницы на mobilier.md продаются ПОГОННЫМ метром — готовой полосой
+  // фиксированной глубины и толщины, а не листом произвольного размера, как
+  // декоры корпуса (DECORS) выше. Поэтому вместо sheetW/sheetH/sheetPrice —
+  // pricePerMeter + фиксированная depth (глубина полосы, мм). specification.js
+  // считает эти позиции по ДЛИНЕ детали (пог.м), как EDGE_PRICES, а не по
+  // площади листа, как DECORS.
+  // materialId — семейство материала из m.countertop.material ('ldsp38' /
+  // 'compact12'), НЕ то же, что code: у одной линии может быть несколько
+  // позиций разной depth (см. countertopMat() в engine.js).
+  const COUNTERTOP_MATERIALS = [
+    { code: 'CTOP-LDSP38-600', materialId: 'ldsp38',
+      name: 'Столешница ЛДСП 38мм постформинг, глубина 600 (Kronospan K552SU)',
+      thickness: 38, depth: 600, pricePerMeter: 567, maxLength: 4100, unit: 'пог.м',
+      sourceUrl: 'https://mobilier.md/index.php?route=product/product&product_id=25046', image: null },
+    // Цена не подтверждена на карточке товара — уточнить у пользователя/на
+    // сайте перед тем, как эта позиция попадёт в коммерческую смету.
+    { code: 'CTOP-LDSP38-920', materialId: 'ldsp38',
+      name: 'Столешница ЛДСП 38мм постформинг, глубина 920 (Egger F235 ST76)',
+      thickness: 38, depth: 920, pricePerMeter: null, maxLength: 4100, unit: 'пог.м',
+      note: 'Цена не подтверждена, см. https://mobilier.md/index.php?route=product/product&product_id=32284',
+      sourceUrl: 'https://mobilier.md/index.php?route=product%2Fproduct&product_id=32284', image: null },
+    { code: 'CTOP-COMPACT12-650', materialId: 'compact12',
+      name: 'Столешница компакт-плита HPL 12мм, глубина 650 (Egger H1330 ST10)',
+      thickness: 12, depth: 650, pricePerMeter: 2248, maxLength: 4100, unit: 'пог.м',
+      sourceUrl: 'https://mobilier.md/countertops-and-wall-panels/compact-eng/en-work-tops-compact-laminate-h1330-st10-vintage-santa-fe-oak-12-4100x650-eg.html', image: null },
+  ];
+
   // Стекло для полок и фасадов: считается по площади, кромка не нужна —
   // торцы шлифуются на производстве стекла. На mobilier.md листовое стекло
   // под мебель не продаётся — его режут на заказ у стекольщиков, поэтому
@@ -146,6 +173,11 @@
     hingeGlass: { name: 'Петля для стеклянной двери (отверстие Ø26)',
                   article: 'HNG-GLASS', price: 520, unit: 'шт', category: 'hinge', hardwareModelSlot: 'hingeGlass' },
     plinthClip: { name: 'Крепление цоколя', article: 'PLC-1', price: 2, sourceUrl: 'https://mobilier.md/accesorii-pentru-mobilier/furnitura-decorativa/picioare-si-rotile/nm-kl-dpa-20-clipsa-picior-bucatarie-dpa-h-100150-negru.html', unit: 'шт', category: 'plinth' },
+    countertopCornerTie: { name: 'Угловая стяжка для столешницы Egger 38 (LMB-KAT38-20M)', article: 'LMB-KAT38-20M', price: 75, sourceUrl: 'https://mobilier.md/index.php?product_id=32214&route=product%2Fproduct', unit: 'шт', category: 'countertop' },
+    // ЦЕНА-ЗАГЛУШКА, не найдена на mobilier.md, подтвердить у пользователя
+    countertopStraightTie: { name: 'Стяжка для прямого стыка столешницы (эксцентрик Ø20)', article: 'CTOP-TIE-20', price: 0, unit: 'шт', category: 'countertop' },
+    // ЦЕНА-ЗАГЛУШКА, не найдена на mobilier.md, подтвердить у пользователя
+    countertopSealant: { name: 'Клей/герметик для стыка столешницы', article: 'CTOP-SEAL', price: 0, unit: 'уп', category: 'countertop' },
     pushToOpen: { name: 'Механизм Push-to-open (толкатель)', article: 'PTO-1', price: 14, sourceUrl: 'https://mobilier.md/accesorii-pentru-mobilier/furnitura-functionala/amortizatoare/ro-am-bocz01-60-push-to-open-cu-reglare-adaptor-drept-22616.html', unit: 'шт', category: 'mechanism' },
     // На сайте штанга продаётся хлыстом 3м за 97 MDL — цена пересчитана
     // на 1 пог.м (97/3 ≈ 32).
@@ -159,6 +191,9 @@
     minifixCam: { name: 'Rastex эксцентрик', article: 'RASTEX-CAM-15', price: 1, sourceUrl: 'https://mobilier.md/accesorii-pentru-mobilier/furnitura-functionala/elemente-de-asamblare/wk-cam-15-13-d-cama-minifix-d-15-l-13mm.html', unit: 'шт', category: 'fastener' },
     dowel: { name: 'Шкант 8х30', article: 'DWL-30', price: 0.2, sourceUrl: 'https://mobilier.md/accesorii-pentru-mobilier/furnitura-rejs-ro/tk01758117000-cep-din-lemn-8x30-mm.html', unit: 'шт', category: 'fastener' },
     backPanelScrew: { name: 'Шуруп-стяжка задней стенки', article: 'SCR-15', price: 0.5, sourceUrl: 'https://mobilier.md/accesorii-pentru-mobilier/furnitura-functionala/elemente-de-asamblare/wz-sctylpr-wk-suport-spate-pfl-cu-surub-35x20mm.html', unit: 'шт', category: 'fastener' },
+    // ЦЕНА-ЗАГЛУШКА: на mobilier.md нашёлся только шуруп 3.5×30мм по 159 лей
+    // за упаковку (не за штуку) — не подставлена как цена за 1 шт.
+    worktopScrew: { name: 'Шуруп 3.5×35 (крепление столешницы к планке)', article: 'SCR-35-CTOP', price: 0, unit: 'шт', category: 'fastener' },
   };
 
   const JOINT_LABEL = {
@@ -469,16 +504,17 @@
     leg: 'Опоры',
     support: 'Полкодержатели',
     plinth: 'Крепление цоколя',
+    countertop: 'Крепёж столешницы',
     mechanism: 'Механизмы (подъёмные, push-to-open)',
     rod: 'Штанга для одежды',
     fastener: 'Крепёж и метизы',
   };
-  const HARDWARE_CATEGORY_ORDER = ['hinge', 'runner', 'handle', 'leg', 'support', 'plinth', 'mechanism', 'rod', 'fastener'];
+  const HARDWARE_CATEGORY_ORDER = ['hinge', 'runner', 'handle', 'leg', 'support', 'plinth', 'countertop', 'mechanism', 'rod', 'fastener'];
 
   window.Modul3D = window.Modul3D || {};
   window.Modul3D.catalog = {
     CATALOG_SOURCE,
-    DECORS, BACK_MATERIALS, EDGE_PRICES, HARDWARE_PRICES, FASTENER_PRICES, JOINT_LABEL,
+    DECORS, BACK_MATERIALS, COUNTERTOP_MATERIALS, EDGE_PRICES, HARDWARE_PRICES, FASTENER_PRICES, JOINT_LABEL,
     DRAWER_SYSTEMS, DRAWER_SYSTEM_ORDER, pickNL, GLASS,
     FACADE_TYPES, FACADE_TYPE_ORDER, FACADE_MATERIALS,
     HANDLES, HANDLE_ORDER, HANDLE_HOLE_D, LIFTS, LIFT_ORDER,
