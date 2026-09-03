@@ -258,22 +258,46 @@ function applianceHingeNote(appliance) {
  * первой зоны, gap снизу последней и по 2*gap на каждой границе между
  * соседними зонами).
  *
- * zones[i].height === 0 — «взять остаток» (как sec.facadeWidth === 0 значит
- * «во всю секцию»): бюджет, оставшийся после явных высот, делится поровну
- * между такими зонами. Если сумма явных высот больше бюджета — все зоны
- * ужимаются пропорционально (тот же приём k = usable/sum, что и выше в
- * getDrawerHeights), с предупреждением.
+ * zones[i].height — высота НИШИ (светового проёма между полкой/днищем и
+ * полкой/крышкой), а НЕ высота двери: дверь накладная и перекрывает нишу с
+ * обычным заходом на кромку соседней полки-перегородки. Сборщик и техника
+ * (духовка/СВЧ) меряются по нише, поэтому она первична — высота двери
+ * выводится из неё (tAdjFor ниже), а не наоборот. 0 — «взять остаток» (как
+ * sec.facadeWidth === 0 значит «во всю секцию»): бюджет, оставшийся после
+ * явных ниш (уже переведённых в дверные величины), делится поровну между
+ * такими зонами. Если сумма получившихся дверных высот больше бюджета —
+ * все зоны ужимаются пропорционально (тот же приём k = usable/sum, что и
+ * выше в getDrawerHeights), с предупреждением.
  *
  * Совместимость: при ОДНОЙ зоне с height:0 возвращает ровно ту высоту,
  * что и старая формула doorZoneH = slotHeight - 2*gap.
  *
- * @return { heights: number[], bottoms: number[] } — bottoms[i] — нижняя
- *   граница i-й зоны относительно slotBot (низа слота).
+ * @return { heights, bottoms, partitions, nicheBottoms, nicheHeights }
+ *   heights/bottoms — высоты и нижние границы ДВЕРЕЙ относительно slotBot
+ *   (как раньше — этим пользуются построение реальных дверей и выравнивание
+ *   по соседнему модулю). partitions[k] (k=0..N-2) — координата ЦЕНТРА
+ *   несъёмной полки-перегородки на стыке зон k/k+1, тоже относительно
+ *   slotBot. nicheBottoms[i]/nicheHeights[i] — нижняя граница и высота
+ *   РЕАЛЬНОЙ ниши i-й зоны (то, что видит сборщик/встраиваемая техника) —
+ *   в тех же относительных координатах.
  */
-function layoutDoorZones(zones, slotHeight, gap, warn, secName) {
+function layoutDoorZones(zones, slotHeight, gap, t, warn, secName) {
   const N = zones.length;
   const usableBudget = Math.max(0, slotHeight - 2 * gap * N);
-  const explicit = zones.map((z) => Math.max(0, Number(z.height) || 0));
+  // Крайняя зона (i===0 или i===N-1, только при N>1) граничит лишь с ОДНОЙ
+  // полкой-перегородкой — с другой стороны край корпуса (днище/крышка), там
+  // компенсация толщины вдвое меньше средней зоны, которая зажата между
+  // двумя перегородками. При N===1 полок-перегородок нет вообще — ниша и
+  // дверь совпадают один в один (компенсация 0), это тот самый случай
+  // обратной совместимости из комментария выше.
+  const tAdjFor = (i) => {
+    if (N <= 1) return 0;
+    return (i === 0 || i === N - 1) ? t / 2 : t;
+  };
+  const explicit = zones.map((z, i) => {
+    const niche = Math.max(0, Number(z.height) || 0);
+    return niche > 0 ? Math.max(0, niche - 2 * gap + tAdjFor(i)) : 0;
+  });
   const sumExplicit = explicit.reduce((a, v) => a + v, 0);
   const autoCount = explicit.filter((v) => v <= 0).length;
 
@@ -297,7 +321,34 @@ function layoutDoorZones(zones, slotHeight, gap, warn, secName) {
     bottoms.push(acc);
     acc += heights[i] + 2 * gap;
   }
-  return { heights, bottoms };
+
+  // Полки-перегородки и реальные ниши — производные от ТЕХ ЖЕ bottoms[],
+  // что и двери, поэтому structurally не могут разойтись между собой (см.
+  // комментарий у @return выше).
+  const partitions = [];
+  for (let k = 1; k < N; k++) partitions.push(bottoms[k] - gap);
+  const nicheBottoms = [];
+  const nicheHeights = [];
+  for (let i = 0; i < N; i++) {
+    const nb = i === 0 ? 0 : bottoms[i] - gap + t / 2;
+    const nt = i === N - 1 ? slotHeight : bottoms[i + 1] - gap - t / 2;
+    nicheBottoms.push(nb);
+    nicheHeights.push(Math.max(0, nt - nb));
+  }
+  return { heights, bottoms, partitions, nicheBottoms, nicheHeights };
+}
+
+// Обратная операция для КРАЙНЕЙ зоны (граничит с корпусом с одной стороны, с
+// полкой-перегородкой — с другой, см. tAdjFor в layoutDoorZones): переводит
+// высоту ДВЕРИ обратно в высоту НИШИ, которую нужно записать в
+// zones[i].height. Нужна там, где нижнюю зону подгоняют под фактическую
+// высоту фасада соседней секции/модуля (findNeighborBottomZoneHeight в
+// app.js возвращает именно высоту двери — для выравнивания видимой линии
+// фасадов по ряду), а хранить приходится в поле, которое теперь означает
+// нишу, а не дверь.
+function nicheFromEdgeDoorHeight(doorHeight, t, gap) {
+  const g = gap ?? 1.5;
+  return Math.max(0, Number(doorHeight) + 2 * g - t / 2);
 }
 
 // Возвращает координаты ЦЕНТРА полок по высоте.
@@ -2071,12 +2122,15 @@ function buildModuleParts(p) {
       : innerBottomY;
     // Многозонный пенал (doorZoneCount>1) — у КАЖДОЙ зоны фасада свои
     // съёмные полки (sec.doorZones[zi].shelves/shelfMode/shelfHeights,
-    // высота — от НИЗА этой зоны, тот же принцип, что и shelfHeights секции
-    // целиком), плюс несъёмные полки-перегородки на стыках зон
-    // (sec.zoneBoundaryShelves — высоты от дна секции, ставит
-    // placeShelvesAtZoneBoundaries в app.js). Границы зон те же, что у
-    // реальных дверей (layoutDoorZones, «второй цикл» ниже) — числа обязаны
-    // совпасть, иначе полка и дверь разъедутся. Однозонная секция
+    // высота — от НИЗА РЕАЛЬНОЙ НИШИ этой зоны, тот же принцип, что и
+    // shelfHeights секции целиком), плюс несъёмные полки-перегородки на
+    // стыках зон — обе группы координат берём напрямую из layoutDoorZones
+    // (partitions/nicheBottoms/nicheHeights), а не из отдельного кэша:
+    // раньше полка-перегородка считалась отдельно в app.js
+    // (placeShelvesAtZoneBoundaries → sec.zoneBoundaryShelves) и не всегда
+    // пересчитывалась при правке «Высоты зоны» — полка «застревала» на
+    // старом месте, а дверь уезжала вперёд. Теперь обе величины — из одного
+    // вызова на каждой сборке модели, разойтись им нечем. Однозонная секция
     // (doorZoneCount<=1) не имеет понятия «зона» вовсе — там полки, как и
     // раньше, одним плоским набором на sec.shelves/shelfHeights/shelfFixed.
     const multiZone = Number(sec.doorZoneCount) > 1
@@ -2095,10 +2149,9 @@ function buildModuleParts(p) {
         const z = sec.doorZones[zi];
         azZones.push({ height: (z && Number(z.height)) || 0, appliance: (z && z.appliance) || 'none' });
       }
-      const azLayout = layoutDoorZones(azZones, azSlotTop - azSlotBot, gap, null, secName);
-      for (const v of (sec.zoneBoundaryShelves || [])) {
-        const bv = Number(v);
-        if (Number.isFinite(bv)) shelfEntries.push({ y: innerBottomY + bv + t / 2, fixed: true });
+      const azLayout = layoutDoorZones(azZones, azSlotTop - azSlotBot, gap, t, null, secName);
+      for (const off of azLayout.partitions) {
+        shelfEntries.push({ y: azSlotBot + off, fixed: true });
       }
       // Ниша под технику (appliance !== 'none') не получает съёмных полок —
       // sec.doorZones[zi].shelves для неё в интерфейсе не показывается и
@@ -2106,8 +2159,8 @@ function buildModuleParts(p) {
       for (let zi = 0; zi < azZones.length; zi++) {
         const dz = sec.doorZones[zi] || {};
         if (!(Number(dz.shelves) > 0)) continue;
-        const zBottom = azSlotBot + azLayout.bottoms[zi];
-        const zHeight = azLayout.heights[zi];
+        const zBottom = azSlotBot + azLayout.nicheBottoms[zi];
+        const zHeight = azLayout.nicheHeights[zi];
         const zoneYs = getShelfYs(
           { shelves: dz.shelves, shelfMode: dz.shelfMode, shelfHeights: dz.shelfHeights },
           zBottom, zHeight, t, zBottom, null);
@@ -2718,7 +2771,7 @@ function buildModuleParts(p) {
         + `поддерживаются вместе — заглушка построена только для одной (нижней) зоны.`);
     }
 
-    const zoneLayout = layoutDoorZones(zonesRaw, slotTop - slotBot, gap, (w) => warnings.push(w), secName);
+    const zoneLayout = layoutDoorZones(zonesRaw, slotTop - slotBot, gap, t, (w) => warnings.push(w), secName);
 
     for (let zi = 0; zi < zonesRaw.length; zi++) {
       const zone = zonesRaw[zi];
@@ -3809,5 +3862,6 @@ window.Modul3D.engine = {
   // app.js (контекстное «Разделить на секции» из 3D), чтобы не дублировать
   // формулу стыков между зонами.
   layoutDoorZones,
+  nicheFromEdgeDoorHeight,
 };
 })();

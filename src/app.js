@@ -14,7 +14,7 @@
 (function () {
 // Версия сборки — показывается во вкладке браузера и в шапке.
 // При выпуске новой версии меняется только эта строка.
-const APP_VERSION = 'v225';
+const APP_VERSION = 'v226';
 
 // Номер версии выводим ПЕРВЫМ делом: если дальше что-то упадёт, по нему сразу
 // видно, какая сборка открыта.
@@ -456,9 +456,9 @@ function insertModule(m) {
   renderParamsPanel();
   recompute();
   // Досчитываем «авто»-зоны соседнего пенала ПОСЛЕ recompute(), а не до —
-  // findNeighborBottomZoneHeight/placeShelvesAtZoneBoundaries читают
-  // currentModel.modules[mi].dims нового соседа, а currentModel строится
-  // только внутри recompute(); до него dims ещё не существует.
+  // findNeighborBottomZoneHeight читает currentModel.modules[mi].dims нового
+  // соседа, а currentModel строится только внутри recompute(); до него dims
+  // ещё не существует.
   if (resyncZoneHeightsForNewNeighbor(at)) recompute();
 }
 
@@ -1851,8 +1851,8 @@ function setDoorZoneCount(sec, value) {
 // равное деление, если, например, нижняя зона уже подогнана под соседа,
 // см. findNeighborBottomZoneHeight). null — не удалось посчитать (нет ещё
 // посчитанной модели, или у секции есть ящики — тогда бюджет зоны сдвинут
-// на drawerZoneH, которую здесь сознательно не учитываем, см. тот же guard
-// в placeShelvesAtZoneBoundaries ниже), а также если у самой секции
+// на drawerZoneH, которую здесь сознательно не учитываем — секции с
+// ящиками из выравнивания по соседу выпадают), а также если у самой секции
 // sectionIndex нет реального деления на зоны (doorZoneCount отсутствует
 // или === 1, обычная цельная дверь на всю высоту) — тогда у неё физически
 // нет «нижней зоны» как отдельной величины, и подставлять её полную высоту
@@ -1873,7 +1873,7 @@ function sectionBottomZoneHeight(mod, sectionIndex) {
   const zones = (Array.isArray(sec.doorZones) && sec.doorZones.length)
     ? sec.doorZones.slice(0, n).map((z) => ({ height: (z && Number(z.height)) || 0 }))
     : [{ height: 0 }];
-  const layout = layoutDoorZones(zones, dims.H - dims.baseH, dims.gap, null, '');
+  const layout = layoutDoorZones(zones, dims.H - dims.baseH, dims.gap, dims.t, null, '');
   return Math.round(layout.heights[0]) || null;
 }
 
@@ -1919,60 +1919,6 @@ function findNeighborBottomZoneHeight(mod, sectionIndex) {
   return null;
 }
 
-// После «Разделить на секции» из 3D (см. viewer.onSelectPart) — ставит
-// полку РОВНО на каждый стык между соседними зонами, используя ТУ ЖЕ
-// функцию раскладки (layoutDoorZones), что и реальные двери в engine.js —
-// не дублирует формулу, только координаты пересчитывает в конвенцию
-// sec.zoneBoundaryShelves (отсчёт от dims.innerBottomY, см. getShelfYs). Берёт
-// РЕАЛЬНЫЕ высоты из sec.doorZones (в т.ч. нижнюю, если она подогнана под
-// соседа, — не наивное равное деление); если пользователь потом задаст
-// зонам явные высоты вручную — полки НЕ пересчитываются автоматически,
-// только через повторный вызов этой же кнопки.
-//
-// Секции с ящиками — пропускаем: слот зон в engine.js начинается ВЫШЕ
-// ящиков (slotBot = baseH + сумма drawerHeights), а не прямо с baseH;
-// сумма высот ящиков уже посчитана в dims.sections[i].drawerHeights, но
-// в v1 сознательно не подключаем этот случай — TODO: прибавить
-// sum(drawerHeights) к slotBot ниже, когда понадобится снять ограничение.
-function placeShelvesAtZoneBoundaries(mod, sectionIndex) {
-  const sec = mod.sections[sectionIndex];
-  if (!sec) return;
-  const n = Number(sec.doorZoneCount) || 1;
-  if (n < 2) return;
-  const mi = state.modules.indexOf(mod);
-  const dims = currentModel && currentModel.modules[mi] && currentModel.modules[mi].dims;
-  if (!dims) return;
-  const secDims = dims.sections && dims.sections[sectionIndex];
-  if (secDims && Array.isArray(secDims.drawerHeights) && secDims.drawerHeights.length) return;
-  const { layoutDoorZones } = window.Modul3D.engine;
-  const zones = Array.isArray(sec.doorZones)
-    ? sec.doorZones.slice(0, n).map((z) => ({ height: (z && Number(z.height)) || 0 }))
-    : Array.from({ length: n }, () => ({ height: 0 }));
-  const slotBot = dims.baseH;
-  const layout = layoutDoorZones(zones, dims.H - slotBot, dims.gap, null, '');
-  const heights = [];
-  for (let k = 1; k < n; k++) {
-    const boundaryY = slotBot + layout.bottoms[k] - dims.gap;
-    // sec.shelfHeights хранит высоту НИЖНЕЙ ГРАНИ полки от дна секции —
-    // engine.js (getShelfYs) сам прибавляет t/2, чтобы получить центр
-    // (см. комментарий у getShelfYs: «в ручном режиме shelfHeights задаёт
-    // высоту нижней плоскости... прибавляем половину толщины детали»).
-    // boundaryY выше — это уже АБСОЛЮТНЫЙ Y центра стыка между фасадами;
-    // если положить его в shelfHeights как есть, getShelfYs прибавит t/2
-    // ЕЩЁ РАЗ поверх — полка встанет на t/2 выше нужного. Поэтому здесь
-    // заранее вычитаем t/2, переводя «центр» в «низ», как и ждёт функция.
-    const bottomFaceY = boundaryY - dims.t / 2;
-    heights.push(Math.round(bottomFaceY - dims.innerBottomY));
-  }
-  // Полки на стыках зон держат корпус пенала (боковины на всю высоту — это
-  // единственные жёсткие связи между секциями фасада) — несъёмные, на
-  // минификсах Rastex, во всю глубину корпуса. Отдельное поле от
-  // sec.shelves/shelfHeights: те теперь принадлежат съёмным полкам ВНУТРИ
-  // конкретной зоны (sec.doorZones[zi].shelves, см. engine.js buildModuleParts)
-  // и не должны стираться при каждом «Разделить на секции».
-  sec.zoneBoundaryShelves = heights;
-}
-
 // Мост для ui-shell.js (HUD в 3D, см. renderHud/initHud): состояние модуля,
 // нужное HUD и для подсветки текущего поворота, и для решения — показывать
 // ли кнопку «Разделить на секции по высоте» (по явному решению — только
@@ -1999,9 +1945,11 @@ function getModuleHudState(moduleName) {
 // Мост для ui-shell.js: «Разделить на секции по высоте» из HUD в 3D — та же
 // логика, что применяет числовой пункт «Разделить на секции по вертикали» в
 // showFocusMenu выше (setDoorZoneCount + подгонка высоты нижней зоны под
-// соседа + расстановка полок на стыках), но без обязательного клика по
-// конкретному фасаду в Focus Mode: секция здесь однозначна — единственная,
-// sectionIndex 0 (см. getModuleHudState — кнопка в HUD видна только тогда).
+// соседа), но без обязательного клика по конкретному фасаду в Focus Mode:
+// секция здесь однозначна — единственная, sectionIndex 0 (см.
+// getModuleHudState — кнопка в HUD видна только тогда). Полки-перегородки
+// на стыках зон отдельно расставлять не нужно — engine.js считает их
+// прямо из sec.doorZones при каждой сборке модели (см. layoutDoorZones).
 function setModuleDoorZoneCount(moduleName, n) {
   const mod = state.modules.find((m) => m.name === moduleName);
   if (!mod || !Array.isArray(mod.sections) || mod.sections.length !== 1) return;
@@ -2013,9 +1961,13 @@ function setModuleDoorZoneCount(moduleName, n) {
     // уже настроенную высоту не трогаем.
     if (!sec.doorZones[0].height) {
       const neighborH = findNeighborBottomZoneHeight(mod, 0);
-      if (neighborH) sec.doorZones[0].height = neighborH;
+      // findNeighborBottomZoneHeight отдаёт высоту ДВЕРИ соседа (для
+      // выравнивания видимой линии фасадов); doorZones[0].height хранит
+      // высоту НИШИ — переводим, иначе сама эта подгонка создаст рассинхрон.
+      if (neighborH) {
+        sec.doorZones[0].height = window.Modul3D.engine.nicheFromEdgeDoorHeight(neighborH, state.bodyThickness);
+      }
     }
-    placeShelvesAtZoneBoundaries(mod, 0);
   }
   renderParamsPanel();
   recompute();
@@ -2049,8 +2001,9 @@ function resyncZoneHeightsForNewNeighbor(at) {
     if (sec.doorZones[0].height) continue; // уже подогнана или задана вручную — не трогаем
     const h = findNeighborBottomZoneHeight(mod, sectionIndex);
     if (!h) continue;
-    sec.doorZones[0].height = h;
-    placeShelvesAtZoneBoundaries(mod, sectionIndex);
+    // h — высота ДВЕРИ соседа; doorZones[0].height хранит высоту НИШИ (см.
+    // тот же перевод в setModuleDoorZoneCount выше).
+    sec.doorZones[0].height = window.Modul3D.engine.nicheFromEdgeDoorHeight(h, state.bodyThickness);
     changed = true;
   }
   return changed;
@@ -4052,9 +4005,9 @@ function initHeaderControls() {
       // Клик по фасаду — сверху пункт быстрого разбиения секции на N зон
       // по вертикали (пенал под встроенную технику) — единственный способ
       // задать это число (в сайдбаре поля больше нет, см. renderSectionsList):
-      // доступен прямо в 3D, где сразу видно фасад, который делим. При
-      // применении заодно расставляет полки на стыках новых зон (см.
-      // placeShelvesAtZoneBoundaries).
+      // доступен прямо в 3D, где сразу видно фасад, который делим. Полки-
+      // перегородки на стыках новых зон отдельно расставлять не нужно —
+      // engine.js считает их сам при каждой сборке модели (layoutDoorZones).
       if (kind === 'door' && Number.isFinite(sectionIndex)) {
         const mm = state.modules.find((m) => m.name === module);
         const sec = mm && mm.sections[sectionIndex];
@@ -4070,9 +4023,11 @@ function initHeaderControls() {
                 // не задана вручную; уже настроенную высоту не трогаем.
                 if (!sec.doorZones[0].height) {
                   const neighborH = findNeighborBottomZoneHeight(mm, sectionIndex);
-                  if (neighborH) sec.doorZones[0].height = neighborH;
+                  // Перевод «высота двери → высота ниши», см. setModuleDoorZoneCount.
+                  if (neighborH) {
+                    sec.doorZones[0].height = window.Modul3D.engine.nicheFromEdgeDoorHeight(neighborH, state.bodyThickness);
+                  }
                 }
-                placeShelvesAtZoneBoundaries(mm, sectionIndex);
               }
               renderParamsPanel();
               recompute();
