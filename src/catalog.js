@@ -45,22 +45,61 @@
   // materialId — семейство материала из m.countertop.material ('ldsp38' /
   // 'compact12'), НЕ то же, что code: у одной линии может быть несколько
   // позиций разной depth (см. countertopMat() в engine.js).
+  // Подбор цветов по просьбе владельца: постформинг — 2 тёмных, 2 светлых/
+  // под мрамор, 1 под дерево (5 шт); компакт-плита — 2 светлых, 2 тёмных,
+  // 1 нейтральный (5 шт). Все — реальные позиции с mobilier.md, глубина
+  // (600 у постформинга, 650 у компакта) взята одинаковой у всей линейки,
+  // кроме Ardezie Scivaro — она была в каталоге ещё до этой правки только
+  // в глубине 920, отдельно докупать позицию 600 не стали, просто уточнили
+  // ей цену (было null).
   const COUNTERTOP_MATERIALS = [
+    // --- Постформинг ЛДСП 38мм (5): 2 тёмных, 2 светлых/мрамор, 1 дерево ---
     { code: 'CTOP-LDSP38-600', materialId: 'ldsp38',
-      name: 'Столешница ЛДСП 38мм постформинг, глубина 600 (Kronospan K552SU)',
+      name: 'Столешница ЛДСП 38мм постформинг, глубина 600, мрамор белый (Kronospan K552SU White Iceberg)',
       thickness: 38, depth: 600, pricePerMeter: 567, maxLength: 4100, unit: 'пог.м',
       sourceUrl: 'https://mobilier.md/index.php?route=product/product&product_id=25046', image: null },
-    // Цена не подтверждена на карточке товара — уточнить у пользователя/на
-    // сайте перед тем, как эта позиция попадёт в коммерческую смету.
+    { code: 'CTOP-LDSP38-1063SQ', materialId: 'ldsp38',
+      name: 'Столешница ЛДСП 38мм постформинг, глубина 600, мрамор Bianco Bello (SwissKrono 1063 SQ)',
+      thickness: 38, depth: 600, pricePerMeter: 898, maxLength: 4100, unit: 'пог.м',
+      sourceUrl: 'https://mobilier.md/blaturi-si-panouri-de-perete/postforming/swisskrono/blat-de-bucatarie-1063-sq-marmura-bianco-bello-38-4100x600-su.html', image: null },
+    { code: 'CTOP-LDSP38-H1145ST10', materialId: 'ldsp38',
+      name: 'Столешница ЛДСП 38мм постформинг, глубина 600, дуб Бардолино натуральный (Egger H1145 ST10)',
+      thickness: 38, depth: 600, pricePerMeter: 641, maxLength: 4100, unit: 'пог.м',
+      sourceUrl: 'https://mobilier.md/blaturi-si-panouri-de-perete/postforming/egger-1/blat-de-bucatarie-h1145-st10-stejar-bardolino-natur-38-4100x600-eg.html', image: null },
+    { code: 'CTOP-LDSP38-2061RA', materialId: 'ldsp38',
+      name: 'Столешница ЛДСП 38мм постформинг, глубина 600, чёрная (SwissKrono 2061 RA Negru)',
+      thickness: 38, depth: 600, pricePerMeter: 664, maxLength: 4100, unit: 'пог.м',
+      sourceUrl: 'https://mobilier.md/blaturi-si-panouri-de-perete/postforming/swisskrono/blat-de-bucatarie-2061-ra-negru-38-4100x600-su.html', image: null },
+    // Цена была не подтверждена (null) — уточнена (1227 MDL/пог.м). На
+    // сайте у карточки товара стоит отметка «outstock» (нет в наличии на
+    // складе) — перед заказом уточнять у поставщика срок поставки.
     { code: 'CTOP-LDSP38-920', materialId: 'ldsp38',
-      name: 'Столешница ЛДСП 38мм постформинг, глубина 920 (Egger F235 ST76)',
-      thickness: 38, depth: 920, pricePerMeter: null, maxLength: 4100, unit: 'пог.м',
-      note: 'Цена не подтверждена, см. https://mobilier.md/index.php?route=product/product&product_id=32284',
+      name: 'Столешница ЛДСП 38мм постформинг, глубина 920, тёмный сланец (Egger F235 ST76 Ardezie Scivaro)',
+      thickness: 38, depth: 920, pricePerMeter: 1227, maxLength: 4100, unit: 'пог.м',
+      note: 'На сайте отмечена как «нет в наличии» — уточнять срок поставки у mobilier.md.',
       sourceUrl: 'https://mobilier.md/index.php?route=product%2Fproduct&product_id=32284', image: null },
+
+    // --- Компакт-плита HPL 12мм (5): 2 светлых, 2 тёмных, 1 нейтральный ---
     { code: 'CTOP-COMPACT12-650', materialId: 'compact12',
-      name: 'Столешница компакт-плита HPL 12мм, глубина 650 (Egger H1330 ST10)',
+      name: 'Столешница компакт-плита HPL 12мм, глубина 650, дуб Санта-Фе винтаж (Egger H1330 ST10, нейтральный)',
       thickness: 12, depth: 650, pricePerMeter: 2248, maxLength: 4100, unit: 'пог.м',
       sourceUrl: 'https://mobilier.md/countertops-and-wall-panels/compact-eng/en-work-tops-compact-laminate-h1330-st10-vintage-santa-fe-oak-12-4100x650-eg.html', image: null },
+    { code: 'CTOP-COMPACT12-F221ST87', materialId: 'compact12',
+      name: 'Столешница компакт-плита HPL 12мм, глубина 650, керамика крем (Egger F221 ST87 Tessina)',
+      thickness: 12, depth: 650, pricePerMeter: 2248, maxLength: 4100, unit: 'пог.м',
+      sourceUrl: 'https://mobilier.md/blaturi-si-panouri-de-perete/compact/blat-hpl-compact-f221-st87-ceramica-tessina-crem-12-4100x650.html', image: null },
+    { code: 'CTOP-COMPACT12-F8001ST9', materialId: 'compact12',
+      name: 'Столешница компакт-плита HPL 12мм, глубина 650, мрамор светлый (Egger F8001 ST9 Marmură Crystal)',
+      thickness: 12, depth: 650, pricePerMeter: 3375, maxLength: 4100, unit: 'пог.м',
+      sourceUrl: 'https://mobilier.md/blaturi-si-panouri-de-perete/compact/blat-hpl-compact-f8001-st9-marmura-crystal-12-4100x650-eg.html', image: null },
+    { code: 'CTOP-COMPACT12-F206ST9', materialId: 'compact12',
+      name: 'Столешница компакт-плита HPL 12мм, глубина 650, камень чёрный (Egger F206 ST9 Pietra Grigia negru)',
+      thickness: 12, depth: 650, pricePerMeter: 2248, maxLength: 4100, unit: 'пог.м',
+      sourceUrl: 'https://mobilier.md/blaturi-si-panouri-de-perete/compact/blat-hpl-compact-f206st9-pietra-grigia-negru-12-4100x650-eg.html', image: null },
+    { code: 'CTOP-COMPACT12-U999ST76', materialId: 'compact12',
+      name: 'Столешница компакт-плита HPL 12мм, глубина 650, антрацит (Egger U999 ST76)',
+      thickness: 12, depth: 650, pricePerMeter: 2248, maxLength: 4100, unit: 'пог.м',
+      sourceUrl: 'https://mobilier.md/blaturi-si-panouri-de-perete/compact/blat-hpl-compact-u999-st76-negru-12-4100x650-eg.html', image: null },
   ];
 
   // Стекло для полок и фасадов: считается по площади, кромка не нужна —

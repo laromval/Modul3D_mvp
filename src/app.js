@@ -696,6 +696,33 @@ function libGlassTable() {
     </tbody></table>`;
 }
 
+// Столешницы (window.Modul3D.catalog.COUNTERTOP_MATERIALS) продаются
+// погонным метром фиксированной глубины (см. комментарий у самого массива
+// в catalog.js), поэтому таблица другая, чем у листовых материалов —
+// вместо «Цена за лист» показываем «Глубина» и «Цена за пог.м». materialId
+// группирует линейку (ldsp38 постформинг / compact12 компакт-плита) —
+// человекочитаемое название берём тут же, чтобы не плодить код в catalog.js
+// ради одной подписи в таблице.
+const COUNTERTOP_MATERIAL_LABEL = { ldsp38: 'ЛДСП 38мм постформинг', compact12: 'Компакт-плита HPL 12мм', doubleLdsp: 'Сдвоенное ЛДСП (по декору корпуса)' };
+function libCountertopTable() {
+  const cat = window.Modul3D.catalog;
+  const items = cat.COUNTERTOP_MATERIALS || [];
+  const rows = items.map((it) => `
+    <tr data-search="${esc(String(it.name || '').toLowerCase())}">
+      ${libEditCell('countertop', it.code, 'name', 'text', it.name)}
+      ${libSourceLinkCell(it)}
+      <td>${esc(COUNTERTOP_MATERIAL_LABEL[it.materialId] || it.materialId)}</td>
+      <td>${it.depth} мм</td>
+      ${libEditCell('countertop', it.code, 'pricePerMeter', 'number', it.pricePerMeter)}
+    </tr>`).join('');
+  return `
+    <h4 class="mat-sub">Столешницы (цена за пог.м)</h4>
+    <table class="lib-table"><thead><tr>
+      <th>Наименование</th><th></th><th>Материал</th><th>Глубина</th><th>Цена, ${esc(curSym())}/пог.м</th>
+    </tr></thead><tbody>${rows || '<tr><td colspan="5" class="hint">Пока нет позиций</td></tr>'}</tbody></table>
+    <button type="button" class="link-btn lib-add" data-add="countertop">+ Добавить столешницу</button>`;
+}
+
 function libraryMaterialsBlock() {
   const cat = window.Modul3D.catalog;
   return `
@@ -705,7 +732,8 @@ function libraryMaterialsBlock() {
     ${libSheetTable('Материалы задней стенки', 'back', BACK_MATERIALS)}
     ${libSheetTable('Материалы фасадов', 'facade', Object.values(cat.FACADE_MATERIALS))}
     ${libEdgeTable()}
-    ${libGlassTable()}`;
+    ${libGlassTable()}
+    ${libCountertopTable()}`;
 }
 
 // Фурнитура собрана из ЧЕТЫРЁХ источников каталога (HARDWARE_PRICES,
@@ -766,6 +794,7 @@ function libFindItem(group, key) {
   if (group === 'facade') return cat.FACADE_MATERIALS[key] || null;
   if (group === 'edge') return cat.EDGE_PRICES[key] || null;
   if (group === 'glass') return cat.GLASS;
+  if (group === 'countertop') return (cat.COUNTERTOP_MATERIALS || []).find((x) => x.code === key) || null;
   if (group.indexOf('hw:') === 0) {
     const src = group.slice(3);
     const obj = src === 'hw' ? cat.HARDWARE_PRICES
@@ -831,6 +860,13 @@ function libAddRow(group) {
     if (!name) return;
     if (cat.EDGE_PRICES[name]) { window.alert('Кромка с таким названием уже есть в каталоге.'); return; }
     cat.EDGE_PRICES[name] = { price: 0, unit: 'пог.м', image: null };
+  } else if (group === 'countertop') {
+    // materialId 'ldsp38' по умолчанию — самая частая линейка; глубину и
+    // цену пользователь правит инлайн сразу после добавления строки.
+    if (!cat.COUNTERTOP_MATERIALS) cat.COUNTERTOP_MATERIALS = [];
+    cat.COUNTERTOP_MATERIALS.push({ code: 'CTOP-NEW-' + Date.now(), materialId: 'ldsp38',
+      name: 'Новая столешница', thickness: 38, depth: 600, pricePerMeter: 0, maxLength: 4100,
+      unit: 'пог.м', image: null });
   } else {
     return;
   }
