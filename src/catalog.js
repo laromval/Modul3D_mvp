@@ -12,14 +12,21 @@
 (function () {
   const CATALOG_SOURCE = { site: 'mobilier.md', lastSync: '2026-09-03' };
 
-  // Egger H1180 ST10, H3450 ST36 и U999 ST2 на mobilier.md не найдены —
-  // магазин держит эти декоры только в других структурах (H1180 только
-  // ST37, H3450 только ST22, U999 без ST2 вовсе). Цены остались условными.
+  // Изначальные H1180 ST10, H3450 ST36 и U999 ST2 на mobilier.md не
+  // продаются — магазин держит эти декоры только в других структурах
+  // поверхности (сам декор/цвет тот же, отличается только тиснение
+  // плёнки). Заменены на реально продающиеся структуры того же декора,
+  // код и название приведены в соответствие с реальным товаром (как и
+  // с U702ST9 выше — старое название по коду ST10/ST36/ST2 было просто
+  // неверным, реальный декор Egger называется иначе).
   const DECORS = [
-    { code: 'H1180ST10', name: 'ЛДСП Egger H1180 ST10 Дуб Сонома', sheetPrice: 2800, sheetW: 2750, sheetH: 1830, unit: 'лист', image: null },
+    { code: 'H1180ST37', name: 'ЛДСП Egger H1180 ST37 Дуб Халифакс натуральный', sheetPrice: 3070, sourceUrl: 'https://mobilier.md/materiale-placi/pal-melaminat/dsp_egger-ro/h1180-st37-stejar-halifax-natur-2800x2070x186-eg-pal-melaminat.html', sheetW: 2750, sheetH: 1830, unit: 'лист', image: null },
     { code: 'U702ST9',   name: 'ЛДСП Egger U702 ST9 Серый кашемир', sheetPrice: 1535, sourceUrl: 'https://mobilier.md/materiale-placi/pal-melaminat/dsp_egger-ro/u702-st9-gri-casmir-2800x2070x18-eg-pal-melaminat.html', sheetW: 2750, sheetH: 1830, unit: 'лист', image: null },
-    { code: 'H3450ST36',  name: 'ЛДСП Egger H3450 ST36 Дуб Крафт', sheetPrice: 3100, sheetW: 2750, sheetH: 1830, unit: 'лист', image: null },
-    { code: 'U999ST2',   name: 'ЛДСП Egger U999 ST2 Чёрный',       sheetPrice: 2900, sheetW: 2750, sheetH: 1830, unit: 'лист', image: null },
+    { code: 'H3450ST22',  name: 'ЛДСП Egger H3450 ST22 Флитвуд белый', sheetPrice: 1646, sourceUrl: 'https://mobilier.md/materiale-placi/pal-melaminat/dsp_egger-ro/h3450-st22-fleetwood-alb-2800x2070x18-eg-pal-melaminat.html', sheetW: 2750, sheetH: 1830, unit: 'лист', image: null },
+    // ST19 (более выраженная текстура) на сайте тоже есть, но дороже
+    // (1993 против 1490) — взята более бюджетная ST7 как более
+    // сопоставимая по цене с исходной заглушкой.
+    { code: 'U999ST7',   name: 'ЛДСП Egger U999 ST7 Чёрный',       sheetPrice: 1490, sourceUrl: 'https://mobilier.md/materiale-placi/pal-melaminat/dsp_egger-ro/u999-st7-negru-2800x2070x18-eg-pal-melaminat.html', sheetW: 2750, sheetH: 1830, unit: 'лист', image: null },
   ];
 
   // ЛДСП 8мм (тонкая усиленная задняя стенка) на mobilier.md не продаётся —
