@@ -1404,3 +1404,37 @@ body.is-focus .scrim { opacity: 0 !important; }
   .stage { overflow: visible; }
   body { overflow: visible; }
 }
+
+/* ---------- 18. АВТОФИЛЬТР ДЕТАЛИРОВКИ (вкладка «Деталировка») ----------- */
+/* Треугольник-фильтр в заголовке таблицы деталировки (renderDetailingTable
+   в app.js) — по образцу .ctx-menu (контекстное меню модуля/фокуса), тот же
+   визуальный язык поповеров проекта. */
+
+#tab-detailing th { position: relative; padding-right: 22px; }
+.dth-filter-btn {
+  position: absolute; right: 3px; top: 50%; transform: translateY(-50%);
+  width: 16px; height: 16px; padding: 0; border: none; background: none;
+  color: var(--muted); font-size: 11px; line-height: 1; cursor: pointer;
+  border-radius: var(--r-sm);
+}
+.dth-filter-btn:hover { background: var(--surface-solid); color: var(--text); }
+.dth-filter-btn.active { color: var(--accent); font-weight: 700; }
+
+.detail-filter-menu { max-width: 260px; }
+.detail-filter-menu .df-values-list { overflow-y: auto; max-height: 220px; padding: 2px 0; }
+.df-check-row {
+  display: flex !important; align-items: center; gap: 7px;
+  padding: 5px 9px; border-radius: var(--r-sm);
+  font-size: var(--fs-sm); color: var(--text); cursor: pointer; user-select: none;
+}
+.df-check-row:hover { background: var(--surface-2); }
+.df-check-row input { width: auto !important; margin: 0; accent-color: var(--accent); flex: none; }
+.df-check-row span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.df-check-all { font-weight: 600; border-bottom: 1px solid var(--border); margin-bottom: 2px; padding-bottom: 7px; }
+.df-empty { padding: 7px 9px; font-size: var(--fs-xs); color: var(--muted); }
+
+.detail-reset-filters {
+  display: block; margin-bottom: var(--sp-2); font-size: var(--fs-xs); color: var(--accent);
+  background: none; border: none; cursor: pointer; padding: 0; text-decoration: underline;
+}
+.detail-empty-row td { text-align: center; color: var(--muted); padding: 14px 9px; white-space: normal; }

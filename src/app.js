@@ -14,7 +14,7 @@
 (function () {
 // Версия сборки — показывается во вкладке браузера и в шапке.
 // При выпуске новой версии меняется только эта строка.
-const APP_VERSION = 'v224';
+const APP_VERSION = 'v225';
 
 // Номер версии выводим ПЕРВЫМ делом: если дальше что-то упадёт, по нему сразу
 // видно, какая сборка открыта.
@@ -3449,40 +3449,292 @@ function materialName(code) {
   return code || '—';
 }
 
+// Автофильтр и сортировка таблицы «Деталировка» — Excel-style: треугольник
+// в каждом заголовке открывает поповер с сортировкой (одноуровневой — новая
+// заменяет предыдущую, как в Excel) и чекбоксами уникальных значений столбца.
+// Это ЧИСТО визуальный фильтр над уже отрисованным <table> — model.parts,
+// экспорт (exportDetailing) и № детали (r.num) он не трогает: строки только
+// визуально переставляются/скрываются, значение в ячейке «№» не пересчитывается.
+// Состояние живёт в замыкании (НЕ localStorage) и переживает recompute() —
+// renderDetailingTable вызывается заново при КАЖДОМ изменении параметров и
+// каждый раз заново применяет сохранённое состояние к свежим строкам.
+const DETAIL_COLUMNS = [
+  { label: '№' }, { label: 'Модуль' }, { label: 'Наименование' }, { label: 'Секция' },
+  { label: 'Материал' }, { label: 'Длина' }, { label: 'Ширина' }, { label: 'Кол-во' },
+  { label: 'Кромка L1' }, { label: 'Кромка L2' }, { label: 'Кромка S1' }, { label: 'Кромка S2' },
+  { label: 'Текстура' }, { label: 'Примечание' },
+];
+const detailFilterState = {
+  sortCol: null,   // индекс столбца DETAIL_COLUMNS с активной сортировкой, либо null
+  sortDir: 'asc',  // 'asc' | 'desc'
+  hidden: {},      // { colIndex: Set<string> } — снятые в поповере значения (скрытые строки)
+};
+// Строки текущего рендера таблицы — [{ idx, r, vals }], vals — по одному
+// значению на столбец DETAIL_COLUMNS, ровно в том виде, что напечатан в
+// ячейке (для «Материала» — полное название + толщина, а не код).
+let detailRowsCache = [];
+let detailFilterMenuOutsideHandler = null;
+
+function detailRowValues(r) {
+  return [
+    String(r.num), r.module || '', r.name, r.section,
+    `${materialName(r.material)}, ${r.thickness} мм`,
+    String(r.length), String(r.width), String(r.qty),
+    r.edging.long1 || '—', r.edging.long2 || '—', r.edging.short1 || '—', r.edging.short2 || '—',
+    r.grainDirection ? 'да' : 'нет', r.note || '',
+  ];
+}
+
+function detailHasActiveState() {
+  if (detailFilterState.sortCol !== null) return true;
+  return Object.keys(detailFilterState.hidden).some(
+    (k) => detailFilterState.hidden[k] && detailFilterState.hidden[k].size > 0);
+}
+
+function closeDetailFilterMenu() {
+  const old = document.getElementById('detailFilterMenu');
+  if (old && old.remove) old.remove();
+  if (detailFilterMenuOutsideHandler) {
+    document.removeEventListener('click', detailFilterMenuOutsideHandler);
+    detailFilterMenuOutsideHandler = null;
+  }
+}
+
+// Обновляет только иконку/подсветку кнопок-треугольников — без пересоздания
+// слушателей (вызывается и после полной перерисовки, и «на лету» из поповера,
+// пока сама таблица не перестраивается, чтобы попап не закрывался при каждом
+// клике по чекбоксу).
+function refreshDetailHeaderIndicators(el) {
+  el = el || document.getElementById('tab-detailing');
+  if (!el) return;
+  el.querySelectorAll('.dth-filter-btn').forEach((btn) => {
+    const ci = Number(btn.dataset.col);
+    const filterActive = !!(detailFilterState.hidden[ci] && detailFilterState.hidden[ci].size > 0);
+    const sortActive = detailFilterState.sortCol === ci;
+    btn.classList.toggle('active', filterActive || sortActive);
+    btn.textContent = sortActive ? (detailFilterState.sortDir === 'desc' ? '↓' : '↑') : '▾';
+  });
+}
+
+function refreshDetailResetButton() {
+  const btn = document.getElementById('detailResetFilters');
+  if (btn) btn.style.display = detailHasActiveState() ? '' : 'none';
+}
+
+// Применяет сохранённое состояние (фильтр + сортировка) к УЖЕ отрисованной
+// таблице: скрывает строки, чьи значения сняты в поповере, и переставляет
+// оставшиеся <tr> по активной сортировке. Работает прямо по DOM, не трогая
+// innerHTML целиком, — так поповер может оставаться открытым при каждом
+// клике по чекбоксу.
+function applyDetailFilterAndSort(el) {
+  el = el || document.getElementById('tab-detailing');
+  const tbody = el && el.querySelector('tbody');
+  if (!tbody) return;
+  const oldEmpty = tbody.querySelector('.detail-empty-row');
+  if (oldEmpty) oldEmpty.remove();
+
+  const trs = Array.prototype.slice.call(tbody.querySelectorAll('tr[data-row-idx]'));
+  if (!trs.length) return; // деталей в модели нет вообще — это не про фильтр
+
+  let visibleCount = 0;
+  trs.forEach((tr) => {
+    const row = detailRowsCache[Number(tr.dataset.rowIdx)];
+    let hide = false;
+    if (row) {
+      for (const ciStr in detailFilterState.hidden) {
+        const hiddenSet = detailFilterState.hidden[ciStr];
+        if (hiddenSet && hiddenSet.size && hiddenSet.has(row.vals[Number(ciStr)])) { hide = true; break; }
+      }
+    }
+    tr.style.display = hide ? 'none' : '';
+    if (!hide) visibleCount += 1;
+  });
+
+  if (detailFilterState.sortCol !== null) {
+    const ci = detailFilterState.sortCol;
+    const dir = detailFilterState.sortDir === 'desc' ? -1 : 1;
+    trs.sort((a, b) => {
+      const ra = detailRowsCache[Number(a.dataset.rowIdx)];
+      const rb = detailRowsCache[Number(b.dataset.rowIdx)];
+      const va = ra ? ra.vals[ci] : '';
+      const vb = rb ? rb.vals[ci] : '';
+      return va.localeCompare(vb, 'ru', { numeric: true, sensitivity: 'base' }) * dir;
+    });
+    trs.forEach((tr) => tbody.appendChild(tr));
+  }
+
+  if (!visibleCount) {
+    const tr = document.createElement('tr');
+    tr.className = 'detail-empty-row';
+    tr.innerHTML = `<td colspan="${DETAIL_COLUMNS.length}">Нет деталей, соответствующих фильтру</td>`;
+    tbody.appendChild(tr);
+  }
+}
+
+// Поповер сортировки+фильтра одного столбца — по образцу showFocusMenu
+// (.ctx-menu, position: fixed, закрытие по клику вне себя и по Esc).
+function openDetailFilterMenu(colIndex, btnEl) {
+  closeDetailFilterMenu();
+  const col = DETAIL_COLUMNS[colIndex];
+  if (!col) return;
+
+  // Уникальные значения — из ТЕКУЩИХ строк (detailRowsCache), не из ранее
+  // сохранённого фильтра: значение, пропавшее из модели после изменения
+  // параметров, само перестаёт попадать в список чекбоксов.
+  const uniqueValues = Array.from(new Set(detailRowsCache.map((row) => row.vals[colIndex])))
+    .sort((a, b) => a.localeCompare(b, 'ru', { numeric: true, sensitivity: 'base' }));
+  const hiddenSet = detailFilterState.hidden[colIndex] || new Set();
+  const allChecked = uniqueValues.every((v) => !hiddenSet.has(v));
+
+  const menu = document.createElement('div');
+  menu.id = 'detailFilterMenu';
+  menu.className = 'ctx-menu detail-filter-menu';
+  menu.innerHTML = `
+    <button type="button" class="ctx-item" data-action="sort-asc">▲ Сортировать по возрастанию</button>
+    <button type="button" class="ctx-item" data-action="sort-desc">▼ Сортировать по убыванию</button>
+    <div class="ctx-sep"></div>
+    <label class="df-check-row df-check-all">
+      <input type="checkbox" id="dfSelectAll" ${allChecked ? 'checked' : ''}>
+      <span>(Выделить всё)</span>
+    </label>
+    <div class="df-values-list">${uniqueValues.length ? uniqueValues.map((v, i) => `
+      <label class="df-check-row">
+        <input type="checkbox" data-vi="${i}" ${hiddenSet.has(v) ? '' : 'checked'}>
+        <span title="${esc(v)}">${esc(v) || '—'}</span>
+      </label>`).join('') : '<div class="df-empty">нет значений</div>'}</div>
+    <div class="ctx-sep"></div>
+    <button type="button" class="ctx-item" data-action="clear-filter">Сбросить фильтр столбца</button>`;
+  document.body.appendChild(menu);
+  // Клик по любому месту внутри поповера не должен доходить до глобального
+  // обработчика «клик вне — закрыть» ниже (иначе клик по подписи чекбокса,
+  // а не по самому квадратику, закрывал бы меню).
+  menu.addEventListener('click', (e) => e.stopPropagation());
+
+  // Позиционируем под кнопкой-треугольником, с клампом к вьюпорту.
+  const btnRect = btnEl.getBoundingClientRect();
+  const rect = menu.getBoundingClientRect();
+  const left = Math.max(4, Math.min(btnRect.right - rect.width, window.innerWidth - rect.width - 4));
+  let top = btnRect.bottom + 4;
+  if (top + rect.height > window.innerHeight - 4) top = Math.max(4, btnRect.top - rect.height - 4);
+  menu.style.left = Math.round(left) + 'px';
+  menu.style.top = Math.round(top) + 'px';
+
+  const applyLive = () => {
+    applyDetailFilterAndSort();
+    refreshDetailHeaderIndicators();
+    refreshDetailResetButton();
+  };
+  const selectAllCb = menu.querySelector('#dfSelectAll');
+  const valueCbs = Array.prototype.slice.call(menu.querySelectorAll('.df-values-list input[type="checkbox"]'));
+  const commitHiddenValues = () => {
+    const newHidden = new Set();
+    valueCbs.forEach((cb, i) => { if (!cb.checked) newHidden.add(uniqueValues[i]); });
+    if (newHidden.size) detailFilterState.hidden[colIndex] = newHidden;
+    else delete detailFilterState.hidden[colIndex];
+  };
+  if (selectAllCb) {
+    selectAllCb.addEventListener('change', () => {
+      valueCbs.forEach((cb) => { cb.checked = selectAllCb.checked; });
+      commitHiddenValues();
+      applyLive();
+    });
+  }
+  valueCbs.forEach((cb) => {
+    cb.addEventListener('change', () => {
+      if (selectAllCb) selectAllCb.checked = valueCbs.every((c) => c.checked);
+      commitHiddenValues();
+      applyLive();
+    });
+  });
+
+  const bindAction = (sel, fn) => {
+    const b = menu.querySelector(sel);
+    if (b) b.addEventListener('click', () => { closeDetailFilterMenu(); fn(); });
+  };
+  bindAction('[data-action="sort-asc"]', () => {
+    detailFilterState.sortCol = colIndex; detailFilterState.sortDir = 'asc'; applyLive();
+  });
+  bindAction('[data-action="sort-desc"]', () => {
+    detailFilterState.sortCol = colIndex; detailFilterState.sortDir = 'desc'; applyLive();
+  });
+  bindAction('[data-action="clear-filter"]', () => {
+    delete detailFilterState.hidden[colIndex]; applyLive();
+  });
+
+  // Клик мимо меню закрывает его без действия — слушатель вешаем следующим
+  // тиком, иначе клик по треугольнику, который ОТКРЫЛ это меню, сам же его
+  // мгновенно и закроет (см. showFocusMenu — тот же приём).
+  setTimeout(() => {
+    detailFilterMenuOutsideHandler = (e) => {
+      if (!menu.contains(e.target)) closeDetailFilterMenu();
+    };
+    document.addEventListener('click', detailFilterMenuOutsideHandler);
+  }, 0);
+}
+
+function bindDetailFilterHeaders(el) {
+  refreshDetailHeaderIndicators(el);
+  el.querySelectorAll('.dth-filter-btn').forEach((btn) => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      openDetailFilterMenu(Number(btn.dataset.col), btn);
+    });
+  });
+}
+
 function renderDetailingTable(model) {
   const el = document.getElementById('tab-detailing');
+  // Если модель поменялась (recompute из другого места), пока висел поповер
+  // фильтра — закрываем его: он ссылается на список значений устаревшего
+  // рендера, оставлять открытым поверх новой таблицы не нужно.
+  closeDetailFilterMenu();
   // Ножки — фурнитура, а не деталь из листа: в деталировку не попадают,
   // их количество считается в спецификации. Объединение одинаковых деталей
   // (сумма qty, общий номер позиции) уже сделано в engine.js — mergeEqualParts/
   // mergeKey — model.parts приходит СЮДА уже склеенным, повторно группировать
   // не нужно.
-  const rows = model.parts.filter(r => !r.hardware).map(r => `
-    <tr>
-      <td>${r.num}</td>
-      <td>${esc(r.module || '')}</td>
-      <td>${esc(r.name)}</td>
-      <td>${esc(r.section)}</td>
-      <td>${esc(materialName(r.material))}, ${r.thickness} мм</td>
-      <td>${r.length}</td>
-      <td>${r.width}</td>
-      <td>${r.qty}</td>
-      <td>${r.edging.long1 || '—'}</td>
-      <td>${r.edging.long2 || '—'}</td>
-      <td>${r.edging.short1 || '—'}</td>
-      <td>${r.edging.short2 || '—'}</td>
-      <td>${r.grainDirection ? 'да' : 'нет'}</td>
-      <td>${esc(r.note || '')}</td>
+  const parts = model.parts.filter(r => !r.hardware);
+  detailRowsCache = parts.map((r, i) => ({ idx: i, r, vals: detailRowValues(r) }));
+
+  const headCells = DETAIL_COLUMNS.map((c, ci) => `
+    <th data-col="${ci}"><span class="dth-label">${esc(c.label)}</span>
+      <button type="button" class="dth-filter-btn" data-col="${ci}" title="Сортировка и фильтр">▾</button>
+    </th>`).join('');
+  const rows = detailRowsCache.map(({ idx, r, vals }) => `
+    <tr data-row-idx="${idx}">
+      <td>${vals[0]}</td>
+      <td>${esc(vals[1])}</td>
+      <td>${esc(vals[2])}</td>
+      <td>${esc(vals[3])}</td>
+      <td>${esc(vals[4])}</td>
+      <td>${vals[5]}</td>
+      <td>${vals[6]}</td>
+      <td>${vals[7]}</td>
+      <td>${esc(vals[8])}</td>
+      <td>${esc(vals[9])}</td>
+      <td>${esc(vals[10])}</td>
+      <td>${esc(vals[11])}</td>
+      <td>${esc(vals[12])}</td>
+      <td>${esc(vals[13])}</td>
     </tr>`).join('');
   el.innerHTML = `
+    <button type="button" class="detail-reset-filters" id="detailResetFilters"
+      style="display:${detailHasActiveState() ? '' : 'none'}">Сбросить фильтры и сортировку</button>
     <table>
-      <thead><tr>
-        <th>№</th><th>Модуль</th><th>Наименование</th><th>Секция</th><th>Материал</th>
-        <th>Длина</th><th>Ширина</th><th>Кол-во</th>
-        <th>Кромка L1</th><th>Кромка L2</th><th>Кромка S1</th><th>Кромка S2</th>
-        <th>Текстура</th><th>Примечание</th>
-      </tr></thead>
+      <thead><tr>${headCells}</tr></thead>
       <tbody>${rows}</tbody>
     </table>`;
+
+  bindDetailFilterHeaders(el);
+  applyDetailFilterAndSort(el);
+
+  const resetBtn = document.getElementById('detailResetFilters');
+  if (resetBtn) resetBtn.addEventListener('click', () => {
+    detailFilterState.sortCol = null;
+    detailFilterState.sortDir = 'asc';
+    detailFilterState.hidden = {};
+    renderDetailingTable(model);
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -4537,6 +4789,7 @@ try {
     if (e.key !== 'Escape') return;
     closeModuleMenu();
     closeFocusMenu();
+    closeDetailFilterMenu();
   });
 
   // Отмена и возврат. Ctrl+X перехватываем только вне полей ввода — внутри
