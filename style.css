@@ -385,10 +385,13 @@ select:focus-visible {
 }
 .ov-inner { font-size: 10px; }
 
-/* предупреждения — плавающая плашка снизу по центру */
+/* предупреждения — плавающая плашка снизу по центру. bottom/z-index
+   подняты над панелью видов .stage-dock (bottom: var(--sp-4), z-index: 28)
+   тем же значением, что и у .access-gate ниже — иначе многострочное
+   предупреждение перекрывается кнопками «Спереди/Сбоку/Сверху/3D». */
 .warnings {
-  position: absolute; left: 50%; bottom: 18px; transform: translateX(-50%);
-  z-index: 12; max-width: min(680px, 82vw);
+  position: absolute; left: 50%; bottom: 78px; transform: translateX(-50%);
+  z-index: 29; max-width: min(680px, 82vw);
   font-size: var(--fs-sm); line-height: 1.45; color: var(--danger);
   background: var(--surface);
   -webkit-backdrop-filter: var(--blur); backdrop-filter: var(--blur);
@@ -401,11 +404,11 @@ select:focus-visible {
 .warnings:empty { display: none; }
 
 /* гейт доступа (401/402 при экспорте, "нужна подписка") — плашка того же
-   типа, что и .warnings, но акцентная, а не «опасная»: это призыв к
-   действию (войти/оплатить), а не ошибка геометрии проекта. Поднята выше
-   .warnings (bottom: 18px), чтобы не перекрываться с нижней плавающей
-   панелью видов .stage-dock (bottom: var(--sp-4), z-index: 28) — там как
-   раз лежит кликабельная кнопка действия, её нельзя перекрывать. */
+   типа, что и .warnings выше, но акцентная, а не «опасная»: это призыв к
+   действию (войти/оплатить), а не ошибка геометрии проекта. Тот же bottom/
+   z-index, что и у .warnings — обе подняты над нижней плавающей панелью
+   видов .stage-dock (bottom: var(--sp-4), z-index: 28), там как раз лежит
+   кликабельная кнопка действия, её нельзя перекрывать. */
 .access-gate {
   position: absolute; left: 50%; bottom: 78px; transform: translateX(-50%);
   z-index: 29; max-width: min(680px, 82vw);
