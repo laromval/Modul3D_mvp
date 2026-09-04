@@ -3960,6 +3960,44 @@ function countertopLenAxisIsW(p) {
   return !(r === 90 || r === 270);
 }
 
+// «Задняя» (пристенная) грань столешницы в ГЛОБАЛЬНЫХ координатах — та, что
+// НЕ двигается от свеса спереди (oF), т.е. противоположна фасаду. Локально
+// свес спереди всегда толкает деталь в сторону local+Z (см. z-формулу в
+// buildModuleParts: чем больше oF, тем больше z), поэтому направление
+// local+Z ВСЕГДА означает «перёд». При повороте (part.rot) эта локальная
+// ось отображается в глобальную по чистой матрице поворота (без отражений,
+// см. комментарий у holeAxisSign выше) — проверено эмпирически на реальных
+// стыках (rot=0 → перёд = +Z; rot=270 → перёд = −X):
+//   rot=0:   перёд +Z (высокий Z) → зад −Z (низкий Z), ось глубины Z (box.d)
+//   rot=90:  перёд +X (высокий X) → зад −X (низкий X), ось глубины X (box.w)
+//   rot=180: перёд −Z (низкий Z)  → зад +Z (высокий Z), ось глубины Z (box.d)
+//   rot=270: перёд −X (низкий X)  → зад +X (высокий X), ось глубины X (box.w)
+function countertopBackEdge(p) {
+  const r = ((Math.round(p.rot || 0) % 360) + 360) % 360;
+  if (r === 0) return p.box.z - p.box.d / 2;
+  if (r === 180) return p.box.z + p.box.d / 2;
+  if (r === 90) return p.box.x - p.box.w / 2;
+  return p.box.x + p.box.w / 2; // 270
+}
+
+// Общие хелперы оси для mergeCountertops()/joinCountertopSeams() ниже — ось
+// ряда по ориентации детали (countertopLenAxisIsW), а не по соотношению
+// box.w/box.d, как у mergePlinths: у цоколя ширина всегда мала (высота
+// планки), поэтому длинная сторона однозначно определяет ось, а у
+// столешницы длина и глубина — величины одного порядка (глубина тоже сотни
+// мм), так что такое сравнение для неё ненадёжно.
+function countertopAxisOf(p) { return countertopLenAxisIsW(p) ? 'x' : 'z'; }
+function countertopSizeOn(p, ax) { return ax === 'x' ? p.box.w : p.box.d; }
+function countertopSetBoxSize(p, ax, v) { if (ax === 'x') p.box.w = v; else p.box.d = v; }
+// top-level length/width — то, что реально читают деталировка/кромка/
+// спецификация (не box.w/box.d) — должны меняться в ту же физическую
+// сторону, что и box, с поправкой на ориентацию (см. countertopLenAxisIsW).
+function countertopSetPhysSize(p, ax, v) {
+  const wIsLen = countertopLenAxisIsW(p);
+  if (ax === 'x') { if (wIsLen) p.length = v; else p.width = v; }
+  else if (wIsLen) p.width = v; else p.length = v;
+}
+
 // ---------------------------------------------------------------------------
 // СТОЛЕШНИЦА: СЛИЯНИЕ СОСЕДНИХ ТУМБ В ОДНУ СКВОЗНУЮ ДЕТАЛЬ.
 // По аналогии с mergePlinths выше — но, в отличие от цоколя, у столешницы
@@ -3978,22 +4016,8 @@ function mergeCountertops(parts) {
   const tops = parts.filter((p) => p.kind === 'countertop');
   if (tops.length < 2) return;
 
-  // Ось ряда — по ориентации детали (countertopLenAxisIsW), а не по
-  // соотношению box.w/box.d, как у mergePlinths: у цоколя ширина всегда
-  // мала (высота планки), поэтому длинная сторона однозначно определяет
-  // ось, а у столешницы длина и глубина — величины одного порядка (глубина
-  // тоже сотни мм), так что такое сравнение для неё ненадёжно.
-  const axisOf = (p) => (countertopLenAxisIsW(p) ? 'x' : 'z');
-  const sizeOn = (p, ax) => (ax === 'x' ? p.box.w : p.box.d);
-  const setSize = (p, ax, v) => { if (ax === 'x') p.box.w = v; else p.box.d = v; };
-  // top-level length/width — то, что реально читают деталировка/кромка/
-  // спецификация (не box.w/box.d) — должны расти в ту же физическую
-  // сторону, что и box, с поправкой на ориентацию (см. countertopLenAxisIsW).
-  const growPhysSize = (p, ax, v) => {
-    const wIsLen = countertopLenAxisIsW(p);
-    if (ax === 'x') { if (wIsLen) p.length = v; else p.width = v; }
-    else if (wIsLen) p.width = v; else p.length = v;
-  };
+  const axisOf = countertopAxisOf, sizeOn = countertopSizeOn, setSize = countertopSetBoxSize,
+        growPhysSize = countertopSetPhysSize;
 
   const groups = new Map();
   for (const p of tops) {
@@ -4198,6 +4222,32 @@ function joinCountertopSeams(parts, proj, warnings) {
       + `удлинена на угловом стыке с "${primary.module}", чтобы столешницы сошлись без зазора`;
   };
 
+  // Само по себе смыкание шва (growSecondaryToMeet/trimSecondary выше) НЕ
+  // означает, что столешница дотягивается до настоящей стены — между
+  // корпусами тумб в углу специально оставлен зазор (доборная планка,
+  // FILLER_GAP), так что «где сходятся корпуса» и «где стена» — разные
+  // точки. Основная деталь (primary) должна доходить до ЗАДНЕЙ (пристенной)
+  // грани вторичной по своей ДЛИННОЙ оси — это отдельная, независимая от
+  // шва корректировка (обнаружено пользователем на реальном чертеже: длинная
+  // столешница не доставала до стены, хотя сам шов уже сходился идеально).
+  const extendPrimaryToWall = (primary, secondary) => {
+    const ax = countertopAxisOf(primary);
+    const target = countertopBackEdge(secondary);
+    const lo = primary.box[ax] - countertopSizeOn(primary, ax) / 2;
+    const hi = primary.box[ax] + countertopSizeOn(primary, ax) / 2;
+    const growHi = Math.abs(target - hi) < Math.abs(target - lo);
+    const newLo = growHi ? lo : target;
+    const newHi = growHi ? target : hi;
+    const newSize = newHi - newLo;
+    if (newSize <= EPS) return false;
+    primary.box[ax] = round1((newLo + newHi) / 2);
+    countertopSetBoxSize(primary, ax, round1(newSize));
+    countertopSetPhysSize(primary, ax, round1(newSize));
+    primary.note = (primary.note ? primary.note + '; ' : '')
+      + `дотянута до стены на угловом стыке с "${secondary.module}"`;
+    return true;
+  };
+
   for (let i = 0; i < tops.length; i++) {
     for (let j = i + 1; j < tops.length; j++) {
       const A = tops[i], B = tops[j];   // A построен раньше B (порядок allParts)
@@ -4260,6 +4310,13 @@ function joinCountertopSeams(parts, proj, warnings) {
             + `разный уровень столешницы (${A.box.y} мм и ${B.box.y} мм) — стык не построен.`);
           continue;
         }
+        // Основная деталь дотягивается до задней (пристенной) грани
+        // вторичной — независимо от того, сходится ли уже шов между ними
+        // (см. extendPrimaryToWall выше). Пересчитываем перекрытия заново —
+        // после растяжения «широкая» ось (obычно X) выросла ещё сильнее, но
+        // именно она и была не менее узкой оси стыка, порядок не меняется.
+        extendPrimaryToWall(A, B);
+        ov = overlaps();
         // Ось подрезки — та, где перекрытие МЕНЬШЕ (настоящий узкий шов
         // угла), а не первая по порядку проверки внутри trimSecondary — см.
         // комментарий над её определением.

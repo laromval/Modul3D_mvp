@@ -3087,6 +3087,24 @@ for (const glass of [false, true]) {
         problems.push(`столешница: угловой стык (свес ${overhangFront}) — деталь "${top.module}" получилась ${top.length}×${top.width} мм, подозрительно маленькой стороной`);
       }
     }
+    // Основная деталь (Мойка) должна доходить РОВНО до задней (пристенной)
+    // грани вторичной (След) — не просто «сойтись со швом», а дотянуться до
+    // настоящей стены. Регрессия на баг, найденный пользователем на реальном
+    // чертеже: сам шов сходился, но длинная столешница не доставала до стены
+    // (между корпусами в углу нарочно оставлен зазор — доборная планка,
+    // «где сходятся корпуса» и «где стена» — разные точки).
+    const primaryTop = tops.find((p) => /Мойка/.test(p.module));
+    const secondaryTop = tops.find((p) => /След/.test(p.module));
+    if (primaryTop && secondaryTop) {
+      // В этой раскладке (Мойка rot=0, След rot=270) обе «дальние» грани —
+      // правый край по X (см. countertopBackEdge в engine.js).
+      const primaryFarX = primaryTop.box.x + primaryTop.box.w / 2;
+      const secondaryBackX = secondaryTop.box.x + secondaryTop.box.w / 2;
+      if (Math.abs(primaryFarX - secondaryBackX) > 1) {
+        problems.push(`столешница: угловой стык (свес ${overhangFront}) — длинная столешница не доходит до стены `
+          + `(край ${Math.round(primaryFarX)} мм ≠ задняя грань соседней ${Math.round(secondaryBackX)} мм)`);
+      }
+    }
     cases += 1;
   }
 }
