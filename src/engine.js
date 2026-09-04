@@ -1827,7 +1827,16 @@ function buildModuleParts(p) {
       const autoOverhangBack = ctMat.isDouble ? 0
         : round1(ctMat.depth - D - facadeThicknessResolved - oF);
       const oB = hasManualBack ? (Number(ct.overhangBack) || 0) : autoOverhangBack;
-      const ctLen = W + oL + oR;
+      // Свес слева/справа НЕ прибавляется к длине детали здесь — если эта
+      // тумба потом сольётся с соседями (mergeCountertops), только КРАЙНИЕ
+      // тумбы слитого ряда должны получить свой свес наружу, а не каждая
+      // тумба посередине (иначе середина ряда становится шире фактического
+      // корпуса, соседние детали перестают ровно соприкасаться границами, и
+      // слияние либо не срабатывает, либо даёт нахлёст). Сам свес — в
+      // ctOverhangLeft/Right ниже, mergeCountertops применяет его к ЛЕВОМУ
+      // краю первой и ПРАВОМУ краю последней тумбы уже слитого ряда (для
+      // одиночной, несливающейся тумбы — с тем же результатом, что и раньше).
+      const ctLen = W;
       const ctWidth = round1(D + facadeThicknessResolved + oF + oB);
       if (ctMat.maxLength && ctLen > ctMat.maxLength) {
         warnings.push(`Столешница модуля (${Math.round(ctLen)} мм) длиннее максимальной цельной `
@@ -1850,7 +1859,7 @@ function buildModuleParts(p) {
         material: ctMat.code, thickness: ctThickness,
         length: ctLen, width: ctWidth, qty: ctMat.isDouble ? 2 : 1, kind: 'countertop',
         edging: { long1: EDGE_FRONT, long2: EDGE_FRONT, short1: EDGE_FRONT, short2: EDGE_FRONT },
-        x: (oR - oL) / 2, y: H + ctThickness / 2, z: round1((facadeThicknessResolved + oF - oB) / 2),
+        x: 0, y: H + ctThickness / 2, z: round1((facadeThicknessResolved + oF - oB) / 2),
         dims: { w: ctLen, h: ctThickness, d: ctWidth },
         note: (p.topType === 'rails' || p.topType === 'railsEdge')
           ? 'Крепится шурупами 3.5×35 через верхние планки'
@@ -1868,6 +1877,10 @@ function buildModuleParts(p) {
       ctPart.ctFamily = ct.material;
       ctPart.ctHasRail = (p.topType === 'rails' || p.topType === 'railsEdge');
       ctPart.ctMaxLength = ctMat.maxLength || null;
+      // Свес слева/справа ЭТОЙ тумбы — mergeCountertops применяет их только
+      // если эта тумба окажется крайней (первой/последней) в слитом ряду.
+      ctPart.ctOverhangLeft = oL;
+      ctPart.ctOverhangRight = oR;
       parts.push(ctPart);
     }
   }
@@ -3983,41 +3996,49 @@ function mergeCountertops(parts) {
 
   const removed = new Set();
   for (const list of groups.values()) {
-    if (list.length < 2) continue;
     const ax = axisOf(list[0]);
     list.sort((a, b) => a.box[ax] - b.box[ax]);
 
     const maxCut = list[0].ctMaxLength || Infinity;
     let run = [list[0]];
+    // Применяется к КАЖДОЙ группе, даже одиночной (run.length===1) — свес
+    // слева/справа этой тумбы (ctOverhangLeft/Right, см. buildModuleParts)
+    // растягивает НАРУЖУ только истинные крайние грани готового ряда: левый
+    // край — от ПЕРВОЙ (самой левой) тумбы ряда, правый — от ПОСЛЕДНЕЙ.
+    // Свесы тумб В СЕРЕДИНЕ ряда сюда не попадают вообще — иначе середина
+    // слитой столешницы становится шире фактического корпуса под ней.
     const flush = () => {
-      if (run.length < 2) { run = []; return; }
-      const lo = run[0].box[ax] - sizeOn(run[0], ax) / 2;
+      if (!run.length) return;
+      const lo = run[0].box[ax] - sizeOn(run[0], ax) / 2 - (Number(run[0].ctOverhangLeft) || 0);
       const last = run[run.length - 1];
-      const hi = last.box[ax] + sizeOn(last, ax) / 2;
+      const hi = last.box[ax] + sizeOn(last, ax) / 2 + (Number(last.ctOverhangRight) || 0);
       const head = run[0];
       head.box[ax] = (lo + hi) / 2;
       setSize(head, ax, round1(hi - lo));
       growPhysSize(head, ax, round1(hi - lo));
-      head.module = moduleListLabel(run.map((p) => p.module));
-      // Слитая деталь может покрывать тумбы с разным способом крепления
-      // (планки/Rastex) — единого текста тут больше нет, точный крепёж по
-      // каждой тумбе — в спецификации (считается отдельно по m.topType, не
-      // по этой детали). ctHasRail — AND по всем слитым тумбам (см. хвх
-      // hasRailTop в joinCountertopSeams): под компакт-плитой рельс должен
-      // быть по всей длине, не только по краям.
-      head.note = `Сквозная столешница на ${run.length} тумбы — крепёж каждой тумбы см. в спецификации.`;
-      head.ctHasRail = run.every((p) => p.ctHasRail);
-      for (let i = 1; i < run.length; i++) removed.add(run[i]);
+      if (run.length > 1) {
+        // Слитая деталь может покрывать тумбы с разным способом крепления
+        // (планки/Rastex) — единого текста тут больше нет, точный крепёж по
+        // каждой тумбе — в спецификации (считается отдельно по m.topType, не
+        // по этой детали). ctHasRail — AND по всем слитым тумбам (см.
+        // hasRailTop в joinCountertopSeams): под компакт-плитой рельс должен
+        // быть по всей длине, не только по краям.
+        head.note = `Сквозная столешница на ${run.length} тумбы — крепёж каждой тумбы см. в спецификации.`;
+        head.ctHasRail = run.every((p) => p.ctHasRail);
+        for (let i = 1; i < run.length; i++) removed.add(run[i]);
+      }
       run = [];
     };
 
     for (let i = 1; i < list.length; i++) {
-      const prev = run[run.length - 1] || list[i - 1];
+      const prev = run[run.length - 1];
       const gap = (list[i].box[ax] - sizeOn(list[i], ax) / 2)
         - (prev.box[ax] + sizeOn(prev, ax) / 2);
-      const grown = run.length
-        ? (list[i].box[ax] + sizeOn(list[i], ax) / 2) - (run[0].box[ax] - sizeOn(run[0], ax) / 2)
-        : sizeOn(list[i], ax);
+      // Свесы слева/справа краёв ряда сюда намеренно не добавлены (только
+      // «сырая» ширина корпусов) — они малы относительно maxCut (десятки мм
+      // против 4100), а сам свес известен окончательно только когда ряд уже
+      // сложился (какая тумба останется крайней).
+      const grown = (list[i].box[ax] + sizeOn(list[i], ax) / 2) - (run[0].box[ax] - sizeOn(run[0], ax) / 2);
       if (Math.abs(gap) <= EPS && grown <= maxCut) run.push(list[i]);
       else { flush(); run = [list[i]]; }
     }
@@ -4085,30 +4106,85 @@ function joinCountertopSeams(parts, proj, warnings) {
     return hw;
   };
 
-  const trimSecondary = (primary, secondary) => {
+  // axis передаётся ЯВНО вызывающим кодом (не подбирается перебором «какое
+  // из 4 условий сработает первым») — это ОБЯЗАТЕЛЬНО должна быть ось с
+  // МЕНЬШИМ перекрытием (узкий настоящий шов угла, обычно порядка глубины
+  // столешницы), а не та, что подвернётся по порядку проверки. У Г-образного
+  // стыка «широкая» ось (вдоль всей длины одного из прогонов) тоже нередко
+  // формально удовлетворяет тем же условиям — если довериться порядку
+  // проверки X→Z, можно срезать secondary почти в ноль по ШИРОКОЙ оси
+  // вместо аккуратной подрезки по узкой (баг, пойманный на реальном стыке:
+  // деталь ужалась до 19 мм вместо ожидаемых ~600).
+  const trimSecondary = (primary, secondary, axis) => {
     const [pLoX, pHiX] = rectX(primary), [pLoZ, pHiZ] = rectZ(primary);
     const [sLoX, sHiX] = rectX(secondary), [sLoZ, sHiZ] = rectZ(secondary);
-    let axis = null, cutSize = null;
-    if (pLoX > sLoX + EPS && pLoX < sHiX - EPS) {
-      axis = 'x'; cutSize = pLoX - sLoX;
-      secondary.box.x = round1(sLoX + cutSize / 2); secondary.box.w = round1(cutSize);
-    } else if (pHiX > sLoX + EPS && pHiX < sHiX - EPS) {
-      axis = 'x'; cutSize = sHiX - pHiX;
-      secondary.box.x = round1(pHiX + cutSize / 2); secondary.box.w = round1(cutSize);
-    } else if (pLoZ > sLoZ + EPS && pLoZ < sHiZ - EPS) {
-      axis = 'z'; cutSize = pLoZ - sLoZ;
-      secondary.box.z = round1(sLoZ + cutSize / 2); secondary.box.d = round1(cutSize);
-    } else if (pHiZ > sLoZ + EPS && pHiZ < sHiZ - EPS) {
-      axis = 'z'; cutSize = sHiZ - pHiZ;
-      secondary.box.z = round1(pHiZ + cutSize / 2); secondary.box.d = round1(cutSize);
+    let cutSize = null;
+    if (axis === 'x') {
+      if (pLoX > sLoX + EPS && pLoX < sHiX - EPS) {
+        cutSize = pLoX - sLoX;
+        secondary.box.x = round1(sLoX + cutSize / 2); secondary.box.w = round1(cutSize);
+      } else if (pHiX > sLoX + EPS && pHiX < sHiX - EPS) {
+        cutSize = sHiX - pHiX;
+        secondary.box.x = round1(pHiX + cutSize / 2); secondary.box.w = round1(cutSize);
+      }
+    } else {
+      if (pLoZ > sLoZ + EPS && pLoZ < sHiZ - EPS) {
+        cutSize = pLoZ - sLoZ;
+        secondary.box.z = round1(sLoZ + cutSize / 2); secondary.box.d = round1(cutSize);
+      } else if (pHiZ > sLoZ + EPS && pHiZ < sHiZ - EPS) {
+        cutSize = sHiZ - pHiZ;
+        secondary.box.z = round1(pHiZ + cutSize / 2); secondary.box.d = round1(cutSize);
+      }
     }
-    if (axis == null) return false;
+    if (cutSize == null) return false;
     const wIsLen = countertopLenAxisIsW(secondary);
     if (axis === 'x') { if (wIsLen) secondary.length = round1(cutSize); else secondary.width = round1(cutSize); }
     else if (wIsLen) secondary.width = round1(cutSize); else secondary.length = round1(cutSize);
     secondary.note = (secondary.note ? secondary.note + '; ' : '')
       + `обрезана в угол по стыку с "${primary.module}" (прямой стык 90°)`;
     return true;
+  };
+
+  // Растягивает secondary НАВСТРЕЧУ primary, когда между ними зазор (а не
+  // нахлёст) — величина зазора уже точно известна геометрией, придумывать
+  // её не нужно, поэтому строим стык сразу правильно, а не просим
+  // пользователя вручную подбирать свес по тексту предупреждения. Растягиваем
+  // на gap+margin (не ровно в стык) — тогда сразу после trimSecondary найдёт
+  // небольшой нахлёст и аккуратно подрежет его до идеального стыка без зазора
+  // и без нахлёста (иначе edge-case ровно нулевого перекрытия trimSecondary
+  // не распознаёт — ей нужен строгий нахлёст хотя бы на EPS).
+  const growSecondaryToMeet = (primary, secondary, axis) => {
+    const margin = 2;
+    const [pLoX, pHiX] = rectX(primary), [pLoZ, pHiZ] = rectZ(primary);
+    const [sLoX, sHiX] = rectX(secondary), [sLoZ, sHiZ] = rectZ(secondary);
+    let newSize;
+    if (axis === 'x') {
+      if (sLoX >= pHiX - EPS) {
+        // secondary целиком правее primary — тянем его левую грань НАЗАД,
+        // на margin ВНУТРЬ primary (нахлёст, не ещё один зазор), чтобы
+        // ниже trimSecondary нашла строгое пересечение и подрезала его.
+        const targetLo = pHiX - margin;
+        newSize = sHiX - targetLo;
+        secondary.box.x = round1(targetLo + newSize / 2); secondary.box.w = round1(newSize);
+      } else {
+        const targetHi = pLoX + margin;
+        newSize = targetHi - sLoX;
+        secondary.box.x = round1(sLoX + newSize / 2); secondary.box.w = round1(newSize);
+      }
+    } else if (sLoZ >= pHiZ - EPS) {
+      const targetLo = pHiZ - margin;
+      newSize = sHiZ - targetLo;
+      secondary.box.z = round1(targetLo + newSize / 2); secondary.box.d = round1(newSize);
+    } else {
+      const targetHi = pLoZ + margin;
+      newSize = targetHi - sLoZ;
+      secondary.box.z = round1(sLoZ + newSize / 2); secondary.box.d = round1(newSize);
+    }
+    const wIsLen = countertopLenAxisIsW(secondary);
+    if (axis === 'x') { if (wIsLen) secondary.length = round1(newSize); else secondary.width = round1(newSize); }
+    else if (wIsLen) secondary.width = round1(newSize); else secondary.length = round1(newSize);
+    secondary.note = (secondary.note ? secondary.note + '; ' : '')
+      + `удлинена на угловом стыке с "${primary.module}", чтобы столешницы сошлись без зазора`;
   };
 
   for (let i = 0; i < tops.length; i++) {
@@ -4120,15 +4196,21 @@ function joinCountertopSeams(parts, proj, warnings) {
         continue;
       }
 
-      const [aLoX, aHiX] = rectX(A), [bLoX, bHiX] = rectX(B);
-      const [aLoZ, aHiZ] = rectZ(A), [bLoZ, bHiZ] = rectZ(B);
-      const zOverlap = Math.min(aHiZ, bHiZ) - Math.max(aLoZ, bLoZ);
-      const xOverlap = Math.min(aHiX, bHiX) - Math.max(aLoX, bLoX);
-      const touchX = Math.abs(aHiX - bLoX) < EPS || Math.abs(bHiX - aLoX) < EPS;
-      const touchZ = Math.abs(aHiZ - bLoZ) < EPS || Math.abs(bHiZ - aLoZ) < EPS;
+      const overlaps = () => {
+        const [aLoX, aHiX] = rectX(A), [bLoX, bHiX] = rectX(B);
+        const [aLoZ, aHiZ] = rectZ(A), [bLoZ, bHiZ] = rectZ(B);
+        return {
+          aLoX, aHiX, bLoX, bHiX, aLoZ, aHiZ, bLoZ, bHiZ,
+          xOverlap: Math.min(aHiX, bHiX) - Math.max(aLoX, bLoX),
+          zOverlap: Math.min(aHiZ, bHiZ) - Math.max(aLoZ, bLoZ),
+        };
+      };
+      let ov = overlaps();
+      const touchX = Math.abs(ov.aHiX - ov.bLoX) < EPS || Math.abs(ov.bHiX - ov.aLoX) < EPS;
+      const touchZ = Math.abs(ov.aHiZ - ov.bLoZ) < EPS || Math.abs(ov.bHiZ - ov.aLoZ) < EPS;
 
-      if ((touchX && zOverlap > Math.min(A.box.d, B.box.d) * 0.5)
-          || (touchZ && xOverlap > Math.min(A.box.w, B.box.w) * 0.5)) {
+      if ((touchX && ov.zOverlap > Math.min(A.box.d, B.box.d) * 0.5)
+          || (touchZ && ov.xOverlap > Math.min(A.box.w, B.box.w) * 0.5)) {
         if (Math.abs(A.box.y - B.box.y) > EPS) {
           warnings.push(`Стык столешницы "${A.module}"/"${B.module}": `
             + `разный уровень столешницы (${A.box.y} мм и ${B.box.y} мм) — стык не построен.`);
@@ -4137,45 +4219,49 @@ function joinCountertopSeams(parts, proj, warnings) {
         // Длина стыка — вдоль линии соединения, а НЕ длина детали целиком:
         // для стыка в линию (touchX) шов идёт поперёк, вдоль оси Z (глубина
         // столешницы), для (touchZ) — вдоль оси X.
-        const seamLen = touchX ? zOverlap : xOverlap;
+        const seamLen = touchX ? ov.zOverlap : ov.xOverlap;
         joints.push({ type: 'straight', material: A.material,
           hardware: seamHardware('straight', A, B, seamLen), modules: [A.module, B.module] });
         continue;
       }
-      if (xOverlap <= EPS || zOverlap <= EPS) {
+      if (ov.xOverlap <= EPS || ov.zOverlap <= EPS) {
         // Кандидат на угловой стык двух перпендикулярных прогонов: по одной
         // оси прямоугольники столешницы всегда пересекаются существенно (обе
         // тумбы своей глубиной перекрывают угловую зону), по другой — либо
         // тоже пересекаются (тогда это ветка ниже), либо есть зазор —
         // типично из-за доборной планки/зазора углового модуля (FILLER_GAP,
-        // blindStrip — см. основной цикл buildModel). Автоматически зазор не
-        // закрываем (это была бы придуманная величина смещения) — только
-        // предупреждаем точным числом, чтобы пользователь добрал нужный свес.
-        const zGap = zOverlap < -EPS ? -zOverlap : 0;
-        const xGap = xOverlap < -EPS ? -xOverlap : 0;
-        const looksCorner = (xOverlap > EPS && zGap > EPS && zGap < Math.max(A.box.d, B.box.d))
-                          || (zOverlap > EPS && xGap > EPS && xGap < Math.max(A.box.w, B.box.w));
-        if (looksCorner) {
-          warnings.push(`Угловой стык столешницы "${A.module}"/"${B.module}": столешницы не сходятся, `
-            + `не хватает ${Math.round(zGap || xGap)} мм — увеличьте свес соответствующей стороны, чтобы стык сошёлся.`);
-        }
-        continue;
+        // blindStrip — см. основной цикл buildModel).
+        const zGap = ov.zOverlap < -EPS ? -ov.zOverlap : 0;
+        const xGap = ov.xOverlap < -EPS ? -ov.xOverlap : 0;
+        const looksCorner = (ov.xOverlap > EPS && zGap > EPS && zGap < Math.max(A.box.d, B.box.d))
+                          || (ov.zOverlap > EPS && xGap > EPS && xGap < Math.max(A.box.w, B.box.w));
+        if (!looksCorner) continue;
+        // Зазор реален и его величина точно известна — растягиваем B
+        // (secondary) навстречу A на эту величину, а не просим пользователя
+        // подобрать свес вручную (величина уже посчитана, придумывать её
+        // пользователю незачем).
+        growSecondaryToMeet(A, B, zGap > 0 ? 'z' : 'x');
+        ov = overlaps();
       }
-      if (xOverlap > EPS && zOverlap > EPS) {
+      if (ov.xOverlap > EPS && ov.zOverlap > EPS) {
         if (Math.abs(A.box.y - B.box.y) > EPS) {
           warnings.push(`Угловой стык столешницы "${A.module}"/"${B.module}": `
             + `разный уровень столешницы (${A.box.y} мм и ${B.box.y} мм) — стык не построен.`);
           continue;
         }
-        if (!trimSecondary(A, B)) {
+        // Ось подрезки — та, где перекрытие МЕНЬШЕ (настоящий узкий шов
+        // угла), а не первая по порядку проверки внутри trimSecondary — см.
+        // комментарий над её определением.
+        const trimAxis = ov.xOverlap <= ov.zOverlap ? 'x' : 'z';
+        if (!trimSecondary(A, B, trimAxis)) {
           warnings.push(`Угловой стык столешницы "${A.module}"/"${B.module}": `
             + `геометрия пересечения не подошла для прямой подрезки — проверьте свесы вручную.`);
           continue;
         }
         // Длина углового стыка ≈ меньшее из перекрытий по X/Z (по факту это
         // глубина столешницы в зоне угла) — до подрезки secondary это ещё
-        // видно из исходных xOverlap/zOverlap.
-        const cornerSeamLen = Math.min(xOverlap, zOverlap);
+        // видно из исходных ov.xOverlap/ov.zOverlap.
+        const cornerSeamLen = Math.min(ov.xOverlap, ov.zOverlap);
         joints.push({ type: 'corner', material: A.material,
           hardware: seamHardware('corner', A, B, cornerSeamLen), modules: [A.module, B.module] });
       }

@@ -3015,10 +3015,62 @@ for (const glass of [false, true]) {
   cases += 2;
 }
 
+// --- столешница: свес слева/справа только у крайних тумб слитого ряда ------
+// Регрессия: свес раньше прибавлялся к КАЖДОЙ тумбе перед слиянием — если
+// его (по ошибке или по старому поведению панели) задать не только на
+// крайней, но и на СРЕДНЕЙ тумбе ряда, деталь этой тумбы становилась шире
+// своего корпуса, соседи переставали ровно соприкасаться границами, и
+// слияние либо ломалось (лишние отдельные детали), либо давало нахлёст.
+// Свес средней тумбы теперь должен просто игнорироваться (не она — край
+// ряда), а итоговая длина — точно ширины тумб + свес только с истинных
+// краёв.
+{
+  const mods = [
+    { name: 'Тумба 1', width: 600, height: 820, depth: 560, leftSide: 'onBottom', rightSide: 'onBottom',
+      topType: 'rails', base: { type: 'legsPlinth', legHeight: 100 },
+      countertop: { enabled: true, material: 'ldsp38', overhangLeft: 15 },
+      sections: [{ shelves: 1, drawers: 0, facade: 'doorLeft', drawerSystem: 'ballBearing' }] },
+    // Средняя тумба — свес указан по ошибке (или так вела себя старая
+    // панель, применяя общее значение ко всем отмеченным) — не должен
+    // повлиять на геометрию вообще.
+    { name: 'Тумба 2', width: 700, height: 820, depth: 560, leftSide: 'onBottom', rightSide: 'onBottom',
+      topType: 'rails', base: { type: 'legsPlinth', legHeight: 100 },
+      countertop: { enabled: true, material: 'ldsp38', overhangRight: 50, overhangLeft: 50 },
+      sections: [{ shelves: 1, drawers: 0, facade: 'doorLeft', drawerSystem: 'ballBearing' }] },
+    { name: 'Тумба 3', width: 500, height: 820, depth: 560, leftSide: 'onBottom', rightSide: 'onBottom',
+      topType: 'rails', base: { type: 'legsPlinth', legHeight: 100 },
+      countertop: { enabled: true, material: 'ldsp38', overhangRight: 25 },
+      sections: [{ shelves: 1, drawers: 0, facade: 'doorLeft', drawerSystem: 'ballBearing' }] },
+  ];
+  const model = buildModel(Object.assign({}, base, { modules: mods }));
+  inspect(model, 'столешница: свес по сегментам не должен мешать слиянию');
+
+  const tops = model.parts.filter((p) => p.kind === 'countertop');
+  if (tops.length !== 1) {
+    problems.push(`столешница: свес средней тумбы сломал слияние — деталей ${tops.length} вместо 1`);
+  } else {
+    // 600+700+500 = 1800 корпусов + 15 (слева, тумба 1) + 25 (справа, тумба 3);
+    // свесы средней тумбы 2 (50/50) и левый/правый несвоих сторон тумб 1/3
+    // (overhangRight тумбы 1 не задан, overhangLeft тумбы 3 не задан — не
+    // участвуют) в расчёте не участвуют вовсе.
+    const expected = 600 + 700 + 500 + 15 + 25;
+    if (Math.abs(tops[0].length - expected) > 1) {
+      problems.push(`столешница: итоговая длина ${tops[0].length} вместо ${expected} — свес применился не только к краям слитого ряда`);
+    }
+  }
+  const joints = (model.hardwareContext.countertopJoints || []);
+  if (joints.length !== 0) problems.push(`столешница: свес по сегментам — стыков ${joints.length} вместо 0 (ряд должен был слиться в одну деталь)`);
+  cases += 1;
+}
+
 // --- столешница: угловой 90° стык -------------------------------------------
 // Угловой корпусный модуль сам по себе НЕ доводит столешницу до соседнего
-// перпендикулярного прогона (между ними доборная планка/зазор угла) — без
-// достаточного свеса вперёд остаётся честный зазор, а не наложение.
+// перпендикулярного прогона (между ними доборная планка/зазор угла) — между
+// столешницами остаётся честный зазор, а не наложение. Величина зазора
+// известна точно (геометрия), поэтому joinCountertopSeams() теперь ЗАКРЫВАЕТ
+// его сама (растягивает вторую деталь навстречу и подрезает по узкой оси
+// стыка), а не просит пользователя вручную подобрать «правильный» свес —
+// без единого заданного свеса стык обязан сойтись сам.
 {
   const mk = (overhangFront) => buildModel(Object.assign({}, base, {
     modules: [
@@ -3035,25 +3087,25 @@ for (const glass of [false, true]) {
     ],
   }));
 
-  // Без свеса — реальный зазор (доборная планка угла), не наложение: должно
-  // остаться понятное предупреждение с точным недостающим расстоянием, а не
-  // тихий пропуск и не выдуманное автоудлинение.
-  const gapModel = mk(0);
-  inspect(gapModel, 'столешница: угловой стык, зазор без свеса');
-  const gapJoints = (gapModel.hardwareContext.countertopJoints || []).filter((j) => j.type === 'corner');
-  if (gapJoints.length !== 0) problems.push(`столешница: угловой зазор без свеса — стык ${gapJoints.length} построен, а должен быть 0`);
-  if (!gapModel.warnings.some((w) => /не сходятся, не хватает/.test(w))) {
-    problems.push('столешница: нет предупреждения о зазоре углового стыка без достаточного свеса');
+  for (const overhangFront of [0, 80]) {
+    const model = mk(overhangFront);
+    inspect(model, `столешница: угловой стык, свес спереди ${overhangFront}`); // общий inspect() уже ловит наложения/нелепые размеры через overlaps()
+    const corner = (model.hardwareContext.countertopJoints || []).filter((j) => j.type === 'corner');
+    if (corner.length !== 1) problems.push(`столешница: угловых стыков (свес ${overhangFront}) ${corner.length} вместо 1 — должен закрыться сам`);
+    if (model.warnings.some((w) => /не сходятся, не хватает/.test(w))) {
+      problems.push(`столешница: угловой стык (свес ${overhangFront}) не должен требовать ручного свеса — зазор известен точно, программа обязана закрыть его сама`);
+    }
+    // Деталь, которую растянули под стык, не должна получиться абсурдно
+    // узкой (регрессия на баг: trimSecondary срезала по «широкой» оси
+    // вместо узкого шва угла — секция ужималась почти в ноль).
+    const tops = model.parts.filter((p) => p.kind === 'countertop');
+    for (const top of tops) {
+      if (top.length < 100 || top.width < 100) {
+        problems.push(`столешница: угловой стык (свес ${overhangFront}) — деталь "${top.module}" получилась ${top.length}×${top.width} мм, подозрительно маленькой стороной`);
+      }
+    }
+    cases += 1;
   }
-
-  // С достаточным свесом (>58 мм, реально измеренный зазор в этой раскладке)
-  // столешницы должны сойтись и подрезаться в стык без наложения — это уже
-  // проверяет общий inspect() выше через overlaps().
-  const joinModel = mk(80);
-  inspect(joinModel, 'столешница: угловой стык, со свесом');
-  const corner = (joinModel.hardwareContext.countertopJoints || []).filter((j) => j.type === 'corner');
-  if (corner.length !== 1) problems.push(`столешница: угловых стыков со свесом ${corner.length} вместо 1`);
-  cases += 2;
 }
 
 // --- столешница: компакт-плита, стык на превышении длины листа --------------
