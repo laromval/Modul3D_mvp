@@ -1805,15 +1805,39 @@ function buildModuleParts(p) {
     if (!ctMat.found) {
       warnings.push(`Столешница: материал "${ct.material}" не найден в каталоге COUNTERTOP_MATERIALS — деталь не построена.`);
     } else {
+      // «Свес спереди» отсчитывается от ПЛОСКОСТИ ФАСАДА (как и в уже
+      // существующем WORKTOP_OVERHANG=20 выше — та же логика «крайнего
+      // модуля»), а не от сырой глубины корпуса D: иначе цифра в поле не
+      // означает то, что написано (обнаружено пользователем на реальном
+      // расчёте: корпус 510 + фасад 18 + свес 20 + столешница 600 → свес
+      // сзади должен быть 52 мм, а не 0).
+      const facadeThicknessResolved = p.facadeThicknessHint || p.facadeThickness || t;
       const oF = Number(ct.overhangFront) || 0, oL = Number(ct.overhangLeft) || 0,
-            oR = Number(ct.overhangRight) || 0, oB = Number(ct.overhangBack) || 0;
+            oR = Number(ct.overhangRight) || 0;
       const ctThickness = ctMat.isDouble ? 2 * t : ctMat.thickness;
-      const ctDepthBase = ctMat.isDouble ? D : ctMat.depth;
+      // «Свес сзади»: для готовой плиты фиксированной глубины (ldsp38/
+      // compact12) НЕ свободный ввод, а автоматически то, что остаётся от
+      // реальной глубины купленного листа за вычетом корпуса+фасада+свеса
+      // спереди — так итоговая глубина столешницы всегда точно совпадает с
+      // выбранной позицией каталога. Пользователь может переопределить
+      // вручную (например, для стола с сдвоенным ЛДСП, где глубина не
+      // ограничена конкретным листом) — тогда предупреждаем, если итог
+      // отличается от заявленной глубины материала.
+      const hasManualBack = ct.overhangBack !== undefined && ct.overhangBack !== null && ct.overhangBack !== '';
+      const autoOverhangBack = ctMat.isDouble ? 0
+        : round1(ctMat.depth - D - facadeThicknessResolved - oF);
+      const oB = hasManualBack ? (Number(ct.overhangBack) || 0) : autoOverhangBack;
       const ctLen = W + oL + oR;
-      const ctWidth = ctDepthBase + oF + oB;
+      const ctWidth = round1(D + facadeThicknessResolved + oF + oB);
       if (ctMat.maxLength && ctLen > ctMat.maxLength) {
         warnings.push(`Столешница модуля (${Math.round(ctLen)} мм) длиннее максимальной цельной `
           + `полосы материала "${ctMat.name}" (${ctMat.maxLength} мм) — цельным куском не выпилить.`);
+      }
+      if (!ctMat.isDouble && Math.abs(ctWidth - ctMat.depth) > 1) {
+        warnings.push(`Столешница модуля: итоговая глубина ${Math.round(ctWidth)} мм не совпадает `
+          + `с глубиной материала "${ctMat.name}" (${ctMat.depth} мм) — свес сзади переопределён `
+          + `вручную (${oB} мм вместо автоматических ${autoOverhangBack} мм), потребуется `
+          + `нестандартная резка или другая позиция материала.`);
       }
       const ctPart = makePart({
         name: 'Столешница', section: 'Столешница',
@@ -1826,7 +1850,7 @@ function buildModuleParts(p) {
         material: ctMat.code, thickness: ctThickness,
         length: ctLen, width: ctWidth, qty: ctMat.isDouble ? 2 : 1, kind: 'countertop',
         edging: { long1: EDGE_FRONT, long2: EDGE_FRONT, short1: EDGE_FRONT, short2: EDGE_FRONT },
-        x: (oR - oL) / 2, y: H + ctThickness / 2, z: (oF - oB) / 2,
+        x: (oR - oL) / 2, y: H + ctThickness / 2, z: round1((facadeThicknessResolved + oF - oB) / 2),
         dims: { w: ctLen, h: ctThickness, d: ctWidth },
         note: (p.topType === 'rails' || p.topType === 'railsEdge')
           ? 'Крепится шурупами 3.5×35 через верхние планки'

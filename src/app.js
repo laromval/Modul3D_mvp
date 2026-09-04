@@ -1043,10 +1043,16 @@ function countertopPrimarySettings() {
   return {
     material: src.material || 'ldsp38',
     depth: src.depth,
-    overhangFront: src.overhangFront !== undefined ? src.overhangFront : 30,
+    // 20 мм — свес НАД ФАСАДОМ (не над сырым корпусом), см. engine.js:
+    // facadeThicknessResolved — тот же ориентир, что и у существующего
+    // WORKTOP_OVERHANG=20 (крайний модуль).
+    overhangFront: src.overhangFront !== undefined ? src.overhangFront : 20,
     overhangLeft: src.overhangLeft !== undefined ? src.overhangLeft : 0,
     overhangRight: src.overhangRight !== undefined ? src.overhangRight : 0,
-    overhangBack: src.overhangBack !== undefined ? src.overhangBack : 0,
+    // overhangBack БЕЗ дефолта — undefined означает «посчитать автоматически»
+    // (engine.js: глубина материала минус корпус минус фасад минус свес
+    // спереди), см. countertopModuleRow/поле ctopOverhangBack ниже.
+    overhangBack: src.overhangBack,
   };
 }
 
@@ -1125,8 +1131,12 @@ function countertopPanelBlock() {
         <div class="field"><label>Спереди</label><input id="ctopOverhangFront" type="number" step="1" value="${s.overhangFront}"></div>
         <div class="field"><label>Слева</label><input id="ctopOverhangLeft" type="number" step="1" value="${s.overhangLeft}"></div>
         <div class="field"><label>Справа</label><input id="ctopOverhangRight" type="number" step="1" value="${s.overhangRight}"></div>
-        <div class="field"><label>Сзади</label><input id="ctopOverhangBack" type="number" step="1" value="${s.overhangBack}"></div>
+        <div class="field"><label>Сзади</label><input id="ctopOverhangBack" type="number" step="1"
+          placeholder="авто" value="${s.overhangBack !== undefined && s.overhangBack !== null ? s.overhangBack : ''}"></div>
       </div>
+      <div class="hint">«Спереди» — свес над фасадом (типично 20 мм). «Сзади» пустое поле — глубина
+        считается автоматически, чтобы совпасть с глубиной купленного листа материала; впишите своё
+        число, только если нужно намеренно отступить от стандартной глубины (например, для стола).</div>
 
       <h3>Соединение на углу</h3>
       <div class="field">
@@ -1184,13 +1194,17 @@ function bindCountertopEvents() {
         const src = groupBefore.length ? groupBefore[0].countertop : null;
         // Дефолты ПРИ ПЕРВОМ включении на этой тумбе (группа ещё пуста),
         // только если поля ещё не заданы — сознательно фиксированные
-        // (30/0/0/0), без автоподбора по типу мебели: настройка ручная,
+        // (20/0/0), без автоподбора по типу мебели: настройка ручная,
         // пользователь одобрил только этот дефолт как отправную точку.
+        // overhangBack СОЗНАТЕЛЬНО не получает дефолт (0 был бы неверным —
+        // это «заподлицо с корпусом», а не «посчитать автоматически») —
+        // остаётся undefined, если и в src его не было, engine.js сам
+        // посчитает нужную глубину.
         if (!mod.countertop.material) mod.countertop.material = (src && src.material) || 'ldsp38';
-        if (mod.countertop.overhangFront === undefined) mod.countertop.overhangFront = (src && src.overhangFront !== undefined) ? src.overhangFront : 30;
+        if (mod.countertop.overhangFront === undefined) mod.countertop.overhangFront = (src && src.overhangFront !== undefined) ? src.overhangFront : 20;
         if (mod.countertop.overhangLeft === undefined) mod.countertop.overhangLeft = (src && src.overhangLeft !== undefined) ? src.overhangLeft : 0;
         if (mod.countertop.overhangRight === undefined) mod.countertop.overhangRight = (src && src.overhangRight !== undefined) ? src.overhangRight : 0;
-        if (mod.countertop.overhangBack === undefined) mod.countertop.overhangBack = (src && src.overhangBack !== undefined) ? src.overhangBack : 0;
+        if (mod.countertop.overhangBack === undefined && src && src.overhangBack !== undefined) mod.countertop.overhangBack = src.overhangBack;
         if (mod.countertop.depth === undefined && src && src.depth !== undefined) mod.countertop.depth = src.depth;
         normalizeCountertopDepth(mod.countertop);
       }
@@ -1222,8 +1236,16 @@ function bindCountertopEvents() {
     const el = document.getElementById(id);
     if (!el) return;
     el.addEventListener('change', (e) => {
-      const val = Number(e.target.value) || 0;
-      applyToChecked((ct) => { ct[OVERHANG_FIELD_BY_ID[id]] = val; });
+      const field = OVERHANG_FIELD_BY_ID[id];
+      // «Сзади» — пустое поле означает «считать автоматически» (engine.js),
+      // это НЕ то же самое, что явные 0 (заподлицо с корпусом) — поэтому
+      // очистка поля должна удалять переопределение, а не записывать 0.
+      if (field === 'overhangBack' && e.target.value.trim() === '') {
+        applyToChecked((ct) => { delete ct.overhangBack; });
+      } else {
+        const val = Number(e.target.value) || 0;
+        applyToChecked((ct) => { ct[field] = val; });
+      }
       recompute();
     });
   });
