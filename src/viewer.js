@@ -56,7 +56,10 @@ function woodTexture() {
 function decorLook(code) {
   const cat = (typeof window !== 'undefined' && window.Modul3D && window.Modul3D.catalog) || {};
   const fac = cat.FACADE_MATERIALS || {};
-  const all = [].concat(cat.DECORS || [], cat.BACK_MATERIALS || [],
+  // COUNTERTOP_MATERIALS — отдельный список каталога (столешницы ЛДСП 38мм и
+  // компакт-плита HPL 12мм, коды CTOP-*), раньше сюда не попадал — столешница
+  // рендерилась серой заглушкой из KIND_COLOR вместо декора материала.
+  const all = [].concat(cat.DECORS || [], cat.BACK_MATERIALS || [], cat.COUNTERTOP_MATERIALS || [],
     Object.keys(fac).map((k) => fac[k]));
   const it = all.filter((x) => x && x.code === code)[0];
   const nm = (it && it.name) || '';
@@ -66,6 +69,12 @@ function decorLook(code) {
   if (/шпон|дуб|сонома|крафт|массив|орех|ясен/i.test(nm)) return { color: 0xc9a76a, wood: true };
   if (/крашен|эмал|плёнк|пленк|мдф/i.test(nm)) return { color: 0xf2efe9, wood: false };
   if (/лдсп|дсп/i.test(nm) && !/стенк/i.test(nm)) return { color: 0xc9a76a, wood: true };
+  // Компакт-плита HPL (столешница CTOP-COMPACT12-*): в названии нет «лдсп»/
+  // «дсп» (см. регэксп выше), поэтому без отдельной ветки уходила бы в
+  // серый fallback. По факту это декоративный HPL-пластик, имитирующий тот
+  // же древесный/каменный рисунок (см. каталог — «vintage santa fe oak»),
+  // визуально ближе к дереву, чем к гладкому крашеному МДФ — красим так же.
+  if (/компакт-плит/i.test(nm)) return { color: 0xc9a76a, wood: true };
   return null;
 }
 
@@ -283,6 +292,11 @@ const KIND_COLOR = {
   door: 0xc9a76a, drawerFront: 0xc9a76a,
   drawerBottom: 0xded2bb, drawerBack: 0xded2bb, drawerSide: 0xded2bb,
   leg: 0x5a5a5a,
+  // Подстраховка на случай, если decorLook() не нашёл материал столешницы
+  // (код вне каталога) — тёплый серо-бежевый, темнее корпуса, светлее
+  // цоколя: столешница визуально «читается» как отдельный горизонтальный
+  // слой над тумбами, даже без текстуры декора.
+  countertop: 0xc7bba8,
 };
 
 // Подсказка осей на экране «Дополнительные отверстия»: X-ребро детали —
@@ -299,6 +313,7 @@ const HIGHLIGHT_COLOR = {
   door: 0x6fa3cd, drawerFront: 0x6fa3cd,
   drawerBottom: 0x9cc4e2, drawerBack: 0x9cc4e2, drawerSide: 0x9cc4e2,
   leg: 0x41667f,
+  countertop: 0x6fa0c4,
 };
 
 // Прозрачность ВСЕГО выделенного модуля (клик по модулю/вкладке в панели) —

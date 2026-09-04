@@ -89,7 +89,7 @@ function inspect(model, label) {
   const nums = model.parts.filter((p) => !p.hardware).map((p) => p.num);
   if (nums.some((v, i) => v !== i + 1)) problems.push(`${label}: разрыв в нумерации деталировки`);
   const sp = buildSpecification(model);
-  const rows = [].concat(sp.sheetMaterials || [], sp.edging || [], sp.hardware || [], sp.fasteners || []);
+  const rows = [].concat(sp.sheetMaterials || [], sp.edging || [], sp.countertopMaterials || [], sp.hardware || [], sp.fasteners || []);
   const sum = rows.reduce((a, r) => a + (Number(r.sum) || 0), 0);
   const total = Number(sp.totalCost);
   // Внимание: сравнение с NaN всегда ложно, поэтому конечность проверяем явно —
@@ -2965,6 +2965,129 @@ for (const glass of [false, true]) {
       const near = legFix.filter((h) => Math.abs(h.x - lx) <= 26.5 && Math.abs(h.y - lz) <= 26.5);
       if (near.length !== 4) problems.push(`опоры: у опоры (${Math.round(lx)}, ${Math.round(lz)}) отверстий ${near.length} вместо 4`);
     }
+  }
+  cases += 1;
+}
+
+// --- столешница: слияние соседних тумб в одну сквозную деталь ---------------
+// Регрессия на mergeCountertops(): пока ряд помещается в один лист (макс.
+// 4100 мм у ЛДСП38/компакт-плиты) — столешница ОДНА сквозная деталь без
+// стыка, по аналогии с цоколем (mergePlinths). Стык появляется, только
+// когда упирается в максимальную длину плиты, и всегда на границе тумб.
+{
+  const modWidths = (ws) => ws.map((w, i) => ({
+    name: 'Тумба ' + (i + 1), width: w, height: 820, depth: 560,
+    leftSide: 'onBottom', rightSide: 'onBottom', topType: 'rails',
+    base: { type: 'legsPlinth', legHeight: 100 },
+    countertop: { enabled: true, material: 'ldsp38' },
+    sections: [{ shelves: 1, drawers: 0, facade: 'doorLeft', drawerSystem: 'ballBearing' }],
+  }));
+
+  // 600+800=1400 мм — далеко до 4100: должна остаться ОДНА деталь, стыков нет.
+  const shortModel = buildModel(Object.assign({}, base, { modules: modWidths([600, 800]) }));
+  inspect(shortModel, 'столешница: слияние — короткий ряд, без стыка');
+  const shortTops = shortModel.parts.filter((p) => p.kind === 'countertop');
+  if (shortTops.length !== 1) problems.push(`столешница: короткий ряд (1400 мм) — деталей countertop ${shortTops.length} вместо 1 (должны слиться, как цоколь)`);
+  if (shortTops[0] && Math.abs(shortTops[0].length - 1400) > 1) problems.push(`столешница: слитая длина ${shortTops[0] && shortTops[0].length} вместо 1400`);
+  const shortJoints = (shortModel.hardwareContext.countertopJoints || []).filter((j) => j.type === 'straight');
+  if (shortJoints.length !== 0) problems.push(`столешница: короткий ряд — стыков ${shortJoints.length} вместо 0 (влезает в один лист, крепёж стыка не нужен)`);
+
+  // 5×900=4500 мм — превышает 4100: должно получиться 2 детали (4 тумбы
+  // слито в 3600 мм + 1 тумба отдельно 900 мм), стык РОВНО на границе
+  // 4-й и 5-й тумбы, с эксцентриковой стяжкой (глубина 560 мм &lt; шага 600 → 2 шт).
+  const longModel = buildModel(Object.assign({}, base, { modules: modWidths([900, 900, 900, 900, 900]) }));
+  inspect(longModel, 'столешница: слияние — длинный ряд, стык на границе');
+  const longTops = longModel.parts.filter((p) => p.kind === 'countertop');
+  if (longTops.length !== 2) problems.push(`столешница: длинный ряд (4500 мм) — деталей countertop ${longTops.length} вместо 2 (должен появиться ровно один стык)`);
+  else {
+    const lens = longTops.map((p) => Math.round(p.length)).sort((a, b) => a - b);
+    if (lens[0] !== 900 || lens[1] !== 3600) {
+      problems.push(`столешница: длинный ряд — длины деталей ${lens.join('+')} вместо 900+3600 (стык должен быть на границе тумб, не где попало)`);
+    }
+  }
+  const longJoints = (longModel.hardwareContext.countertopJoints || []).filter((j) => j.type === 'straight');
+  if (longJoints.length !== 1) problems.push(`столешница: длинный ряд — стыков ${longJoints.length} вместо 1`);
+  else {
+    const tie = (longJoints[0].hardware || []).find((h) => h.key === 'countertopStraightTie');
+    if (!tie) problems.push('столешница: у стыка длинного ряда нет countertopStraightTie в hardware');
+    else if (tie.qty !== 2) problems.push(`столешница: длинный ряд — стяжек ${tie.qty} вместо 2 (глубина 560 мм < шага 600)`);
+  }
+  cases += 2;
+}
+
+// --- столешница: угловой 90° стык -------------------------------------------
+// Угловой корпусный модуль сам по себе НЕ доводит столешницу до соседнего
+// перпендикулярного прогона (между ними доборная планка/зазор угла) — без
+// достаточного свеса вперёд остаётся честный зазор, а не наложение.
+{
+  const mk = (overhangFront) => buildModel(Object.assign({}, base, {
+    modules: [
+      { name: 'Мойка', width: 984, height: 820, depth: 560, corner: true,
+        leftSide: 'onBottom', rightSide: 'onBottom', topType: 'railsEdge', noBack: true,
+        blindPanel: true, blindStrip: 78,
+        base: { type: 'legsPlinth', legHeight: 100 },
+        countertop: { enabled: true, material: 'ldsp38', overhangFront },
+        sections: [{ shelves: 0, drawers: 0, facade: 'doorLeft', handle: 'bow160' }] },
+      { name: 'След', width: 600, height: 820, depth: 560, leftSide: 'onBottom', rightSide: 'onBottom',
+        topType: 'rails', base: { type: 'legsPlinth', legHeight: 100 },
+        countertop: { enabled: true, material: 'ldsp38' },
+        sections: [{ shelves: 1, drawers: 0, facade: 'doorLeft', drawerSystem: 'ballBearing' }] },
+    ],
+  }));
+
+  // Без свеса — реальный зазор (доборная планка угла), не наложение: должно
+  // остаться понятное предупреждение с точным недостающим расстоянием, а не
+  // тихий пропуск и не выдуманное автоудлинение.
+  const gapModel = mk(0);
+  inspect(gapModel, 'столешница: угловой стык, зазор без свеса');
+  const gapJoints = (gapModel.hardwareContext.countertopJoints || []).filter((j) => j.type === 'corner');
+  if (gapJoints.length !== 0) problems.push(`столешница: угловой зазор без свеса — стык ${gapJoints.length} построен, а должен быть 0`);
+  if (!gapModel.warnings.some((w) => /не сходятся, не хватает/.test(w))) {
+    problems.push('столешница: нет предупреждения о зазоре углового стыка без достаточного свеса');
+  }
+
+  // С достаточным свесом (>58 мм, реально измеренный зазор в этой раскладке)
+  // столешницы должны сойтись и подрезаться в стык без наложения — это уже
+  // проверяет общий inspect() выше через overlaps().
+  const joinModel = mk(80);
+  inspect(joinModel, 'столешница: угловой стык, со свесом');
+  const corner = (joinModel.hardwareContext.countertopJoints || []).filter((j) => j.type === 'corner');
+  if (corner.length !== 1) problems.push(`столешница: угловых стыков со свесом ${corner.length} вместо 1`);
+  cases += 2;
+}
+
+// --- столешница: компакт-плита, стык на превышении длины листа --------------
+// Компакт (макс. 4100 мм) — 5×900=4500 мм тоже должен слиться в 4+1 с одним
+// стыком (см. тест выше), но крепёж стыка у компакта — ТОЛЬКО герметик, без
+// стяжек, и обязательна верхняя планка под ВСЕЙ деталью по обе стороны шва
+// (иначе предупреждение). Пятая тумба — БЕЗ планки (topType:'panel'), чтобы
+// проверить, что предупреждение реально ловит нехватку планки у слитой
+// детали, а не только у одиночной тумбы.
+{
+  const mods = [900, 900, 900, 900, 900].map((w, i) => ({
+    name: 'Тумба ' + (i + 1), width: w, height: 820, depth: 650,
+    leftSide: 'onBottom', rightSide: 'onBottom',
+    topType: i < 4 ? 'rails' : 'panel',
+    base: { type: 'legsPlinth', legHeight: 100 },
+    countertop: { enabled: true, material: 'compact12' },
+    sections: [{ shelves: 1, drawers: 0, facade: 'doorLeft', drawerSystem: 'ballBearing' }],
+  }));
+  const model = buildModel(Object.assign({}, base, { modules: mods }));
+  inspect(model, 'столешница: компакт, стык на длине — без планки под 5-й тумбой');
+
+  const tops = model.parts.filter((p) => p.kind === 'countertop');
+  if (tops.length !== 2) problems.push(`столешница: компакт длинный ряд — деталей countertop ${tops.length} вместо 2`);
+
+  if (!model.warnings.some((w) => /под краем нет верхней планки/.test(w))) {
+    problems.push('столешница: нет предупреждения про компакт-плиту без планки под стыком (5-я тумба topType:panel)');
+  }
+  const joints = model.hardwareContext.countertopJoints || [];
+  const seam = joints.find((j) => j.material && tops.some((t) => t.material === j.material));
+  if (!seam || !(seam.hardware || []).some((h) => h.key === 'countertopSealant')) {
+    problems.push('столешница: у стыка компакт-плиты нет countertopSealant');
+  }
+  if (seam && (seam.hardware || []).some((h) => h.key === 'countertopStraightTie' || h.key === 'countertopCornerTie')) {
+    problems.push('столешница: у стыка компакт-плиты не должно быть механических стяжек');
   }
   cases += 1;
 }

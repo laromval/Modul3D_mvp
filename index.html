@@ -7,7 +7,7 @@
 <title>Modul3D — параметрический конструктор корпусной мебели</title>
 
 <link rel="icon" type="image/svg+xml" href="favicon.svg" />
-<link rel="stylesheet" href="style.css?v227" />
+<link rel="stylesheet" href="style.css?v228" />
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <!-- Paddle.js — оверлей оплаты подписки (см. app.js: requestCheckout/initPaddle).
@@ -243,6 +243,12 @@ P — Параметры"
       </svg>
     </button>
 
+    <button class="rail-btn tip" type="button" data-panel="countertop" data-tip="Столешница" aria-label="Столешница">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M3 8h18v3H3z"/><path d="M5 11v9M19 11v9"/><path d="M5 20h4M15 20h4"/>
+      </svg>
+    </button>
+
     <div class="rail-sep"></div>
 
     <button class="rail-btn tip" type="button" data-panel="docs" data-tip="Документы" aria-label="Документы">
@@ -333,6 +339,23 @@ P — Параметры"
     </div>
   </aside>
 
+  <!-- ---------- Панель: Столешница (массовая настройка столешницы на тумбах) ----------
+       Отдельная самостоятельная панель — по образцу «Библиотеки»: своя кнопка на
+       рейке (data-panel="countertop"), свой экран, не поле в панели «Параметры»
+       текущего модуля. Содержимое #countertopPanel — см. src/app.js:
+       renderCountertopPanel()/countertopPanelBlock(). -->
+  <aside class="drawer drawer-left" id="drawer-countertop" data-drawer-panel="countertop" aria-hidden="true">
+    <div class="drawer-head">
+      <h2 class="drawer-title">Столешница</h2>
+      <button class="drawer-close" type="button" data-close aria-label="Закрыть">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
+      </button>
+    </div>
+    <div class="drawer-body">
+      <div class="panel" id="countertopPanel"><!-- заполняется app.js --></div>
+    </div>
+  </aside>
+
   <!-- ---------- Панель: Документы ---------- -->
   <section class="drawer drawer-bottom" id="drawer-docs" data-drawer-panel="docs" aria-hidden="true">
     <div class="drawer-head">
@@ -406,6 +429,11 @@ P — Параметры"
         <path d="M12 2.5 21 7v10l-9 4.5L3 17V7z"/><path d="M3 7l9 4.5L21 7M12 11.5V21.5"/>
       </svg>
     </button>
+    <button class="rail-btn" type="button" data-panel="countertop" aria-label="Столешница">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M3 8h18v3H3z"/><path d="M5 11v9M19 11v9"/><path d="M5 20h4M15 20h4"/>
+      </svg>
+    </button>
     <button class="rail-btn" type="button" data-panel="docs" aria-label="Документы">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
         <path d="M6 2.5h8l4 4V21a.5.5 0 0 1-.5.5h-11A.5.5 0 0 1 6 21z"/><path d="M14 2.5V7h4"/><path d="M9 12h6M9 15.5h6M9 8.5h2"/>
@@ -415,18 +443,18 @@ P — Параметры"
 
 </main>
 
-<script src="src/catalog.js?v227"></script>
-<script src="src/presets.js?v227"></script>
-<script src="src/engine.js?v227"></script>
-<script src="src/specification.js?v227"></script>
-<script src="src/legMeshes.js?v227"></script>
-<script src="src/viewer.js?v227"></script>
-<script src="src/ui-shell.js?v227"></script>
-<script src="src/drawings.js?v227"></script>
-<script src="src/export.js?v227"></script>
-<script src="src/cnc.js?v227"></script>
-<script src="src/sketchAI.js?v227"></script>
-<script src="src/app.js?v227"></script>
+<script src="src/catalog.js?v228"></script>
+<script src="src/presets.js?v228"></script>
+<script src="src/engine.js?v228"></script>
+<script src="src/specification.js?v228"></script>
+<script src="src/legMeshes.js?v228"></script>
+<script src="src/viewer.js?v228"></script>
+<script src="src/ui-shell.js?v228"></script>
+<script src="src/drawings.js?v228"></script>
+<script src="src/export.js?v228"></script>
+<script src="src/cnc.js?v228"></script>
+<script src="src/sketchAI.js?v228"></script>
+<script src="src/app.js?v228"></script>
 <script>if (window.Modul3D && window.Modul3D.uiShell) window.Modul3D.uiShell.start();</script>
 </body>
 </html>

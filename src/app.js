@@ -14,7 +14,7 @@
 (function () {
 // Версия сборки — показывается во вкладке браузера и в шапке.
 // При выпуске новой версии меняется только эта строка.
-const APP_VERSION = 'v227';
+const APP_VERSION = 'v228';
 
 // Номер версии выводим ПЕРВЫМ делом: если дальше что-то упадёт, по нему сразу
 // видно, какая сборка открыта.
@@ -115,6 +115,12 @@ const state = {
   worktopDepth: 600,
   backCode: BACK_MATERIALS[0].code,
   jointType: 'confirmat',
+  // Способ соединения столешниц в угловом (Г-образном) стыке между тумбами —
+  // общий на проект, настраивается на панели «Столешница» (см.
+  // countertopPanelBlock ниже). Прямые стыки в линию всегда идут через
+  // стяжку автоматически, это переключает только угол; читает engine.js
+  // (joinCountertopSeams) как proj.countertopCornerJoint.
+  countertopCornerJoint: 'strip',
   hideFacades: false,
   // Режим проверки присадки: корпус прозрачный, отверстия подсвечены
   drillCheck: false,
@@ -224,6 +230,7 @@ function snapshot() {
     bodyThickness: state.bodyThickness, backThickness: state.backThickness, facadeThickness: state.facadeThickness,
     decorCode: state.decorCode, facadeDecorCode: state.facadeDecorCode, backCode: state.backCode,
     jointType: state.jointType, worktopDepth: state.worktopDepth,
+    countertopCornerJoint: state.countertopCornerJoint,
   });
 }
 
@@ -868,6 +875,33 @@ function libCategoryBlock(catCode, title, itemsAll, opts) {
     </div>`;
 }
 
+// Столешницы (window.Modul3D.catalog.COUNTERTOP_MATERIALS) продаются
+// погонным метром фиксированной глубины (см. комментарий у самого массива
+// в catalog.js), поэтому таблица другая, чем у листовых материалов —
+// вместо «Цена за лист» показываем «Глубина» и «Цена за пог.м». materialId
+// группирует линейку (ldsp38 постформинг / compact12 компакт-плита) —
+// человекочитаемое название берём тут же, чтобы не плодить код в catalog.js
+// ради одной подписи в таблице.
+const COUNTERTOP_MATERIAL_LABEL = { ldsp38: 'ЛДСП 38мм постформинг', compact12: 'Компакт-плита HPL 12мм', doubleLdsp: 'Сдвоенное ЛДСП (по декору корпуса)' };
+function libCountertopTable() {
+  const cat = window.Modul3D.catalog;
+  const items = cat.COUNTERTOP_MATERIALS || [];
+  const rows = items.map((it) => `
+    <tr data-search="${esc(String(it.name || '').toLowerCase())}">
+      ${libEditCell('countertop', it.code, 'name', 'text', it.name)}
+      ${libSourceLinkCell(it)}
+      <td>${esc(COUNTERTOP_MATERIAL_LABEL[it.materialId] || it.materialId)}</td>
+      <td>${it.depth} мм</td>
+      ${libEditCell('countertop', it.code, 'pricePerMeter', 'number', it.pricePerMeter)}
+    </tr>`).join('');
+  return `
+    <h4 class="mat-sub">Столешницы (цена за пог.м)</h4>
+    <table class="lib-table"><thead><tr>
+      <th>Наименование</th><th></th><th>Материал</th><th>Глубина</th><th>Цена, ${esc(curSym())}/пог.м</th>
+    </tr></thead><tbody>${rows || '<tr><td colspan="5" class="hint">Пока нет позиций</td></tr>'}</tbody></table>
+    <button type="button" class="link-btn lib-add" data-add="countertop">+ Добавить столешницу</button>`;
+}
+
 function libraryMaterialsBlock() {
   const cat = window.Modul3D.catalog;
   return `
@@ -877,7 +911,8 @@ function libraryMaterialsBlock() {
     ${libCategoryBlock('back', 'Материалы задней стенки', BACK_MATERIALS, { hasThickness: true, allowAddSubcat: true, addLabel: '+ Добавить материал' })}
     ${libCategoryBlock('facade', 'Материалы фасадов', Object.values(cat.FACADE_MATERIALS), { allowAddSubcat: true, addLabel: '+ Добавить материал' })}
     ${libCategoryBlock('edge', 'Кромка', null, { addLabel: '+ Добавить кромку' })}
-    ${libCategoryBlock('glass', 'Стекло', [cat.GLASS], {})}`;
+    ${libCategoryBlock('glass', 'Стекло', [cat.GLASS], {})}
+    ${libCountertopTable()}`;
 }
 
 // Фурнитура собрана из ЧЕТЫРЁХ источников каталога (HARDWARE_PRICES,
@@ -938,6 +973,7 @@ function libFindItem(group, key) {
   if (group === 'facade') return cat.FACADE_MATERIALS[key] || null;
   if (group === 'edge') return cat.EDGE_PRICES[key] || null;
   if (group === 'glass') return cat.GLASS;
+  if (group === 'countertop') return (cat.COUNTERTOP_MATERIALS || []).find((x) => x.code === key) || null;
   if (group.indexOf('hw:') === 0) {
     const src = group.slice(3);
     const obj = src === 'hw' ? cat.HARDWARE_PRICES
@@ -1007,6 +1043,13 @@ function libAddRow(group, subcat) {
     if (!name) return;
     if (cat.EDGE_PRICES[name]) { window.alert('Кромка с таким названием уже есть в каталоге.'); return; }
     cat.EDGE_PRICES[name] = { price: 0, unit: 'пог.м', image: null };
+  } else if (group === 'countertop') {
+    // materialId 'ldsp38' по умолчанию — самая частая линейка; глубину и
+    // цену пользователь правит инлайн сразу после добавления строки.
+    if (!cat.COUNTERTOP_MATERIALS) cat.COUNTERTOP_MATERIALS = [];
+    cat.COUNTERTOP_MATERIALS.push({ code: 'CTOP-NEW-' + Date.now(), materialId: 'ldsp38',
+      name: 'Новая столешница', thickness: 38, depth: 600, pricePerMeter: 0, maxLength: 4100,
+      unit: 'пог.м', image: null });
   } else {
     return;
   }
@@ -1196,6 +1239,284 @@ function initLibraryPanel() {
 
   initLibImageInput();
   renderLibraryPanel();
+}
+
+// ---------------------------------------------------------------------------
+// Панель «Столешница» — отдельный самостоятельный инструмент (по образцу
+// «Библиотеки»: своя кнопка на рейке data-panel="countertop", свой drawer
+// #drawer-countertop, свой контейнер #countertopPanel), а не поле в обычной
+// панели «Параметры» текущего модуля. Показывает НАПОЛЬНЫЕ тумбы всего
+// проекта чекбоксами и применяет общие настройки (материал/глубина/свесы)
+// сразу ко ВСЕМ отмеченным модулям — массовая правка на группу, а не на весь
+// проект и не на одну тумбу. Данные пишутся напрямую в mod.countertop
+// (см. newModule()/state.modules — обычное поле модуля, поэтому переживает
+// Undo/Redo и сохранение проекта бесплатно, как и partOverrides) и в
+// project-level state.countertopCornerJoint (см. объявление state выше).
+// Расчёт (материал не найден, разная глубина у соседей, компакт без верхней
+// планки под стыком и т.п.) — целиком в engine.js, сюда прилетает готовым
+// через currentModel.warnings (см. renderWarnings) и
+// currentModel.hardwareContext.countertopJoints — эта панель ничего не
+// считает сама.
+// ---------------------------------------------------------------------------
+const COUNTERTOP_MATERIAL_LABELS = {
+  ldsp38: 'ЛДСП 38 мм, постформинг',
+  compact12: 'Компакт-плита HPL 12 мм',
+  doubleLdsp: 'Сдвоенное ЛДСП (2× декор корпуса)',
+};
+const COUNTERTOP_MATERIAL_ORDER = ['ldsp38', 'compact12', 'doubleLdsp'];
+
+// Тумба подходит под столешницу, если стоит на полу — ТА ЖЕ проверка, что и
+// isFloorStandingBase в engine.js (buildModuleParts: p.base.type). Модуль без
+// такого основания (например, будущий навесной шкаф) в список кандидатов не
+// попадает — показывается серым с пояснением «не тумба» (countertopModuleRow).
+function moduleHasFloorBase(mod) {
+  return !!mod && (mod.baseType === 'plinth' || mod.baseType === 'legsPlinth' || mod.baseType === 'legs');
+}
+
+// Доступные глубины материала — берём ИЗ КАТАЛОГА (window.Modul3D.catalog.
+// COUNTERTOP_MATERIALS), а не хардкодим: появится в каталоге третья позиция
+// глубины — экран увидит её сам, без правки app.js.
+function countertopDepthOptions(materialId) {
+  const cat = (window.Modul3D.catalog.COUNTERTOP_MATERIALS || []).filter((x) => x.materialId === materialId);
+  return Array.from(new Set(cat.map((x) => x.depth))).sort((a, b) => a - b);
+}
+
+// Модули, которым сейчас реально включена столешница (и которые вообще годятся
+// под неё) — это и есть «отмеченная группа», на которую массово пишут общие
+// настройки панели.
+function checkedCountertopModules() {
+  return state.modules.filter((m) => moduleHasFloorBase(m) && m.countertop && m.countertop.enabled);
+}
+
+// Значения для общих полей панели — берём с ПЕРВОЙ отмеченной тумбы: после
+// любой правки общих полей они одинаковы у всех отмеченных, разойтись могут
+// только если тумбы отмечали в разных сессиях — тогда просто показываем то,
+// что реально стоит у первой, а не выдумываем среднее.
+function countertopPrimarySettings() {
+  const src = (checkedCountertopModules()[0] || {}).countertop || {};
+  return {
+    material: src.material || 'ldsp38',
+    depth: src.depth,
+    // 20 мм — свес НАД ФАСАДОМ (не над сырым корпусом), см. engine.js:
+    // facadeThicknessResolved — тот же ориентир, что и у существующего
+    // WORKTOP_OVERHANG=20 (крайний модуль).
+    overhangFront: src.overhangFront !== undefined ? src.overhangFront : 20,
+    overhangLeft: src.overhangLeft !== undefined ? src.overhangLeft : 0,
+    overhangRight: src.overhangRight !== undefined ? src.overhangRight : 0,
+    // overhangBack БЕЗ дефолта — undefined означает «посчитать автоматически»
+    // (engine.js: глубина материала минус корпус минус фасад минус свес
+    // спереди), см. countertopModuleRow/поле ctopOverhangBack ниже.
+    overhangBack: src.overhangBack,
+  };
+}
+
+// Подгоняет ct.depth под реально существующую позицию каталога для текущего
+// материала; для doubleLdsp глубина не хранится вовсе — она берётся от
+// глубины корпуса модуля (countertopMat() в engine.js), настраивать её здесь
+// нечего. Общее для «включить столешницу на тумбе» и «сменить материал».
+function normalizeCountertopDepth(ct) {
+  if (ct.material === 'doubleLdsp') { delete ct.depth; return; }
+  const depths = countertopDepthOptions(ct.material);
+  if (depths.length && !depths.includes(Number(ct.depth))) ct.depth = depths[0];
+}
+
+// Короткая сводка «Стыков: N прямых, M угловых» — из уже готового
+// currentModel.hardwareContext.countertopJoints (joinCountertopSeams в
+// engine.js). Не критично для панели: если модели ещё нет или стыков нет —
+// просто ничего не показываем.
+function countertopJointsSummaryBlock() {
+  const joints = (currentModel && currentModel.hardwareContext && currentModel.hardwareContext.countertopJoints) || [];
+  if (!joints.length) return '';
+  const straight = joints.filter((j) => j.type === 'straight').length;
+  const corner = joints.filter((j) => j.type === 'corner').length;
+  return `<div class="hint">Стыков столешницы: ${straight} прямых, ${corner} угловых.</div>`;
+}
+
+// Одна строка списка модулей: чекбокс для напольной тумбы, серая неактивная
+// строка с пояснением — для всего остального (см. moduleHasFloorBase).
+function countertopModuleRow(mod, i) {
+  if (!moduleHasFloorBase(mod)) {
+    return `<div class="ctop-mod-row disabled" title="Не тумба — столешница ставится только на напольное основание (цоколь/опоры)">
+      <input type="checkbox" disabled>
+      <span>${esc(mod.name)} <span class="dim">— не тумба</span></span>
+    </div>`;
+  }
+  const checked = !!(mod.countertop && mod.countertop.enabled);
+  return `<label class="ctop-mod-row">
+    <input type="checkbox" data-ctop-toggle="${i}" ${checked ? 'checked' : ''}>
+    <span>${esc(mod.name)}</span>
+  </label>`;
+}
+
+function countertopPanelBlock() {
+  if (!state.modules.length) {
+    return `<div class="hint">Проект пуст. Сначала добавьте тумбы — кнопкой «Библиотека» на рейке слева.</div>`;
+  }
+  const rows = state.modules.map((m, i) => countertopModuleRow(m, i)).join('');
+  const anyChecked = checkedCountertopModules().length > 0;
+
+  let settings = '';
+  if (anyChecked) {
+    const s = countertopPrimarySettings();
+    const depths = s.material === 'doubleLdsp' ? [] : countertopDepthOptions(s.material);
+
+    settings = `
+      <h3>Материал столешницы</h3>
+      <div class="field">
+        <label>Материал <span class="dim">(применяется ко всем отмеченным тумбам)</span></label>
+        <select id="ctopMaterial">
+          ${COUNTERTOP_MATERIAL_ORDER.map((id) =>
+            `<option value="${id}" ${id === s.material ? 'selected' : ''}>${esc(COUNTERTOP_MATERIAL_LABELS[id])}</option>`
+          ).join('')}
+        </select>
+      </div>
+      ${depths.length ? `
+      <div class="field">
+        <label>Глубина, мм</label>
+        <select id="ctopDepth">
+          ${depths.map((d) =>
+            `<option value="${d}" ${Number(s.depth) === d || (!s.depth && d === depths[0]) ? 'selected' : ''}>${d}</option>`
+          ).join('')}
+        </select>
+      </div>` : `<div class="hint">Глубина сдвоенной столешницы берётся по глубине корпуса тумбы — здесь не настраивается.</div>`}
+
+      <h3>Свесы, мм</h3>
+      <div class="field-row4">
+        <div class="field"><label>Спереди</label><input id="ctopOverhangFront" type="number" step="1" value="${s.overhangFront}"></div>
+        <div class="field"><label>Слева</label><input id="ctopOverhangLeft" type="number" step="1" value="${s.overhangLeft}"></div>
+        <div class="field"><label>Справа</label><input id="ctopOverhangRight" type="number" step="1" value="${s.overhangRight}"></div>
+        <div class="field"><label>Сзади</label><input id="ctopOverhangBack" type="number" step="1"
+          placeholder="авто" value="${s.overhangBack !== undefined && s.overhangBack !== null ? s.overhangBack : ''}"></div>
+      </div>
+      <div class="hint">«Спереди» — свес над фасадом (типично 20 мм). «Сзади» пустое поле — глубина
+        считается автоматически, чтобы совпасть с глубиной купленного листа материала; впишите своё
+        число, только если нужно намеренно отступить от стандартной глубины (например, для стола).</div>
+
+      <h3>Соединение на углу</h3>
+      <div class="field">
+        <select id="ctopCornerJoint">
+          <option value="strip" ${state.countertopCornerJoint !== 'eurogroove' ? 'selected' : ''}>Соединительная планка</option>
+          <option value="eurogroove" ${state.countertopCornerJoint === 'eurogroove' ? 'selected' : ''}>Еврозапил + стяжки</option>
+        </select>
+        <div class="hint">Влияет только на угловые Г-образные стыки столешницы между тумбами —
+          прямые стыки в линию всегда идут через стяжку автоматически. Для компакт-плиты стык
+          всегда клей/герметик, вариантов нет.</div>
+      </div>
+      ${countertopJointsSummaryBlock()}`;
+  }
+
+  return `
+    <h3>Тумбы проекта</h3>
+    <div class="hint">Отметьте напольные тумбы, на которые нужно поставить столешницу — навесные
+      модули в списке недоступны (не тумба). Материал, глубина и свесы ниже применяются сразу ко
+      всем отмеченным.</div>
+    <div class="ctop-mod-list">${rows}</div>
+    ${anyChecked ? settings : `<div class="hint">Отметьте хотя бы одну тумбу, чтобы задать материал и свесы столешницы.</div>`}`;
+}
+
+function renderCountertopPanel() {
+  const panel = document.getElementById('countertopPanel');
+  if (!panel) return;
+  panel.innerHTML = countertopPanelBlock();
+  bindCountertopEvents();
+}
+
+// Слушатели перевешиваются на каждый renderCountertopPanel() (как и у
+// drawersPanelBlock/bindPanelEvents — элементы каждый раз новые после
+// innerHTML) — сам recompute() уже перерисовывает панель за нас (см. хук в
+// конце recompute()), поэтому обработчики здесь только меняют состояние и
+// зовут recompute(), а не renderCountertopPanel() напрямую.
+function bindCountertopEvents() {
+  const panel = document.getElementById('countertopPanel');
+  if (!panel) return;
+
+  panel.querySelectorAll('[data-ctop-toggle]').forEach((el) => {
+    el.addEventListener('change', (e) => {
+      const idx = Number(e.currentTarget.dataset.ctopToggle);
+      const mod = state.modules[idx];
+      if (!mod || !moduleHasFloorBase(mod)) return;
+      // Группа ДО этого переключения — если в ней уже есть отмеченные тумбы
+      // с настроенным материалом/свесами, новая тумба должна унаследовать
+      // ИХ (то, что реально показывает панель через countertopPrimarySettings),
+      // а не фиксированные дефолты — иначе 3D молча показывает разные
+      // материалы у тумб одной группы, пока пользователь не тронет любое
+      // поле настроек (баг, найденный на ревью).
+      const groupBefore = checkedCountertopModules();
+      if (!mod.countertop) mod.countertop = {};
+      mod.countertop.enabled = e.currentTarget.checked;
+      if (mod.countertop.enabled) {
+        const src = groupBefore.length ? groupBefore[0].countertop : null;
+        // Дефолты ПРИ ПЕРВОМ включении на этой тумбе (группа ещё пуста),
+        // только если поля ещё не заданы — сознательно фиксированные
+        // (20/0/0), без автоподбора по типу мебели: настройка ручная,
+        // пользователь одобрил только этот дефолт как отправную точку.
+        // overhangBack СОЗНАТЕЛЬНО не получает дефолт (0 был бы неверным —
+        // это «заподлицо с корпусом», а не «посчитать автоматически») —
+        // остаётся undefined, если и в src его не было, engine.js сам
+        // посчитает нужную глубину.
+        if (!mod.countertop.material) mod.countertop.material = (src && src.material) || 'ldsp38';
+        if (mod.countertop.overhangFront === undefined) mod.countertop.overhangFront = (src && src.overhangFront !== undefined) ? src.overhangFront : 20;
+        if (mod.countertop.overhangLeft === undefined) mod.countertop.overhangLeft = (src && src.overhangLeft !== undefined) ? src.overhangLeft : 0;
+        if (mod.countertop.overhangRight === undefined) mod.countertop.overhangRight = (src && src.overhangRight !== undefined) ? src.overhangRight : 0;
+        if (mod.countertop.overhangBack === undefined && src && src.overhangBack !== undefined) mod.countertop.overhangBack = src.overhangBack;
+        if (mod.countertop.depth === undefined && src && src.depth !== undefined) mod.countertop.depth = src.depth;
+        normalizeCountertopDepth(mod.countertop);
+      }
+      recompute();
+    });
+  });
+
+  const applyToChecked = (fn) => { checkedCountertopModules().forEach((m) => fn(m.countertop)); };
+
+  const materialEl = document.getElementById('ctopMaterial');
+  if (materialEl) materialEl.addEventListener('change', (e) => {
+    const val = e.target.value;
+    applyToChecked((ct) => { ct.material = val; normalizeCountertopDepth(ct); });
+    recompute();
+  });
+
+  const depthEl = document.getElementById('ctopDepth');
+  if (depthEl) depthEl.addEventListener('change', (e) => {
+    const val = Number(e.target.value) || null;
+    applyToChecked((ct) => { ct.depth = val; });
+    recompute();
+  });
+
+  const OVERHANG_FIELD_BY_ID = {
+    ctopOverhangFront: 'overhangFront', ctopOverhangLeft: 'overhangLeft',
+    ctopOverhangRight: 'overhangRight', ctopOverhangBack: 'overhangBack',
+  };
+  Object.keys(OVERHANG_FIELD_BY_ID).forEach((id) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.addEventListener('change', (e) => {
+      const field = OVERHANG_FIELD_BY_ID[id];
+      // «Сзади» — пустое поле означает «считать автоматически» (engine.js),
+      // это НЕ то же самое, что явные 0 (заподлицо с корпусом) — поэтому
+      // очистка поля должна удалять переопределение, а не записывать 0.
+      if (field === 'overhangBack' && e.target.value.trim() === '') {
+        applyToChecked((ct) => { delete ct.overhangBack; });
+      } else {
+        const val = Number(e.target.value) || 0;
+        applyToChecked((ct) => { ct[field] = val; });
+      }
+      recompute();
+    });
+  });
+
+  const cornerEl = document.getElementById('ctopCornerJoint');
+  if (cornerEl) cornerEl.addEventListener('change', (e) => {
+    state.countertopCornerJoint = e.target.value;
+    recompute();
+  });
+}
+
+// Вызывается один раз при старте (см. блок «Запуск» в конце файла), как и
+// initLibraryPanel() — контейнер #countertopPanel статичен в index.html,
+// дальше содержимое живёт через renderCountertopPanel()/recompute().
+function initCountertopPanel() {
+  if (!document.getElementById('countertopPanel')) return;
+  renderCountertopPanel();
 }
 
 // Якорь навигации: вкладки модулей (Модуль 1/Модуль 2/«+»). Виден ВСЕГДА,
@@ -3333,6 +3654,9 @@ function recompute(isRetry) {
     backMaterial: BACK_MATERIALS.find(d => d.code === state.backCode),
     worktopDepth: state.worktopDepth,
     jointType: state.jointType,
+    // Способ соединения столешниц на угловом стыке — общий на проект (панель
+    // «Столешница»), читает joinCountertopSeams() в engine.js.
+    countertopCornerJoint: state.countertopCornerJoint,
     modules: state.modules.map(m => ({
       name: m.name, width: m.width, height: m.height, depth: m.depth,
       rotation: m.rotation || 0, corner: !!m.corner, family: m.family || 'custom',
@@ -3348,6 +3672,9 @@ function recompute(isRetry) {
       // см. applyPartOverrides() в engine.js и partBlock()/bindPanelEvents()
       // выше, где этот объект заполняется с экрана «Деталь».
       partOverrides: m.partOverrides || {},
+      // Столешница модуля (панель «Столешница», см. countertopPanelBlock) —
+      // читает buildModuleParts() в engine.js как p.countertop.
+      countertop: m.countertop,
     })),
   };
 
@@ -3368,6 +3695,14 @@ function recompute(isRetry) {
   renderSpecTable(currentSpec);
   renderWarnings(currentModel.warnings);
   renderDrillLegend();
+  // Панель «Столешница» (countertopPanelBlock ниже) показывает список
+  // модулей проекта и сводку по стыкам currentModel.hardwareContext —
+  // обновляем вместе с остальными «документами», а не только по своим
+  // внутренним событиям: иначе список/сводка протухают, если модуль
+  // переименовали, добавили или удалили с другого экрана панели, пока эта
+  // панель была открыта. Контейнер #countertopPanel есть в DOM всегда (см.
+  // index.html), даже когда сам drawer сейчас не показан.
+  if (document.getElementById('countertopPanel')) renderCountertopPanel();
 
   if (viewer) {
     try { viewer.render(currentModel, viewOpts()); }
@@ -5013,6 +5348,7 @@ try {
 
   renderParamsPanel();
   initLibraryPanel();
+  initCountertopPanel();
   recompute();
   offerAutosaveRestore();
   initAccountPanel();

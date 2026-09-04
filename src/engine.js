@@ -1749,6 +1749,129 @@ function buildModuleParts(p) {
     }));
   }
 
+  // ---------- Столешница ----------
+  // Каждая тумба со включённой столешницей сначала строит СВОЮ деталь по
+  // СВОЕЙ ширине + свесы — а соседние по прогону детали дальше СЛИВАЮТСЯ в
+  // одну сквозную деталь через mergeCountertops() в buildModel() (по
+  // аналогии с mergePlinths), пока не упрутся в максимальную длину плиты
+  // материала (ctMaxLength ниже). Только когда длина реально превышает
+  // плиту, остаётся настоящий стык — и он всегда приходится на границу
+  // тумб (по построению: слияние идёт целыми деталями тумб, никогда не
+  // режет деталь посередине). Крепёж таких стыков расставляет
+  // joinCountertopSeams(), которая идёт следом за mergeCountertops(). Цитата
+  // пользователя: «ДСП в один лист соединять между собой не надо [если и
+  // так помещаются в один лист] … если длины не хватило — не соединяем где
+  // попало, а в месте соединения двух модулей».
+  //
+  // Резолвер материала — читает ИСКЛЮЧИТЕЛЬНО p.countertop, никогда
+  // topType/facadeType/family (см. visibleSideMat выше и баг dbcbba0).
+  //
+  // АРХИТЕКТУРНОЕ РЕШЕНИЕ: глубина ldsp38/compact12 — это ВЫБОР позиции
+  // каталога COUNTERTOP_MATERIALS (товар продаётся полосой фиксированной
+  // глубины). p.countertop.depth (мм, опционально) — точное совпадение в
+  // линии materialId, иначе ближайшая доступная (warning), без указания —
+  // первая по возрастанию глубины. doubleLdsp — не позиция каталога,
+  // глубина = глубина корпуса модуля D, максимальная длина цельного куска —
+  // ширина листа корпусного декора (sheetW), т.к. клеится из тех же листов.
+  const countertopMat = (ct) => {
+    if (ct.material === 'doubleLdsp') {
+      return { found: true, code: decor.code, name: `${decor.name} (сдвоенное 2×, столешница)`,
+        isDouble: true, thickness: null, depth: null, maxLength: decor.sheetW || null };
+    }
+    const cat = window.Modul3D.catalog;
+    const list = (cat.COUNTERTOP_MATERIALS || []).filter((x) => x.materialId === ct.material);
+    if (!list.length) return { found: false };
+    const sorted = list.slice().sort((a, b) => a.depth - b.depth);
+    let picked = null;
+    if (ct.depth) {
+      picked = sorted.find((m) => Math.abs(m.depth - Number(ct.depth)) < 1);
+      if (!picked) {
+        picked = sorted.reduce((best, m) =>
+          (Math.abs(m.depth - Number(ct.depth)) < Math.abs(best.depth - Number(ct.depth)) ? m : best), sorted[0]);
+        warnings.push(`Столешница: глубина ${ct.depth} мм не найдена в каталоге для `
+          + `"${ct.material}" — взята ближайшая доступная (${picked.depth} мм, ${picked.name}).`);
+      }
+    } else {
+      picked = sorted[0];
+    }
+    return { found: true, code: picked.code, name: picked.name, thickness: picked.thickness,
+      depth: picked.depth, maxLength: picked.maxLength || null };
+  };
+
+  const isFloorStandingBase = p.base.type === 'plinth' || p.base.type === 'legsPlinth' || p.base.type === 'legs';
+  if (p.countertop && p.countertop.enabled && isFloorStandingBase) {
+    const ct = p.countertop;
+    const ctMat = countertopMat(ct);
+    if (!ctMat.found) {
+      warnings.push(`Столешница: материал "${ct.material}" не найден в каталоге COUNTERTOP_MATERIALS — деталь не построена.`);
+    } else {
+      // «Свес спереди» отсчитывается от ПЛОСКОСТИ ФАСАДА (как и в уже
+      // существующем WORKTOP_OVERHANG=20 выше — та же логика «крайнего
+      // модуля»), а не от сырой глубины корпуса D: иначе цифра в поле не
+      // означает то, что написано (обнаружено пользователем на реальном
+      // расчёте: корпус 510 + фасад 18 + свес 20 + столешница 600 → свес
+      // сзади должен быть 52 мм, а не 0).
+      const facadeThicknessResolved = p.facadeThicknessHint || p.facadeThickness || t;
+      const oF = Number(ct.overhangFront) || 0, oL = Number(ct.overhangLeft) || 0,
+            oR = Number(ct.overhangRight) || 0;
+      const ctThickness = ctMat.isDouble ? 2 * t : ctMat.thickness;
+      // «Свес сзади»: для готовой плиты фиксированной глубины (ldsp38/
+      // compact12) НЕ свободный ввод, а автоматически то, что остаётся от
+      // реальной глубины купленного листа за вычетом корпуса+фасада+свеса
+      // спереди — так итоговая глубина столешницы всегда точно совпадает с
+      // выбранной позицией каталога. Пользователь может переопределить
+      // вручную (например, для стола с сдвоенным ЛДСП, где глубина не
+      // ограничена конкретным листом) — тогда предупреждаем, если итог
+      // отличается от заявленной глубины материала.
+      const hasManualBack = ct.overhangBack !== undefined && ct.overhangBack !== null && ct.overhangBack !== '';
+      const autoOverhangBack = ctMat.isDouble ? 0
+        : round1(ctMat.depth - D - facadeThicknessResolved - oF);
+      const oB = hasManualBack ? (Number(ct.overhangBack) || 0) : autoOverhangBack;
+      const ctLen = W + oL + oR;
+      const ctWidth = round1(D + facadeThicknessResolved + oF + oB);
+      if (ctMat.maxLength && ctLen > ctMat.maxLength) {
+        warnings.push(`Столешница модуля (${Math.round(ctLen)} мм) длиннее максимальной цельной `
+          + `полосы материала "${ctMat.name}" (${ctMat.maxLength} мм) — цельным куском не выпилить.`);
+      }
+      if (!ctMat.isDouble && Math.abs(ctWidth - ctMat.depth) > 1) {
+        warnings.push(`Столешница модуля: итоговая глубина ${Math.round(ctWidth)} мм не совпадает `
+          + `с глубиной материала "${ctMat.name}" (${ctMat.depth} мм) — свес сзади переопределён `
+          + `вручную (${oB} мм вместо автоматических ${autoOverhangBack} мм), потребуется `
+          + `нестандартная резка или другая позиция материала.`);
+      }
+      const ctPart = makePart({
+        name: 'Столешница', section: 'Столешница',
+        // doubleLdsp физически — два склеенных листа декора корпуса; qty:2
+        // при неизменных length/width корректно удваивает расход площади
+        // листа в спецификации (лист считается по material+length*width*qty),
+        // при этом толщина в 3D остаётся ОДНОЙ визуально слитой деталью
+        // (2×t) — qty здесь чисто счётный множитель стоимости, а не число
+        // отдельных объектов на сцене.
+        material: ctMat.code, thickness: ctThickness,
+        length: ctLen, width: ctWidth, qty: ctMat.isDouble ? 2 : 1, kind: 'countertop',
+        edging: { long1: EDGE_FRONT, long2: EDGE_FRONT, short1: EDGE_FRONT, short2: EDGE_FRONT },
+        x: (oR - oL) / 2, y: H + ctThickness / 2, z: round1((facadeThicknessResolved + oF - oB) / 2),
+        dims: { w: ctLen, h: ctThickness, d: ctWidth },
+        note: (p.topType === 'rails' || p.topType === 'railsEdge')
+          ? 'Крепится шурупами 3.5×35 через верхние планки'
+          : 'Крепится через Rastex в боковины (цельная крышка модуля, не вкладные планки — крепёж не через неё) — присадка в этой версии не считается, только количественный учёт в спецификации',
+      });
+      // ctFamily/ctHasRail/ctMaxLength — доп. поля для пассов buildModel()
+      // (mergeCountertops/joinCountertopSeams): part.material уже
+      // РЕЗОЛВНУТЫЙ код каталога/декора, по нему нельзя ни отличить
+      // компакт-плиту от ЛДСП (нужно для клеевого шва/проверки планки), ни
+      // узнать максимальную длину цельного куска (нужно для слияния).
+      // ctHasRail — булево, а не topType строкой: после mergeCountertops
+      // одна деталь может покрывать несколько тумб с РАЗНЫМ topType, и
+      // mergeCountertops сводит это к «есть план­ки под ВСЕЙ деталью» (AND
+      // по всем слитым тумбам) — см. флаг там же.
+      ctPart.ctFamily = ct.material;
+      ctPart.ctHasRail = (p.topType === 'rails' || p.topType === 'railsEdge');
+      ctPart.ctMaxLength = ctMat.maxLength || null;
+      parts.push(ctPart);
+    }
+  }
+
   // ---------- Цоколь ----------
   // Планка спереди, утоплена вглубь на PLINTH_SETBACK (норма — под носок обуви).
   // Цоколь бывает несущий (боковины до пола) и навесной — на клипсах к
@@ -3238,6 +3361,7 @@ function buildModel(project) {
         drawerDecor: proj.drawerDecor, drawerThickness: proj.drawerThickness,
         base: m.base, legType: m.legType, leftSide: m.leftSide, rightSide: m.rightSide,
         topType: m.topType, railWidth: m.railWidth, noBack: !!m.noBack,
+        countertop: m.countertop,
         worktopDepth: m.family === 'kitchen' ? Number(proj.worktopDepth || 0) : 0,
         family: m.family,
         blindPanel: !!m.blindPanel, blindStrip: m.blindStrip,
@@ -3394,6 +3518,12 @@ function buildModel(project) {
   // планках после склейки/подрезки в углу.
   finalizePlinthClips(allParts);
 
+  // Столешницы соседних тумб сливаются в одну сквозную деталь, пока
+  // помещаются в один лист материала (по аналогии с mergePlinths выше) —
+  // только когда упираются в максимальную длину, остаётся настоящий стык.
+  mergeCountertops(allParts);
+  const countertopJoints = joinCountertopSeams(allParts, proj, warnings);
+
   // Одинаковые предупреждения схлопываем — иначе список превращается в простыню
   const uniqueWarnings = warnings.filter((w, i) => warnings.indexOf(w) === i);
 
@@ -3419,6 +3549,7 @@ function buildModel(project) {
     parts: merged,
     partsRaw,
     hardwareContext: { drawerHardware, doorHardware, handleHardware, liftHardware, jointRows,
+      countertopJoints,
       sectionsCount: mods.length, jointCount },
     warnings: uniqueWarnings,
   };
@@ -3792,6 +3923,265 @@ const MERGED_DISPLAY_NAME = { side: 'Боковины', top: 'Планки ве�
 function mergeDisplayName(kind, names) {
   if (names.length <= 1) return names[0];
   return MERGED_DISPLAY_NAME[kind] || names.join(' / ');
+}
+
+// Для горизонтальной плиты (столешница) box.w изначально совпадает с
+// length, box.d — с width; part.rot∈{90,270} эти оси в box меняет местами
+// (см. основной цикл buildModel — манипуляции с b.w/b.d при
+// manualRot/dirRot 90°/270°). Общий хелпер для mergeCountertops() и
+// joinCountertopSeams() ниже — обоим нужно синхронно менять то box.w/box.d,
+// то top-level length/width при одной и той же ориентации детали.
+function countertopLenAxisIsW(p) {
+  const r = ((Math.round(p.rot || 0) % 360) + 360) % 360;
+  return !(r === 90 || r === 270);
+}
+
+// ---------------------------------------------------------------------------
+// СТОЛЕШНИЦА: СЛИЯНИЕ СОСЕДНИХ ТУМБ В ОДНУ СКВОЗНУЮ ДЕТАЛЬ.
+// По аналогии с mergePlinths выше — но, в отличие от цоколя, у столешницы
+// есть жёсткий физический потолок длины (максимальная длина плиты
+// материала, ctMaxLength — реальные 4100 мм у постформинга/компакт-плиты
+// mobilier.md, sheetW декора корпуса у сдвоенного ЛДСП). Пока ряд тумб в
+// этот потолок помещается — столешница ОДНА сквозная деталь, без стыка и
+// без крепежа стыка. Как только упирается — начинается новая деталь, и
+// граница между ними ВСЕГДА приходится на стык тумб (мы никогда не режем
+// деталь посередине корпуса — слияние идёт целыми деталями по возрастанию
+// координаты). Настоящие стыки, что остаются после этого прохода,
+// обрабатывает joinCountertopSeams() ниже — она их не сливает, только
+// считает крепёж и подрезает угловые.
+function mergeCountertops(parts) {
+  const EPS = 1;
+  const tops = parts.filter((p) => p.kind === 'countertop');
+  if (tops.length < 2) return;
+
+  // Ось ряда — по ориентации детали (countertopLenAxisIsW), а не по
+  // соотношению box.w/box.d, как у mergePlinths: у цоколя ширина всегда
+  // мала (высота планки), поэтому длинная сторона однозначно определяет
+  // ось, а у столешницы длина и глубина — величины одного порядка (глубина
+  // тоже сотни мм), так что такое сравнение для неё ненадёжно.
+  const axisOf = (p) => (countertopLenAxisIsW(p) ? 'x' : 'z');
+  const sizeOn = (p, ax) => (ax === 'x' ? p.box.w : p.box.d);
+  const setSize = (p, ax, v) => { if (ax === 'x') p.box.w = v; else p.box.d = v; };
+  // top-level length/width — то, что реально читают деталировка/кромка/
+  // спецификация (не box.w/box.d) — должны расти в ту же физическую
+  // сторону, что и box, с поправкой на ориентацию (см. countertopLenAxisIsW).
+  const growPhysSize = (p, ax, v) => {
+    const wIsLen = countertopLenAxisIsW(p);
+    if (ax === 'x') { if (wIsLen) p.length = v; else p.width = v; }
+    else if (wIsLen) p.width = v; else p.length = v;
+  };
+
+  const groups = new Map();
+  for (const p of tops) {
+    const ax = axisOf(p);
+    const cross = ax === 'x' ? p.box.z : p.box.x;       // положение поперёк ряда
+    const depthSize = ax === 'x' ? p.box.d : p.box.w;   // глубина столешницы
+    const key = [ax, p.material, p.thickness, round1(p.box.y), round1(cross), round1(depthSize)].join('|');
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(p);
+  }
+
+  const removed = new Set();
+  for (const list of groups.values()) {
+    if (list.length < 2) continue;
+    const ax = axisOf(list[0]);
+    list.sort((a, b) => a.box[ax] - b.box[ax]);
+
+    const maxCut = list[0].ctMaxLength || Infinity;
+    let run = [list[0]];
+    const flush = () => {
+      if (run.length < 2) { run = []; return; }
+      const lo = run[0].box[ax] - sizeOn(run[0], ax) / 2;
+      const last = run[run.length - 1];
+      const hi = last.box[ax] + sizeOn(last, ax) / 2;
+      const head = run[0];
+      head.box[ax] = (lo + hi) / 2;
+      setSize(head, ax, round1(hi - lo));
+      growPhysSize(head, ax, round1(hi - lo));
+      head.module = moduleListLabel(run.map((p) => p.module));
+      // Слитая деталь может покрывать тумбы с разным способом крепления
+      // (планки/Rastex) — единого текста тут больше нет, точный крепёж по
+      // каждой тумбе — в спецификации (считается отдельно по m.topType, не
+      // по этой детали). ctHasRail — AND по всем слитым тумбам (см. хвх
+      // hasRailTop в joinCountertopSeams): под компакт-плитой рельс должен
+      // быть по всей длине, не только по краям.
+      head.note = `Сквозная столешница на ${run.length} тумбы — крепёж каждой тумбы см. в спецификации.`;
+      head.ctHasRail = run.every((p) => p.ctHasRail);
+      for (let i = 1; i < run.length; i++) removed.add(run[i]);
+      run = [];
+    };
+
+    for (let i = 1; i < list.length; i++) {
+      const prev = run[run.length - 1] || list[i - 1];
+      const gap = (list[i].box[ax] - sizeOn(list[i], ax) / 2)
+        - (prev.box[ax] + sizeOn(prev, ax) / 2);
+      const grown = run.length
+        ? (list[i].box[ax] + sizeOn(list[i], ax) / 2) - (run[0].box[ax] - sizeOn(run[0], ax) / 2)
+        : sizeOn(list[i], ax);
+      if (Math.abs(gap) <= EPS && grown <= maxCut) run.push(list[i]);
+      else { flush(); run = [list[i]]; }
+    }
+    flush();
+  }
+
+  if (removed.size) {
+    for (let i = parts.length - 1; i >= 0; i--) {
+      if (removed.has(parts[i])) parts.splice(i, 1);
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// СТОЛЕШНИЦА: КРЕПЁЖ СТЫКОВ МЕЖДУ СОСЕДНИМИ ТУМБАМИ.
+// Работает уже ПОСЛЕ mergeCountertops() (см. ниже) — то есть только на
+// РЕАЛЬНО оставшихся стыках (либо превышена макс. длина плиты, либо это
+// угловой Г-образный стык двух перпендикулярных прогонов). Расставляет
+// крепёж стыка и в угловом 90° стыке подрезает «вторичный» прямоугольник по
+// грани «основного» (тот, что построен раньше — с меньшим индексом модуля).
+function joinCountertopSeams(parts, proj, warnings) {
+  const EPS = 1;
+  // Максимальный шаг между стяжками стыка, мм — по данным профильной
+  // статьи о безпланочном угловом соединении столешниц (еврозапил + стяжки):
+  // https://shkafkupeprosto.ru/states2/Soedinenie-stoleshnits-pod-pryamym-uglom-bez-planki..htm
+  // ("600 мм — максимальное расстояние между стяжками"). Не подтверждено
+  // производителем напрямую — при появлении более точного источника поправить.
+  const TIE_STEP = 600;
+  const cornerJoinType = proj.countertopCornerJoint || 'strip';
+  const tops = parts.filter((p) => p.kind === 'countertop');
+  const joints = [];
+  if (tops.length < 2) return joints;
+
+  const rectX = (p) => [p.box.x - p.box.w / 2, p.box.x + p.box.w / 2];
+  const rectZ = (p) => [p.box.z - p.box.d / 2, p.box.z + p.box.d / 2];
+  // seamLenMm — длина САМОГО СТЫКА (вдоль линии соединения), а НЕ длина
+  // детали столешницы целиком: у прямого стыка это глубина столешницы
+  // (перпендикулярно оси ряда), у углового — перекрытие в обоих направлениях.
+  const tieQty = (seamLenMm) => Math.max(2, Math.ceil((Number(seamLenMm) || 0) / TIE_STEP));
+  // ctHasRail — уже свёрнутый по ВСЕМ слитым тумбам этой детали флаг (AND),
+  // см. mergeCountertops() ниже — не topType одной конкретной тумбы.
+  const hasRailTop = (p) => !!p.ctHasRail;
+
+  const seamHardware = (kind, A, B, seamLenMm) => {
+    const isCompact = A.ctFamily === 'compact12';
+    const hw = [];
+    if (isCompact) {
+      if (!hasRailTop(A) || !hasRailTop(B)) {
+        warnings.push(`Стык компакт-столешницы у тумб "${A.module}"/"${B.module}": `
+          + `под краем нет верхней планки — край столешницы приклеить не к чему.`);
+      }
+      hw.push({ key: 'countertopSealant', qty: 1 });
+      return hw;
+    }
+    if (kind === 'corner') {
+      if (A.ctFamily !== 'ldsp38') {
+        warnings.push('Угловая стяжка LMB-KAT38-20M рассчитана под ЛДСП 38мм — '
+          + `для материала "${A.ctFamily}" цена/совместимость не подтверждены.`);
+      }
+      hw.push({ key: 'countertopCornerTie', qty: tieQty(seamLenMm) });
+      if (cornerJoinType === 'eurogroove') hw.push({ key: 'countertopSealant', qty: 1 });
+      return hw;
+    }
+    hw.push({ key: 'countertopStraightTie', qty: tieQty(seamLenMm) });
+    return hw;
+  };
+
+  const trimSecondary = (primary, secondary) => {
+    const [pLoX, pHiX] = rectX(primary), [pLoZ, pHiZ] = rectZ(primary);
+    const [sLoX, sHiX] = rectX(secondary), [sLoZ, sHiZ] = rectZ(secondary);
+    let axis = null, cutSize = null;
+    if (pLoX > sLoX + EPS && pLoX < sHiX - EPS) {
+      axis = 'x'; cutSize = pLoX - sLoX;
+      secondary.box.x = round1(sLoX + cutSize / 2); secondary.box.w = round1(cutSize);
+    } else if (pHiX > sLoX + EPS && pHiX < sHiX - EPS) {
+      axis = 'x'; cutSize = sHiX - pHiX;
+      secondary.box.x = round1(pHiX + cutSize / 2); secondary.box.w = round1(cutSize);
+    } else if (pLoZ > sLoZ + EPS && pLoZ < sHiZ - EPS) {
+      axis = 'z'; cutSize = pLoZ - sLoZ;
+      secondary.box.z = round1(sLoZ + cutSize / 2); secondary.box.d = round1(cutSize);
+    } else if (pHiZ > sLoZ + EPS && pHiZ < sHiZ - EPS) {
+      axis = 'z'; cutSize = sHiZ - pHiZ;
+      secondary.box.z = round1(pHiZ + cutSize / 2); secondary.box.d = round1(cutSize);
+    }
+    if (axis == null) return false;
+    const wIsLen = countertopLenAxisIsW(secondary);
+    if (axis === 'x') { if (wIsLen) secondary.length = round1(cutSize); else secondary.width = round1(cutSize); }
+    else if (wIsLen) secondary.width = round1(cutSize); else secondary.length = round1(cutSize);
+    secondary.note = (secondary.note ? secondary.note + '; ' : '')
+      + `обрезана в угол по стыку с "${primary.module}" (прямой стык 90°)`;
+    return true;
+  };
+
+  for (let i = 0; i < tops.length; i++) {
+    for (let j = i + 1; j < tops.length; j++) {
+      const A = tops[i], B = tops[j];   // A построен раньше B (порядок allParts)
+      if (A.material !== B.material || Math.abs(A.thickness - B.thickness) > EPS) {
+        warnings.push(`Стык столешницы "${A.module}"/"${B.module}": разный материал/толщина `
+          + `столешницы у соседних тумб — крепёж стыка не посчитан, стык нужно решать вручную.`);
+        continue;
+      }
+
+      const [aLoX, aHiX] = rectX(A), [bLoX, bHiX] = rectX(B);
+      const [aLoZ, aHiZ] = rectZ(A), [bLoZ, bHiZ] = rectZ(B);
+      const zOverlap = Math.min(aHiZ, bHiZ) - Math.max(aLoZ, bLoZ);
+      const xOverlap = Math.min(aHiX, bHiX) - Math.max(aLoX, bLoX);
+      const touchX = Math.abs(aHiX - bLoX) < EPS || Math.abs(bHiX - aLoX) < EPS;
+      const touchZ = Math.abs(aHiZ - bLoZ) < EPS || Math.abs(bHiZ - aLoZ) < EPS;
+
+      if ((touchX && zOverlap > Math.min(A.box.d, B.box.d) * 0.5)
+          || (touchZ && xOverlap > Math.min(A.box.w, B.box.w) * 0.5)) {
+        if (Math.abs(A.box.y - B.box.y) > EPS) {
+          warnings.push(`Стык столешницы "${A.module}"/"${B.module}": `
+            + `разный уровень столешницы (${A.box.y} мм и ${B.box.y} мм) — стык не построен.`);
+          continue;
+        }
+        // Длина стыка — вдоль линии соединения, а НЕ длина детали целиком:
+        // для стыка в линию (touchX) шов идёт поперёк, вдоль оси Z (глубина
+        // столешницы), для (touchZ) — вдоль оси X.
+        const seamLen = touchX ? zOverlap : xOverlap;
+        joints.push({ type: 'straight', material: A.material,
+          hardware: seamHardware('straight', A, B, seamLen), modules: [A.module, B.module] });
+        continue;
+      }
+      if (xOverlap <= EPS || zOverlap <= EPS) {
+        // Кандидат на угловой стык двух перпендикулярных прогонов: по одной
+        // оси прямоугольники столешницы всегда пересекаются существенно (обе
+        // тумбы своей глубиной перекрывают угловую зону), по другой — либо
+        // тоже пересекаются (тогда это ветка ниже), либо есть зазор —
+        // типично из-за доборной планки/зазора углового модуля (FILLER_GAP,
+        // blindStrip — см. основной цикл buildModel). Автоматически зазор не
+        // закрываем (это была бы придуманная величина смещения) — только
+        // предупреждаем точным числом, чтобы пользователь добрал нужный свес.
+        const zGap = zOverlap < -EPS ? -zOverlap : 0;
+        const xGap = xOverlap < -EPS ? -xOverlap : 0;
+        const looksCorner = (xOverlap > EPS && zGap > EPS && zGap < Math.max(A.box.d, B.box.d))
+                          || (zOverlap > EPS && xGap > EPS && xGap < Math.max(A.box.w, B.box.w));
+        if (looksCorner) {
+          warnings.push(`Угловой стык столешницы "${A.module}"/"${B.module}": столешницы не сходятся, `
+            + `не хватает ${Math.round(zGap || xGap)} мм — увеличьте свес соответствующей стороны, чтобы стык сошёлся.`);
+        }
+        continue;
+      }
+      if (xOverlap > EPS && zOverlap > EPS) {
+        if (Math.abs(A.box.y - B.box.y) > EPS) {
+          warnings.push(`Угловой стык столешницы "${A.module}"/"${B.module}": `
+            + `разный уровень столешницы (${A.box.y} мм и ${B.box.y} мм) — стык не построен.`);
+          continue;
+        }
+        if (!trimSecondary(A, B)) {
+          warnings.push(`Угловой стык столешницы "${A.module}"/"${B.module}": `
+            + `геометрия пересечения не подошла для прямой подрезки — проверьте свесы вручную.`);
+          continue;
+        }
+        // Длина углового стыка ≈ меньшее из перекрытий по X/Z (по факту это
+        // глубина столешницы в зоне угла) — до подрезки secondary это ещё
+        // видно из исходных xOverlap/zOverlap.
+        const cornerSeamLen = Math.min(xOverlap, zOverlap);
+        joints.push({ type: 'corner', material: A.material,
+          hardware: seamHardware('corner', A, B, cornerSeamLen), modules: [A.module, B.module] });
+      }
+    }
+  }
+  return joints;
 }
 
 // Список модулей-источников для колонки «Модуль» в деталировке — заголовок
