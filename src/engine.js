@@ -1750,12 +1750,18 @@ function buildModuleParts(p) {
   }
 
   // ---------- Столешница ----------
-  // НЕ сливается со столешницами соседних тумб (в отличие от mergePlinths
-  // ниже) — у каждой тумбы со столешницей всегда своя ОТДЕЛЬНАЯ деталь по
-  // СВОЕЙ ширине + свесы; крепёж стыка расставляет joinCountertopSeams() в
-  // buildModel(). Цитата пользователя: «ДСП в один лист соединять между
-  // собой не надо, стык между двумя столешницами должен быть в месте
-  // соединения тумб».
+  // Каждая тумба со включённой столешницей сначала строит СВОЮ деталь по
+  // СВОЕЙ ширине + свесы — а соседние по прогону детали дальше СЛИВАЮТСЯ в
+  // одну сквозную деталь через mergeCountertops() в buildModel() (по
+  // аналогии с mergePlinths), пока не упрутся в максимальную длину плиты
+  // материала (ctMaxLength ниже). Только когда длина реально превышает
+  // плиту, остаётся настоящий стык — и он всегда приходится на границу
+  // тумб (по построению: слияние идёт целыми деталями тумб, никогда не
+  // режет деталь посередине). Крепёж таких стыков расставляет
+  // joinCountertopSeams(), которая идёт следом за mergeCountertops(). Цитата
+  // пользователя: «ДСП в один лист соединять между собой не надо [если и
+  // так помещаются в один лист] … если длины не хватило — не соединяем где
+  // попало, а в месте соединения двух модулей».
   //
   // Резолвер материала — читает ИСКЛЮЧИТЕЛЬНО p.countertop, никогда
   // topType/facadeType/family (см. visibleSideMat выше и баг dbcbba0).
@@ -1765,11 +1771,12 @@ function buildModuleParts(p) {
   // глубины). p.countertop.depth (мм, опционально) — точное совпадение в
   // линии materialId, иначе ближайшая доступная (warning), без указания —
   // первая по возрастанию глубины. doubleLdsp — не позиция каталога,
-  // глубина = глубина корпуса модуля D.
+  // глубина = глубина корпуса модуля D, максимальная длина цельного куска —
+  // ширина листа корпусного декора (sheetW), т.к. клеится из тех же листов.
   const countertopMat = (ct) => {
     if (ct.material === 'doubleLdsp') {
       return { found: true, code: decor.code, name: `${decor.name} (сдвоенное 2×, столешница)`,
-        isDouble: true, thickness: null, depth: null, maxLength: null };
+        isDouble: true, thickness: null, depth: null, maxLength: decor.sheetW || null };
     }
     const cat = window.Modul3D.catalog;
     const list = (cat.COUNTERTOP_MATERIALS || []).filter((x) => x.materialId === ct.material);
@@ -1825,12 +1832,18 @@ function buildModuleParts(p) {
           ? 'Крепится шурупами 3.5×35 через верхние планки'
           : 'Крепится через Rastex в боковины (цельная крышка модуля, не вкладные планки — крепёж не через неё) — присадка в этой версии не считается, только количественный учёт в спецификации',
       });
-      // ctFamily/ctTopType — доп. поля для join-pass (joinCountertopSeams
-      // в buildModel): part.material уже РЕЗОЛВНУТЫЙ код каталога/декора,
-      // по нему нельзя отличить компакт-плиту от ЛДСП; ctTopType нужен для
-      // проверки «есть планка под краем» у клеевого шва компакт-плиты.
+      // ctFamily/ctHasRail/ctMaxLength — доп. поля для пассов buildModel()
+      // (mergeCountertops/joinCountertopSeams): part.material уже
+      // РЕЗОЛВНУТЫЙ код каталога/декора, по нему нельзя ни отличить
+      // компакт-плиту от ЛДСП (нужно для клеевого шва/проверки планки), ни
+      // узнать максимальную длину цельного куска (нужно для слияния).
+      // ctHasRail — булево, а не topType строкой: после mergeCountertops
+      // одна деталь может покрывать несколько тумб с РАЗНЫМ topType, и
+      // mergeCountertops сводит это к «есть план­ки под ВСЕЙ деталью» (AND
+      // по всем слитым тумбам) — см. флаг там же.
       ctPart.ctFamily = ct.material;
-      ctPart.ctTopType = p.topType || null;
+      ctPart.ctHasRail = (p.topType === 'rails' || p.topType === 'railsEdge');
+      ctPart.ctMaxLength = ctMat.maxLength || null;
       parts.push(ctPart);
     }
   }
@@ -3481,6 +3494,10 @@ function buildModel(project) {
   // планках после склейки/подрезки в углу.
   finalizePlinthClips(allParts);
 
+  // Столешницы соседних тумб сливаются в одну сквозную деталь, пока
+  // помещаются в один лист материала (по аналогии с mergePlinths выше) —
+  // только когда упираются в максимальную длину, остаётся настоящий стык.
+  mergeCountertops(allParts);
   const countertopJoints = joinCountertopSeams(allParts, proj, warnings);
 
   // Одинаковые предупреждения схлопываем — иначе список превращается в простыню
@@ -3884,12 +3901,119 @@ function mergeDisplayName(kind, names) {
   return MERGED_DISPLAY_NAME[kind] || names.join(' / ');
 }
 
+// Для горизонтальной плиты (столешница) box.w изначально совпадает с
+// length, box.d — с width; part.rot∈{90,270} эти оси в box меняет местами
+// (см. основной цикл buildModel — манипуляции с b.w/b.d при
+// manualRot/dirRot 90°/270°). Общий хелпер для mergeCountertops() и
+// joinCountertopSeams() ниже — обоим нужно синхронно менять то box.w/box.d,
+// то top-level length/width при одной и той же ориентации детали.
+function countertopLenAxisIsW(p) {
+  const r = ((Math.round(p.rot || 0) % 360) + 360) % 360;
+  return !(r === 90 || r === 270);
+}
+
+// ---------------------------------------------------------------------------
+// СТОЛЕШНИЦА: СЛИЯНИЕ СОСЕДНИХ ТУМБ В ОДНУ СКВОЗНУЮ ДЕТАЛЬ.
+// По аналогии с mergePlinths выше — но, в отличие от цоколя, у столешницы
+// есть жёсткий физический потолок длины (максимальная длина плиты
+// материала, ctMaxLength — реальные 4100 мм у постформинга/компакт-плиты
+// mobilier.md, sheetW декора корпуса у сдвоенного ЛДСП). Пока ряд тумб в
+// этот потолок помещается — столешница ОДНА сквозная деталь, без стыка и
+// без крепежа стыка. Как только упирается — начинается новая деталь, и
+// граница между ними ВСЕГДА приходится на стык тумб (мы никогда не режем
+// деталь посередине корпуса — слияние идёт целыми деталями по возрастанию
+// координаты). Настоящие стыки, что остаются после этого прохода,
+// обрабатывает joinCountertopSeams() ниже — она их не сливает, только
+// считает крепёж и подрезает угловые.
+function mergeCountertops(parts) {
+  const EPS = 1;
+  const tops = parts.filter((p) => p.kind === 'countertop');
+  if (tops.length < 2) return;
+
+  // Ось ряда — по ориентации детали (countertopLenAxisIsW), а не по
+  // соотношению box.w/box.d, как у mergePlinths: у цоколя ширина всегда
+  // мала (высота планки), поэтому длинная сторона однозначно определяет
+  // ось, а у столешницы длина и глубина — величины одного порядка (глубина
+  // тоже сотни мм), так что такое сравнение для неё ненадёжно.
+  const axisOf = (p) => (countertopLenAxisIsW(p) ? 'x' : 'z');
+  const sizeOn = (p, ax) => (ax === 'x' ? p.box.w : p.box.d);
+  const setSize = (p, ax, v) => { if (ax === 'x') p.box.w = v; else p.box.d = v; };
+  // top-level length/width — то, что реально читают деталировка/кромка/
+  // спецификация (не box.w/box.d) — должны расти в ту же физическую
+  // сторону, что и box, с поправкой на ориентацию (см. countertopLenAxisIsW).
+  const growPhysSize = (p, ax, v) => {
+    const wIsLen = countertopLenAxisIsW(p);
+    if (ax === 'x') { if (wIsLen) p.length = v; else p.width = v; }
+    else if (wIsLen) p.width = v; else p.length = v;
+  };
+
+  const groups = new Map();
+  for (const p of tops) {
+    const ax = axisOf(p);
+    const cross = ax === 'x' ? p.box.z : p.box.x;       // положение поперёк ряда
+    const depthSize = ax === 'x' ? p.box.d : p.box.w;   // глубина столешницы
+    const key = [ax, p.material, p.thickness, round1(p.box.y), round1(cross), round1(depthSize)].join('|');
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(p);
+  }
+
+  const removed = new Set();
+  for (const list of groups.values()) {
+    if (list.length < 2) continue;
+    const ax = axisOf(list[0]);
+    list.sort((a, b) => a.box[ax] - b.box[ax]);
+
+    const maxCut = list[0].ctMaxLength || Infinity;
+    let run = [list[0]];
+    const flush = () => {
+      if (run.length < 2) { run = []; return; }
+      const lo = run[0].box[ax] - sizeOn(run[0], ax) / 2;
+      const last = run[run.length - 1];
+      const hi = last.box[ax] + sizeOn(last, ax) / 2;
+      const head = run[0];
+      head.box[ax] = (lo + hi) / 2;
+      setSize(head, ax, round1(hi - lo));
+      growPhysSize(head, ax, round1(hi - lo));
+      head.module = moduleListLabel(run.map((p) => p.module));
+      // Слитая деталь может покрывать тумбы с разным способом крепления
+      // (планки/Rastex) — единого текста тут больше нет, точный крепёж по
+      // каждой тумбе — в спецификации (считается отдельно по m.topType, не
+      // по этой детали). ctHasRail — AND по всем слитым тумбам (см. хвх
+      // hasRailTop в joinCountertopSeams): под компакт-плитой рельс должен
+      // быть по всей длине, не только по краям.
+      head.note = `Сквозная столешница на ${run.length} тумбы — крепёж каждой тумбы см. в спецификации.`;
+      head.ctHasRail = run.every((p) => p.ctHasRail);
+      for (let i = 1; i < run.length; i++) removed.add(run[i]);
+      run = [];
+    };
+
+    for (let i = 1; i < list.length; i++) {
+      const prev = run[run.length - 1] || list[i - 1];
+      const gap = (list[i].box[ax] - sizeOn(list[i], ax) / 2)
+        - (prev.box[ax] + sizeOn(prev, ax) / 2);
+      const grown = run.length
+        ? (list[i].box[ax] + sizeOn(list[i], ax) / 2) - (run[0].box[ax] - sizeOn(run[0], ax) / 2)
+        : sizeOn(list[i], ax);
+      if (Math.abs(gap) <= EPS && grown <= maxCut) run.push(list[i]);
+      else { flush(); run = [list[i]]; }
+    }
+    flush();
+  }
+
+  if (removed.size) {
+    for (let i = parts.length - 1; i >= 0; i--) {
+      if (removed.has(parts[i])) parts.splice(i, 1);
+    }
+  }
+}
+
 // ---------------------------------------------------------------------------
 // СТОЛЕШНИЦА: КРЕПЁЖ СТЫКОВ МЕЖДУ СОСЕДНИМИ ТУМБАМИ.
-// НЕ сливает детали (в отличие от mergePlinths/joinCornerPlinths выше) — у
-// каждой тумбы своя отдельная kind:'countertop'. Расставляет крепёж стыка и
-// в угловом 90° стыке подрезает «вторичный» прямоугольник по грани
-// «основного» (тот, что построен раньше — с меньшим индексом модуля).
+// Работает уже ПОСЛЕ mergeCountertops() (см. ниже) — то есть только на
+// РЕАЛЬНО оставшихся стыках (либо превышена макс. длина плиты, либо это
+// угловой Г-образный стык двух перпендикулярных прогонов). Расставляет
+// крепёж стыка и в угловом 90° стыке подрезает «вторичный» прямоугольник по
+// грани «основного» (тот, что построен раньше — с меньшим индексом модуля).
 function joinCountertopSeams(parts, proj, warnings) {
   const EPS = 1;
   // Максимальный шаг между стяжками стыка, мм — по данным профильной
@@ -3909,7 +4033,9 @@ function joinCountertopSeams(parts, proj, warnings) {
   // детали столешницы целиком: у прямого стыка это глубина столешницы
   // (перпендикулярно оси ряда), у углового — перекрытие в обоих направлениях.
   const tieQty = (seamLenMm) => Math.max(2, Math.ceil((Number(seamLenMm) || 0) / TIE_STEP));
-  const hasRailTop = (p) => p.ctTopType === 'rails' || p.ctTopType === 'railsEdge';
+  // ctHasRail — уже свёрнутый по ВСЕМ слитым тумбам этой детали флаг (AND),
+  // см. mergeCountertops() ниже — не topType одной конкретной тумбы.
+  const hasRailTop = (p) => !!p.ctHasRail;
 
   const seamHardware = (kind, A, B, seamLenMm) => {
     const isCompact = A.ctFamily === 'compact12';
@@ -3935,14 +4061,6 @@ function joinCountertopSeams(parts, proj, warnings) {
     return hw;
   };
 
-  // Для горизонтальной плиты box.w изначально совпадает с length, box.d — с
-  // width; part.rot∈{90,270} эти оси в box меняет местами (см. основной цикл
-  // buildModel — манипуляции с b.w/b.d при manualRot/dirRot 90°/270°).
-  const lenAxisIsW = (p) => {
-    const r = ((Math.round(p.rot || 0) % 360) + 360) % 360;
-    return !(r === 90 || r === 270);
-  };
-
   const trimSecondary = (primary, secondary) => {
     const [pLoX, pHiX] = rectX(primary), [pLoZ, pHiZ] = rectZ(primary);
     const [sLoX, sHiX] = rectX(secondary), [sLoZ, sHiZ] = rectZ(secondary);
@@ -3961,7 +4079,7 @@ function joinCountertopSeams(parts, proj, warnings) {
       secondary.box.z = round1(pHiZ + cutSize / 2); secondary.box.d = round1(cutSize);
     }
     if (axis == null) return false;
-    const wIsLen = lenAxisIsW(secondary);
+    const wIsLen = countertopLenAxisIsW(secondary);
     if (axis === 'x') { if (wIsLen) secondary.length = round1(cutSize); else secondary.width = round1(cutSize); }
     else if (wIsLen) secondary.width = round1(cutSize); else secondary.length = round1(cutSize);
     secondary.note = (secondary.note ? secondary.note + '; ' : '')

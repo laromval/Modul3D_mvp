@@ -2969,37 +2969,50 @@ for (const glass of [false, true]) {
   cases += 1;
 }
 
-// --- столешница: прямой стык между соседними тумбами ------------------------
-// Регрессия на joinCountertopSeams(): у двух тумб подряд с включённой
-// столешницей должен появиться РОВНО один прямой стык с эксцентриковой
-// стяжкой (не слияние в одну деталь, как у цоколя — своя деталь на каждую).
+// --- столешница: слияние соседних тумб в одну сквозную деталь ---------------
+// Регрессия на mergeCountertops(): пока ряд помещается в один лист (макс.
+// 4100 мм у ЛДСП38/компакт-плиты) — столешница ОДНА сквозная деталь без
+// стыка, по аналогии с цоколем (mergePlinths). Стык появляется, только
+// когда упирается в максимальную длину плиты, и всегда на границе тумб.
 {
-  const model = buildModel(Object.assign({}, base, {
-    modules: [
-      { name: 'Тумба 1', width: 600, height: 820, depth: 560, leftSide: 'onBottom', rightSide: 'onBottom',
-        topType: 'rails', base: { type: 'legsPlinth', legHeight: 100 },
-        countertop: { enabled: true, material: 'ldsp38' },
-        sections: [{ shelves: 1, drawers: 0, facade: 'doorLeft', drawerSystem: 'ballBearing' }] },
-      { name: 'Тумба 2', width: 800, height: 820, depth: 560, leftSide: 'onBottom', rightSide: 'onBottom',
-        topType: 'rails', base: { type: 'legsPlinth', legHeight: 100 },
-        countertop: { enabled: true, material: 'ldsp38' },
-        sections: [{ shelves: 1, drawers: 2, facade: 'doorRight', drawerSystem: 'ballBearing' }] },
-    ],
+  const modWidths = (ws) => ws.map((w, i) => ({
+    name: 'Тумба ' + (i + 1), width: w, height: 820, depth: 560,
+    leftSide: 'onBottom', rightSide: 'onBottom', topType: 'rails',
+    base: { type: 'legsPlinth', legHeight: 100 },
+    countertop: { enabled: true, material: 'ldsp38' },
+    sections: [{ shelves: 1, drawers: 0, facade: 'doorLeft', drawerSystem: 'ballBearing' }],
   }));
-  inspect(model, 'столешница: прямой стык');
 
-  const tops = model.parts.filter((p) => p.kind === 'countertop');
-  if (tops.length !== 2) problems.push(`столешница: деталей countertop ${tops.length} вместо 2 (не должна сливаться, как цоколь)`);
+  // 600+800=1400 мм — далеко до 4100: должна остаться ОДНА деталь, стыков нет.
+  const shortModel = buildModel(Object.assign({}, base, { modules: modWidths([600, 800]) }));
+  inspect(shortModel, 'столешница: слияние — короткий ряд, без стыка');
+  const shortTops = shortModel.parts.filter((p) => p.kind === 'countertop');
+  if (shortTops.length !== 1) problems.push(`столешница: короткий ряд (1400 мм) — деталей countertop ${shortTops.length} вместо 1 (должны слиться, как цоколь)`);
+  if (shortTops[0] && Math.abs(shortTops[0].length - 1400) > 1) problems.push(`столешница: слитая длина ${shortTops[0] && shortTops[0].length} вместо 1400`);
+  const shortJoints = (shortModel.hardwareContext.countertopJoints || []).filter((j) => j.type === 'straight');
+  if (shortJoints.length !== 0) problems.push(`столешница: короткий ряд — стыков ${shortJoints.length} вместо 0 (влезает в один лист, крепёж стыка не нужен)`);
 
-  const joints = model.hardwareContext.countertopJoints || [];
-  const straight = joints.filter((j) => j.type === 'straight');
-  if (straight.length !== 1) problems.push(`столешница: прямых стыков ${straight.length} вместо 1`);
+  // 5×900=4500 мм — превышает 4100: должно получиться 2 детали (4 тумбы
+  // слито в 3600 мм + 1 тумба отдельно 900 мм), стык РОВНО на границе
+  // 4-й и 5-й тумбы, с эксцентриковой стяжкой (глубина 560 мм &lt; шага 600 → 2 шт).
+  const longModel = buildModel(Object.assign({}, base, { modules: modWidths([900, 900, 900, 900, 900]) }));
+  inspect(longModel, 'столешница: слияние — длинный ряд, стык на границе');
+  const longTops = longModel.parts.filter((p) => p.kind === 'countertop');
+  if (longTops.length !== 2) problems.push(`столешница: длинный ряд (4500 мм) — деталей countertop ${longTops.length} вместо 2 (должен появиться ровно один стык)`);
   else {
-    const tie = (straight[0].hardware || []).find((h) => h.key === 'countertopStraightTie');
-    if (!tie) problems.push('столешница: у прямого стыка нет countertopStraightTie в hardware');
-    else if (tie.qty !== 2) problems.push(`столешница: прямой стык — стяжек ${tie.qty} вместо 2 (глубина 600 &lt; шага 600)`);
+    const lens = longTops.map((p) => Math.round(p.length)).sort((a, b) => a - b);
+    if (lens[0] !== 900 || lens[1] !== 3600) {
+      problems.push(`столешница: длинный ряд — длины деталей ${lens.join('+')} вместо 900+3600 (стык должен быть на границе тумб, не где попало)`);
+    }
   }
-  cases += 1;
+  const longJoints = (longModel.hardwareContext.countertopJoints || []).filter((j) => j.type === 'straight');
+  if (longJoints.length !== 1) problems.push(`столешница: длинный ряд — стыков ${longJoints.length} вместо 1`);
+  else {
+    const tie = (longJoints[0].hardware || []).find((h) => h.key === 'countertopStraightTie');
+    if (!tie) problems.push('столешница: у стыка длинного ряда нет countertopStraightTie в hardware');
+    else if (tie.qty !== 2) problems.push(`столешница: длинный ряд — стяжек ${tie.qty} вместо 2 (глубина 560 мм < шага 600)`);
+  }
+  cases += 2;
 }
 
 // --- столешница: угловой 90° стык -------------------------------------------
@@ -3043,27 +3056,33 @@ for (const glass of [false, true]) {
   cases += 2;
 }
 
-// --- столешница: компакт-плита без верхней планки под стыком — предупреждение
+// --- столешница: компакт-плита, стык на превышении длины листа --------------
+// Компакт (макс. 4100 мм) — 5×900=4500 мм тоже должен слиться в 4+1 с одним
+// стыком (см. тест выше), но крепёж стыка у компакта — ТОЛЬКО герметик, без
+// стяжек, и обязательна верхняя планка под ВСЕЙ деталью по обе стороны шва
+// (иначе предупреждение). Пятая тумба — БЕЗ планки (topType:'panel'), чтобы
+// проверить, что предупреждение реально ловит нехватку планки у слитой
+// детали, а не только у одиночной тумбы.
 {
-  const model = buildModel(Object.assign({}, base, {
-    modules: [
-      { name: 'Тумба 1', width: 600, height: 820, depth: 650, leftSide: 'onBottom', rightSide: 'onBottom',
-        topType: 'panel', base: { type: 'legsPlinth', legHeight: 100 },
-        countertop: { enabled: true, material: 'compact12' },
-        sections: [{ shelves: 1, drawers: 0, facade: 'doorLeft', drawerSystem: 'ballBearing' }] },
-      { name: 'Тумба 2', width: 600, height: 820, depth: 650, leftSide: 'onBottom', rightSide: 'onBottom',
-        topType: 'rails', base: { type: 'legsPlinth', legHeight: 100 },
-        countertop: { enabled: true, material: 'compact12' },
-        sections: [{ shelves: 1, drawers: 0, facade: 'doorRight', drawerSystem: 'ballBearing' }] },
-    ],
+  const mods = [900, 900, 900, 900, 900].map((w, i) => ({
+    name: 'Тумба ' + (i + 1), width: w, height: 820, depth: 650,
+    leftSide: 'onBottom', rightSide: 'onBottom',
+    topType: i < 4 ? 'rails' : 'panel',
+    base: { type: 'legsPlinth', legHeight: 100 },
+    countertop: { enabled: true, material: 'compact12' },
+    sections: [{ shelves: 1, drawers: 0, facade: 'doorLeft', drawerSystem: 'ballBearing' }],
   }));
-  inspect(model, 'столешница: компакт без планки');
+  const model = buildModel(Object.assign({}, base, { modules: mods }));
+  inspect(model, 'столешница: компакт, стык на длине — без планки под 5-й тумбой');
+
+  const tops = model.parts.filter((p) => p.kind === 'countertop');
+  if (tops.length !== 2) problems.push(`столешница: компакт длинный ряд — деталей countertop ${tops.length} вместо 2`);
 
   if (!model.warnings.some((w) => /под краем нет верхней планки/.test(w))) {
-    problems.push('столешница: нет предупреждения про компакт-плиту без планки под стыком');
+    problems.push('столешница: нет предупреждения про компакт-плиту без планки под стыком (5-я тумба topType:panel)');
   }
   const joints = model.hardwareContext.countertopJoints || [];
-  const seam = joints[0];
+  const seam = joints.find((j) => j.material && tops.some((t) => t.material === j.material));
   if (!seam || !(seam.hardware || []).some((h) => h.key === 'countertopSealant')) {
     problems.push('столешница: у стыка компакт-плиты нет countertopSealant');
   }
