@@ -2145,45 +2145,28 @@ for (const glass of [false, true]) {
   cases += 1;
 }
 
-// --- деталь режется по-настоящему: слои под присадку и паз -----------------
+// --- деталь режется по-настоящему: булево вычитание (см. src/csg.js) ------
 // В 3D отверстие должно быть УГЛУБЛЕНИЕМ с дном, а паз — канавкой, а не
-// наклейкой поверх грани. Проверяем математику раскладки слоёв.
+// наклейкой поверх грани. Раньше здесь проверялась математика раскладки
+// слоёв (panelSlabs) — с переходом на настоящее булево вычитание (csg.js,
+// 2026-09-04) этой функции больше нет: резка требует Three.js (Vector3/
+// Matrix4/BufferGeometry), а этот файл намеренно работает без браузера —
+// саму резку проверяют Playwright-сценарии в браузере, не здесь. Тут
+// по-прежнему проверяем то, что осталось чистой математикой без Three.js:
+// раскладку локальных осей детали и позицию торцевого отверстия.
 {
-  let panelSlabs = null;
+  let lengthAlongU = null, edgeDrill = null;
   try {
     // viewer.js грузится без Three.js: на верхнем уровне там только функции
     require(path.join(ROOT, 'src', 'viewer.js'));
-    panelSlabs = (window.Modul3D.viewer || {}).panelSlabs;
+    ({ lengthAlongU, edgeDrill } = window.Modul3D.viewer || {});
   } catch (err) {
     problems.push('viewer.js не загружается без браузера: ' + err.message);
   }
-  if (!panelSlabs) problems.push('panelSlabs не опубликован — резку слоёв не проверить');
+  if (!lengthAlongU || !edgeDrill) problems.push('lengthAlongU/edgeDrill не опубликованы');
   else {
-    // глухое отверстие: два слоя, вырез только в верхнем
-    const blind = panelSlabs(500, 700, 18, [{ u: 34, v: 50, r: 7.5, depth: 13.4, fromFront: true }]);
-    if (blind.length !== 2) problems.push(`глухое отверстие: слоёв ${blind.length} вместо 2`);
-    else {
-      if (Math.abs(blind[0].b - 13.4) > 0.01) problems.push('глухое отверстие: глубина слоя не 13,4');
-      if (blind[0].cuts.length !== 1) problems.push('глухое отверстие: не вырезано в лицевом слое');
-      if (blind[1].cuts.length !== 0) problems.push('глухое отверстие: прорезало деталь насквозь — нет дна');
-    }
-    // паз 8 мм
-    const gr = panelSlabs(562, 820, 18, [{ u0: 0, v0: 46, u1: 562, v1: 54, depth: 8, fromFront: true }]);
-    if (gr.length !== 2 || Math.abs(gr[0].b - 8) > 0.01) problems.push('паз: слои разложены неверно');
-    if (gr[1] && gr[1].cuts.length) problems.push('паз: прорезал деталь насквозь');
-    // сквозное отверстие: один слой с вырезом
-    const thr = panelSlabs(500, 700, 18, [{ u: 10, v: 10, r: 2.5, through: true }]);
-    if (thr.length !== 1 || thr[0].cuts.length !== 1) problems.push('сквозное отверстие: не проходит насквозь');
-    // присадка с двух сторон: три слоя, средний целый
-    const both = panelSlabs(500, 700, 18, [
-      { u: 34, v: 50, r: 7.5, depth: 13.4, fromFront: true },
-      { u: 100, v: 50, r: 4, depth: 12, fromFront: false },
-    ]);
-    if (both.length !== 3) problems.push(`двусторонняя присадка: слоёв ${both.length} вместо 3`);
-
     // Раскладка локальных осей детали: у двери длина горизонтальна,
     // у боковины и доборной планки — вертикальна.
-    const { lengthAlongU, edgeDrill } = window.Modul3D.viewer;
     if (lengthAlongU(702, 560, 702)) problems.push('боковина: длина принята за горизонталь');
     if (!lengthAlongU(564, 564, 510)) problems.push('дно: длина принята за вертикаль');
     if (!lengthAlongU(597, 597, 717)) problems.push('дверь: длина принята за вертикаль');

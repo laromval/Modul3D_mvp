@@ -26,6 +26,26 @@ class Vector3 {
   length() { return Math.hypot(this.x, this.y, this.z); }
 }
 class Euler extends Vector3 {}
+// Matrix4/Matrix3 — тем же приёмом, что и Vector3 выше: методы, которые бы
+// считали настоящий поворот/перенос, просто возвращают this без изменений.
+// Нужны только затем, чтобы `new THREE.Matrix4()...` в viewer.js (см.
+// csgTools — инструменты для булева вычитания, csg.js) не падал с «is not a
+// constructor»; сама резка (csg.js) реальных position/normal в этой
+// заглушке всё равно не получит (BoxGeometry/CylinderGeometry здесь —
+// геометрия-пустышка geo(), без вершин), поэтому render() и так уходит по
+// try/catch на запасной путь — заглушке достаточно не мешать этому дойти.
+class Matrix4 {
+  constructor() { this.elements = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]; }
+  makeRotationX() { return this; }
+  makeRotationY() { return this; }
+  makeRotationZ() { return this; }
+  setPosition(x, y, z) { this.elements[12] = x; this.elements[13] = y; this.elements[14] = z; return this; }
+  multiply() { return this; }
+}
+class Matrix3 {
+  constructor() { this.elements = [1, 0, 0, 0, 1, 0, 0, 0, 1]; }
+  getNormalMatrix() { return this; }
+}
 
 class Object3D {
   constructor() {
@@ -136,7 +156,7 @@ class WebGLRenderer {
 }
 
 const THREE = {
-  Vector2, Vector3, Euler, Object3D, Group, Scene, Mesh, LineSegments,
+  Vector2, Vector3, Euler, Matrix4, Matrix3, Object3D, Group, Scene, Mesh, LineSegments,
   BoxGeometry: geo('box'), CylinderGeometry: geo('cyl'), CircleGeometry: geo('circle'),
   PlaneGeometry: geo('plane'), SphereGeometry: geo('sphere'), EdgesGeometry: geo('edges'),
   ExtrudeGeometry, Shape, Path, BufferGeometry, BufferAttribute, Float32BufferAttribute: BufferAttribute,

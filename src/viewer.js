@@ -108,120 +108,13 @@ function edgeDrill(u, v, uSize, vSize, depth) {
   return { alongU: atU, uPos, vPos, len: dLen };
 }
 
-function panelSlabs(uSize, vSize, tSize, cuts) {
-  const bounds = new Set([0, tSize]);
-  for (const c of cuts) {
-    const d = c.through ? tSize : Math.min(c.depth || 0, tSize);
-    if (d <= 0) continue;
-    bounds.add(c.fromFront ? d : tSize - d);
-  }
-  const list = Array.from(bounds).sort((a, b) => a - b);
-  const slabs = [];
-  for (let i = 0; i < list.length - 1; i++) {
-    const a = list[i], b = list[i + 1];
-    if (b - a < 0.05) continue;
-    const active = cuts.filter((c) => {
-      if (c.through) return true;
-      const d = Math.min(c.depth || 0, tSize);
-      return c.fromFront ? (b <= d + 0.01) : (a >= tSize - d - 0.01);
-    });
-    slabs.push({ a, b, cuts: active });
-  }
-  return slabs;
-}
-
-function slabGeometry(uSize, vSize, thick, cuts, MMv) {
-  const shape = new THREE.Shape();
-  shape.moveTo(0, 0);
-  shape.lineTo(uSize * MMv, 0);
-  shape.lineTo(uSize * MMv, vSize * MMv);
-  shape.lineTo(0, vSize * MMv);
-  shape.lineTo(0, 0);
-  for (const c of cuts) {
-    const path = new THREE.Path();
-    if (c.r) {
-      path.absarc(c.u * MMv, c.v * MMv, Math.max(c.r * MMv, 0.0005), 0, Math.PI * 2, true);
-    } else {
-      const u0 = Math.max(Math.min(c.u0, c.u1), 0) * MMv;
-      const u1 = Math.min(Math.max(c.u0, c.u1), uSize) * MMv;
-      const v0 = Math.max(Math.min(c.v0, c.v1), 0) * MMv;
-      const v1 = Math.min(Math.max(c.v0, c.v1), vSize) * MMv;
-      if (u1 - u0 < 1e-6 || v1 - v0 < 1e-6) continue;
-      path.moveTo(u0, v0);
-      path.lineTo(u0, v1);
-      path.lineTo(u1, v1);
-      path.lineTo(u1, v0);
-      path.lineTo(u0, v0);
-    }
-    shape.holes.push(path);
-  }
-  const geo = new THREE.ExtrudeGeometry(shape, {
-    depth: thick * MMv, bevelEnabled: false, curveSegments: 16,
-  });
-  // Центрируем слой по всем трём осям: дальше его останется только
-  // развернуть в мировые оси и сдвинуть на свою глубину.
-  geo.translate(-uSize * MMv / 2, -vSize * MMv / 2, -thick * MMv / 2);
-  return geo;
-}
-
-// Деталь физически цельная, а мы режем её на слои-слэбы только ради того,
-// чтобы у глухого отверстия было дно (см. panelSlabs). Каждый слэб —
-// НЕЗАВИСИМЫЙ закрытый солид (ExtrudeGeometry со своими торцевыми
-// «крышками»), поэтому простое слияние вершин соседних слэбов в одну
-// геометрию (как делалось раньше) шов не убирает: EdgesGeometry решает,
-// рисовать ли линию, не по совпадению позиций, а по скалярному
-// произведению нормалей у пары треугольников, и у стыковых торцевых
-// крышек двух слэбов нормали смотрят в ПРОТИВОПОЛОЖНЫЕ стороны (каждая —
-// наружу от своего тела) — для EdgesGeometry это неотличимо от настоящего
-// ребра, сколько вершины ни сливай.
-//
-// Поэтому линии детали строятся в ДВА ПРОХОДА:
-//   1) внешний параллелепипед детали (uSize×vSize×tSize) считается ОДИН
-//      РАЗ по её габаритам — независимо от того, на сколько слэбов её
-//      порезали ради вырезов (см. outlineBox/outlineEdges в цикле рендера);
-//   2) у каждого слэба берутся его собственные рёбра (EdgesGeometry), но
-//      из них выбрасываются сегменты, целиком лежащие на внешней рамке
-//      пласти слэба (боковая стенка слэба или дублирующийся периметр) —
-//      они уже нарисованы проходом 1. Настоящие рёбра выреза (стенка
-//      отверстия, дно паза) всегда отступают от края детали по правилам
-//      присадки, так что фильтр их не задевает. Делает это
-//      filterOuterFrameSegments ниже.
-//
-// Фильтрация выполняется ДО поворота/сдвига слэба в мировые оси — то есть
-// на координатах сразу после slabGeometry(), пока x=u, y=v ещё центрированы
-// вокруг нуля (±uSize/2, ±vSize/2) и совпадают по смыслу с halfU/halfV.
-//
-// Известное ограничение (редкий случай, не блокирует основной фикс выше):
-// если на детали ОДНОВРЕМЕННО есть неглубокий вырез (создающий границу
-// слэбов на малой глубине) и, в другом месте той же детали, сквозной
-// вырез — стенка сквозного отверстия тоже окажется «разрезанной» на слэбы
-// этой границей, и в середине её стенки (не на настоящей кромке детали)
-// может остаться лишнее кольцо-шов. Фильтр по внешней рамке пласти его не
-// ловит, т.к. это не рамка пласти, а внутренняя граница слэбов. Отдельная
-// доработка (не делали): убирать рёбра выреза, совпадающего по u,v,r в
-// соседних слэбах по обе стороны их общей границы.
-function filterOuterFrameSegments(edgesGeo, halfU, halfV) {
-  const eps = 1e-6; // метры; boundary-координаты слэба совпадают с halfU/halfV
-  // почти точно (плавающая ошибка Float32 на этих величинах — порядка
-  // 1e-8..1e-7), а реальный вырез отстоит от края минимум на несколько мм
-  // (0.003+ м) — eps между ними с большим запасом в обе стороны.
-  const pos = edgesGeo.attributes.position.array;
-  const onSide = (v0, v1, half) => (
-    (Math.abs(v0 - half) < eps && Math.abs(v1 - half) < eps) ||
-    (Math.abs(v0 + half) < eps && Math.abs(v1 + half) < eps)
-  );
-  const kept = [];
-  for (let i = 0; i < pos.length; i += 6) {
-    const x0 = pos[i], y0 = pos[i + 1];
-    const x1 = pos[i + 3], y1 = pos[i + 4];
-    if (onSide(x0, x1, halfU) || onSide(y0, y1, halfV)) continue; // дубль рамки слэба
-    for (let k = 0; k < 6; k++) kept.push(pos[i + k]);
-  }
-  if (!kept.length) return null;
-  const out = new THREE.BufferGeometry();
-  out.setAttribute('position', new THREE.BufferAttribute(new Float32Array(kept), 3));
-  return out;
-}
+// Резка отверстий и пазов — настоящее булево вычитание (см. csg.js), а не
+// приближение слоями по толщине (так было раньше — и ломалось всякий раз,
+// когда два выреза оказывались рядом или физически пересекались, как
+// Rastex эксцентрик+шток). Сама резка — в render() ниже, где строится
+// геометрия детали; здесь остаётся только edgeDrill() выше (ось/позиция
+// торцевого отверстия — общая для реального выреза и для метки в режиме
+// проверки присадки).
 
 // РЕЖИМ ПРОВЕРКИ ПРИСАДКИ: цвет метки по назначению отверстия. Оператору
 // достаточно взгляда, чтобы понять, что за отверстие и куда оно смотрит.
@@ -659,8 +552,9 @@ function splitKitchenLegParts(kind, THREE) {
 // x = r·sinθ, z = r·cosθ), экструдированный по вертикали на высоту height —
 // используется для хомута клипсы (см. ниже), чтобы это было настоящее тело
 // с толщиной стенки, а не нулевая скорлупа. Тот же приём Shape +
-// ExtrudeGeometry, что и slabGeometry выше, только контур строим сразу в
-// координатах (X, Z) и экструдируем «горизонтально».
+// ExtrudeGeometry, что и у остальной геометрии с вырезами в этом файле,
+// только контур строим сразу в координатах (X, Z) и экструдируем
+// «горизонтально».
 function ringSectorGeometry(innerR, outerR, thetaStart, thetaLength, height, THREE) {
   // Сегменты дуги: у полного круга похожие мелкие цилиндры в этом файле
   // (площадка опоры, отверстия присадки) используют 12–24 сегмента на 360°.
@@ -707,8 +601,8 @@ function ringSectorGeometry(innerR, outerR, thetaStart, thetaLength, height, THR
 // RoundedBoxGeometry, поэтому строим скруглённый контур сами: Shape в
 // плоскости (ширина×высота) с четырьмя скруглёнными углами через
 // quadraticCurveTo, экструдированный на depth (вылет площадки от ствола
-// опоры) — тот же приём Shape + ExtrudeGeometry, что и slabGeometry /
-// ringSectorGeometry выше.
+// опоры) — тот же приём Shape + ExtrudeGeometry, что и у ringSectorGeometry
+// выше.
 //
 // Итоговые локальные оси геометрии — те же, что были у заменяемого
 // BoxGeometry(depth, height, width): X — вылет (depth), Y — высота
@@ -1332,6 +1226,16 @@ class Viewer3D {
     this.group = new THREE.Group();
     this.scene.add(this.group);
 
+    // Кэш нарезанной геометрии деталей (см. partGeoCacheKey/render ниже):
+    // одинаковые по размерам и присадке детали (несколько ящиков/полок одной
+    // ширины — обычное дело в проекте) режутся ОДИН раз, а не на каждую
+    // деталь и на каждый вызов render() — переключение «Проверка присадки»
+    // геометрию вырезов не меняет вообще (только метки и прозрачность), так
+    // что кэш переживает рендеры. Живёт всю сессию вьювера; ограничение
+    // размера — грубая защита от бесконечного роста при долгой работе с
+    // множеством разных проектов подряд, не точная LRU-политика.
+    this._partGeoCache = new Map();
+
     // Выбор модуля кликом по 3D-модели. Клик отличаем от вращения по тому,
     // сдвигалась ли мышь между нажатием и отпусканием.
     this.onSelectModule = null;
@@ -1828,7 +1732,6 @@ class Viewer3D {
       //   боковина  — x по высоте, y по глубине;
       //   дно/полка — x по длине,  y по глубине;
       //   фасад     — x по длине,  y по высоте.
-      const cuts = [];
       // «Лицо» детали обычно определяется по её позиции (row.box.x < 0 для
       // тонких-по-X деталей типа боковины: считаем, что интерьер корпуса
       // смотрит к центру). Для смещённых деталей вне центра корпуса (напр.
@@ -1836,36 +1739,151 @@ class Viewer3D {
       // детали, а не к центру всего модуля) эта эвристика ошибается — тогда
       // engine.js явно проставляет row.frontIsPlus, и он в приоритете.
       const frontIsPlus = row.frontIsPlus != null ? row.frontIsPlus : (!planeIsX || row.box.x < 0);
+      // Развёрнутая ниже geometry.rotateY(-90°)/rotateX(+90°) (для боковины/
+      // горизонтали) переворачивает знак ЛОКАЛЬНОЙ толщины при переносе в
+      // мировые оси: локальный +Z уходит в мировой МИНУС X (боковина) или
+      // МИНУС Y (горизонталь) — проверено эмпирически. Метка присадки чуть
+      // ниже (marker.position.set) кладёт off НАПРЯМУЮ в нужную мировую ось,
+      // без этого поворота, поэтому она всегда была права; вырез — нет, его
+      // локальный Z нужно взять с обратным знаком, чтобы после поворота он
+      // совпал с меткой. У фасада (третья ветка, planeIsX=planeIsY=false)
+      // поворота нет вообще — там знак и так верный.
+      const zSign = (planeIsX || planeIsY) ? -1 : 1;
       // Куда смотрит локальная ось X детали, решаем ПО ЕЁ РАЗМЕРАМ: у двери
       // длина горизонтальна, у боковины и доборной планки — вертикальна.
       // Раньше это угадывалось по типу, и присадка ложилась поперёк.
       const lenIsU = lengthAlongU(row.length, uSize, vSize);
       const toU = (h) => (lenIsU ? h.x : h.y);
       const toV = (h) => (lenIsU ? h.y : h.x);
+
+      // Инструменты для булева вычитания (csg.js) — каждый в своих
+      // естественных координатах (цилиндр/бокс вокруг центра), matrix кладёт
+      // его в систему координат пласти: x=u («длина»), y=v («глубина»),
+      // z=толщина, центрировано вокруг нуля — та же система, в которой
+      // раньше считались координаты вырезов. Настоящее булево вычитание
+      // режет корректно и то, что раньше ломало приближённую резку слоями —
+      // физически пересекающиеся отверстия (Rastex эксцентрик и его же
+      // шток так и стоят у настоящей фурнитуры) и просто соседние
+      // отверстия на одной детали: результат всегда один цельный кусок
+      // геометрии без внутренних швов, сколько бы вырезов ни было.
+      const csgTools = [];
+      // Контур поверх выреза строим АНАЛИТИЧЕСКИ (прямоугольник детали +
+      // окружность/прямоугольник ровно там, где вырез открывается на
+      // поверхность), а не через EdgesGeometry готового CSG-меша: цилиндр —
+      // это аппроксимация N плоскими гранями, и при булевом вычитании каждая
+      // из них — БЕСКОНЕЧНАЯ плоскость, которая режет не только сам вырез,
+      // но и всю остальную плоскую пласть на кучу мелких кусков в одной
+      // плоскости. У этих кусков нет общих вершин (они выросли из разных
+      // проходов клипования), поэтому EdgesGeometry принимает границы между
+      // ними за настоящие рёбра и рисует пучок лишних линий вокруг каждого
+      // выреза («звёзды» и косые линии через всю деталь) — сама вырезанная
+      // ФОРМА при этом корректна, страдает только линия контура поверх неё.
+      const outlinePos = [];
+      const pushSeg = (x0, y0, z0, x1, y1, z1) => {
+        outlinePos.push(x0 * MM, y0 * MM, z0 * MM, x1 * MM, y1 * MM, z1 * MM);
+      };
+      const pushCircleXY = (cx, cy, z, rr, segCount) => {
+        for (let i = 0; i < segCount; i++) {
+          const a0 = (i / segCount) * Math.PI * 2, a1 = ((i + 1) / segCount) * Math.PI * 2;
+          pushSeg(cx + Math.cos(a0) * rr, cy + Math.sin(a0) * rr, z, cx + Math.cos(a1) * rr, cy + Math.sin(a1) * rr, z);
+        }
+      };
+      // Окружность входа торцевого отверстия — плоскость ПЕРПЕНДИКУЛЯРНА оси
+      // сверления (та лежит вдоль u или вдоль v, на глубине z=0 — see edgeDrill).
+      const pushCircleAtX = (x, cy, cz, rr, segCount) => {
+        for (let i = 0; i < segCount; i++) {
+          const a0 = (i / segCount) * Math.PI * 2, a1 = ((i + 1) / segCount) * Math.PI * 2;
+          pushSeg(x, cy + Math.cos(a0) * rr, cz + Math.sin(a0) * rr, x, cy + Math.cos(a1) * rr, cz + Math.sin(a1) * rr);
+        }
+      };
+      const pushCircleAtY = (y, cx, cz, rr, segCount) => {
+        for (let i = 0; i < segCount; i++) {
+          const a0 = (i / segCount) * Math.PI * 2, a1 = ((i + 1) / segCount) * Math.PI * 2;
+          pushSeg(cx + Math.cos(a0) * rr, y, cz + Math.sin(a0) * rr, cx + Math.cos(a1) * rr, y, cz + Math.sin(a1) * rr);
+        }
+      };
+      // Прямоугольный короб детали (12 рёбер) — не зависит от вырезов,
+      // всегда корректен.
+      {
+        const hu = uSize / 2, hv = vSize / 2, ht = tSize / 2;
+        const cn = [
+          [-hu, -hv, -ht], [hu, -hv, -ht], [hu, hv, -ht], [-hu, hv, -ht],
+          [-hu, -hv, ht], [hu, -hv, ht], [hu, hv, ht], [-hu, hv, ht],
+        ];
+        [[0, 1], [1, 2], [2, 3], [3, 0], [4, 5], [5, 6], [6, 7], [7, 4], [0, 4], [1, 5], [2, 6], [3, 7]]
+          .forEach(([ia, ib]) => pushSeg(cn[ia][0], cn[ia][1], cn[ia][2], cn[ib][0], cn[ib][1], cn[ib][2]));
+      }
+      const boxOutlineCount = outlinePos.length;
       for (const h of (row.holes || [])) {
-        if (h.side === 'edge') continue;                // торцевую не режем
         // Отверстие без диаметра (только что добавленное на экране «Деталь»,
-        // пользователь ещё не ввёл ⌀) ничего не режет — не только по смыслу
-        // (нулевой вырез), но и потому что slabGeometry() ниже отличает
-        // круглый вырез от прямоугольного по truthy c.r: при r=0 код уходит
-        // в ветку прямоугольного паза и читает несуществующие c.u0/c.u1,
-        // получая NaN-геометрию.
+        // пользователь ещё не ввёл ⌀) ничего не режет.
         if (!(h.d > 0)) continue;
         const u = toU(h);
         const v = toV(h);
+        const r = h.d / 2;
+        // Мелкое отверстие (Ø<5мм — крепление дна ящика и подобная мелочь)
+        // не нуждается в той же гладкости, что и крупное — 8 граней вместо
+        // 16, вдвое меньше геометрии там, где таких отверстий больше всего.
+        const segs = r * 2 < 5 ? 8 : 16;
+        if (h.side === 'edge') {
+          // ТОРЦЕВОЕ ОТВЕРСТИЕ (Rastex-шток minifixBolt, конфирмат/шкант в
+          // торец): ось сверления идёт ВДОЛЬ кромки детали (u или v), а не
+          // поперёк пласти. edgeDrill() — та же функция, что рисует и метку
+          // ниже, чтобы вырез и метка совпадали по оси/позиции/глубине.
+          const ed = edgeDrill(u, v, uSize, vSize, h.depth);
+          const cyl = new THREE.CylinderGeometry(r * MM, r * MM, ed.len * MM, segs);
+          const m = new THREE.Matrix4();
+          if (ed.alongU) m.makeRotationZ(Math.PI / 2); // ось цилиндра Y → X
+          m.setPosition(ed.uPos * MM, ed.vPos * MM, 0);
+          csgTools.push({ geometry: cyl, matrix: m });
+          // Вход отверстия — торец цилиндра со стороны кромки детали (там,
+          // где центр смещён по знаку от нуля).
+          if (ed.alongU) {
+            const dir = ed.uPos >= 0 ? 1 : -1;
+            pushCircleAtX(ed.uPos + dir * ed.len / 2, ed.vPos, 0, r, segs);
+          } else {
+            const dir = ed.vPos >= 0 ? 1 : -1;
+            pushCircleAtY(ed.vPos + dir * ed.len / 2, ed.uPos, 0, r, segs);
+          }
+          continue;
+        }
         const fromFront = h.side === 'back' ? !frontIsPlus : frontIsPlus;
-        cuts.push({ u, v, r: h.d / 2, depth: h.depth || 0, through: !!h.through, fromFront });
+        const dep = h.through ? tSize : Math.max(h.depth || 6, 4);
+        const off = h.through ? 0 : (tSize / 2 - dep / 2) * (fromFront ? 1 : -1) * zSign;
+        const cyl = new THREE.CylinderGeometry(r * MM, r * MM, dep * MM, segs);
+        const m = new THREE.Matrix4().makeRotationX(Math.PI / 2); // ось цилиндра Y → Z (толщина)
+        m.setPosition((u - uSize / 2) * MM, (v - vSize / 2) * MM, off * MM);
+        csgTools.push({ geometry: cyl, matrix: m });
+        if (h.through) {
+          pushCircleXY(u - uSize / 2, v - vSize / 2, tSize / 2, r, segs);
+          pushCircleXY(u - uSize / 2, v - vSize / 2, -tSize / 2, r, segs);
+        } else {
+          pushCircleXY(u - uSize / 2, v - vSize / 2, (fromFront ? tSize / 2 : -tSize / 2) * zSign, r, segs);
+        }
       }
       for (const g of (row.grooves || [])) {
         const u0 = toU({ x: g.x0, y: g.y0 }), v0 = toV({ x: g.x0, y: g.y0 });
         const u1 = toU({ x: g.x1, y: g.y1 }), v1 = toV({ x: g.x1, y: g.y1 });
         const half = (g.w || 4) / 2;
         const along = Math.abs(u1 - u0) >= Math.abs(v1 - v0);
-        cuts.push({
-          u0: along ? u0 : u0 - half, u1: along ? u1 : u1 + half,
-          v0: along ? v0 - half : v0, v1: along ? v1 + half : v1,
-          depth: g.depth || 4, through: false, fromFront: frontIsPlus,
-        });
+        const gu0 = along ? u0 : u0 - half, gu1 = along ? u1 : u1 + half;
+        const gv0 = along ? v0 - half : v0, gv1 = along ? v1 + half : v1;
+        const depth = g.depth || 4;
+        const dirSign = (frontIsPlus ? 1 : -1) * zSign;
+        const off = (tSize / 2 - depth / 2) * dirSign;
+        const box = new THREE.BoxGeometry(
+          Math.max(Math.abs(gu1 - gu0), 0.05) * MM, Math.max(Math.abs(gv1 - gv0), 0.05) * MM, depth * MM
+        );
+        const m = new THREE.Matrix4().setPosition(
+          ((gu0 + gu1) / 2 - uSize / 2) * MM, ((gv0 + gv1) / 2 - vSize / 2) * MM, off * MM
+        );
+        csgTools.push({ geometry: box, matrix: m });
+        const gzTop = (tSize / 2) * dirSign; // грань, на которой паз открывается наружу
+        const rx0 = gu0 - uSize / 2, rx1 = gu1 - uSize / 2, ry0 = gv0 - vSize / 2, ry1 = gv1 - vSize / 2;
+        pushSeg(rx0, ry0, gzTop, rx1, ry0, gzTop);
+        pushSeg(rx1, ry0, gzTop, rx1, ry1, gzTop);
+        pushSeg(rx1, ry1, gzTop, rx0, ry1, gzTop);
+        pushSeg(rx0, ry1, gzTop, rx0, ry0, gzTop);
       }
 
       // Материал по типу детали: ЛДСП — с текстурой «под древесину»,
@@ -1893,96 +1911,118 @@ class Viewer3D {
         depthWrite: !(hiCyan || ghostLike || glass || drillCheck || isActive),
       });
       if (tex) {
-        // Грань детали строится в slabGeometry() как THREE.Shape с
-        // координатами в МЕТРАХ (uSize*MM, vSize*MM), а штатный
-        // ExtrudeGeometry.WorldUVGenerator берёт эти же координаты как UV
-        // «как есть» — то есть «сырой» UV детали УЖЕ пропорционален её
-        // физическому размеру в метрах (сам масштаб уже заложен геометрией,
-        // ничего досчитывать не нужно). Раньше repeat ЕЩЁ РАЗ домножался на
-        // размер детали (row.box.w/600) поверх уже-пропорционального UV —
-        // получалось двойное масштабирование: число волокон на панели росло
-        // как размер В КВАДРАТЕ, и с виду получалась то мелкая частая волна
-        // (крупные детали вроде высоких дверей), то редкий рваный зигзаг
-        // (мелкие вроде фасадов ящиков и цоколя) — хотя порода дерева одна
-        // и та же. Фикс: repeat — ФИКСИРОВАННАЯ константа (одна и та же для
-        // ЛЮБОЙ детали, не зависит от row.box), которая переводит уже
-        // метровый UV в тайлы: 1 тайл = WOOD_TILE_M метров детали. Тогда
-        // густота волокна (линий на мм) одинакова у любой детали независимо
-        // от размера — как и должно быть у одной породы.
         mat.map = tex.clone();
         mat.map.needsUpdate = true;
         mat.map.wrapS = THREE.RepeatWrapping;
         mat.map.wrapT = THREE.RepeatWrapping;
+        // Текстура — обычное повторяющееся полотно, UV не привязан к форме
+        // выреза: ставим его напрямую по «сырым» координатам пласти (см.
+        // computeSlabUV ниже) — 1 тайл = WOOD_TILE_M метров детали, густота
+        // волокна (линий на мм) одинакова у любой детали независимо от
+        // размера, как и должно быть у одной породы.
         mat.map.repeat.set(1 / WOOD_TILE_M, 1 / WOOD_TILE_M);
       }
-      // Собираем деталь из слоёв: в каждом вырезаны те отверстия и пазы,
-      // что доходят до этой глубины. Если резать нечего — обычный куб.
-      const slabs = cuts.length
-        ? panelSlabs(uSize, vSize, tSize, cuts)
-        : [{ a: 0, b: tSize, cuts: [] }];
-      const partGeos = [];
-      // Линии контура строятся в два прохода — см. комментарий у
-      // filterOuterFrameSegments выше: outlineEdges — внешний параллелепипед
-      // детали (один раз на деталь), cutEdgeGeos — рёбра вырезов по слэбам
-      // (без дублей на стыках слоёв).
-      let outlineEdges = null;
-      const cutEdgeGeos = [];
-      try {
-        for (const sl of slabs) {
-          const g = slabGeometry(uSize, vSize, sl.b - sl.a, sl.cuts, MM);
-          // Рёбра ЭТОГО слэба считаем ДО поворота/сдвига в мировые оси —
-          // пока x=u, y=v ещё центрированы вокруг нуля (см. slabGeometry),
-          // и сразу выбрасываем сегменты на внешней рамке пласти (дубли
-          // прохода 1). Настоящие рёбра выреза так не отфильтруются: они
-          // всегда отступают от края детали.
-          const rawEdges = new THREE.EdgesGeometry(g);
-          const filtered = filterOuterFrameSegments(rawEdges, uSize * MM / 2, vSize * MM / 2);
-          // Слой разворачивается в мировые оси. Ориентация ФИКСИРОВАНА:
-          // «лицо» геометрии смотрит в +X у панелей, в +Y у горизонтальных
-          // деталей и в +Z у фасадов. С какой стороны резать — решает флаг
-          // fromFront у самого выреза, а не разворот детали.
-          const mid = (sl.a + sl.b) / 2;               // от лицевой грани
-          const shift = (tSize / 2 - mid) * MM;
-          if (planeIsX) {
-            g.rotateY(-Math.PI / 2);                   // u → +Z, толщина → +X
-            g.translate(shift, 0, 0);
-            if (filtered) { filtered.rotateY(-Math.PI / 2); filtered.translate(shift, 0, 0); }
-          } else if (planeIsY) {
-            g.rotateX(Math.PI / 2);                    // v → +Z, толщина → +Y
-            g.translate(0, shift, 0);
-            if (filtered) { filtered.rotateX(Math.PI / 2); filtered.translate(0, shift, 0); }
-          } else {
-            g.translate(0, 0, shift);
-            if (filtered) filtered.translate(0, 0, shift);
-          }
-          partGeos.push(g);
-          if (filtered) cutEdgeGeos.push(filtered);
+      // Кэш нарезанной геометрии (см. this._partGeoCache в конструкторе):
+      // одинаковые по размеру пласти и присадке детали (несколько ящиков/
+      // полок одной ширины в проекте — обычное дело) резать заново незачем,
+      // а переключение «Проверка присадки» саму нарезку вообще не меняет
+      // (только метки и прозрачность материала) — ключ ловит оба случая.
+      // orientKey обязателен: разные ориентации (боковина/горизонталь/фасад)
+      // могут случайно совпасть по (uSize,vSize,tSize), но разворачиваются
+      // в мировые оси по-разному.
+      const orientKey = planeIsX ? 'x' : (planeIsY ? 'y' : 'z');
+      const toolsKey = csgTools.map((t) => {
+        // .parameters — стандартное поле примитивов Three.js (CylinderGeometry/
+        // BoxGeometry), но заглушка tools/three-stub.js его не создаёт — там
+        // это всё равно не считается по-настоящему (см. csg.js), запасной
+        // ключ по e (матрица + geometry.kind/params заглушки) достаточен,
+        // чтобы просто не упасть.
+        const p = t.geometry.parameters;
+        const e = t.matrix.elements;
+        const dims = p
+          ? (p.radiusTop != null
+            ? `c${p.radiusTop.toFixed(3)}:${p.height.toFixed(3)}:${p.radialSegments}`
+            : `b${p.width.toFixed(3)}:${p.height.toFixed(3)}:${p.depth.toFixed(3)}`)
+          : `s${t.geometry.kind || ''}:${JSON.stringify(t.geometry.params || t.geometry.parameters || '')}`;
+        return `${dims}@${e.map((v) => v.toFixed(3)).join(',')}`;
+      }).sort().join('|');
+      const geoKey = `${orientKey}|${uSize.toFixed(2)}|${vSize.toFixed(2)}|${tSize.toFixed(2)}|${toolsKey}|tex:${tex ? 1 : 0}`;
+      const cachedGeo = this._partGeoCache.get(geoKey);
+      let partGeos, cutEdgeGeos, outlineEdges;
+      if (cachedGeo) {
+        partGeos = cachedGeo.partGeos;
+        cutEdgeGeos = cachedGeo.cutEdgeGeos;
+        outlineEdges = cachedGeo.outlineEdges;
+      } else {
+        cutEdgeGeos = [];
+        const baseBox = new THREE.BoxGeometry(uSize * MM, vSize * MM, tSize * MM);
+        let finalGeo = null;
+        try {
+          finalGeo = csgTools.length
+            ? window.Modul3D.csg.subtractMany({ geometry: baseBox }, csgTools)
+            : baseBox;
+          if (!finalGeo.attributes.position.count) finalGeo = null;
+        } catch (err) {
+          finalGeo = null;
         }
-        // Проход 1: внешний параллелепипед детали, один раз по её габаритам
-        // (uSize×vSize×tSize), развёрнутый теми же поворотами, что и слэбы,
-        // но БЕЗ сдвига — он уже центрирован по всей толщине детали, как и
-        // сумма всех слэбов (у BoxGeometry центр в нуле по умолчанию, у
-        // slabGeometry центр каждого слоя выставлен так же относительно
-        // общей толщины tSize).
-        const outlineBox = new THREE.BoxGeometry(uSize * MM, vSize * MM, tSize * MM);
-        if (planeIsX) outlineBox.rotateY(-Math.PI / 2);
-        else if (planeIsY) outlineBox.rotateX(Math.PI / 2);
-        outlineEdges = new THREE.EdgesGeometry(outlineBox);
-      } catch (err) {
-        partGeos.length = 0;
-        cutEdgeGeos.length = 0;
-        outlineEdges = null;
-      }
-      if (!partGeos.length) {
-        // Запасной путь при ошибке резки (см. catch выше) — обычный куб уже
-        // в мировых осях (без разворота planeIsX/Y, он тут не нужен), контур
-        // строим по нему же, чтобы линии не потерялись вместе с вырезами.
-        const fallbackBox = new THREE.BoxGeometry(
-          Math.max(locW * MM, 0.001), Math.max(row.box.h * MM, 0.001), Math.max(locD * MM, 0.001)
-        );
-        partGeos.push(fallbackBox);
-        outlineEdges = new THREE.EdgesGeometry(fallbackBox);
-        cutEdgeGeos.length = 0;
+        if (finalGeo) {
+          if (tex) {
+            // UV — напрямую по «сырым» координатам пласти (метры, ДО
+            // разворота в мировые оси ниже): для основных плоских граней
+            // детали это даёт ровно ту же густоту волокна, что и раньше у
+            // ExtrudeGeometry (её WorldUVGenerator брал координаты формы
+            // «как есть», уже в метрах). На стенках самих вырезов UV не
+            // идеален (плоская проекция, не разворот по цилиндру) — они
+            // узкие и почти не видны, для древесного узора это не критично.
+            const pos = finalGeo.attributes.position;
+            const uv = new Float32Array(pos.count * 2);
+            for (let i = 0; i < pos.count; i++) {
+              uv[i * 2] = pos.getX(i);
+              uv[i * 2 + 1] = pos.getY(i);
+            }
+            finalGeo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+          }
+          // Разворот в мировые оси. Ориентация ФИКСИРОВАНА: «лицо» детали
+          // смотрит в +X у боковин, в +Y у горизонтальных деталей и в +Z у
+          // фасадов. С какой стороны резать — решает флаг fromFront у
+          // самого выреза (см. off выше), а не разворот детали.
+          if (planeIsX) finalGeo.rotateY(-Math.PI / 2);        // u → +Z, толщина → +X
+          else if (planeIsY) finalGeo.rotateX(Math.PI / 2);    // v → +Z, толщина → +Y
+        } else {
+          // Запасной путь при ошибке CSG — обычный куб уже в мировых осях
+          // (без разворота planeIsX/Y, он тут не нужен), контур строится по
+          // нему же, чтобы линии не потерялись вместе с вырезами. Вырезов в
+          // геометрии нет — оставляем только рёбра прямоугольника детали,
+          // без кругов отверстий (они бы не соответствовали реальному
+          // вырезу, раз CSG не сработал).
+          finalGeo = new THREE.BoxGeometry(
+            Math.max(locW * MM, 0.001), Math.max(row.box.h * MM, 0.001), Math.max(locD * MM, 0.001)
+          );
+          outlinePos.length = boxOutlineCount;
+        }
+        partGeos = [finalGeo];
+        // Контур — НЕ EdgesGeometry(finalGeo): при булевом вычитании плоская
+        // пласть дробится на кучу мелких кусков в одной плоскости (секущие
+        // плоскости граней цилиндра-инструмента бесконечны), и EdgesGeometry
+        // рисует границы между ними как лишние линии («звёзды» вокруг
+        // вырезов). Вместо этого контур собран заранее по точным координатам
+        // самой детали и вырезов (outlinePos, см. выше) — один прямоугольник
+        // короба + окружность/прямоугольник ровно там, где вырез реально
+        // открывается на поверхность.
+        // outlinePos построен в ЛОКАЛЬНОЙ системе пласти (u,v,толщина=z) — той
+        // же, в которой finalGeo был ДО разворота в мировые оси; разворачиваем
+        // контур той же матрицей (и в запасном пути тоже — там finalGeo уже в
+        // мировых осях, а контур ещё нет).
+        const outlineGeo = new THREE.BufferGeometry();
+        outlineGeo.setAttribute('position', new THREE.Float32BufferAttribute(outlinePos, 3));
+        if (planeIsX) outlineGeo.rotateY(-Math.PI / 2);
+        else if (planeIsY) outlineGeo.rotateX(Math.PI / 2);
+        outlineEdges = outlineGeo;
+        // Кэш растёт, пока в сессии не наберётся МНОГО разных форм деталей
+        // (десятки проектов подряд) — грубая защита от неограниченного роста,
+        // не точная LRU-политика: просто сбрасываем и копим заново.
+        if (this._partGeoCache.size > 300) this._partGeoCache.clear();
+        this._partGeoCache.set(geoKey, { partGeos, cutEdgeGeos, outlineEdges });
       }
 
       for (const box of row.boxes) {
@@ -2163,11 +2203,12 @@ class Viewer3D {
           };
         }
         // Контур детали. Присадку наклейками больше НЕ рисуем: отверстия и
-        // пазы вырезаны в самой геометрии, у глухого отверстия есть дно.
-        // Линии — в два прохода (см. комментарий у filterOuterFrameSegments
-        // выше): outlineEdges — внешний параллелепипед детали целиком, один
-        // раз, независимо от разбиения на слэбы; cutEdgeGeos — рёбра
-        // реальных вырезов по каждому слэбу, уже без дублей на стыках.
+        // пазы вырезаны настоящим булевым вычитанием из самой геометрии
+        // (см. csg.js), у глухого отверстия есть дно. Линии контура собраны
+        // аналитически (прямоугольник детали + окружность/прямоугольник
+        // ровно по месту каждого выреза, см. outlinePos выше) — одна такая
+        // геометрия на деталь (cutEdgeGeos сейчас всегда пуст — оставлен
+        // только чтобы не менять форму кэша this._partGeoCache лишний раз).
         {
           const lineMat = new THREE.LineBasicMaterial({ color: isActive ? 0x1d5c8f : 0x8a7a5a });
           if (outlineEdges) mesh.add(new THREE.LineSegments(outlineEdges, lineMat));
@@ -2344,10 +2385,8 @@ function renderThumbnail(model, opts) {
 }
 
 window.Modul3D = window.Modul3D || {};
-// panelSlabs выносим наружу: это чистая математика раскладки слоёв,
-// её проверяет tools/geometry.js без браузера и без Three.js.
 window.Modul3D.viewer = {
-  Viewer3D, panelSlabs, lengthAlongU, edgeDrill, DRILL_COLOR, DRILL_TITLE,
+  Viewer3D, lengthAlongU, edgeDrill, DRILL_COLOR, DRILL_TITLE,
   renderThumbnail,
 };
 })();

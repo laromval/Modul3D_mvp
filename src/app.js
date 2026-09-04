@@ -14,7 +14,7 @@
 (function () {
 // Версия сборки — показывается во вкладке браузера и в шапке.
 // При выпуске новой версии меняется только эта строка.
-const APP_VERSION = 'v228';
+const APP_VERSION = 'v229';
 
 // Номер версии выводим ПЕРВЫМ делом: если дальше что-то упадёт, по нему сразу
 // видно, какая сборка открыта.
@@ -543,9 +543,15 @@ function libraryGridBlock() {
     bodyThickness: state.bodyThickness,
     backThickness: state.backThickness,
     facadeThickness: state.facadeThickness,
-    decor: DECORS.find(d => d.code === state.decorCode),
-    facadeDecor: DECORS.find(d => d.code === state.facadeDecorCode) || DECORS.find(d => d.code === state.decorCode),
-    backMaterial: BACK_MATERIALS.find(d => d.code === state.backCode),
+    // Запасной вариант (DECORS[0]/BACK_MATERIALS[0]) — на случай, если код
+    // декора из сохранённого проекта/автосохранения устарел (каталог правят
+    // отдельно от app.js, коды могут переименовать или убрать — так уже было
+    // 2026-09-03). Без отката buildModel() падает на undefined.code и рвёт
+    // всю инициализацию приложения (пустая библиотека, неработающие кнопки).
+    decor: DECORS.find(d => d.code === state.decorCode) || DECORS[0],
+    facadeDecor: DECORS.find(d => d.code === state.facadeDecorCode)
+      || DECORS.find(d => d.code === state.decorCode) || DECORS[0],
+    backMaterial: BACK_MATERIALS.find(d => d.code === state.backCode) || BACK_MATERIALS[0],
     worktopDepth: state.worktopDepth,
     jointType: state.jointType,
   };
@@ -3649,9 +3655,15 @@ function recompute(isRetry) {
     bodyThickness: state.bodyThickness,
     backThickness: state.backThickness,
     facadeThickness: state.facadeThickness,
-    decor: DECORS.find(d => d.code === state.decorCode),
-    facadeDecor: DECORS.find(d => d.code === state.facadeDecorCode) || DECORS.find(d => d.code === state.decorCode),
-    backMaterial: BACK_MATERIALS.find(d => d.code === state.backCode),
+    // Запасной вариант (DECORS[0]/BACK_MATERIALS[0]) — на случай, если код
+    // декора из сохранённого проекта/автосохранения устарел (каталог правят
+    // отдельно от app.js, коды могут переименовать или убрать — так уже было
+    // 2026-09-03). Без отката buildModel() падает на undefined.code и рвёт
+    // всю инициализацию приложения (пустая библиотека, неработающие кнопки).
+    decor: DECORS.find(d => d.code === state.decorCode) || DECORS[0],
+    facadeDecor: DECORS.find(d => d.code === state.facadeDecorCode)
+      || DECORS.find(d => d.code === state.decorCode) || DECORS[0],
+    backMaterial: BACK_MATERIALS.find(d => d.code === state.backCode) || BACK_MATERIALS[0],
     worktopDepth: state.worktopDepth,
     jointType: state.jointType,
     // Способ соединения столешниц на угловом стыке — общий на проект (панель
@@ -3677,6 +3689,14 @@ function recompute(isRetry) {
       countertop: m.countertop,
     })),
   };
+  // Если код декора был устаревшим (см. комментарий у отката DECORS[0] выше)
+  // и project.decor уехал на запасной вариант — подтягиваем state.decorCode/
+  // facadeDecorCode/backCode следом, иначе селектор в панели будет молча
+  // показывать несуществующий код, а автосохранение — раз за разом
+  // сохранять всё тот же битый код вместо реально применённого.
+  state.decorCode = project.decor.code;
+  state.facadeDecorCode = project.facadeDecor.code;
+  state.backCode = project.backMaterial.code;
 
   currentModel = buildModel(project);
 

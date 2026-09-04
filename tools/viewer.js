@@ -39,7 +39,7 @@ sandbox.window.addEventListener = () => {};
 sandbox.window.devicePixelRatio = 1;
 vm.createContext(sandbox);
 
-for (const f of ['catalog.js', 'presets.js', 'engine.js', 'specification.js', 'legMeshes.js', 'viewer.js']) {
+for (const f of ['catalog.js', 'presets.js', 'engine.js', 'specification.js', 'legMeshes.js', 'csg.js', 'viewer.js']) {
   vm.runInContext(fs.readFileSync(path.join(ROOT, 'src', f), 'utf8'), sandbox, { filename: f });
 }
 const B = sandbox.window.Modul3D;
