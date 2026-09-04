@@ -566,16 +566,20 @@ body.has-modal-drawer .scrim { opacity: 1; pointer-events: auto; }
 }
 
 /* Библиотека: на вкладках «Материалы»/«Фурнитура» (класс .lib-wide,
-   переключается в app.js renderLibraryPanel()) панель подстраивает ширину
-   под содержимое таблиц (.lib-table), чтобы колонки были видны без
-   прокрутки внутри таблицы; «База модулей» — без изменений, ширина
-   фиксирована как у остальных drawer-left. Тот же переход, что и у .drawer,
-   плюс width, чтобы смена ширины при переключении вкладок анимировалась. */
+   переключается в app.js renderLibraryPanel()) панель шире, чем «База
+   модулей» — под таблицы каталога с колонками цены/образца/фильтров. Ширина
+   ФИКСИРОВАННАЯ (не max-content — раньше панель подстраивалась под самую
+   широкую таблицу, из-за чего разные разделы визуально «плавали» разной
+   шириной, см. .lib-table ниже: теперь все таблицы сами разложены под одну
+   и ту же ширину колонок через table-layout:fixed). max-width — только
+   подстраховка на узких экранах, не основной механизм. Тот же переход, что
+   и у .drawer, плюс width, чтобы смена ширины при переключении вкладок
+   анимировалась. */
 #drawer-library {
   transition: transform var(--dur) var(--ease), opacity var(--dur) var(--ease),
               visibility 0s linear var(--dur), width var(--dur) var(--ease);
 }
-#drawer-library.lib-wide { width: max-content; max-width: 70vw; }
+#drawer-library.lib-wide { width: 640px; max-width: 92vw; }
 .drawer-bottom {
   /* левый край — за рейкой триггеров, чтобы она оставалась доступной */
   left: calc(var(--rail-w) + var(--sp-3)); right: var(--sp-3); bottom: var(--sp-3);
@@ -1153,18 +1157,59 @@ h4.spec-title { margin: var(--sp-5) 0 var(--sp-2); font-size: var(--fs-md); font
 .lib-tab-btn:hover { border-color: var(--accent); color: var(--text); }
 .lib-tab-btn.active { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
 
+/* Вкладка «Материалы» (app.js: libCategoryBlock/libSubcategoryPanel) —
+   КАТЕГОРИЯ (заголовок-кнопка .lib-cat-head, сворачивает ВСЁ содержимое)
+   → ряд кнопок-ПОДКАТЕГОРИЙ (переиспользует .sec-tab/.sec-add — тот же
+   визуальный паттерн, что и у вкладок секций модуля, см. раздел 4 выше;
+   каждая кнопка сворачивает только свою таблицу через .lib-collapsed,
+   независимо от соседних) → таблицы подкатегорий одна под другой. */
+.lib-category { margin-bottom: var(--sp-2); }
+.lib-cat-head {
+  display: flex; align-items: center; gap: 6px;
+  width: 100%; text-align: left;
+  background: none; border: none; padding: 0; margin: 0;
+  cursor: pointer; font-family: inherit;
+}
+.lib-cat-head .mat-sub { flex: 1 1 auto; }
+.lib-toggle-ic { flex: 0 0 auto; width: 10px; font-size: 10px; color: var(--muted); }
+.lib-cat-head:hover .mat-sub { color: var(--text); }
+/* Скрытие свёрнутой категории/подкатегории — свой класс, не .dim-out (тот
+   занят поиском applyLibrarySearch) и не .lib-filtered-out (тот занят
+   фильтрами «Фирма»/«Толщина», см. ниже) — все три должны мирно
+   сосуществовать на одной и той же таблице/строке одновременно. */
+.lib-collapsed { display: none !important; }
+.lib-subcat-btn { font-weight: 500; }
+
+/* Фильтры «Фирма»/«Толщина» внутри подкатегории (app.js: libFiltersHtml) —
+   компактные select рядом, а не на всю ширину поля, как обычный .field select. */
+.lib-filters { display: flex; gap: var(--sp-2); margin-bottom: var(--sp-2); }
+.lib-filter-select { width: auto; min-width: 120px; padding: 5px 24px 5px 8px; font-size: var(--fs-xs); }
+/* Строка, не подходящая под выбранные фильтры — скрыта. Отдельный от
+   .dim-out класс: тот управляется поиском независимо и должен продолжать
+   работать на той же строке одновременно, без конфликта. */
+.lib-filtered-out { display: none !important; }
+
 /* Редактируемые таблицы каталога (Материалы/Фурнитура) — клик по ячейке
-   превращает её в инпут (см. app.js: startCellEdit) */
+   превращает её в инпут (см. app.js: startCellEdit). Ширина колонок — ОДНА
+   и та же во всех подкатегориях/категориях (см. #drawer-library.lib-wide
+   выше: панель теперь фиксированной ширины, а не «под самую широкую
+   таблицу»); фиксирует её сама таблица через table-layout:fixed (инлайн,
+   только у таблиц материалов — см. libSubcategoryPanel) + <colgroup> с
+   явными шириной служебных колонок, «Наименование» без ширины забирает
+   остаток. Длинное название переносится по словам (см. :first-child ниже),
+   а не расширяет таблицу. */
 .lib-table {
   margin-bottom: var(--sp-2);
-  /* сбрасываем общий table { width: 100% } — таблица сама сообщает свою
-     естественную ширину (сумма колонок с white-space: nowrap) панели
-     #drawer-library.lib-wide (width: max-content), поэтому колонки не
-     сжимаются; overflow-x — резервный вариант, если даже 70vw не хватило */
-  width: auto;
+  width: 100%;
   max-width: 100%;
-  overflow-x: auto;
+  overflow-x: auto;   /* резервный вариант на случай нехватки места */
 }
+/* Узкие служебные колонки (26/50/62px в libColgroup) с обычным padding
+   (9px, см. общий th,td выше) обрезали заголовок «ОБРАЗЕЦ» — виден только
+   «ОБРАЗЕ». Более тесный padding именно у этих таблиц освобождает нужные
+   ~6px без пересчёта самих ширин колонок. */
+.lib-table th, .lib-table td { padding: 6px 5px; }
+.lib-table td:first-child, .lib-table th:first-child { white-space: normal; word-break: break-word; }
 .lib-table td.lib-edit-cell { cursor: text; }
 .lib-table td.lib-edit-cell:hover { background: var(--accent-soft); }
 .lib-table td.lib-edit-cell input {

@@ -14,7 +14,7 @@
 (function () {
 // Версия сборки — показывается во вкладке браузера и в шапке.
 // При выпуске новой версии меняется только эта строка.
-const APP_VERSION = 'v226';
+const APP_VERSION = 'v227';
 
 // Номер версии выводим ПЕРВЫМ делом: если дальше что-то упадёт, по нему сразу
 // видно, какая сборка открыта.
@@ -134,6 +134,25 @@ const state = {
   // редактируемые таблицы каталога материалов, 'hardware' — фурнитура.
   // Чисто UI-состояние, в историю отмены/файл проекта не попадает.
   libraryTab: 'modules',
+  // Свёрнутые категории/подкатегории вкладки «Материалы» (см.
+  // libCategoryBlock/libSubcategoryPanel): { cats: { decors: true, ... },
+  // subs: { 'decors::ЛДСП': true, ... } } — true, если раздел свёрнут кликом
+  // по заголовку. Отсутствие записи = развёрнуто (стартовое состояние —
+  // всё развёрнуто, как раньше). Чисто UI-состояние, как libraryTab выше:
+  // в историю отмены/файл проекта не попадает.
+  libCollapsed: { cats: {}, subs: {} },
+  // Подкатегории материалов, которые пользователь завёл кнопкой «+» рядом с
+  // рядом кнопок-подкатегорий (см. libAddSubcategory), но ещё не добавил в
+  // них ни одной позиции — { decors: ['Пластик'], back: [], facade: [] }.
+  // Как только в такой подкатегории появляется хотя бы одна позиция
+  // каталога (см. libAddRow), она и так попадает в группировку по данным
+  // (libGroupBySubcategory) — запись здесь только не даёт ПУСТОЙ
+  // подкатегории пропасть из панели, пока в неё не добавили ни одного
+  // материала. У «Кромки»/«Стекла» кнопки нет (там subcategory не поле
+  // данных — вся категория и есть одна подкатегория), эти два ключа не
+  // нужны. Чисто UI-состояние, как libCollapsed выше: в историю отмены/файл
+  // проекта не попадает.
+  libExtraSubcats: { decors: [], back: [], facade: [] },
   // Текст в строке поиска по вкладкам модулей проекта (moduleTabsBlock,
   // поле видно только когда модулей больше 8 — см. там же). Чисто
   // UI-состояние, как libraryTab выше: в историю отмены/файл проекта не
@@ -621,72 +640,232 @@ function libSwatchHtml(group, key, image) {
   return `<span class="lib-swatch${image ? '' : ' empty'}" data-swatch-group="${esc(group)}" data-swatch-key="${esc(key)}"${style} title="Загрузить образец"></span>`;
 }
 
-function libSheetTable(title, group, items) {
-  // Толщина — своя (редактируемая) колонка только у задней стенки: у неё
-  // это единственный источник state.backThickness (см. bindPanelEvents →
-  // #p-back). У декоров/фасадов толщина общая на проект и задаётся отдельными
-  // полями bodyThickness/facadeThickness в «Параметрах проекта», поэтому
-  // в этой таблице для них колонка не нужна.
-  const hasThickness = group === 'back';
-  const rows = items.map((it) => `
-    <tr data-search="${esc(String(it.name || '').toLowerCase())}">
+// ---------------------------------------------------------------------------
+// Таблицы вкладки «Материалы» — две ступени вложенности: КАТЕГОРИЯ (раздел
+// вкладки — «Материалы корпуса», «Кромка» и т.п., каждая ↔ свой раздел
+// каталога) → ПОДКАТЕГОРИЯ (поле item.subcategory каталога, например «ЛДСП»/
+// «МДФ» — своя таблица со своим фильтром «Фирма»/«Толщина»). У «Кромки»
+// (EDGE_PRICES) и «Стекла» (GLASS) позиций с полем subcategory в каталоге
+// нет — для них вся категория превращается в ОДНУ подкатегорию с тем же
+// именем, что и у самой категории (см. libCategoryBlock), поэтому один и тот
+// же код ниже строит все пять разделов, а не пять похожих друг на друга
+// функций. Обе ступени независимо сворачиваются кликом по заголовку —
+// состояние в state.libCollapsed (см. state выше), сессионное, не часть
+// проекта.
+// ---------------------------------------------------------------------------
+
+// Группирует items по item.subcategory, сохраняя порядок первого появления;
+// у позиций без subcategory используется fallbackName — получается ровно
+// одна группа с именем самой категории (так устроены «Кромка»/«Стекло»,
+// у их позиций поля subcategory в каталоге вовсе нет).
+function libGroupBySubcategory(items, fallbackName) {
+  const order = [];
+  const map = {};
+  (items || []).forEach((it) => {
+    const key = (it && it.subcategory) || fallbackName;
+    if (!map[key]) { map[key] = []; order.push(key); }
+    map[key].push(it);
+  });
+  return order.map((name) => ({ name, items: map[name] }));
+}
+
+// Массив позиций категории каталога (кроме «Кромки» — у неё объект, не
+// массив, см. libCategoryBlock) — нужен и для группировки по подкатегориям,
+// и для проверки дублей при добавлении новой подкатегории (см.
+// libSubcategoryNames/libAddSubcategory).
+function libItemsForCat(catCode) {
+  const cat = window.Modul3D.catalog;
+  if (catCode === 'decors') return DECORS;
+  if (catCode === 'back') return BACK_MATERIALS;
+  if (catCode === 'facade') return Object.values(cat.FACADE_MATERIALS);
+  return [];
+}
+
+// Все названия подкатегорий категории: из фактических данных каталога + ещё
+// не заполненные подкатегории, которые пользователь завёл кнопкой «+», но
+// ещё не добавил в них ни одной позиции (см. state.libExtraSubcats).
+function libSubcategoryNames(catCode) {
+  const fromData = libItemsForCat(catCode).map((it) => it.subcategory).filter(Boolean);
+  const extra = state.libExtraSubcats[catCode] || [];
+  return Array.from(new Set(fromData.concat(extra)));
+}
+
+// Уникальные непустые значения поля field среди items, в порядке появления —
+// источник вариантов для выпадающих списков «Фирма»/«Толщина» (см.
+// libFiltersHtml).
+function libFilterValues(items, field) {
+  const vals = [];
+  items.forEach((it) => {
+    const v = it && it[field];
+    if (v === undefined || v === null || v === '') return;
+    if (vals.indexOf(v) < 0) vals.push(v);
+  });
+  return vals;
+}
+
+// Фильтры «Фирма»/«Толщина» подкатегории — рисуются, только если у позиций
+// подкатегории есть хоть одно непустое значение соответствующего поля
+// (пустой список с единственным пунктом «Все» не показываем вообще). Само
+// значение фильтра читает делегированный `change`-обработчик
+// (initLibraryPanel) через closest('.lib-subcat-panel') — select здесь
+// своего состояния не хранит, только рисуется.
+function libFiltersHtml(items) {
+  const brands = libFilterValues(items, 'brand');
+  const thicknesses = libFilterValues(items, 'thickness').slice().sort((a, b) => a - b);
+  if (!brands.length && !thicknesses.length) return '';
+  const brandHtml = brands.length ? `
+    <select class="lib-filter-select" data-filter="brand">
+      <option value="">Фирма: все</option>
+      ${brands.map((b) => `<option value="${esc(b)}">${esc(b)}</option>`).join('')}
+    </select>` : '';
+  const thickHtml = thicknesses.length ? `
+    <select class="lib-filter-select" data-filter="thickness">
+      <option value="">Толщина: все</option>
+      ${thicknesses.map((t) => `<option value="${esc(String(t))}">${esc(String(t))} мм</option>`).join('')}
+    </select>` : '';
+  return `<div class="lib-filters">${brandHtml}${thickHtml}</div>`;
+}
+
+// «Цена приближённая/ориентировочная — уточняйте у...» — ОДИН раз перед
+// таблицей подкатегории, а не в каждой строке (см. item.priceNote в
+// catalog.js: GLASS, GLASS-4, FAC-WOOD-FILON, FAC-WOOD-FRAME). Внутри одной
+// подкатегории у customOrder-позиций формулировка совпадает — берём первую
+// найденную.
+function libPriceNoteHtml(items) {
+  const withNote = items.find((it) => it && it.priceNote);
+  if (!withNote) return '';
+  return `<p class="hint">Цена ${esc(withNote.priceNote)}.</p>`;
+}
+
+// Ширины колонок фиксированы через <colgroup> (table-layout:fixed — инлайн
+// на самой таблице, см. libSubcategoryPanel), чтобы длинное название
+// материала переносилось по словам, а не растягивало таблицу и вслед за ней
+// панель (см. #drawer-library.lib-wide/.lib-table в style.css). Колонка
+// «Наименование» — без явной ширины, забирает весь остаток.
+function libColgroup(hasThickness) {
+  // «Образец» — 72px: при 50px заголовок «ОБРАЗЕЦ» не помещался и визуально
+  // обрезался соседней колонкой (th непрозрачный, перекрывал overflow).
+  return `<colgroup><col><col style="width:26px"><col style="width:62px">`
+    + `<col style="width:72px"><col style="width:90px">`
+    + `${hasThickness ? '<col style="width:82px">' : ''}</colgroup>`;
+}
+function libTableHead(hasThickness) {
+  return `<thead><tr>
+    <th>Наименование</th><th></th><th>Ед. изм.</th><th>Образец</th><th>Цена, ${esc(curSym())}</th>${hasThickness ? `<th>Толщина, мм</th>` : ''}
+  </tr></thead>`;
+}
+
+// Строка таблицы для decors/back/facade/glass — общая структура (правки идут
+// по коду item.code, см. libEditCell). Толщина — своя (редактируемая)
+// колонка только у задней стенки: у неё это единственный источник
+// state.backThickness (см. bindPanelEvents → #p-back). У декоров/фасадов/
+// стекла толщина не показывается отдельной колонкой (для фасада/корпуса она
+// общая на проект — bodyThickness/facadeThickness в «Параметрах проекта»).
+// data-brand/data-thickness — не для отображения, а для фильтра (см.
+// initLibraryPanel → panel.addEventListener('change', ...)).
+function libSheetRowHtml(group, it, hasThickness) {
+  return `
+    <tr data-search="${esc(String(it.name || '').toLowerCase())}"
+        data-brand="${esc(it.brand || '')}" data-thickness="${it.thickness != null ? esc(String(it.thickness)) : ''}">
       ${libEditCell(group, it.code, 'name', 'text', it.name)}
       ${libSourceLinkCell(it)}
       ${libEditCell(group, it.code, 'unit', 'text', it.unit || 'лист')}
       <td>${libSwatchHtml(group, it.code, it.image)}</td>
       ${libEditCell(group, it.code, 'sheetPrice', 'number', it.sheetPrice)}
       ${hasThickness ? libEditCell(group, it.code, 'thickness', 'number', it.thickness) : ''}
-    </tr>`).join('');
-  return `
-    <h4 class="mat-sub">${esc(title)}</h4>
-    <table class="lib-table"><thead><tr>
-      <th>Наименование</th><th></th><th>Ед. изм.</th><th>Образец</th><th>Цена, ${esc(curSym())}</th>${hasThickness ? `<th>Толщина, мм</th>` : ''}
-    </tr></thead><tbody>${rows}</tbody></table>
-    <button type="button" class="link-btn lib-add" data-add="${group}">+ Добавить материал</button>`;
+    </tr>`;
 }
 
 // Кромка: ключ объекта EDGE_PRICES — это и есть название (см. catalog.js).
 // Переименовывать его на месте рискованно (specification.js читает
 // EDGE_PRICES[type] по значению из секции) — поэтому название НЕредактируемо,
 // а новая кромка добавляется вводом уникального названия (см. libAddRow).
-function libEdgeTable() {
-  const cat = window.Modul3D.catalog;
-  const rows = Object.keys(cat.EDGE_PRICES).map((name) => {
-    const it = cat.EDGE_PRICES[name];
-    return `
-    <tr data-search="${esc(name.toLowerCase())}">
-      <td>${esc(name)}</td>
-      ${libSourceLinkCell(it)}
-      ${libEditCell('edge', name, 'unit', 'text', it.unit || 'пог.м')}
-      <td>${libSwatchHtml('edge', name, it.image)}</td>
-      ${libEditCell('edge', name, 'price', 'number', it.price)}
-    </tr>`;
-  }).join('');
+// it.key — имя-ключ объекта (проставляется в libCategoryBlock при разборе
+// cat.EDGE_PRICES, самого объекта своего ключа не знает).
+function libEdgeRowHtml(it) {
   return `
-    <h4 class="mat-sub">Кромка</h4>
-    <table class="lib-table"><thead><tr>
-      <th>Наименование</th><th></th><th>Ед. изм.</th><th>Образец</th><th>Цена, ${esc(curSym())}</th>
-    </tr></thead><tbody>${rows}</tbody></table>
-    <button type="button" class="link-btn lib-add" data-add="edge">+ Добавить кромку</button>`;
+    <tr data-search="${esc(String(it.key).toLowerCase())}">
+      <td>${esc(it.key)}</td>
+      ${libSourceLinkCell(it)}
+      ${libEditCell('edge', it.key, 'unit', 'text', it.unit || 'пог.м')}
+      <td>${libSwatchHtml('edge', it.key, it.image)}</td>
+      ${libEditCell('edge', it.key, 'price', 'number', it.price)}
+    </tr>`;
 }
 
-// Стекло — единственный объект каталога (не массив), поэтому таблица из
-// одной строки и без кнопки «Добавить» — добавлять в этой таблице нечего.
-function libGlassTable() {
-  const g = window.Modul3D.catalog.GLASS;
+// Одна подкатегория: (опц.) фильтры → (опц.) подсказка о примерной цене →
+// таблица → (опц.) кнопка «+ Добавить материал». У «Стекла» кнопки нет —
+// добавлять там нечего (единственный объект каталога, не массив); у
+// «Кромки» кнопка есть, но со своим прежним UX (prompt на название, см.
+// libAddRow) — поэтому data-add-subcat у неё не проставляется.
+function libSubcategoryPanel(catCode, subName, items, opts, collapsed) {
+  const hasThickness = !!opts.hasThickness;
+  const rowsHtml = catCode === 'edge'
+    ? items.map((it) => libEdgeRowHtml(it)).join('')
+    : items.map((it) => libSheetRowHtml(catCode, it, hasThickness)).join('');
+  const emptyRow = items.length ? '' : `<tr><td colspan="${hasThickness ? 6 : 5}" class="hint">Пока нет позиций</td></tr>`;
+  const addHtml = opts.addLabel
+    ? `<button type="button" class="link-btn lib-add" data-add="${esc(catCode)}"${catCode !== 'edge' ? ` data-add-subcat="${esc(subName)}"` : ''}>${esc(opts.addLabel)}</button>`
+    : '';
   return `
-    <h4 class="mat-sub">Стекло</h4>
-    <table class="lib-table"><thead><tr>
-      <th>Наименование</th><th></th><th>Ед. изм.</th><th>Образец</th><th>Цена, ${esc(curSym())}</th>
-    </tr></thead><tbody>
-      <tr data-search="${esc(String(g.name).toLowerCase())}">
-        ${libEditCell('glass', g.code, 'name', 'text', g.name)}
-        ${libSourceLinkCell(g)}
-        ${libEditCell('glass', g.code, 'unit', 'text', g.unit || 'лист')}
-        <td>${libSwatchHtml('glass', g.code, g.image)}</td>
-        ${libEditCell('glass', g.code, 'sheetPrice', 'number', g.sheetPrice)}
-      </tr>
-    </tbody></table>`;
+    <div class="lib-subcat-panel${collapsed ? ' lib-collapsed' : ''}">
+      ${libFiltersHtml(items)}
+      ${libPriceNoteHtml(items)}
+      <table class="lib-table" style="table-layout:fixed">${libColgroup(hasThickness)}${libTableHead(hasThickness)}<tbody>${rowsHtml}${emptyRow}</tbody></table>
+      ${addHtml}
+    </div>`;
+}
+
+// Категория целиком: заголовок (сворачивает ВСЁ содержимое, все подкатегории
+// разом) → ряд кнопок-подкатегорий (каждая сворачивает только СВОЮ таблицу,
+// независимо от соседних — см. libSubcategoryPanel) + кнопка «+ добавить
+// подкатегорию» (только там, где subcategory — реальное поле данных, т.е.
+// opts.allowAddSubcat) → сами таблицы подкатегорий одна под другой.
+// itemsAll не используется для 'edge' — вместо этого прямо здесь разбирается
+// cat.EDGE_PRICES (объект «имя → цена», а не массив, как у остальных).
+function libCategoryBlock(catCode, title, itemsAll, opts) {
+  opts = opts || {};
+  const cat = window.Modul3D.catalog;
+  const collapsedCat = !!state.libCollapsed.cats[catCode];
+  let groups;
+  if (catCode === 'edge') {
+    const items = Object.keys(cat.EDGE_PRICES).map((name) => Object.assign({ key: name }, cat.EDGE_PRICES[name]));
+    groups = [{ name: title, items }];
+  } else {
+    groups = libGroupBySubcategory(itemsAll, title);
+    if (opts.allowAddSubcat) {
+      (state.libExtraSubcats[catCode] || []).forEach((name) => {
+        if (!groups.some((g) => g.name === name)) groups.push({ name, items: [] });
+      });
+    }
+  }
+
+  const tabsHtml = groups.map((g) => {
+    const subKey = catCode + '::' + g.name;
+    const collapsedSub = !!state.libCollapsed.subs[subKey];
+    return `<button type="button" class="sec-tab lib-subcat-btn${collapsedSub ? '' : ' active'}" data-toggle-sub="${esc(subKey)}">${collapsedSub ? '▸' : '▾'} ${esc(g.name)}</button>`;
+  }).join('');
+  const addSubBtn = opts.allowAddSubcat
+    ? `<button type="button" class="sec-add" data-add-subcat-cat="${esc(catCode)}" title="Добавить подкатегорию" aria-label="Добавить подкатегорию">+</button>`
+    : '';
+  const panelsHtml = groups.map((g) => {
+    const subKey = catCode + '::' + g.name;
+    return libSubcategoryPanel(catCode, g.name, g.items, opts, !!state.libCollapsed.subs[subKey]);
+  }).join('');
+
+  return `
+    <div class="lib-category">
+      <button type="button" class="lib-cat-head" data-toggle-cat="${esc(catCode)}" aria-expanded="${collapsedCat ? 'false' : 'true'}">
+        <span class="lib-toggle-ic">${collapsedCat ? '▸' : '▾'}</span><h4 class="mat-sub">${esc(title)}</h4>
+      </button>
+      <div class="lib-cat-body${collapsedCat ? ' lib-collapsed' : ''}">
+        <div class="sec-tabs-row">
+          <div class="sec-tabs">${tabsHtml}</div>
+          ${addSubBtn}
+        </div>
+        ${panelsHtml}
+      </div>
+    </div>`;
 }
 
 function libraryMaterialsBlock() {
@@ -694,11 +873,11 @@ function libraryMaterialsBlock() {
   return `
     <h3>Материалы</h3>
     ${libSourceHint()}
-    ${libSheetTable('Материалы корпуса', 'decors', DECORS)}
-    ${libSheetTable('Материалы задней стенки', 'back', BACK_MATERIALS)}
-    ${libSheetTable('Материалы фасадов', 'facade', Object.values(cat.FACADE_MATERIALS))}
-    ${libEdgeTable()}
-    ${libGlassTable()}`;
+    ${libCategoryBlock('decors', 'Материалы корпуса', DECORS, { allowAddSubcat: true, addLabel: '+ Добавить материал' })}
+    ${libCategoryBlock('back', 'Материалы задней стенки', BACK_MATERIALS, { hasThickness: true, allowAddSubcat: true, addLabel: '+ Добавить материал' })}
+    ${libCategoryBlock('facade', 'Материалы фасадов', Object.values(cat.FACADE_MATERIALS), { allowAddSubcat: true, addLabel: '+ Добавить материал' })}
+    ${libCategoryBlock('edge', 'Кромка', null, { addLabel: '+ Добавить кромку' })}
+    ${libCategoryBlock('glass', 'Стекло', [cat.GLASS], {})}`;
 }
 
 // Фурнитура собрана из ЧЕТЫРЁХ источников каталога (HARDWARE_PRICES,
@@ -805,20 +984,24 @@ function libAddHardwareRow(category) {
   }
 }
 
-function libAddRow(group) {
+// subcat — подкатегория, в которую попадёт новая позиция (кнопка «+ Добавить
+// материал» конкретной подкатегории, см. libSubcategoryPanel: data-add-subcat
+// на кнопке) — не используется для 'edge'/'hwadd:*' (там subcategory не
+// поле данных). Пустая строка тоже валидна, если кто-то вызовет без неё.
+function libAddRow(group, subcat) {
   const cat = window.Modul3D.catalog;
   if (group.indexOf('hwadd:') === 0) {
     libAddHardwareRow(group.slice(6));
   } else if (group === 'decors') {
-    DECORS.push({ code: 'NEW-' + Date.now(), name: 'Новый материал', sheetPrice: 0, sheetW: 2750, sheetH: 1830, unit: 'лист', image: null });
+    DECORS.push({ code: 'NEW-' + Date.now(), name: 'Новый материал', sheetPrice: 0, sheetW: 2750, sheetH: 1830, unit: 'лист', image: null, subcategory: subcat || '', brand: '' });
   } else if (group === 'back') {
     // thickness обязателен: это единственный источник state.backThickness
     // при выборе материала в «Параметрах проекта» (ручного поля-дублёра
     // больше нет) — без него расчёт в engine.js получит undefined.
-    BACK_MATERIALS.push({ code: 'NEW-' + Date.now(), name: 'Новый материал', sheetPrice: 0, sheetW: 2440, sheetH: 1220, thickness: 3, unit: 'лист', image: null });
+    BACK_MATERIALS.push({ code: 'NEW-' + Date.now(), name: 'Новый материал', sheetPrice: 0, sheetW: 2440, sheetH: 1220, thickness: 3, unit: 'лист', image: null, subcategory: subcat || '', brand: '' });
   } else if (group === 'facade') {
     const code = 'FAC-NEW-' + Date.now();
-    cat.FACADE_MATERIALS[code] = { code, name: 'Новый материал фасада', sheetPrice: 0, sheetW: 2750, sheetH: 1830, unit: 'лист', image: null };
+    cat.FACADE_MATERIALS[code] = { code, name: 'Новый материал фасада', sheetPrice: 0, sheetW: 2750, sheetH: 1830, unit: 'лист', image: null, subcategory: subcat || '', brand: '' };
   } else if (group === 'edge') {
     const name = (window.prompt('Название новой кромки:') || '').trim();
     if (!name) return;
@@ -828,6 +1011,27 @@ function libAddRow(group) {
     return;
   }
   recompute();
+  renderLibraryPanel();
+}
+
+// «+» рядом с рядом кнопок-подкатегорий одной категории (decors/back/facade
+// — только там subcategory реальное поле данных, см. opts.allowAddSubcat в
+// libCategoryBlock). Тот же UX, что и у добавления кромки в libAddRow выше:
+// prompt на название, пустой ввод — отмена, дубликат (без учёта регистра,
+// среди подкатегорий как из данных каталога, так и уже заведённых, но ещё
+// пустых, см. state.libExtraSubcats) — alert и выход. Сама подкатегория
+// появляется как пустая таблица (только заголовок колонок + «+ Добавить
+// материал») — ни одной позиции каталога у неё ещё нет.
+function libAddSubcategory(catCode) {
+  const name = (window.prompt('Название новой подкатегории:') || '').trim();
+  if (!name) return;
+  const existing = libSubcategoryNames(catCode);
+  if (existing.some((n) => n.toLowerCase() === name.toLowerCase())) {
+    window.alert('Подкатегория с таким названием уже есть.');
+    return;
+  }
+  if (!state.libExtraSubcats[catCode]) state.libExtraSubcats[catCode] = [];
+  state.libExtraSubcats[catCode].push(name);
   renderLibraryPanel();
 }
 
@@ -901,9 +1105,11 @@ function renderLibraryPanel() {
   document.querySelectorAll('.lib-tab-btn').forEach((b) => {
     b.classList.toggle('active', b.dataset.libtab === state.libraryTab);
   });
-  // На «Материалах»/«Фурнитуре» таблицы шире панели «Базы модулей» — даём
-  // #drawer-library подстроить ширину под содержимое (см. .lib-wide в
-  // style.css); на «Базе модулей» ширина панели остаётся фиксированной.
+  // На «Материалах»/«Фурнитуре» таблицы шире панели «Базы модулей» —
+  // #drawer-library переключается на свою (тоже фиксированную, но большую)
+  // ширину (см. .lib-wide в style.css: одна и та же ширина для всех таблиц
+  // раздела, а не «под самую широкую», как раньше); на «Базе модулей»
+  // ширина панели остаётся стандартной.
   const drawer = document.getElementById('drawer-library');
   if (drawer) {
     drawer.classList.toggle('lib-wide', state.libraryTab === 'materials' || state.libraryTab === 'hardware');
@@ -932,12 +1138,60 @@ function initLibraryPanel() {
   if (search) search.addEventListener('input', applyLibrarySearch);
 
   panel.addEventListener('click', (e) => {
+    // Заголовок категории (вкладка «Материалы» — см. libCategoryBlock) —
+    // сворачивает/разворачивает ВСЁ её содержимое разом.
+    const catToggle = e.target.closest('[data-toggle-cat]');
+    if (catToggle) {
+      const key = catToggle.dataset.toggleCat;
+      state.libCollapsed.cats[key] = !state.libCollapsed.cats[key];
+      renderLibraryPanel();
+      return;
+    }
+    // Кнопка-заголовок подкатегории — сворачивает/разворачивает ТОЛЬКО свою
+    // таблицу, независимо от соседних подкатегорий (см. libSubcategoryPanel).
+    const subToggle = e.target.closest('[data-toggle-sub]');
+    if (subToggle) {
+      const key = subToggle.dataset.toggleSub;
+      state.libCollapsed.subs[key] = !state.libCollapsed.subs[key];
+      renderLibraryPanel();
+      return;
+    }
+    // «+» рядом с рядом кнопок-подкатегорий — новая (пока пустая) подкатегория.
+    const addSubcatBtn = e.target.closest('[data-add-subcat-cat]');
+    if (addSubcatBtn) { libAddSubcategory(addSubcatBtn.dataset.addSubcatCat); return; }
     const addBtn = e.target.closest('.lib-add');
-    if (addBtn) { libAddRow(addBtn.dataset.add); return; }
+    if (addBtn) { libAddRow(addBtn.dataset.add, addBtn.dataset.addSubcat || null); return; }
     const swatch = e.target.closest('.lib-swatch');
     if (swatch) { openLibImagePicker(swatch.dataset.swatchGroup, swatch.dataset.swatchKey); return; }
     const cell = e.target.closest('.lib-edit-cell');
     if (cell) { startCellEdit(cell); return; }
+  });
+
+  // Фильтры «Фирма»/«Толщина» подкатегории (см. libFiltersHtml) — отдельный
+  // делегированный `change` (у <select> клик не подходит), скрывает/
+  // показывает строки САМО, без recompute()/renderLibraryPanel(): это чисто
+  // отображение уже отрисованной таблицы, а не правка каталога. closest на
+  // .lib-subcat-panel ограничивает область действия своей подкатегорией —
+  // фильтр одной не трогает таблицы соседних. И-логика между «Фирма» и
+  // «Толщина»: строка видна, только если проходит по ОБОИМ выбранным
+  // значениям (пустой выбор = «Все», условие не ограничивает). Класс
+  // .lib-filtered-out — свой (display:none), не .dim-out: тот управляется
+  // отдельно поиском (applyLibrarySearch) и должен продолжать работать
+  // независимо, на той же строке одновременно.
+  panel.addEventListener('change', (e) => {
+    const sel = e.target.closest('.lib-filter-select');
+    if (!sel) return;
+    const scope = sel.closest('.lib-subcat-panel');
+    if (!scope) return;
+    const brandSel = scope.querySelector('.lib-filter-select[data-filter="brand"]');
+    const thickSel = scope.querySelector('.lib-filter-select[data-filter="thickness"]');
+    const brandVal = brandSel ? brandSel.value : '';
+    const thickVal = thickSel ? thickSel.value : '';
+    scope.querySelectorAll('tbody tr').forEach((tr) => {
+      const okBrand = !brandVal || tr.dataset.brand === brandVal;
+      const okThick = !thickVal || tr.dataset.thickness === thickVal;
+      tr.classList.toggle('lib-filtered-out', !(okBrand && okThick));
+    });
   });
 
   initLibImageInput();
