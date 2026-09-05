@@ -3224,6 +3224,112 @@ for (const glass of [false, true]) {
   cases += 1;
 }
 
+// --- присадка растикс: боковина ↔ столешница (skipTopPanel) ----------------
+// Материал ldsp38/doubleLdsp — толщина позволяет присадку (подтверждено
+// владельцем-мебельщиком 2026-09-05). Одиночная тумба, без слияния —
+// координаты можно проверить вручную: дюбель в столешнице стоит по центру
+// толщины соответствующей боковины, т.е. на t/2 от левого/правого края.
+{
+  const t = base.bodyThickness;
+  const W = 600;
+  const mod1 = {
+    name: 'Тумба', width: W, height: 850, depth: 560,
+    leftSide: 'floor', rightSide: 'floor',
+    base: { type: 'legsPlinth', legHeight: 100, plinthHeight: 100 },
+    topType: 'panel',
+    countertop: { enabled: true, material: 'ldsp38' },
+    sections: [{ shelves: 1, drawers: 0, facade: 'doorLeft' }],
+  };
+  const model = buildModel(Object.assign({}, base, { modules: [mod1] }));
+  inspect(model, 'столешница: растикс боковина-столешница, одиночная тумба ldsp38');
+
+  // partsRaw — НЕсклеенный список (по одному объекту на физическую деталь):
+  // левая и правая боковина у этой тумбы одинаковы по всем полям, кроме
+  // расположения в 3D, и в model.parts (для деталировки) слились бы в одну
+  // строку qty:2 — для проверки присадки нужны оба экземпляра отдельно.
+  const sidePanels = model.partsRaw.filter((p) => p.kind === 'side');
+  if (sidePanels.length !== 2) {
+    problems.push(`столешница-растикс: ожидалось 2 боковины, получено ${sidePanels.length}`);
+  }
+  for (const sp of sidePanels) {
+    const cams = sp.holes.filter((h) => h.kind === 'minifixCam');
+    const bolts = sp.holes.filter((h) => h.kind === 'minifixBolt');
+    if (cams.length !== 1) problems.push(`столешница-растикс: у боковины "${sp.name}" ${cams.length} гнёзд Ø15 вместо 1`);
+    if (bolts.length !== 1) problems.push(`столешница-растикс: у боковины "${sp.name}" ${bolts.length} отверстий Ø8-в-торец вместо 1`);
+    if (cams[0] && Math.abs(cams[0].x - (sp.length - 34)) > 0.5) {
+      problems.push(`столешница-растикс: гнездо Ø15 у "${sp.name}" на x=${cams[0].x}, ожидалось ${sp.length - 34} (34мм от верхнего торца)`);
+    }
+    if (cams[0] && cams[0].side !== 'front') {
+      problems.push(`столешница-растикс: гнездо Ø15 у "${sp.name}" не с внутренней стороны (side=${cams[0].side})`);
+    }
+    if (bolts[0] && Math.abs(bolts[0].x - sp.length) > 0.5) {
+      problems.push(`столешница-растикс: Ø8-в-торец у "${sp.name}" не на верхнем краю (x=${bolts[0].x}, length=${sp.length})`);
+    }
+  }
+
+  const ctParts = model.parts.filter((p) => p.kind === 'countertop');
+  if (ctParts.length !== 1) {
+    problems.push(`столешница-растикс: ожидалась 1 деталь столешницы, получено ${ctParts.length}`);
+  } else {
+    const dowels = ctParts[0].holes.filter((h) => h.kind === 'minifixDowel');
+    if (dowels.length !== 2) problems.push(`столешница-растикс: у столешницы ${dowels.length} дюбельных отверстий вместо 2`);
+    const xs = dowels.map((h) => h.x).sort((a, b) => a - b);
+    const expectLeft = t / 2, expectRight = W - t / 2;
+    if (xs[0] === undefined || Math.abs(xs[0] - expectLeft) > 1) {
+      problems.push(`столешница-растикс: левый дюбель на x=${xs[0]}, ожидалось ~${expectLeft}`);
+    }
+    if (xs[1] === undefined || Math.abs(xs[1] - expectRight) > 1) {
+      problems.push(`столешница-растикс: правый дюбель на x=${xs[1]}, ожидалось ~${expectRight}`);
+    }
+    if (dowels.some((h) => h.side !== 'back')) {
+      problems.push('столешница-растикс: дюбель не в нижней пласти (side!=back)');
+    }
+  }
+  cases += 1;
+}
+
+// --- присадка растикс: перенос дюбелей столешницы при слиянии тумб ---------
+// mergeCountertops() сливает соседние тумбы с одинаковым материалом в одну
+// деталь и удаляет ctPart всех, кроме первой — дюбели должны при этом
+// переехать в голову со сдвигом, а не потеряться (см. flush()).
+{
+  const t = base.bodyThickness;
+  const widths = [600, 500];
+  const mkMod = (nm, w) => ({
+    name: nm, width: w, height: 850, depth: 560,
+    leftSide: 'floor', rightSide: 'floor',
+    base: { type: 'legsPlinth', legHeight: 100, plinthHeight: 100 },
+    topType: 'panel',
+    countertop: { enabled: true, material: 'ldsp38' },
+    sections: [{ shelves: 1, drawers: 0, facade: 'doorLeft' }],
+  });
+  const mods = widths.map((w, i) => mkMod('Тумба ' + (i + 1), w));
+  const model = buildModel(Object.assign({}, base, { modules: mods }));
+  inspect(model, 'столешница: растикс — перенос дюбелей при слиянии двух тумб');
+
+  const ctParts = model.parts.filter((p) => p.kind === 'countertop');
+  if (ctParts.length !== 1) {
+    problems.push(`столешница-растикс слияние: ожидалась 1 слитая деталь, получено ${ctParts.length}`);
+  } else {
+    const dowels = ctParts[0].holes.filter((h) => h.kind === 'minifixDowel');
+    if (dowels.length !== 4) {
+      problems.push(`столешница-растикс слияние: ${dowels.length} дюбелей вместо 4 (2 тумбы × 2 боковины)`);
+    }
+    const xs = dowels.map((h) => h.x).sort((a, b) => a - b);
+    const totalW = widths.reduce((s, w) => s + w, 0);
+    if (xs.length && Math.abs(xs[0] - t / 2) > 1) {
+      problems.push(`столешница-растикс слияние: первый дюбель на x=${xs[0]}, ожидалось ~${t / 2} (левый край слитой детали)`);
+    }
+    if (xs.length && Math.abs(xs[xs.length - 1] - (totalW - t / 2)) > 1) {
+      problems.push(`столешница-растикс слияние: последний дюбель на x=${xs[xs.length - 1]}, ожидалось ~${totalW - t / 2} (правый край слитой детали)`);
+    }
+    for (let i = 1; i < xs.length; i++) {
+      if (Math.abs(xs[i] - xs[i - 1]) < 1) problems.push(`столешница-растикс слияние: два дюбеля совпали по x (${xs[i]})`);
+    }
+  }
+  cases += 1;
+}
+
 // --- пустой проект: программа стартует без модулей -------------------------
 {
   const empty = buildModel(Object.assign({}, base, { modules: [] }));

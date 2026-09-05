@@ -1910,7 +1910,7 @@ function buildModuleParts(p) {
         note: (p.topType === 'rails' || p.topType === 'railsEdge')
           ? 'Крепится шурупами 3.5×35 через верхние планки'
           : (skipTopPanel
-            ? 'Крепится стяжкой-эксцентриком напрямую в верхний торец боковин (цельной крышки/царг под столешницей нет) — присадка в этой версии не считается, только количественный учёт в спецификации'
+            ? 'Крепится стяжкой-эксцентриком напрямую в верхний торец боковин (цельной крышки/царг под столешницей нет)'
             : 'Клеится по всей площади к цельной крышке корпуса — крепёж в торец боковины для этого материала не применяется'),
       });
       // ctFamily/ctHasTopSupport/ctMaxLength — доп. поля для пассов
@@ -1934,6 +1934,69 @@ function buildModuleParts(p) {
       ctPart.ctOverhangLeft = oL;
       ctPart.ctOverhangRight = oR;
       parts.push(ctPart);
+
+      // ---------- Присадка растикс: боковина ↔ столешница ----------
+      // Только когда крышки/царг нет (skipTopPanel) — при кухонных царгах
+      // крепёж шурупами через планку, при компакт-плите — клей (см. note
+      // выше), там растикса нет вообще.
+      //
+      // Узел ОБРАТНЫЙ общему правилу Rastex 15 (ПРАВИЛА-КОНСТРУИРОВАНИЯ.md,
+      // «Минификс Hettich Rastex 15» — там гнездо Ø15 и Ø8-в-торец всегда на
+      // детали, что примыкает ТОРЦОМ — полка/дно/крыша). Здесь торцом
+      // примыкает БОКОВИНА (её верхний торец упирается в нижнюю пласть
+      // столешницы) — значит по тому же правилу гнездо Ø15 и Ø8-в-торец идут
+      // в БОКОВИНУ, а столешница получает только прямой дюбель Ø8 в пласть
+      // (её нижнюю поверхность, side:'back' — тот же признак «низ листа»,
+      // что у дна/полки, camSide ниже по файлу).
+      //
+      // Сторона гнезда Ø15: подтверждено владельцем-мебельщиком 2026-09-05 —
+      // ВСЕГДА с ВНУТРЕННЕЙ стороны боковины (side:'front', тот же признак,
+      // что у обычных полкодержателей — см. drillPanel ниже по файлу),
+      // независимо от того, видна ли эта боковина снаружи корпуса. Это
+      // осознанная практика цеха, а не вывод из общего правила «эксцентриков
+      // не видно изнутри» — там описан другой узел (обратные роли деталей),
+      // прямого запрета на именно этот случай правила не дают.
+      //
+      // Координаты — в СОБСТВЕННОЙ локальной системе каждой детали (см.
+      // makePart: «отверстия в системе координат детали, левый нижний угол
+      // лицевой стороны»). Этот код работает ДО глобального разворота и
+      // размещения модуля в прогоне (buildModel применяет part.rot к box.x/z
+      // уже после возврата отсюда) — поэтому box.x/y/z обеих деталей пока в
+      // системе координат МОДУЛЯ, читать их напрямую безопасно. Единственная
+      // точка на боковину (не веером вдоль глубины, как у обычных стыков
+      // jointPoints) — количество уже зафиксировано как 1 растикс на
+      // боковину в specification.js (worktopRastexQty); центр глубины
+      // боковины — разумный выбор за неимением другой цифры от владельца.
+      //
+      // При слиянии соседних тумб в одну сквозную столешницу (mergeCountertops
+      // ниже по файлу) дюбельные отверстия столешницы переносятся и
+      // сдвигаются отдельно (см. flush() там же) — здесь координаты верны
+      // только для ЭТОЙ, ещё не слитой детали.
+      if (skipTopPanel) {
+        for (const sx of [-sideX, sideX]) {
+          const sidePanel = parts.filter((pp) => pp.kind === 'side'
+            && Math.abs(pp.box.x - sx) < 1.5)[0];
+          if (!sidePanel) continue; // подстраховка — по построению всегда найдётся
+          const topEdgeX = sidePanel.length;          // x=0 — низ боковины, x=length — верх
+          const crossY = round1(sidePanel.width / 2); // центр глубины боковины (y — от задней кромки)
+          sidePanel.holes.push({
+            x: round1(topEdgeX - RASTEX.camSetback), y: crossY,
+            d: RASTEX.camD, depth: RASTEX.camDepthFor(sidePanel.thickness),
+            through: false, side: 'front', kind: 'minifixCam',
+          });
+          sidePanel.holes.push({
+            x: round1(topEdgeX), y: crossY, d: RASTEX.boltD, depth: RASTEX.boltDepth,
+            through: false, side: 'edge', kind: 'minifixBolt',
+          });
+          const ctLeftX = ctPart.box.x - ctPart.box.w / 2;
+          const ctBackZ = ctPart.box.z - ctPart.box.d / 2;
+          ctPart.holes.push({
+            x: round1(sidePanel.box.x - ctLeftX), y: round1(sidePanel.box.z - ctBackZ),
+            d: RASTEX.dowelD, depth: RASTEX.dowelDepth,
+            through: false, side: 'back', kind: 'minifixDowel',
+          });
+        }
+      }
     }
   }
 
@@ -4100,6 +4163,27 @@ function mergeCountertops(parts) {
       const last = run[run.length - 1];
       const hi = last.box[ax] + sizeOn(last, ax) / 2 + (Number(last.ctOverhangRight) || 0);
       const head = run[0];
+      // Присадка растикс (kind:'minifixDowel', см. buildModuleParts) —
+      // каждая деталь ряда получила её в СВОИХ локальных координатах
+      // (x=0 — её собственный левый край, вдоль part.length; см. makePart).
+      // После слияния локальный левый край головной детали (head) переезжает
+      // на `lo` (с учётом свеса) — сдвигаем x КАЖДОГО дюбельного отверстия
+      // (и головы, и склеиваемых в неё тумб) на разницу между СТАРЫМ
+      // физическим левым краем этой конкретной детали и НОВЫМ (`lo`), чтобы
+      // физическое положение отверстия не изменилось. Работает независимо от
+      // поворота модуля (part.rot) — box[ax] уже в глобальных координатах
+      // сцены, а сдвиг применяется к локальной x, которая всегда «вдоль
+      // длины» независимо от того, как эта длина сейчас развёрнута.
+      for (const part of run) {
+        const partLeft = part.box[ax] - sizeOn(part, ax) / 2;
+        const shift = round1(partLeft - lo);
+        for (const h of part.holes) {
+          if (h.kind === 'minifixDowel') h.x = round1(h.x + shift);
+        }
+        if (part !== head) {
+          head.holes = head.holes.concat(part.holes.filter((h) => h.kind === 'minifixDowel'));
+        }
+      }
       head.box[ax] = (lo + hi) / 2;
       setSize(head, ax, round1(hi - lo));
       growPhysSize(head, ax, round1(hi - lo));
