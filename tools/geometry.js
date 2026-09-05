@@ -3225,15 +3225,17 @@ for (const glass of [false, true]) {
 }
 
 // --- присадка растикс: боковина ↔ столешница (skipTopPanel) ----------------
-// Материал ldsp38/doubleLdsp — толщина позволяет присадку (подтверждено
-// владельцем-мебельщиком 2026-09-05). Одиночная тумба, без слияния —
-// координаты можно проверить вручную: дюбель в столешнице стоит по центру
-// толщины соответствующей боковины, т.е. на t/2 от левого/правого края.
+// Материал ldsp38/doubleLdsp/«свой материал» (>18мм) — толщина позволяет
+// присадку (подтверждено владельцем-мебельщиком 2026-09-05). ДВА растикса
+// на боковину (не один), отступ JOINT_SETBACK=50мм от переднего и заднего
+// края глубины боковины — было подтверждено отдельно 2026-09-05 (апдейт
+// требования: изначально был 1 в центре). Одиночная тумба, без слияния —
+// координаты можно проверить вручную.
 {
   const t = base.bodyThickness;
-  const W = 600;
+  const W = 600, D = 560;
   const mod1 = {
-    name: 'Тумба', width: W, height: 850, depth: 560,
+    name: 'Тумба', width: W, height: 850, depth: D,
     leftSide: 'floor', rightSide: 'floor',
     base: { type: 'legsPlinth', legHeight: 100, plinthHeight: 100 },
     topType: 'panel',
@@ -3254,16 +3256,23 @@ for (const glass of [false, true]) {
   for (const sp of sidePanels) {
     const cams = sp.holes.filter((h) => h.kind === 'minifixCam');
     const bolts = sp.holes.filter((h) => h.kind === 'minifixBolt');
-    if (cams.length !== 1) problems.push(`столешница-растикс: у боковины "${sp.name}" ${cams.length} гнёзд Ø15 вместо 1`);
-    if (bolts.length !== 1) problems.push(`столешница-растикс: у боковины "${sp.name}" ${bolts.length} отверстий Ø8-в-торец вместо 1`);
-    if (cams[0] && Math.abs(cams[0].x - (sp.length - 34)) > 0.5) {
-      problems.push(`столешница-растикс: гнездо Ø15 у "${sp.name}" на x=${cams[0].x}, ожидалось ${sp.length - 34} (34мм от верхнего торца)`);
+    if (cams.length !== 2) problems.push(`столешница-растикс: у боковины "${sp.name}" ${cams.length} гнёзд Ø15 вместо 2`);
+    if (bolts.length !== 2) problems.push(`столешница-растикс: у боковины "${sp.name}" ${bolts.length} отверстий Ø8-в-торец вместо 2`);
+    for (const c of cams) {
+      if (Math.abs(c.x - (sp.length - 34)) > 0.5) {
+        problems.push(`столешница-растикс: гнездо Ø15 у "${sp.name}" на x=${c.x}, ожидалось ${sp.length - 34} (34мм от верхнего торца)`);
+      }
+      if (c.side !== 'front') problems.push(`столешница-растикс: гнездо Ø15 у "${sp.name}" не с внутренней стороны (side=${c.side})`);
     }
-    if (cams[0] && cams[0].side !== 'front') {
-      problems.push(`столешница-растикс: гнездо Ø15 у "${sp.name}" не с внутренней стороны (side=${cams[0].side})`);
+    for (const b of bolts) {
+      if (Math.abs(b.x - sp.length) > 0.5) {
+        problems.push(`столешница-растикс: Ø8-в-торец у "${sp.name}" не на верхнем краю (x=${b.x}, length=${sp.length})`);
+      }
     }
-    if (bolts[0] && Math.abs(bolts[0].x - sp.length) > 0.5) {
-      problems.push(`столешница-растикс: Ø8-в-торец у "${sp.name}" не на верхнем краю (x=${bolts[0].x}, length=${sp.length})`);
+    const camYs = cams.map((h) => h.y).sort((a, b) => a - b);
+    if (camYs.length === 2) {
+      if (Math.abs(camYs[0] - 50) > 0.5) problems.push(`столешница-растикс: у "${sp.name}" ближняя точка y=${camYs[0]}, ожидалось 50`);
+      if (Math.abs(camYs[1] - (sp.width - 50)) > 0.5) problems.push(`столешница-растикс: у "${sp.name}" дальняя точка y=${camYs[1]}, ожидалось ${sp.width - 50}`);
     }
   }
 
@@ -3272,17 +3281,31 @@ for (const glass of [false, true]) {
     problems.push(`столешница-растикс: ожидалась 1 деталь столешницы, получено ${ctParts.length}`);
   } else {
     const dowels = ctParts[0].holes.filter((h) => h.kind === 'minifixDowel');
-    if (dowels.length !== 2) problems.push(`столешница-растикс: у столешницы ${dowels.length} дюбельных отверстий вместо 2`);
-    const xs = dowels.map((h) => h.x).sort((a, b) => a - b);
+    if (dowels.length !== 4) problems.push(`столешница-растикс: у столешницы ${dowels.length} дюбельных отверстий вместо 4 (2 боковины × 2 точки)`);
+    if (dowels.some((h) => h.side !== 'back')) problems.push('столешница-растикс: дюбель не в нижней пласти (side!=back)');
+    // Группируем по X (боковина) — ожидаем ровно 2 группы (левая/правая), в
+    // каждой по 2 разных Y (передняя/задняя точка).
+    const byX = new Map();
+    for (const h of dowels) {
+      const key = Math.round(h.x);
+      if (!byX.has(key)) byX.set(key, []);
+      byX.get(key).push(h.y);
+    }
+    const xs = [...byX.keys()].sort((a, b) => a - b);
+    if (xs.length !== 2) problems.push(`столешница-растикс: у столешницы ${xs.length} уникальных X вместо 2 (по одному на боковину)`);
     const expectLeft = t / 2, expectRight = W - t / 2;
     if (xs[0] === undefined || Math.abs(xs[0] - expectLeft) > 1) {
-      problems.push(`столешница-растикс: левый дюбель на x=${xs[0]}, ожидалось ~${expectLeft}`);
+      problems.push(`столешница-растикс: левая группа на x=${xs[0]}, ожидалось ~${expectLeft}`);
     }
     if (xs[1] === undefined || Math.abs(xs[1] - expectRight) > 1) {
-      problems.push(`столешница-растикс: правый дюбель на x=${xs[1]}, ожидалось ~${expectRight}`);
+      problems.push(`столешница-растикс: правая группа на x=${xs[1]}, ожидалось ~${expectRight}`);
     }
-    if (dowels.some((h) => h.side !== 'back')) {
-      problems.push('столешница-растикс: дюбель не в нижней пласти (side!=back)');
+    for (const x of xs) {
+      const ys = (byX.get(x) || []).sort((a, b) => a - b);
+      if (ys.length !== 2) problems.push(`столешница-растикс: у группы x=${x} ${ys.length} точек вместо 2`);
+      else if (Math.abs(ys[1] - ys[0] - (D - 100)) > 1) {
+        problems.push(`столешница-растикс: у группы x=${x} расстояние между точками ${ys[1] - ys[0]}, ожидалось ${D - 100} (глубина минус 2×50мм)`);
+      }
     }
   }
   cases += 1;
@@ -3312,20 +3335,170 @@ for (const glass of [false, true]) {
     problems.push(`столешница-растикс слияние: ожидалась 1 слитая деталь, получено ${ctParts.length}`);
   } else {
     const dowels = ctParts[0].holes.filter((h) => h.kind === 'minifixDowel');
-    if (dowels.length !== 4) {
-      problems.push(`столешница-растикс слияние: ${dowels.length} дюбелей вместо 4 (2 тумбы × 2 боковины)`);
+    if (dowels.length !== 8) {
+      problems.push(`столешница-растикс слияние: ${dowels.length} дюбелей вместо 8 (2 тумбы × 2 боковины × 2 точки)`);
     }
-    const xs = dowels.map((h) => h.x).sort((a, b) => a - b);
+    const byX = new Map();
+    for (const h of dowels) {
+      const key = Math.round(h.x);
+      if (!byX.has(key)) byX.set(key, []);
+      byX.get(key).push(h.y);
+    }
+    const xs = [...byX.keys()].sort((a, b) => a - b);
     const totalW = widths.reduce((s, w) => s + w, 0);
+    if (xs.length !== 4) problems.push(`столешница-растикс слияние: ${xs.length} уникальных X вместо 4 (по одному на каждую боковину)`);
     if (xs.length && Math.abs(xs[0] - t / 2) > 1) {
-      problems.push(`столешница-растикс слияние: первый дюбель на x=${xs[0]}, ожидалось ~${t / 2} (левый край слитой детали)`);
+      problems.push(`столешница-растикс слияние: первая группа на x=${xs[0]}, ожидалось ~${t / 2} (левый край слитой детали)`);
     }
     if (xs.length && Math.abs(xs[xs.length - 1] - (totalW - t / 2)) > 1) {
-      problems.push(`столешница-растикс слияние: последний дюбель на x=${xs[xs.length - 1]}, ожидалось ~${totalW - t / 2} (правый край слитой детали)`);
+      problems.push(`столешница-растикс слияние: последняя группа на x=${xs[xs.length - 1]}, ожидалось ~${totalW - t / 2} (правый край слитой детали)`);
+    }
+    for (const x of xs) {
+      if ((byX.get(x) || []).length !== 2) {
+        problems.push(`столешница-растикс слияние: у группы x=${x} ${byX.get(x).length} точек вместо 2`);
+      }
     }
     for (let i = 1; i < xs.length; i++) {
-      if (Math.abs(xs[i] - xs[i - 1]) < 1) problems.push(`столешница-растикс слияние: два дюбеля совпали по x (${xs[i]})`);
+      if (Math.abs(xs[i] - xs[i - 1]) < 1) problems.push(`столешница-растикс слияние: две группы совпали по x (${xs[i]})`);
     }
+  }
+  cases += 1;
+}
+
+// --- столешница «свой материал» (любой декор из библиотеки, толще 18мм) ----
+// Тот же узел (растикс в торец боковины), что у ldsp38/doubleLdsp — толщина
+// решает, а не конкретный материал (подтверждено владельцем 2026-09-05).
+{
+  const mod1 = {
+    name: 'Тумба', width: 600, height: 850, depth: 560,
+    leftSide: 'floor', rightSide: 'floor',
+    base: { type: 'legsPlinth', legHeight: 100, plinthHeight: 100 },
+    topType: 'panel',
+    countertop: { enabled: true, material: 'custom', decorCode: DECORS[0].code, thickness: 25 },
+    sections: [{ shelves: 1, drawers: 0, facade: 'doorLeft' }],
+  };
+  const model = buildModel(Object.assign({}, base, { modules: [mod1] }));
+  inspect(model, 'столешница: «свой материал» 25мм — тот же растикс, что у ldsp38');
+
+  if (model.parts.some((p) => p.kind === 'top')) {
+    problems.push('столешница-свой материал: крышка корпуса построена, хотя толщина 25мм > 18 — крышки быть не должно');
+  }
+  const ctParts = model.parts.filter((p) => p.kind === 'countertop');
+  if (ctParts.length !== 1) {
+    problems.push(`столешница-свой материал: ожидалась 1 деталь столешницы, получено ${ctParts.length}`);
+  } else {
+    if (Math.abs(ctParts[0].thickness - 25) > 0.1) {
+      problems.push(`столешница-свой материал: толщина детали ${ctParts[0].thickness} вместо 25`);
+    }
+    if (ctParts[0].material !== DECORS[0].code) {
+      problems.push(`столешница-свой материал: материал детали "${ctParts[0].material}" вместо декора проекта "${DECORS[0].code}"`);
+    }
+    const dowels = ctParts[0].holes.filter((h) => h.kind === 'minifixDowel');
+    if (dowels.length !== 4) problems.push(`столешница-свой материал: ${dowels.length} дюбелей вместо 4`);
+  }
+  const sidePanels = model.partsRaw.filter((p) => p.kind === 'side');
+  for (const sp of sidePanels) {
+    const cams = sp.holes.filter((h) => h.kind === 'minifixCam');
+    if (cams.length !== 2) problems.push(`столешница-свой материал: у "${sp.name}" ${cams.length} гнёзд Ø15 вместо 2`);
+  }
+  cases += 1;
+}
+
+// --- столешница «свой материал» толщиной ≤18мм — крышка НЕ убирается -------
+// Тонкий «свой материал» ведёт себя как компакт-плита: клеится к крышке,
+// растикса нет (см. skipTopPanel: ctCustomThick требует >18мм).
+{
+  const mod1 = {
+    name: 'Тумба', width: 600, height: 850, depth: 560,
+    leftSide: 'floor', rightSide: 'floor',
+    base: { type: 'legsPlinth', legHeight: 100, plinthHeight: 100 },
+    topType: 'panel',
+    countertop: { enabled: true, material: 'custom', decorCode: DECORS[0].code, thickness: 18 },
+    sections: [{ shelves: 1, drawers: 0, facade: 'doorLeft' }],
+  };
+  const model = buildModel(Object.assign({}, base, { modules: [mod1] }));
+  inspect(model, 'столешница: «свой материал» 18мм (не толще стандартной ЛДСП) — крышка остаётся');
+
+  if (!model.parts.some((p) => p.kind === 'top')) {
+    problems.push('столешница-свой материал тонкий: крышки корпуса нет, хотя толщина 18мм не больше стандартной — крышка должна остаться');
+  }
+  const sidePanels = model.partsRaw.filter((p) => p.kind === 'side');
+  if (sidePanels.some((sp) => sp.holes.some((h) => h.kind === 'minifixCam'))) {
+    problems.push('столешница-свой материал тонкий: у боковины есть гнездо Ø15 растикса, хотя материал тонкий — крепёж должен быть клеевым');
+  }
+  cases += 1;
+}
+
+// --- регресс: «свой материал» БЕЗ выбранного декора не должен снимать крышку
+// Найдено на ревью 2026-09-06: skipTopPanel проверял только толщину, не
+// проверял что decorCode реально резолвится — при material:'custom' без
+// decorCode (пользователь ввёл толщину, декор ещё не выбрал) крышка
+// убиралась, а столешница не строилась (ctMat.found=false) — верх корпуса
+// оставался вообще без опоры.
+{
+  const mod1 = {
+    name: 'Тумба', width: 600, height: 850, depth: 560,
+    leftSide: 'floor', rightSide: 'floor',
+    base: { type: 'legsPlinth', legHeight: 100, plinthHeight: 100 },
+    topType: 'panel',
+    countertop: { enabled: true, material: 'custom', thickness: 25 }, // decorCode не задан
+    sections: [{ shelves: 1, drawers: 0, facade: 'doorLeft' }],
+  };
+  const model = buildModel(Object.assign({}, base, { modules: [mod1] }));
+  inspect(model, 'столешница: «свой материал» без decorCode — крышка должна остаться (регресс)');
+
+  if (!model.parts.some((p) => p.kind === 'top')) {
+    problems.push('столешница-свой материал без декора: крышки корпуса нет — корпус остался без опоры сверху (регресс бага 2026-09-06)');
+  }
+  const sidePanels2 = model.partsRaw.filter((p) => p.kind === 'side');
+  if (sidePanels2.some((sp) => sp.holes.some((h) => h.kind === 'minifixCam'))) {
+    problems.push('столешница-свой материал без декора: гнездо Ø15 построено, хотя столешница не резолвится — присадка в пустоту');
+  }
+  if (model.parts.some((p) => p.kind === 'countertop')) {
+    problems.push('столешница-свой материал без декора: деталь столешницы построена без декора — не должна была');
+  }
+  cases += 1;
+}
+
+// --- регресс: растикс столешницы не должен задваиваться с другим minifix ---
+// узлом на той же боковине (например, глухая накладная панель — тоже вешается
+// через minifixCam). Найдено на ревью 2026-09-06: specification.js считал
+// ВСЕ minifixCam на боковине как растикс столешницы, включая чужие узлы, уже
+// учтённые отдельно через hardwareContext.jointRows — задвоение в смете.
+{
+  const mod1 = {
+    name: 'Тумба', width: 900, height: 850, depth: 560,
+    leftSide: 'floor', rightSide: 'floor',
+    base: { type: 'legsPlinth', legHeight: 100, plinthHeight: 100 },
+    topType: 'panel',
+    countertop: { enabled: true, material: 'ldsp38' },
+    sections: [
+      { shelves: 1, drawers: 0, facade: 'doorLeft' },
+      { shelves: 1, drawers: 0, facade: 'blindFacade' },
+    ],
+  };
+  const model = buildModel(Object.assign({}, base, { modules: [mod1] }));
+  inspect(model, 'столешница: растикс не задваивается с minifix глухой панели (регресс)');
+
+  // Глухая панель — её собственный узел (минификс, но не растикс столешницы,
+  // см. engine.js ~3326) — должна реально создать minifixCam БЕЗ forJoint,
+  // иначе сценарий не воспроизводит условия бага и тест ничего не проверяет.
+  const sidesRaw = model.partsRaw.filter((p) => p.kind === 'side');
+  const otherCams = sidesRaw.reduce((s, p) =>
+    s + p.holes.filter((h) => h.kind === 'minifixCam' && h.forJoint !== 'countertop').length, 0);
+  if (!otherCams) {
+    problems.push('столешница-растикс/blindFacade: глухая панель не создала свой minifixCam — сценарий не воспроизводит условия бага, тест непоказателен');
+  }
+  const spec = buildSpecification(model);
+  // У спецификации может быть НЕСКОЛЬКО строк "Rastex шток" из разных узлов
+  // одновременно (глухая панель — свой узел, столешница — свой) — это НЕ
+  // баг само по себе. Проверяем, что СРЕДИ них есть строка ИМЕННО с qty=4
+  // (2 боковины × 2 точки растикса столешницы) — до фикса задвоения там был
+  // бы qty=8 (2 своих + 4 от глухой панели), слитые с чужим узлом.
+  const rastexRows = (spec.fasteners || []).filter((r) => r.article === 'RASTEX-BOLT-8');
+  if (!rastexRows.some((r) => r.qty === 4)) {
+    problems.push(`столешница-растикс/blindFacade: среди строк Rastex шток (qty: ${rastexRows.map((r) => r.qty).join(', ')}) `
+      + 'нет строки с qty=4 — растикс столешницы задвоился с узлом глухой панели или потерялся');
   }
   cases += 1;
 }

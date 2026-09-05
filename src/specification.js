@@ -262,23 +262,41 @@ function buildSpecification(model) {
   // же принцип уже в joinCountertopSeams — там compact12 тоже всегда клей,
   // не стяжка). worktopGlueQty — счётчик количества модулей, не расход
   // клея по площади (формулы расхода нет ни в правилах, ни в каталоге).
-  // Растикс — только для материалов, где engine.js реально убирает крышку
-  // (см. skipTopPanel: ldsp38/doubleLdsp) — тот же список БЕЛЫМ списком, а
-  // не "всё, что не compact12", иначе старый/битый проект без material
-  // (engine.js в этом случае оставляет крышку, безопасный дефолт) здесь
-  // всё равно посчитал бы растикс в голый торец боковины, которого нет.
-  let worktopScrewQty = 0, worktopRastexQty = 0, worktopGlueQty = 0;
+  // Клей — только для материалов, где engine.js НЕ убирает крышку (см.
+  // skipTopPanel: ldsp38/doubleLdsp/«свой материал» толще 18мм) — тот же
+  // список БЕЛЫМ списком, а не "всё, что не compact12", иначе старый/битый
+  // проект без material (engine.js в этом случае оставляет крышку,
+  // безопасный дефолт) здесь ошибочно попал бы в "клей" вместо факта, что
+  // крышка просто есть и крепёж — обычные шурупы/присадка крышки.
+  const ctSkipsTopPanel = (m) => m.countertop.material === 'ldsp38'
+    || m.countertop.material === 'doubleLdsp'
+    || (m.countertop.material === 'custom' && Number(m.countertop.thickness) > 18);
+  let worktopScrewQty = 0, worktopGlueQty = 0;
   for (const m of mods) {
     if (!m.countertop || !m.countertop.enabled) continue;
     if (m.topType === 'rails' || m.topType === 'railsEdge') {
       worktopScrewQty += Math.max(2, Math.round(Number(m.width) / 400));
-    } else if (m.countertop.material === 'ldsp38' || m.countertop.material === 'doubleLdsp') {
-      worktopRastexQty += 2;
-    } else {
+    } else if (!ctSkipsTopPanel(m)) {
       worktopGlueQty += 1;
     }
   }
   if (worktopScrewQty) fasteners.push(fRow(FASTENER_PRICES.worktopScrew, worktopScrewQty));
+  // Растикс боковина-столешница — считаем по РЕАЛЬНЫМ отверстиям
+  // (engine.js buildModuleParts), а не отдельной формулой: число точек на
+  // боковину может зависеть от её глубины (см. crossYs/JOINT_SETBACK там же)
+  // — фиксированная константа тут разошлась бы с фактической присадкой при
+  // следующем изменении. Фильтр по forJoint==='countertop' ОБЯЗАТЕЛЕН, не
+  // только по kind==='minifixCam' — на той же боковине может быть minifixCam
+  // от СОВСЕМ ДРУГОГО узла (например, глухая накладная панель), который уже
+  // учтён отдельно через hardwareContext.jointRows — без метки он задвоился
+  // бы (найдено на ревью 2026-09-06). minifixBolt/minifixCam всегда 1:1 на
+  // боковине (см. engine.js), считаем по любому из них.
+  let worktopRastexQty = 0;
+  for (const r of parts) {
+    if (r.kind !== 'side') continue;
+    const cams = (r.holes || []).filter((h) => h.kind === 'minifixCam' && h.forJoint === 'countertop').length;
+    if (cams) worktopRastexQty += cams * (r.qty || 1);
+  }
   if (worktopRastexQty) {
     fasteners.push(fRow(FASTENER_PRICES.minifixBolt, worktopRastexQty));
     fasteners.push(fRow(FASTENER_PRICES.minifixCam, worktopRastexQty));

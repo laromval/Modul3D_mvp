@@ -1706,17 +1706,30 @@ function buildModuleParts(p) {
   // У обычной мебели (не кухня — там верх всегда планки-царги, см. выше)
   // цельная крышка под включённой столешницей — лишняя деталь ТОЛЬКО если
   // столешница из материала, что реально держит стяжку-эксцентрик в торец
-  // боковины: ЛДСП постформинг (ldsp38) или сдвоенная ЛДСП (doubleLdsp) —
-  // толщина (38 / ~36 мм) позволяет присадку. Компакт-плита (compact12,
-  // ~12 мм HPL) тонкая и плохо сверлится — крепится ТОЛЬКО клеем на сплошную
-  // опору, поэтому для неё крышка нужна как была (подтверждено пользователем,
-  // мебельщиком, 2026-09-05 — не выдумано). Материал ещё не выбран (пустое
-  // поле, старый/повреждённый проект) — безопасный дефолт: крышку НЕ убираем
-  // (лучше лишняя деталь, чем корпус без опоры сверху).
+  // боковины: ЛДСП постформинг (ldsp38), сдвоенная ЛДСП (doubleLdsp) —
+  // толщина (38 / ~36 мм) позволяет присадку — или «свой материал» (custom,
+  // любой декор из библиотеки) толщиной строго БОЛЬШЕ 18 мм (стандартной
+  // корпусной ЛДСП), подтверждено пользователем-мебельщиком 2026-09-05.
+  // Компакт-плита (compact12, ~12 мм HPL) тонкая и плохо сверлится —
+  // крепится ТОЛЬКО клеем на сплошную опору, поэтому для неё крышка нужна
+  // как была. «Свой материал» толщиной ≤18мм — та же логика (см. warning в
+  // countertopMat() выше). Материал ещё не выбран (пустое поле, старый/
+  // повреждённый проект) — безопасный дефолт: крышку НЕ убираем (лучше
+  // лишняя деталь, чем корпус без опоры сверху).
   const ctMaterial = p.countertop && p.countertop.material;
+  // Толщины мало — нужно ЕЩЁ и чтобы декор реально резолвился (тот же поиск,
+  // что позже делает countertopMat(), но countertopMat объявлена ниже по
+  // функции — здесь напрямую по каталогу): иначе при custom без выбранного
+  // decorCode (пользователь ввёл толщину, но не успел выбрать декор) крышку
+  // уже уберём, а сама столешница не построится (ctMat.found=false) — корпус
+  // останется без опоры сверху вообще. Безопасный дефолт (крышку не убирать)
+  // должен работать и для этого промежуточного состояния, не только для
+  // полностью пустого material.
+  const ctCustomThick = ctMaterial === 'custom' && Number(p.countertop.thickness) > 18
+    && (window.Modul3D.catalog.DECORS || []).some((d) => d.code === p.countertop.decorCode);
   const skipTopPanel = isFloorStandingBase && p.countertop && p.countertop.enabled
     && !(p.topType === 'rails' || p.topType === 'railsEdge')
-    && (ctMaterial === 'ldsp38' || ctMaterial === 'doubleLdsp');
+    && (ctMaterial === 'ldsp38' || ctMaterial === 'doubleLdsp' || ctCustomThick);
   if (skipTopPanel) {
     // Деталь верха корпуса не строится.
   } else if (p.topType === 'rails' || p.topType === 'railsEdge') {
@@ -1796,6 +1809,31 @@ function buildModuleParts(p) {
       return { found: true, code: decor.code, name: `${decor.name} (сдвоенное 2×, столешница)`,
         isDouble: true, thickness: null, depth: null, maxLength: decor.sheetW || null };
     }
+    // «Свой материал» — любой декор из общей библиотеки (window.Modul3D.catalog
+    // DECORS), а не позиция каталога COUNTERTOP_MATERIALS — пользователь сам
+    // задаёт толщину (ct.thickness, мм). Как и doubleLdsp, это НЕ товар с
+    // фиксированной глубиной полосы — depth:null (см. autoOverhangBack/
+    // предупреждение о глубине листа ниже, там проверка уже на `ctMat.depth`,
+    // а не только `isDouble`). maxLength — по ширине листа декора, столешница
+    // клеится/пилится из тех же листов, что и корпус.
+    if (ct.material === 'custom') {
+      const cat = window.Modul3D.catalog;
+      const dec = (cat.DECORS || []).find((d) => d.code === ct.decorCode);
+      if (!dec) return { found: false };
+      const th = Number(ct.thickness) || 0;
+      if (!th) return { found: false };
+      // Толщина <19мм технически строится (клеится к крышке, как компакт-
+      // плита, см. skipTopPanel ниже — растикс только при >18), но выбор
+      // «свой материал» существует именно ради толстых листов — тонкий лист
+      // логичнее взять готовой позицией ldsp38/compact12. Предупреждаем, не
+      // запрещаем: пользователь мог специально взять тонкий декор.
+      if (th <= 18) {
+        warnings.push(`Столешница модуля: «свой материал» толщиной ${th} мм — не толще стандартной `
+          + `корпусной ЛДСП (18 мм), крепится клеем к крышке корпуса, а не растиксом в торец боковины.`);
+      }
+      return { found: true, code: dec.code, name: `${dec.name} (столешница, ${th} мм)`,
+        isDouble: false, thickness: th, depth: null, maxLength: dec.sheetW || null };
+    }
     const cat = window.Modul3D.catalog;
     const list = (cat.COUNTERTOP_MATERIALS || []).filter((x) => x.materialId === ct.material);
     if (!list.length) return { found: false };
@@ -1820,7 +1858,15 @@ function buildModuleParts(p) {
     const ct = p.countertop;
     const ctMat = countertopMat(ct);
     if (!ctMat.found) {
-      warnings.push(`Столешница: материал "${ct.material}" не найден в каталоге COUNTERTOP_MATERIALS — деталь не построена.`);
+      // «Свой материал» не ищется в COUNTERTOP_MATERIALS вообще (см.
+      // countertopMat() выше) — общее сообщение про этот каталог тут
+      // вводило бы в заблуждение, реальная причина всегда в decorCode/
+      // thickness, не в позиции каталога столешниц.
+      if (ct.material === 'custom') {
+        warnings.push('Столешница модуля: «свой материал» — не выбран декор или не указана толщина — деталь не построена.');
+      } else {
+        warnings.push(`Столешница: материал "${ct.material}" не найден в каталоге COUNTERTOP_MATERIALS — деталь не построена.`);
+      }
     } else {
       // «Свес спереди» отсчитывается от ПЛОСКОСТИ ФАСАДА (как и в уже
       // существующем WORKTOP_OVERHANG=20 выше — та же логика «крайнего
@@ -1861,7 +1907,11 @@ function buildModuleParts(p) {
       //    отход при раскрое, как обычно бывает с плитными материалами.
       // В обоих случаях — свободно переопределяется вручную.
       const hasManualBack = ct.overhangBack !== undefined && ct.overhangBack !== null && ct.overhangBack !== '';
-      const autoOverhangBack = (ctMat.isDouble || p.family !== 'kitchen') ? 0
+      // !ctMat.depth — не только doubleLdsp, но и «свой материал» (custom):
+      // оба клеятся/пилятся из обычного листа декора, а не берутся готовой
+      // позицией каталога фиксированной глубины — совпадать с глубиной
+      // листа тут нечему, «доращивать» свес не нужно (см. warning ниже).
+      const autoOverhangBack = (ctMat.isDouble || !ctMat.depth || p.family !== 'kitchen') ? 0
         : round1(ctMat.depth - D - facadeThicknessResolved - oF);
       const oB = hasManualBack ? (Number(ct.overhangBack) || 0) : autoOverhangBack;
       // Свес слева/справа НЕ прибавляется к длине детали здесь — если эта
@@ -1883,7 +1933,7 @@ function buildModuleParts(p) {
       // там, где вообще ожидается точное совпадение — у кухни (см.
       // autoOverhangBack выше). У остальной мебели свес сзади по умолчанию
       // 0 и расхождение с глубиной листа — норма, а не повод для тревоги.
-      if (!ctMat.isDouble && p.family === 'kitchen' && Math.abs(ctWidth - ctMat.depth) > 1) {
+      if (!ctMat.isDouble && ctMat.depth && p.family === 'kitchen' && Math.abs(ctWidth - ctMat.depth) > 1) {
         warnings.push(`Столешница модуля: итоговая глубина ${Math.round(ctWidth)} мм не совпадает `
           + `с глубиной материала "${ctMat.name}" (${ctMat.depth} мм) — свес сзади переопределён `
           + `вручную (${oB} мм вместо автоматических ${autoOverhangBack} мм), потребуется `
@@ -1962,11 +2012,13 @@ function buildModuleParts(p) {
       // лицевой стороны»). Этот код работает ДО глобального разворота и
       // размещения модуля в прогоне (buildModel применяет part.rot к box.x/z
       // уже после возврата отсюда) — поэтому box.x/y/z обеих деталей пока в
-      // системе координат МОДУЛЯ, читать их напрямую безопасно. Единственная
-      // точка на боковину (не веером вдоль глубины, как у обычных стыков
-      // jointPoints) — количество уже зафиксировано как 1 растикс на
-      // боковину в specification.js (worktopRastexQty); центр глубины
-      // боковины — разумный выбор за неимением другой цифры от владельца.
+      // системе координат МОДУЛЯ, читать их напрямую безопасно. Две точки на
+      // боковину (не через общий jointPoints() — у него другие пороги
+      // масштабирования по глубине, 3-4 точки уже от 560мм, что не совпадает
+      // с зафиксированным «всегда 2» от владельца) — количество и отступ
+      // (JOINT_SETBACK) подтверждены 2026-09-05, specification.js считает их
+      // по фактическим отверстиям (см. worktopRastexQty), не отдельной
+      // формулой — не разойдётся при изменении числа точек здесь.
       //
       // При слиянии соседних тумб в одну сквозную столешницу (mergeCountertops
       // ниже по файлу) дюбельные отверстия столешницы переносятся и
@@ -1977,24 +2029,42 @@ function buildModuleParts(p) {
           const sidePanel = parts.filter((pp) => pp.kind === 'side'
             && Math.abs(pp.box.x - sx) < 1.5)[0];
           if (!sidePanel) continue; // подстраховка — по построению всегда найдётся
-          const topEdgeX = sidePanel.length;          // x=0 — низ боковины, x=length — верх
-          const crossY = round1(sidePanel.width / 2); // центр глубины боковины (y — от задней кромки)
-          sidePanel.holes.push({
-            x: round1(topEdgeX - RASTEX.camSetback), y: crossY,
-            d: RASTEX.camD, depth: RASTEX.camDepthFor(sidePanel.thickness),
-            through: false, side: 'front', kind: 'minifixCam',
-          });
-          sidePanel.holes.push({
-            x: round1(topEdgeX), y: crossY, d: RASTEX.boltD, depth: RASTEX.boltDepth,
-            through: false, side: 'edge', kind: 'minifixBolt',
-          });
+          const topEdgeX = sidePanel.length; // x=0 — низ боковины, x=length — верх
+          // Два растикса на боковину, отступ JOINT_SETBACK (50мм, тот же
+          // отступ крепежа от кромки, что уже используется по всему файлу —
+          // не новое число) от переднего и заднего края глубины боковины.
+          // Подтверждено владельцем-мебельщиком 2026-09-05 (было 1 в центре
+          // до этой правки). Подстраховка на нетипично мелкую глубину — тот
+          // же порог 32мм минимального зазора, что и в jointPoints() ниже по
+          // файлу: сближенные точки схлопываются в одну по центру.
+          const crossYs = (sidePanel.width - 2 * JOINT_SETBACK < 32)
+            ? [round1(sidePanel.width / 2)]
+            : [round1(JOINT_SETBACK), round1(sidePanel.width - JOINT_SETBACK)];
+          const sideBackZ = sidePanel.box.z - sidePanel.box.d / 2; // задняя грань боковины
           const ctLeftX = ctPart.box.x - ctPart.box.w / 2;
           const ctBackZ = ctPart.box.z - ctPart.box.d / 2;
-          ctPart.holes.push({
-            x: round1(sidePanel.box.x - ctLeftX), y: round1(sidePanel.box.z - ctBackZ),
-            d: RASTEX.dowelD, depth: RASTEX.dowelDepth,
-            through: false, side: 'back', kind: 'minifixDowel',
-          });
+          for (const crossY of crossYs) {
+            // forJoint:'countertop' — отличает эту присадку от любых других
+            // minifix-соединений на той же боковине (например, глухая
+            // накладная панель тоже вешается на боковину через minifixCam,
+            // см. panelAt() выше по файлу) — specification.js считает
+            // растиксы столешницы по этой метке, а не по одному kind,
+            // иначе задвоил бы их с обычным jointRows-учётом того же узла.
+            sidePanel.holes.push({
+              x: round1(topEdgeX - RASTEX.camSetback), y: crossY,
+              d: RASTEX.camD, depth: RASTEX.camDepthFor(sidePanel.thickness),
+              through: false, side: 'front', kind: 'minifixCam', forJoint: 'countertop',
+            });
+            sidePanel.holes.push({
+              x: round1(topEdgeX), y: crossY, d: RASTEX.boltD, depth: RASTEX.boltDepth,
+              through: false, side: 'edge', kind: 'minifixBolt', forJoint: 'countertop',
+            });
+            ctPart.holes.push({
+              x: round1(sidePanel.box.x - ctLeftX), y: round1(sideBackZ + crossY - ctBackZ),
+              d: RASTEX.dowelD, depth: RASTEX.dowelDepth,
+              through: false, side: 'back', kind: 'minifixDowel', forJoint: 'countertop',
+            });
+          }
         }
       }
     }
