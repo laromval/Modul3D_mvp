@@ -1815,6 +1815,19 @@ function buildModuleParts(p) {
       const oF = Number(ct.overhangFront) || 0, oL = Number(ct.overhangLeft) || 0,
             oR = Number(ct.overhangRight) || 0;
       const ctThickness = ctMat.isDouble ? 2 * t : ctMat.thickness;
+      // Задняя стенка (ХДФ) НАКЛАДНАЯ — крепится НА задний торец корпуса и
+      // всегда выступает за него на свою толщину (см. ниже: z: -D/2-tb/2,
+      // то есть физический задний край сборки — не -D/2, а -D/2-tb). Для
+      // ОБЫЧНОЙ мебели (не кухня) свес сзади по умолчанию 0 означает
+      // «заподлицо с корпусом», но корпус — это ещё не весь модуль: без
+      // поправки столешница не закрывала заднюю стенку целиком (обнаружено
+      // пользователем на реальном виде сбоку). Для КУХНИ поправка не нужна:
+      // там свес сзади автоматически дотягивает глубину столешницы точно до
+      // глубины купленного листа (реальная стена), это уже верно и без
+      // поправки на ХДФ — трогать не нужно (подтверждено пользователем).
+      // Врезная (в паз) задняя стенка у тумб сейчас не встречается — если
+      // появится отдельной задачей, тут будет 0 и для неё.
+      const backPanelExtra = (p.noBack || p.family === 'kitchen') ? 0 : tb;
       // «Свес сзади» по умолчанию зависит от типа мебели, а не только от
       // материала:
       //  - КУХНЯ (family==='kitchen'): корпус нижней тумбы намеренно мельче
@@ -1844,7 +1857,7 @@ function buildModuleParts(p) {
       // краю первой и ПРАВОМУ краю последней тумбы уже слитого ряда (для
       // одиночной, несливающейся тумбы — с тем же результатом, что и раньше).
       const ctLen = W;
-      const ctWidth = round1(D + facadeThicknessResolved + oF + oB);
+      const ctWidth = round1(D + backPanelExtra + facadeThicknessResolved + oF + oB);
       if (ctMat.maxLength && ctLen > ctMat.maxLength) {
         warnings.push(`Столешница модуля (${Math.round(ctLen)} мм) длиннее максимальной цельной `
           + `полосы материала "${ctMat.name}" (${ctMat.maxLength} мм) — цельным куском не выпилить.`);
@@ -1870,7 +1883,7 @@ function buildModuleParts(p) {
         material: ctMat.code, thickness: ctThickness,
         length: ctLen, width: ctWidth, qty: ctMat.isDouble ? 2 : 1, kind: 'countertop',
         edging: { long1: EDGE_FRONT, long2: EDGE_FRONT, short1: EDGE_FRONT, short2: EDGE_FRONT },
-        x: 0, y: H + ctThickness / 2, z: round1((facadeThicknessResolved + oF - oB) / 2),
+        x: 0, y: H + ctThickness / 2, z: round1((facadeThicknessResolved + oF - oB - backPanelExtra) / 2),
         dims: { w: ctLen, h: ctThickness, d: ctWidth },
         note: (p.topType === 'rails' || p.topType === 'railsEdge')
           ? 'Крепится шурупами 3.5×35 через верхние планки'

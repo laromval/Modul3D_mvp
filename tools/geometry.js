@@ -2987,14 +2987,44 @@ for (const glass of [false, true]) {
   const custom = mk('custom');
   inspect(custom, 'столешница: свес сзади — обычная тумба, заподлицо с корпусом');
   const cTop = custom.parts.filter((p) => p.kind === 'countertop')[0];
-  // D(510) + фасад(18) + свес спереди(20) + свес сзади(0 по умолчанию) = 548
-  if (!cTop || Math.abs(cTop.width - 548) > 1) {
-    problems.push(`столешница: обычная тумба — глубина ${cTop && cTop.width} мм вместо 548 (свес сзади должен быть 0, заподлицо с корпусом, а не догонять до глубины листа 600)`);
+  // D(510) + фасад(18) + свес спереди(20) + свес сзади(0 по умолчанию) +
+  // выступ накладной задней стенки (backThickness=3, см. backPanelExtra в
+  // engine.js — обычная мебель должна закрывать ХДФ целиком) = 551
+  if (!cTop || Math.abs(cTop.width - 551) > 1) {
+    problems.push(`столешница: обычная тумба — глубина ${cTop && cTop.width} мм вместо 551 (свес сзади 0 заподлицо с корпусом + 3мм выступа накладного ХДФ, которое столешница обязана закрыть)`);
+  }
+  // Задний край столешницы должен ровно совпасть с внешней гранью задней
+  // стенки (не просто с корпусом) — это и есть регрессия на исходный баг
+  // "столешница не доходит до стены, не покрывает заднюю стенку".
+  const cBack = custom.parts.filter((p) => p.kind === 'back')[0];
+  if (cTop && cBack) {
+    const topBackZ = cTop.box.z - cTop.box.d / 2;
+    const panelOuterZ = cBack.box.z - cBack.box.d / 2;
+    if (Math.abs(topBackZ - panelOuterZ) > 0.5) {
+      problems.push(`столешница: обычная тумба — задний край столешницы (Z=${topBackZ}) не совпадает с внешней гранью задней стенки (Z=${panelOuterZ})`);
+    }
   }
   if (custom.warnings.some((w) => /не совпадает с глубиной материала/.test(w))) {
     problems.push('столешница: обычная тумба — не должно быть предупреждения о расхождении глубины (несовпадение с листом здесь — норма)');
   }
-  cases += 2;
+  // Без задней стенки (noBack) закрывать нечего — поправка не должна
+  // применяться, свес сзади остаётся ровно 0 (заподлицо с корпусом).
+  const noBackModel = buildModel(Object.assign({}, base, {
+    facadeThickness: 18,
+    modules: [{
+      name: 'Тумба', width: 600, height: 820, depth: 510, family: 'custom', noBack: true,
+      leftSide: 'onBottom', rightSide: 'onBottom', topType: 'rails',
+      base: { type: 'legsPlinth', legHeight: 100 },
+      countertop: { enabled: true, material: 'ldsp38', overhangFront: 20 },
+      sections: [{ shelves: 1, drawers: 0, facade: 'doorLeft', drawerSystem: 'ballBearing' }],
+    }],
+  }));
+  inspect(noBackModel, 'столешница: свес сзади — обычная тумба без задней стенки (noBack)');
+  const nbTop = noBackModel.parts.filter((p) => p.kind === 'countertop')[0];
+  if (!nbTop || Math.abs(nbTop.width - 548) > 1) {
+    problems.push(`столешница: тумба без задней стенки — глубина ${nbTop && nbTop.width} мм вместо 548 (без задней стенки не к чему добавлять выступ)`);
+  }
+  cases += 3;
 }
 
 // --- столешница: слияние соседних тумб в одну сквозную деталь ---------------
