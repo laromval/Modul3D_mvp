@@ -307,6 +307,11 @@ select:focus-visible {
   color: var(--accent); font-size: var(--fs-xs); font-family: inherit;
   cursor: pointer; text-decoration: underline; text-underline-offset: 2px;
 }
+/* «+ Добавить материал»/«Удалить материал» под Материал корпуса/Материал
+   фасада/Задняя стенка в «Параметрах проекта» (см. app.js:
+   materialPickActionsHtml) — та же пара ссылок, что и в «Библиотеке», в ряд
+   под своим <select>. */
+.lib-pick-actions { display: flex; gap: var(--sp-3); margin-top: 5px; }
 /* иконочная кнопка */
 .icon-btn {
   display: inline-flex; align-items: center; justify-content: center;
@@ -1223,6 +1228,13 @@ h4.spec-title { margin: var(--sp-5) 0 var(--sp-2); font-size: var(--fs-md); font
   width: 100%; border: 1px solid var(--accent); border-radius: var(--r-sm);
   padding: 3px 5px; font-family: inherit; font-size: var(--fs-sm);
   background: var(--surface-solid); color: var(--text);
+}
+/* Единица измерения (field === 'unit', см. app.js: startCellEdit) — та же
+   компактная посадка в ячейке таблицы, что и у input выше, только select. */
+.lib-table td.lib-edit-cell select {
+  width: 100%; border: 1px solid var(--accent); border-radius: var(--r-sm);
+  padding: 3px 20px 3px 5px; font-family: inherit; font-size: var(--fs-sm);
+  background-color: var(--surface-solid); color: var(--text);
 }
 .lib-add { display: inline-block; margin: 0 0 var(--sp-4); }
 

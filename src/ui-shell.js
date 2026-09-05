@@ -275,6 +275,12 @@ function closeDrawer(name, silent) {
     rememberUI();
   }
   if ((name || '') === 'docs') setResultsOpen(false);
+  // Сброс режима подбора материала (см. app.js: state.libPickTarget/
+  // clearLibraryPickTarget) — при ЛЮБОМ закрытии «Библиотеки», не только
+  // после успешного выбора (тот путь сам обнуляет state и без этого хука).
+  if ((name || '') === 'library' && window.Modul3D.app && window.Modul3D.app.clearLibraryPickTarget) {
+    window.Modul3D.app.clearLibraryPickTarget();
+  }
 }
 
 function toggleDrawer(name, scrollTo) {

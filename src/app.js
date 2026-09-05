@@ -14,7 +14,7 @@
 (function () {
 // Версия сборки — показывается во вкладке браузера и в шапке.
 // При выпуске новой версии меняется только эта строка.
-const APP_VERSION = 'v229';
+const APP_VERSION = 'v230';
 
 // Номер версии выводим ПЕРВЫМ делом: если дальше что-то упадёт, по нему сразу
 // видно, какая сборка открыта.
@@ -159,6 +159,15 @@ const state = {
   // нужны. Чисто UI-состояние, как libCollapsed выше: в историю отмены/файл
   // проекта не попадает.
   libExtraSubcats: { decors: [], back: [], facade: [] },
+  // Режим подбора материала из «Параметры проекта» (кнопка «+ Добавить
+  // материал» у Материал корпуса/Материал фасада/Задняя стенка, см.
+  // materialPickActionsHtml/openMaterialPicker) — { role: 'decor' | 'facadeDecor'
+  // | 'back' } или null, когда подбор не идёт. Пока не пуст, вкладка
+  // «Библиотека → Материалы» рисует у каждой строки «Листовых материалов»
+  // дополнительную кнопку «Выбрать» (см. libSheetRowHtml/libPickMaterial).
+  // Чисто UI-состояние, как libraryTab выше: в историю отмены/файл проекта
+  // не попадает.
+  libPickTarget: null,
   // Текст в строке поиска по вкладкам модулей проекта (moduleTabsBlock,
   // поле видно только когда модулей больше 8 — см. там же). Чисто
   // UI-состояние, как libraryTab выше: в историю отмены/файл проекта не
@@ -667,17 +676,22 @@ function libSwatchHtml(group, key, image) {
 // проекта.
 // ---------------------------------------------------------------------------
 
-// Группирует items по item.subcategory, сохраняя порядок первого появления;
-// у позиций без subcategory используется fallbackName — получается ровно
-// одна группа с именем самой категории (так устроены «Кромка»/«Стекло»,
-// у их позиций поля subcategory в каталоге вовсе нет).
-function libGroupBySubcategory(items, fallbackName) {
+// Группирует ЗАПИСИ { group, item } по item.subcategory, сохраняя порядок
+// первого появления; у позиций без subcategory используется fallbackName —
+// получается ровно одна группа с именем самой категории (так устроены
+// «Кромка»/«Стекло», у их позиций поля subcategory в каталоге вовсе нет).
+// Работает с записями, а не «голыми» item — это то, что позволяет
+// объединённой подкатегории «Листовые материалы» (см. libraryMaterialsBlock)
+// тянуть строки из decors/back/facade одновременно: каждая запись помнит
+// СВОЙ истинный group для инлайн-редактирования (см. libSheetRowHtml).
+function libGroupBySubcategory(entries, fallbackName) {
   const order = [];
   const map = {};
-  (items || []).forEach((it) => {
+  (entries || []).forEach((entry) => {
+    const it = entry && entry.item;
     const key = (it && it.subcategory) || fallbackName;
     if (!map[key]) { map[key] = []; order.push(key); }
-    map[key].push(it);
+    map[key].push(entry);
   });
   return order.map((name) => ({ name, items: map[name] }));
 }
@@ -755,16 +769,19 @@ function libPriceNoteHtml(items) {
 // материала переносилось по словам, а не растягивало таблицу и вслед за ней
 // панель (см. #drawer-library.lib-wide/.lib-table в style.css). Колонка
 // «Наименование» — без явной ширины, забирает весь остаток.
-function libColgroup(hasThickness) {
+function libColgroup(hasThickness, pickMode) {
   // «Образец» — 72px: при 50px заголовок «ОБРАЗЕЦ» не помещался и визуально
   // обрезался соседней колонкой (th непрозрачный, перекрывал overflow).
+  // pickMode — доп. узкая колонка «Выбрать» (только «Листовые материалы» в
+  // режиме подбора, см. state.libPickTarget/libraryMaterialsBlock).
   return `<colgroup><col><col style="width:26px"><col style="width:62px">`
     + `<col style="width:72px"><col style="width:90px">`
-    + `${hasThickness ? '<col style="width:82px">' : ''}</colgroup>`;
+    + `${hasThickness ? '<col style="width:82px">' : ''}`
+    + `${pickMode ? '<col style="width:76px">' : ''}</colgroup>`;
 }
-function libTableHead(hasThickness) {
+function libTableHead(hasThickness, pickMode) {
   return `<thead><tr>
-    <th>Наименование</th><th></th><th>Ед. изм.</th><th>Образец</th><th>Цена, ${esc(curSym())}</th>${hasThickness ? `<th>Толщина, мм</th>` : ''}
+    <th>Наименование</th><th></th><th>Ед. изм.</th><th>Образец</th><th>Цена, ${esc(curSym())}</th>${hasThickness ? `<th>Толщина, мм</th>` : ''}${pickMode ? `<th></th>` : ''}
   </tr></thead>`;
 }
 
@@ -776,7 +793,14 @@ function libTableHead(hasThickness) {
 // общая на проект — bodyThickness/facadeThickness в «Параметрах проекта»).
 // data-brand/data-thickness — не для отображения, а для фильтра (см.
 // initLibraryPanel → panel.addEventListener('change', ...)).
-function libSheetRowHtml(group, it, hasThickness) {
+// entry — { group, item }: group САМОЙ ЗАПИСИ, а не категории целиком —
+// в объединённой подкатегории «Листовые материалы» (см.
+// libraryMaterialsBlock) строки одной таблицы приходят из decors/back/facade
+// одновременно, и каждая правится через libEditCell(entry.group, ...), а не
+// через код категории. pickMode — доп. кнопка «Выбрать» (см. libColgroup).
+function libSheetRowHtml(entry, hasThickness, pickMode) {
+  const group = entry.group;
+  const it = entry.item;
   return `
     <tr data-search="${esc(String(it.name || '').toLowerCase())}"
         data-brand="${esc(it.brand || '')}" data-thickness="${it.thickness != null ? esc(String(it.thickness)) : ''}">
@@ -786,6 +810,7 @@ function libSheetRowHtml(group, it, hasThickness) {
       <td>${libSwatchHtml(group, it.code, it.image)}</td>
       ${libEditCell(group, it.code, 'sheetPrice', 'number', it.sheetPrice)}
       ${hasThickness ? libEditCell(group, it.code, 'thickness', 'number', it.thickness) : ''}
+      ${pickMode ? `<td><button type="button" class="link-btn lib-pick-btn" data-pick-group="${esc(group)}" data-pick-code="${esc(it.code)}">Выбрать</button></td>` : ''}
     </tr>`;
 }
 
@@ -811,20 +836,29 @@ function libEdgeRowHtml(it) {
 // добавлять там нечего (единственный объект каталога, не массив); у
 // «Кромки» кнопка есть, но со своим прежним UX (prompt на название, см.
 // libAddRow) — поэтому data-add-subcat у неё не проставляется.
-function libSubcategoryPanel(catCode, subName, items, opts, collapsed) {
+// entries — [{ group, item }, ...] (см. libGroupBySubcategory). addGroupMap
+// (только у объединённой «Листовые материалы») переопределяет, В КАКОЙ
+// массив каталога кладёт новую позицию кнопка «+ Добавить материал» ЭТОЙ
+// конкретной подкатегории — см. libraryMaterialsBlock: там же объяснение,
+// почему для каждой подкатегории выбран именно такой массив по умолчанию.
+function libSubcategoryPanel(catCode, subName, entries, opts, collapsed) {
   const hasThickness = !!opts.hasThickness;
+  const pickMode = !!(opts.pickable && state.libPickTarget);
   const rowsHtml = catCode === 'edge'
-    ? items.map((it) => libEdgeRowHtml(it)).join('')
-    : items.map((it) => libSheetRowHtml(catCode, it, hasThickness)).join('');
-  const emptyRow = items.length ? '' : `<tr><td colspan="${hasThickness ? 6 : 5}" class="hint">Пока нет позиций</td></tr>`;
+    ? entries.map((e) => libEdgeRowHtml(e.item)).join('')
+    : entries.map((e) => libSheetRowHtml(e, hasThickness, pickMode)).join('');
+  const items = entries.map((e) => e.item);
+  const colCount = 5 + (hasThickness ? 1 : 0) + (pickMode ? 1 : 0);
+  const emptyRow = entries.length ? '' : `<tr><td colspan="${colCount}" class="hint">Пока нет позиций</td></tr>`;
+  const addGroup = (opts.addGroupMap && opts.addGroupMap[subName]) || catCode;
   const addHtml = opts.addLabel
-    ? `<button type="button" class="link-btn lib-add" data-add="${esc(catCode)}"${catCode !== 'edge' ? ` data-add-subcat="${esc(subName)}"` : ''}>${esc(opts.addLabel)}</button>`
+    ? `<button type="button" class="link-btn lib-add" data-add="${esc(addGroup)}"${catCode !== 'edge' ? ` data-add-subcat="${esc(subName)}"` : ''}>${esc(opts.addLabel)}</button>`
     : '';
   return `
     <div class="lib-subcat-panel${collapsed ? ' lib-collapsed' : ''}">
       ${libFiltersHtml(items)}
       ${libPriceNoteHtml(items)}
-      <table class="lib-table" style="table-layout:fixed">${libColgroup(hasThickness)}${libTableHead(hasThickness)}<tbody>${rowsHtml}${emptyRow}</tbody></table>
+      <table class="lib-table" style="table-layout:fixed">${libColgroup(hasThickness, pickMode)}${libTableHead(hasThickness, pickMode)}<tbody>${rowsHtml}${emptyRow}</tbody></table>
       ${addHtml}
     </div>`;
 }
@@ -836,6 +870,11 @@ function libSubcategoryPanel(catCode, subName, items, opts, collapsed) {
 // opts.allowAddSubcat) → сами таблицы подкатегорий одна под другой.
 // itemsAll не используется для 'edge' — вместо этого прямо здесь разбирается
 // cat.EDGE_PRICES (объект «имя → цена», а не массив, как у остальных).
+// opts.mixedEntries — itemsAll уже пришёл готовыми записями [{group,item}]
+// (объединённая «Листовые материалы», где group у строк разный внутри одной
+// подкатегории); без этого флага itemsAll — обычный плоский массив item, и
+// group каждой записи считается равным самому catCode (как было раньше у
+// одиночных категорий decors/back/facade/glass).
 function libCategoryBlock(catCode, title, itemsAll, opts) {
   opts = opts || {};
   const cat = window.Modul3D.catalog;
@@ -843,9 +882,10 @@ function libCategoryBlock(catCode, title, itemsAll, opts) {
   let groups;
   if (catCode === 'edge') {
     const items = Object.keys(cat.EDGE_PRICES).map((name) => Object.assign({ key: name }, cat.EDGE_PRICES[name]));
-    groups = [{ name: title, items }];
+    groups = [{ name: title, items: items.map((it) => ({ group: 'edge', item: it })) }];
   } else {
-    groups = libGroupBySubcategory(itemsAll, title);
+    const entries = opts.mixedEntries ? (itemsAll || []) : (itemsAll || []).map((it) => ({ group: catCode, item: it }));
+    groups = libGroupBySubcategory(entries, title);
     if (opts.allowAddSubcat) {
       (state.libExtraSubcats[catCode] || []).forEach((name) => {
         if (!groups.some((g) => g.name === name)) groups.push({ name, items: [] });
@@ -908,14 +948,46 @@ function libCountertopTable() {
     <button type="button" class="link-btn lib-add" data-add="countertop">+ Добавить столешницу</button>`;
 }
 
+// subcategory теперь называет ТИП листового материала (ДСП/МДФ-плита/
+// Шпонированные плиты), а не его роль в проекте (корпус/фасад/задняя
+// стенка) — см. catalog.js. Эти три значения и выделяют «плитную» часть
+// FACADE_MATERIALS, которая переезжает в объединённую категорию «Листовые
+// материалы» вместе с decors/back; «Массив»/«Алюминий»/«Стекло» — не
+// плитные материалы, остаются в «Материалы фасадов».
+const SHEET_FACADE_SUBCATS = ['ДСП', 'МДФ-плита', 'Шпонированные плиты'];
+
+// Новая позиция объединённой подкатегории «Листовые материалы» кладётся в
+// ОДИН конкретный исходный массив каталога по умолчанию — тот, где сейчас и
+// живут материалы этого типа: «ДСП» чаще всего заводят как декор корпуса
+// (DECORS — самый частый случай), «МДФ-плита»/«Шпонированные плиты» —
+// позиции есть только в FACADE_MATERIALS, «ХДФ/ДВП» — только в
+// BACK_MATERIALS. Подкатегорию «Материалы фасадов» это не касается — там
+// addGroupMap не передаётся, действует старое поведение (всё в FACADE_MATERIALS).
+const SHEET_ADD_GROUP_MAP = { 'ДСП': 'decors', 'МДФ-плита': 'facade', 'Шпонированные плиты': 'facade', 'ХДФ/ДВП': 'back' };
+
 function libraryMaterialsBlock() {
   const cat = window.Modul3D.catalog;
+  const facadeAll = Object.values(cat.FACADE_MATERIALS);
+  const facadeSheet = facadeAll.filter((it) => SHEET_FACADE_SUBCATS.indexOf(it.subcategory) >= 0);
+  const facadeRest = facadeAll.filter((it) => SHEET_FACADE_SUBCATS.indexOf(it.subcategory) < 0);
+  // Порядок конкатенации даёт нужный порядок подкатегорий по первому
+  // появлению (см. libGroupBySubcategory): ДСП (decors) → МДФ-плита/
+  // Шпонированные плиты (facadeSheet) → ХДФ/ДВП (back).
+  const sheetEntries = []
+    .concat(DECORS.map((it) => ({ group: 'decors', item: it })))
+    .concat(facadeSheet.map((it) => ({ group: 'facade', item: it })))
+    .concat(BACK_MATERIALS.map((it) => ({ group: 'back', item: it })));
   return `
     <h3>Материалы</h3>
     ${libSourceHint()}
-    ${libCategoryBlock('decors', 'Материалы корпуса', DECORS, { allowAddSubcat: true, addLabel: '+ Добавить материал' })}
-    ${libCategoryBlock('back', 'Материалы задней стенки', BACK_MATERIALS, { hasThickness: true, allowAddSubcat: true, addLabel: '+ Добавить материал' })}
-    ${libCategoryBlock('facade', 'Материалы фасадов', Object.values(cat.FACADE_MATERIALS), { allowAddSubcat: true, addLabel: '+ Добавить материал' })}
+    ${libCategoryBlock('sheet', 'Листовые материалы', sheetEntries, {
+      mixedEntries: true, hasThickness: true, pickable: true,
+      addLabel: '+ Добавить материал', addGroupMap: SHEET_ADD_GROUP_MAP,
+      // allowAddSubcat здесь намеренно нет: у объединённой категории нет
+      // единого «дефолтного» массива для СОВСЕМ новой (пока пустой)
+      // подкатегории — непонятно, куда класть первую же позицию.
+    })}
+    ${libCategoryBlock('facade', 'Материалы фасадов', facadeRest, { allowAddSubcat: true, addLabel: '+ Добавить материал' })}
     ${libCategoryBlock('edge', 'Кромка', null, { addLabel: '+ Добавить кромку' })}
     ${libCategoryBlock('glass', 'Стекло', [cat.GLASS], {})}
     ${libCountertopTable()}`;
@@ -1008,6 +1080,74 @@ function libSaveEdit(group, key, field, value) {
   // (новая цена) и деталировку (переименованный материал) на лету.
   recompute();
   renderLibraryPanel();
+}
+
+// Три роли подбора материала из «Параметры проекта» (см.
+// state.libPickTarget/materialPickActionsHtml) читают только ДВА массива
+// каталога: decor/facadeDecor — DECORS (декор корпуса и декор видимой
+// боковины фасада — оба поля выбирают из одного и того же списка), back —
+// BACK_MATERIALS. Общий для libPickMaterial и deleteMaterialPick ниже.
+const LIB_PICK_ROLE_GROUP = { decor: 'decors', facadeDecor: 'decors', back: 'back' };
+
+// Клик «Выбрать» на строке «Листовых материалов» в режиме подбора.
+// rowGroup/code — ИСТИННОЕ происхождение строки (см. libSheetRowHtml:
+// entry.group), может не совпадать с массивом нужной роли — например,
+// пользователь подбирает «Материал корпуса» (читает DECORS), но кликнул по
+// строке FAC-LDSP, которая физически лежит в FACADE_MATERIALS. В этом
+// случае саму позицию не переносим (она там нужна и для типа фасада), а
+// копируем её данные в целевой массив под тем же (или, при совпадении кода,
+// уникальным) кодом.
+function libPickMaterial(rowGroup, code) {
+  const target = state.libPickTarget;
+  if (!target) return;
+  const targetGroup = LIB_PICK_ROLE_GROUP[target.role];
+  if (!targetGroup) return;
+  let finalCode = code;
+  if (rowGroup !== targetGroup) {
+    const src = libFindItem(rowGroup, code);
+    if (!src) return;
+    const targetArr = targetGroup === 'back' ? BACK_MATERIALS : DECORS;
+    const copy = {};
+    ['name', 'sheetPrice', 'sourceUrl', 'sheetW', 'sheetH', 'unit', 'thickness', 'subcategory', 'brand', 'image']
+      .forEach((f) => { if (src[f] !== undefined) copy[f] = src[f]; });
+    // Задняя стенка обязательно требует числовую толщину (state.backThickness
+    // берётся из неё, см. bindPanelEvents → #p-back) — если у скопированной
+    // позиции (например, декора корпуса) поля thickness нет, спрашиваем
+    // явно, а не подставляем число самим (тот же принцип, что и у добавления
+    // новой кромки — см. libAddRow: group === 'edge').
+    if (targetGroup === 'back' && copy.thickness == null) {
+      const raw = window.prompt('Толщина этого материала для задней стенки, мм:');
+      const val = Number(raw);
+      if (!raw || !Number.isFinite(val) || val <= 0) return; // отмена/некорректный ввод — подбор не завершаем
+      copy.thickness = val;
+    }
+    // Суффикс с растущим счётчиком, а не фиксированный «-copy»: тот же
+    // материал могут подобрать несколько раз подряд (например, и для
+    // decor, и для facadeDecor — оба пишут в DECORS) — фиксированный
+    // суффикс на третий раз столкнулся бы с уже занятым «-copy» и дал
+    // дублирующийся code (find() находил бы только первую запись).
+    let newCode = src.code;
+    let attempt = 1;
+    while (targetArr.some((x) => x.code === newCode)) {
+      attempt += 1;
+      newCode = attempt === 2 ? `${src.code}-copy` : `${src.code}-copy${attempt}`;
+    }
+    copy.code = newCode;
+    targetArr.push(copy);
+    finalCode = newCode;
+  }
+  if (target.role === 'decor') state.decorCode = finalCode;
+  else if (target.role === 'facadeDecor') state.facadeDecorCode = finalCode;
+  else if (target.role === 'back') {
+    state.backCode = finalCode;
+    const back = BACK_MATERIALS.find((m) => m.code === finalCode);
+    if (back) state.backThickness = back.thickness;
+  }
+  state.libPickTarget = null;
+  renderLibraryPanel();   // убирает колонку «Выбрать» сразу, не дожидаясь повторного открытия
+  if (window.Modul3D.uiShell) window.Modul3D.uiShell.closeDrawer('library');
+  recompute();
+  renderParamsPanel();
 }
 
 function libAddHardwareRow(category) {
@@ -1107,9 +1247,31 @@ function initLibImageInput() {
   });
 }
 
-// Клик по ячейке → инлайн-инпут; Enter/blur — сохранить, Esc — отменить.
+// Единица измерения — фиксированный список, а не свободный текст: реальные
+// товары каталога измеряются только так (листы декоров/фасадов/задней стенки
+// — «лист», кромка — «пог.м», фурнитура — «шт», м² пока не занят ни одной
+// позицией, но оставлен на будущее — набор согласован с пользователем).
+const LIB_UNIT_OPTIONS = ['лист', 'м²', 'пог.м', 'шт'];
+
+// Клик по ячейке → инлайн-инпут (или <select> для поля «unit», см.
+// LIB_UNIT_OPTIONS выше); Enter/blur — сохранить, Esc — отменить.
 function startCellEdit(cell) {
-  if (cell.querySelector('input')) return;
+  if (cell.querySelector('input') || cell.querySelector('select')) return;
+  if (cell.dataset.field === 'unit') {
+    const cur = cell.textContent.trim();
+    cell.innerHTML = `<select>${LIB_UNIT_OPTIONS.map((o) => `<option value="${esc(o)}" ${o === cur ? 'selected' : ''}>${esc(o)}</option>`).join('')}</select>`;
+    const select = cell.querySelector('select');
+    select.focus();
+    let done = false;
+    const commit = () => {
+      if (done) return;
+      done = true;
+      libSaveEdit(cell.dataset.group, cell.dataset.key, cell.dataset.field, select.value);
+    };
+    select.addEventListener('change', commit);
+    select.addEventListener('blur', commit);
+    return;
+  }
   const type = cell.dataset.type === 'number' ? 'number' : 'text';
   const cur = cell.textContent;
   cell.innerHTML = `<input type="${type}" ${type === 'number' ? 'step="any"' : ''} value="${esc(cur)}">`;
@@ -1212,6 +1374,11 @@ function initLibraryPanel() {
     if (addBtn) { libAddRow(addBtn.dataset.add, addBtn.dataset.addSubcat || null); return; }
     const swatch = e.target.closest('.lib-swatch');
     if (swatch) { openLibImagePicker(swatch.dataset.swatchGroup, swatch.dataset.swatchKey); return; }
+    // «Выбрать» — только в режиме подбора материала из «Параметры проекта»
+    // (см. state.libPickTarget/libPickMaterial), колонка есть только у
+    // «Листовых материалов» и только пока подбор идёт.
+    const pickBtn = e.target.closest('.lib-pick-btn');
+    if (pickBtn) { libPickMaterial(pickBtn.dataset.pickGroup, pickBtn.dataset.pickCode); return; }
     const cell = e.target.closest('.lib-edit-cell');
     if (cell) { startCellEdit(cell); return; }
   });
@@ -2033,17 +2200,31 @@ function initPartEditorOverlay() {
 
 // Экран «Материалы»: общие на весь проект декор/толщины/фурнитура —
 // не привязаны к конкретному модулю.
+// «+ Добавить материал»/«Удалить материал» под выбором декора/задней стенки
+// в «Параметрах проекта» — тот же стиль ссылок, что и «+ Добавить материал»/
+// «+ Добавить кромку» в «Библиотеке» (.link-btn). role — один из ключей
+// LIB_PICK_ROLE_GROUP ('decor'/'facadeDecor'/'back'), см. openMaterialPicker/
+// deleteMaterialPick ниже.
+function materialPickActionsHtml(role) {
+  return `<div class="lib-pick-actions">
+    <button type="button" class="link-btn" data-material-add="${esc(role)}">+ Добавить материал</button>
+    <button type="button" class="link-btn" data-material-del="${esc(role)}">Удалить материал</button>
+  </div>`;
+}
+
 function materialsBlock() {
   return `
     <h3>Материалы (общие на проект)</h3>
     <div class="field">
       <label>Материал корпуса</label>
       <select id="p-decor">${DECORS.map(d => `<option value="${d.code}" ${d.code === state.decorCode ? 'selected' : ''}>${esc(d.name)}</option>`).join('')}</select>
+      ${materialPickActionsHtml('decor')}
     </div>
     <div class="field">
       <label>Материал фасада</label>
       <select id="p-facadeDecor">${DECORS.map(d => `<option value="${d.code}" ${d.code === state.facadeDecorCode ? 'selected' : ''}>${esc(d.name)}</option>`).join('')}</select>
       <div class="hint">Видимая боковина (до пола или сбоку дна) режется в этом декоре</div>
+      ${materialPickActionsHtml('facadeDecor')}
     </div>
     <div class="field-row">
       <div class="field"><label>Толщина ЛДСП</label><input id="p-bodyThickness" type="number" value="${state.bodyThickness}"></div>
@@ -2057,7 +2238,49 @@ function materialsBlock() {
     <div class="field">
       <label>Задняя стенка</label>
       <select id="p-back">${BACK_MATERIALS.map(d => `<option value="${d.code}" ${d.code === state.backCode ? 'selected' : ''}>${esc(d.name)}</option>`).join('')}</select>
+      ${materialPickActionsHtml('back')}
     </div>`;
+}
+
+// «+ Добавить материал» (см. materialPickActionsHtml) — переключает
+// «Библиотеку» в режим подбора материала: пока state.libPickTarget не пуст,
+// «Листовые материалы» рисуют у каждой строки доп. кнопку «Выбрать» (см.
+// libSheetRowHtml/libPickMaterial), которая и завершает подбор.
+function openMaterialPicker(role) {
+  state.libPickTarget = { role };
+  state.libraryTab = 'materials';
+  renderLibraryPanel();
+  if (window.Modul3D.uiShell) window.Modul3D.uiShell.openDrawer('library', 'Листовые материалы');
+}
+
+// «Удалить материал» (см. materialPickActionsHtml) — убирает ТЕКУЩИЙ
+// выбранный код из своего массива каталога. decor/facadeDecor читают ОДИН и
+// тот же массив DECORS — если удаляемый материал сейчас выбран и для второй
+// роли тоже (одинаковый декор корпуса и фасада), переключаем обе, иначе одно
+// из полей осталось бы ссылкой на уже удалённую позицию.
+function deleteMaterialPick(role) {
+  const targetGroup = LIB_PICK_ROLE_GROUP[role];
+  if (!targetGroup) return;
+  const arr = targetGroup === 'back' ? BACK_MATERIALS : DECORS;
+  const curCode = role === 'decor' ? state.decorCode : role === 'facadeDecor' ? state.facadeDecorCode : state.backCode;
+  if (arr.length <= 1) {
+    window.alert('Нельзя удалить последний материал — иначе не из чего будет выбирать');
+    return;
+  }
+  const idx = arr.findIndex((x) => x.code === curCode);
+  if (idx < 0) return;
+  if (!window.confirm(`Удалить материал «${arr[idx].name}» из каталога?`)) return;
+  arr.splice(idx, 1);
+  const firstCode = arr[0].code;
+  if (targetGroup === 'back') {
+    state.backCode = firstCode;
+    state.backThickness = arr[0].thickness;
+  } else {
+    if (state.decorCode === curCode) state.decorCode = firstCode;
+    if (state.facadeDecorCode === curCode) state.facadeDecorCode = firstCode;
+  }
+  recompute();
+  renderParamsPanel();
 }
 
 // Экран «Ящики» — отдельная панель для ОДНОЙ секции ОДНОГО модуля (не список,
@@ -3478,6 +3701,17 @@ function bindPanelEvents() {
   });
   on('p-bodyThickness', 'change', (e) => { state.bodyThickness = Number(e.target.value); recompute(); });
   on('p-facadeThickness', 'change', (e) => { state.facadeThickness = Number(e.target.value); recompute(); });
+
+  // «+ Добавить материал»/«Удалить материал» под Материал корпуса/Материал
+  // фасада/Задняя стенка (см. materialPickActionsHtml) — три пары кнопок,
+  // перерисовываются вместе с экраном «Материалы», как и остальные поля
+  // panelView === 'materials' выше.
+  document.querySelectorAll('[data-material-add]').forEach((btn) => {
+    btn.addEventListener('click', () => openMaterialPicker(btn.dataset.materialAdd));
+  });
+  document.querySelectorAll('[data-material-del]').forEach((btn) => {
+    btn.addEventListener('click', () => deleteMaterialPick(btn.dataset.materialDel));
+  });
 
   // Добавление секции переехало в ряд вкладок секций (кнопка «+» рядом с
   // ними) — обработчик делегирован внутри renderSectionsList() на
@@ -5350,6 +5584,13 @@ function refreshCurrency() {
 window.Modul3D.app = {
   setPanelView: setPanelView,
   refreshCurrency: refreshCurrency,
+  // ui-shell.js зовёт при ЛЮБОМ закрытии панели «Библиотека» (крестик, скрим,
+  // Escape, свайп, открытие другой панели поверх) — без этого «Выбрать» у
+  // «Листовых материалов» могла остаться включённой до следующего открытия
+  // (пользователь нажал «+ Добавить материал», передумал, закрыл крестиком —
+  // при обычном открытии Библиотеки позже колонка «Выбрать» была бы всё ещё
+  // видна, и случайный клик по ней молча подменил бы материал проекта).
+  clearLibraryPickTarget: function () { state.libPickTarget = null; },
   isProjectEmpty: function () { return state.modules.length === 0; },
   getRotations: function () { return ROTATIONS.map((r) => r.slice()); },
   rotateModule: rotateModule,
