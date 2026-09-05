@@ -256,13 +256,26 @@ function buildSpecification(model) {
   // существующую формулу clipCount выше (крепление цоколя) — тот же принцип
   // редкого крепежа вдоль планки шириной модуля, а не новая придуманная
   // константа.
-  let worktopScrewQty = 0, worktopRastexQty = 0;
+  // Компакт-плита (12мм HPL) тонкая и плохо сверлится — крепится ТОЛЬКО
+  // клеем на сплошную опору (крышку/царги), растикс в торец боковины ей не
+  // подходит (подтверждено пользователем-мебельщиком, 2026-09-05; см. тот
+  // же принцип уже в joinCountertopSeams — там compact12 тоже всегда клей,
+  // не стяжка). worktopGlueQty — счётчик количества модулей, не расход
+  // клея по площади (формулы расхода нет ни в правилах, ни в каталоге).
+  // Растикс — только для материалов, где engine.js реально убирает крышку
+  // (см. skipTopPanel: ldsp38/doubleLdsp) — тот же список БЕЛЫМ списком, а
+  // не "всё, что не compact12", иначе старый/битый проект без material
+  // (engine.js в этом случае оставляет крышку, безопасный дефолт) здесь
+  // всё равно посчитал бы растикс в голый торец боковины, которого нет.
+  let worktopScrewQty = 0, worktopRastexQty = 0, worktopGlueQty = 0;
   for (const m of mods) {
     if (!m.countertop || !m.countertop.enabled) continue;
     if (m.topType === 'rails' || m.topType === 'railsEdge') {
       worktopScrewQty += Math.max(2, Math.round(Number(m.width) / 400));
-    } else {
+    } else if (m.countertop.material === 'ldsp38' || m.countertop.material === 'doubleLdsp') {
       worktopRastexQty += 2;
+    } else {
+      worktopGlueQty += 1;
     }
   }
   if (worktopScrewQty) fasteners.push(fRow(FASTENER_PRICES.worktopScrew, worktopScrewQty));
@@ -270,6 +283,7 @@ function buildSpecification(model) {
     fasteners.push(fRow(FASTENER_PRICES.minifixBolt, worktopRastexQty));
     fasteners.push(fRow(FASTENER_PRICES.minifixCam, worktopRastexQty));
   }
+  if (worktopGlueQty) hardware.push(hwRow(HARDWARE_PRICES.countertopGlueToCarcass, worktopGlueQty));
   for (const j of (hardwareContext.countertopJoints || [])) {
     for (const h of j.hardware) {
       const info = HARDWARE_PRICES[h.key];

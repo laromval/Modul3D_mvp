@@ -223,6 +223,12 @@
     countertopStraightTie: { name: 'Стяжка для прямого стыка столешницы (эксцентрик Ø20)', article: 'CTOP-TIE-20', price: 0, unit: 'шт', category: 'countertop' },
     // ЦЕНА-ЗАГЛУШКА, не найдена на mobilier.md, подтвердить у пользователя
     countertopSealant: { name: 'Клей/герметик для стыка столешницы', article: 'CTOP-SEAL', price: 0, unit: 'уп', category: 'countertop' },
+    // ЦЕНА-ЗАГЛУШКА, не найдена на mobilier.md, подтвердить у пользователя.
+    // Отдельная позиция от countertopSealant: там клей для шва МЕЖДУ двумя
+    // столешницами (стык), здесь — проклейка компакт-плиты по всей площади
+    // К КРЫШКЕ КОРПУСА (она тонкая и плохо сверлится, крепёж в торец
+    // боковины ей не подходит, см. engine.js skipTopPanel/ctPart.note).
+    countertopGlueToCarcass: { name: 'Клей для приклейки столешницы к корпусу (компакт-плита)', article: 'CTOP-GLUE-CARCASS', price: 0, unit: 'уп', category: 'countertop' },
     pushToOpen: { name: 'Механизм Push-to-open (толкатель)', article: 'PTO-1', price: 14, sourceUrl: 'https://mobilier.md/accesorii-pentru-mobilier/furnitura-functionala/amortizatoare/ro-am-bocz01-60-push-to-open-cu-reglare-adaptor-drept-22616.html', unit: 'шт', category: 'mechanism' },
     // На сайте штанга продаётся хлыстом 3м за 97 MDL — цена пересчитана
     // на 1 пог.м (97/3 ≈ 32).

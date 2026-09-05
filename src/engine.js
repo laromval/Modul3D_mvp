@@ -1704,16 +1704,19 @@ function buildModuleParts(p) {
   // сверху (мойка, варочная панель, ящики).
   const isFloorStandingBase = p.base.type === 'plinth' || p.base.type === 'legsPlinth' || p.base.type === 'legs';
   // У обычной мебели (не кухня — там верх всегда планки-царги, см. выше)
-  // цельная крышка под включённой столешницей — лишняя деталь: столешница
-  // ложится прямо на боковины и крепится к ним стяжкой-эксцентриком в торец,
-  // крышка ничего не держит и только дублирует материал (обнаружено
-  // пользователем на чертеже, 2026-09-05). Присадка под этот крепёж пока не
-  // считается — только количественный учёт в спецификации (см. ctPart.note
-  // и specification.js: worktopRastexQty), т.к. узел «плашмя на торец
-  // боковины» не совпадает с описанным в ПРАВИЛА-КОНСТРУИРОВАНИЯ.md узлом
-  // Rastex 15 (там деталь примыкает торцом к пласти, а не наоборот).
+  // цельная крышка под включённой столешницей — лишняя деталь ТОЛЬКО если
+  // столешница из материала, что реально держит стяжку-эксцентрик в торец
+  // боковины: ЛДСП постформинг (ldsp38) или сдвоенная ЛДСП (doubleLdsp) —
+  // толщина (38 / ~36 мм) позволяет присадку. Компакт-плита (compact12,
+  // ~12 мм HPL) тонкая и плохо сверлится — крепится ТОЛЬКО клеем на сплошную
+  // опору, поэтому для неё крышка нужна как была (подтверждено пользователем,
+  // мебельщиком, 2026-09-05 — не выдумано). Материал ещё не выбран (пустое
+  // поле, старый/повреждённый проект) — безопасный дефолт: крышку НЕ убираем
+  // (лучше лишняя деталь, чем корпус без опоры сверху).
+  const ctMaterial = p.countertop && p.countertop.material;
   const skipTopPanel = isFloorStandingBase && p.countertop && p.countertop.enabled
-    && !(p.topType === 'rails' || p.topType === 'railsEdge');
+    && !(p.topType === 'rails' || p.topType === 'railsEdge')
+    && (ctMaterial === 'ldsp38' || ctMaterial === 'doubleLdsp');
   if (skipTopPanel) {
     // Деталь верха корпуса не строится.
   } else if (p.topType === 'rails' || p.topType === 'railsEdge') {
@@ -1899,21 +1902,32 @@ function buildModuleParts(p) {
         edging: { long1: EDGE_FRONT, long2: EDGE_FRONT, short1: EDGE_FRONT, short2: EDGE_FRONT },
         x: 0, y: H + ctThickness / 2, z: round1((facadeThicknessResolved + oF - oB - backPanelExtra) / 2),
         dims: { w: ctLen, h: ctThickness, d: ctWidth },
+        // Текст завязан на skipTopPanel (а не заново на ct.material), чтобы
+        // не разойтись с фактом «крышка построена или нет» — у ещё не
+        // выбранного материала (старый/битый проект) skipTopPanel=false
+        // (безопасный дефолт, крышка есть), и текст должен это отражать так
+        // же, как для явного compact12, а не врать про «крышки нет».
         note: (p.topType === 'rails' || p.topType === 'railsEdge')
           ? 'Крепится шурупами 3.5×35 через верхние планки'
-          : 'Крепится стяжкой-эксцентриком напрямую в верхний торец боковин (цельной крышки/царг под столешницей нет) — присадка в этой версии не считается, только количественный учёт в спецификации',
+          : (skipTopPanel
+            ? 'Крепится стяжкой-эксцентриком напрямую в верхний торец боковин (цельной крышки/царг под столешницей нет) — присадка в этой версии не считается, только количественный учёт в спецификации'
+            : 'Клеится по всей площади к цельной крышке корпуса — крепёж в торец боковины для этого материала не применяется'),
       });
-      // ctFamily/ctHasRail/ctMaxLength — доп. поля для пассов buildModel()
-      // (mergeCountertops/joinCountertopSeams): part.material уже
-      // РЕЗОЛВНУТЫЙ код каталога/декора, по нему нельзя ни отличить
-      // компакт-плиту от ЛДСП (нужно для клеевого шва/проверки планки), ни
+      // ctFamily/ctHasTopSupport/ctMaxLength — доп. поля для пассов
+      // buildModel() (mergeCountertops/joinCountertopSeams): part.material
+      // уже РЕЗОЛВНУТЫЙ код каталога/декора, по нему нельзя ни отличить
+      // компакт-плиту от ЛДСП (нужно для клеевого шва/проверки опоры), ни
       // узнать максимальную длину цельного куска (нужно для слияния).
-      // ctHasRail — булево, а не topType строкой: после mergeCountertops
-      // одна деталь может покрывать несколько тумб с РАЗНЫМ topType, и
-      // mergeCountertops сводит это к «есть план­ки под ВСЕЙ деталью» (AND
-      // по всем слитым тумбам) — см. флаг там же.
+      // ctHasTopSupport — булево, а не topType строкой: после
+      // mergeCountertops одна деталь может покрывать несколько тумб с
+      // РАЗНЫМ topType, и mergeCountertops сводит это к «есть опора под ВСЕЙ
+      // деталью» (AND по всем слитым тумбам) — см. флаг там же. «Опора» —
+      // это ЛЮБАЯ сплошная поверхность сверху корпуса под столешницей
+      // (планки-царги ИЛИ цельная крышка, см. skipTopPanel выше), а не
+      // только планки: с skipTopPanel=true (ЛДСП/сдвоенная — крепёж в торец
+      // боковины) опоры нет, во всех остальных случаях — есть.
       ctPart.ctFamily = ct.material;
-      ctPart.ctHasRail = (p.topType === 'rails' || p.topType === 'railsEdge');
+      ctPart.ctHasTopSupport = !skipTopPanel;
       ctPart.ctMaxLength = ctMat.maxLength || null;
       // Свес слева/справа ЭТОЙ тумбы — mergeCountertops применяет их только
       // если эта тумба окажется крайней (первой/последней) в слитом ряду.
@@ -4091,13 +4105,14 @@ function mergeCountertops(parts) {
       growPhysSize(head, ax, round1(hi - lo));
       if (run.length > 1) {
         // Слитая деталь может покрывать тумбы с разным способом крепления
-        // (планки/Rastex) — единого текста тут больше нет, точный крепёж по
-        // каждой тумбе — в спецификации (считается отдельно по m.topType, не
-        // по этой детали). ctHasRail — AND по всем слитым тумбам (см.
-        // hasRailTop в joinCountertopSeams): под компакт-плитой рельс должен
+        // (планки/крышка/Rastex) — единого текста тут больше нет, точный
+        // крепёж по каждой тумбе — в спецификации (считается отдельно по
+        // m.topType/m.countertop.material, не по этой детали).
+        // ctHasTopSupport — AND по всем слитым тумбам (см. hasTopSupport в
+        // joinCountertopSeams): под компакт-плитой сплошная опора должна
         // быть по всей длине, не только по краям.
         head.note = `Сквозная столешница на ${run.length} тумбы — крепёж каждой тумбы см. в спецификации.`;
-        head.ctHasRail = run.every((p) => p.ctHasRail);
+        head.ctHasTopSupport = run.every((p) => p.ctHasTopSupport);
         for (let i = 1; i < run.length; i++) removed.add(run[i]);
       }
       run = [];
@@ -4151,17 +4166,20 @@ function joinCountertopSeams(parts, proj, warnings) {
   // детали столешницы целиком: у прямого стыка это глубина столешницы
   // (перпендикулярно оси ряда), у углового — перекрытие в обоих направлениях.
   const tieQty = (seamLenMm) => Math.max(2, Math.ceil((Number(seamLenMm) || 0) / TIE_STEP));
-  // ctHasRail — уже свёрнутый по ВСЕМ слитым тумбам этой детали флаг (AND),
-  // см. mergeCountertops() ниже — не topType одной конкретной тумбы.
-  const hasRailTop = (p) => !!p.ctHasRail;
+  // ctHasTopSupport — уже свёрнутый по ВСЕМ слитым тумбам этой детали флаг
+  // (AND), см. mergeCountertops() ниже — не topType одной конкретной тумбы.
+  // «Опора» — планки-царги ИЛИ цельная крышка корпуса (см. skipTopPanel в
+  // buildModuleParts): и то и другое даёт сплошную поверхность под краем
+  // столешницы, к которой можно приклеить компакт-плиту.
+  const hasTopSupport = (p) => !!p.ctHasTopSupport;
 
   const seamHardware = (kind, A, B, seamLenMm) => {
     const isCompact = A.ctFamily === 'compact12';
     const hw = [];
     if (isCompact) {
-      if (!hasRailTop(A) || !hasRailTop(B)) {
+      if (!hasTopSupport(A) || !hasTopSupport(B)) {
         warnings.push(`Стык компакт-столешницы у тумб "${A.module}"/"${B.module}": `
-          + `под краем нет верхней планки — край столешницы приклеить не к чему.`);
+          + `под краем нет опоры (планки/крышки) — край столешницы приклеить не к чему.`);
       }
       hw.push({ key: 'countertopSealant', qty: 1 });
       return hw;
