@@ -471,6 +471,35 @@ function insertModule(m) {
   // ниже) — изоляция всё равно не имеет смысла в момент добавления нового
   // модуля, снимаем её на всякий случай ДО вставки.
   exitIsolation();
+  // Столешница включается сразу при добавлении напольной тумбы — раньше
+  // нужно было отдельно зайти в панель «Столешница» и отметить чекбокс на
+  // каждой новой тумбе вручную. Наследует настройки уже включённой в
+  // проекте столешницы (материал/свесы), если такая есть — те же дефолты,
+  // что и у ручного включения через панель (countertopPrimarySettings).
+  // Два фильтра отсекают ложные срабатывания:
+  //  - высота ≤1000 мм — пенал (во всю высоту гарнитура, ~2100 мм) тоже
+  //    стоит на полу (moduleHasFloorBase это не различает), но столешница
+  //    на уровне потолка не нужна;
+  //  - baseType==='plinth' с plinthHeight===0 — это «Верхний» пресет
+  //    (навесной, tier:'upper' в presets.js): mod() даёт baseType:'plinth'
+  //    по умолчанию всем пресетам, у навесных явно обнулён только
+  //    plinthHeight, а baseType они не переопределяют — по высоте (720 мм)
+  //    его от нижней тумбы не отличить, а вот «цоколь нулевой высоты» у
+  //    настоящей напольной тумбы не бывает (нет опоры вообще).
+  const noRealSupport = m.baseType === 'plinth' && Number(m.plinthHeight) === 0;
+  if (moduleHasFloorBase(m) && !noRealSupport && !m.countertop && Number(m.height) <= 1000) {
+    const src = countertopPrimarySettings();
+    m.countertop = {
+      enabled: true,
+      material: src.material,
+      overhangFront: src.overhangFront,
+      overhangLeft: src.overhangLeft,
+      overhangRight: src.overhangRight,
+    };
+    if (src.depth !== undefined) m.countertop.depth = src.depth;
+    if (src.overhangBack !== undefined) m.countertop.overhangBack = src.overhangBack;
+    normalizeCountertopDepth(m.countertop);
+  }
   const at = Math.min(state.activeModule + 1, state.modules.length);
   state.modules.splice(at, 0, m);
   renumberModules();
