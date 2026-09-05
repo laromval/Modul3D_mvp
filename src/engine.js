@@ -1696,12 +1696,27 @@ function buildModuleParts(p) {
     x: (bottomLeft + bottomRight) / 2, y: baseH + t / 2, z: 0,
     dims: { w: bottomLen, h: t, d: D },
   }));
-  // Верх модуля: либо цельная крышка, либо две планки (царги).
+  // Верх модуля: либо цельная крышка, либо две планки (царги), либо —
+  // у обычной (не кухонной) тумбы со столешницей — вообще ничего.
   // У кухонных нижних тумб цельной крышки не делают: ставят переднюю и заднюю
   // планки шириной 80–100 мм плашмя — они держат геометрию корпуса, а через
   // них шурупами крепится столешница. Экономит материал и открывает доступ
   // сверху (мойка, варочная панель, ящики).
-  if (p.topType === 'rails' || p.topType === 'railsEdge') {
+  const isFloorStandingBase = p.base.type === 'plinth' || p.base.type === 'legsPlinth' || p.base.type === 'legs';
+  // У обычной мебели (не кухня — там верх всегда планки-царги, см. выше)
+  // цельная крышка под включённой столешницей — лишняя деталь: столешница
+  // ложится прямо на боковины и крепится к ним стяжкой-эксцентриком в торец,
+  // крышка ничего не держит и только дублирует материал (обнаружено
+  // пользователем на чертеже, 2026-09-05). Присадка под этот крепёж пока не
+  // считается — только количественный учёт в спецификации (см. ctPart.note
+  // и specification.js: worktopRastexQty), т.к. узел «плашмя на торец
+  // боковины» не совпадает с описанным в ПРАВИЛА-КОНСТРУИРОВАНИЯ.md узлом
+  // Rastex 15 (там деталь примыкает торцом к пласти, а не наоборот).
+  const skipTopPanel = isFloorStandingBase && p.countertop && p.countertop.enabled
+    && !(p.topType === 'rails' || p.topType === 'railsEdge');
+  if (skipTopPanel) {
+    // Деталь верха корпуса не строится.
+  } else if (p.topType === 'rails' || p.topType === 'railsEdge') {
     // ПЛАНКИ НА РЕБРО — вариант под мойку. Плашмя планка съедает 100 мм
     // проёма сверху, и чаша мойки в корпус не заходит. Поставленная на ребро,
     // она занимает только свою толщину, а жёсткость даже выше.
@@ -1798,7 +1813,6 @@ function buildModuleParts(p) {
       depth: picked.depth, maxLength: picked.maxLength || null };
   };
 
-  const isFloorStandingBase = p.base.type === 'plinth' || p.base.type === 'legsPlinth' || p.base.type === 'legs';
   if (p.countertop && p.countertop.enabled && isFloorStandingBase) {
     const ct = p.countertop;
     const ctMat = countertopMat(ct);
@@ -1887,7 +1901,7 @@ function buildModuleParts(p) {
         dims: { w: ctLen, h: ctThickness, d: ctWidth },
         note: (p.topType === 'rails' || p.topType === 'railsEdge')
           ? 'Крепится шурупами 3.5×35 через верхние планки'
-          : 'Крепится через Rastex в боковины (цельная крышка модуля, не вкладные планки — крепёж не через неё) — присадка в этой версии не считается, только количественный учёт в спецификации',
+          : 'Крепится стяжкой-эксцентриком напрямую в верхний торец боковин (цельной крышки/царг под столешницей нет) — присадка в этой версии не считается, только количественный учёт в спецификации',
       });
       // ctFamily/ctHasRail/ctMaxLength — доп. поля для пассов buildModel()
       // (mergeCountertops/joinCountertopSeams): part.material уже
