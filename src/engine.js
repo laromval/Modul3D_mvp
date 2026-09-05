@@ -1815,16 +1815,36 @@ function buildModuleParts(p) {
       const oF = Number(ct.overhangFront) || 0, oL = Number(ct.overhangLeft) || 0,
             oR = Number(ct.overhangRight) || 0;
       const ctThickness = ctMat.isDouble ? 2 * t : ctMat.thickness;
-      // «Свес сзади»: для готовой плиты фиксированной глубины (ldsp38/
-      // compact12) НЕ свободный ввод, а автоматически то, что остаётся от
-      // реальной глубины купленного листа за вычетом корпуса+фасада+свеса
-      // спереди — так итоговая глубина столешницы всегда точно совпадает с
-      // выбранной позицией каталога. Пользователь может переопределить
-      // вручную (например, для стола с сдвоенным ЛДСП, где глубина не
-      // ограничена конкретным листом) — тогда предупреждаем, если итог
-      // отличается от заявленной глубины материала.
+      // Задняя стенка (ХДФ) НАКЛАДНАЯ — крепится НА задний торец корпуса и
+      // всегда выступает за него на свою толщину (см. ниже: z: -D/2-tb/2,
+      // то есть физический задний край сборки — не -D/2, а -D/2-tb). Для
+      // ОБЫЧНОЙ мебели (не кухня) свес сзади по умолчанию 0 означает
+      // «заподлицо с корпусом», но корпус — это ещё не весь модуль: без
+      // поправки столешница не закрывала заднюю стенку целиком (обнаружено
+      // пользователем на реальном виде сбоку). Для КУХНИ поправка не нужна:
+      // там свес сзади автоматически дотягивает глубину столешницы точно до
+      // глубины купленного листа (реальная стена), это уже верно и без
+      // поправки на ХДФ — трогать не нужно (подтверждено пользователем).
+      // Врезная (в паз) задняя стенка у тумб сейчас не встречается — если
+      // появится отдельной задачей, тут будет 0 и для неё.
+      const backPanelExtra = (p.noBack || p.family === 'kitchen') ? 0 : tb;
+      // «Свес сзади» по умолчанию зависит от типа мебели, а не только от
+      // материала:
+      //  - КУХНЯ (family==='kitchen'): корпус нижней тумбы намеренно мельче
+      //    столешницы фиксированной глубины (ldsp38/compact12) — стена там,
+      //    где реально заканчивается купленный лист, а не там, где кончается
+      //    корпус. Поэтому свес автоматически «доращивает» глубину столешницы
+      //    точно до глубины листа (корпус+фасад+свес спереди+свес сзади =
+      //    глубина материала).
+      //  - ЛЮБАЯ ДРУГАЯ мебель (тумба, стол и т.п.): корпус УЖЕ стоит впритык
+      //    к стене своей задней гранью (подтверждено пользователем на
+      //    реальном примере) — растягивать столешницу дальше корпуса, чтобы
+      //    непременно совпасть с глубиной листа, было бы неверно: свес сзади
+      //    по умолчанию 0 (заподлицо с корпусом), лишний материал листа —
+      //    отход при раскрое, как обычно бывает с плитными материалами.
+      // В обоих случаях — свободно переопределяется вручную.
       const hasManualBack = ct.overhangBack !== undefined && ct.overhangBack !== null && ct.overhangBack !== '';
-      const autoOverhangBack = ctMat.isDouble ? 0
+      const autoOverhangBack = (ctMat.isDouble || p.family !== 'kitchen') ? 0
         : round1(ctMat.depth - D - facadeThicknessResolved - oF);
       const oB = hasManualBack ? (Number(ct.overhangBack) || 0) : autoOverhangBack;
       // Свес слева/справа НЕ прибавляется к длине детали здесь — если эта
@@ -1837,12 +1857,16 @@ function buildModuleParts(p) {
       // краю первой и ПРАВОМУ краю последней тумбы уже слитого ряда (для
       // одиночной, несливающейся тумбы — с тем же результатом, что и раньше).
       const ctLen = W;
-      const ctWidth = round1(D + facadeThicknessResolved + oF + oB);
+      const ctWidth = round1(D + backPanelExtra + facadeThicknessResolved + oF + oB);
       if (ctMat.maxLength && ctLen > ctMat.maxLength) {
         warnings.push(`Столешница модуля (${Math.round(ctLen)} мм) длиннее максимальной цельной `
           + `полосы материала "${ctMat.name}" (${ctMat.maxLength} мм) — цельным куском не выпилить.`);
       }
-      if (!ctMat.isDouble && Math.abs(ctWidth - ctMat.depth) > 1) {
+      // Предупреждение о расхождении с глубиной листа имеет смысл ТОЛЬКО
+      // там, где вообще ожидается точное совпадение — у кухни (см.
+      // autoOverhangBack выше). У остальной мебели свес сзади по умолчанию
+      // 0 и расхождение с глубиной листа — норма, а не повод для тревоги.
+      if (!ctMat.isDouble && p.family === 'kitchen' && Math.abs(ctWidth - ctMat.depth) > 1) {
         warnings.push(`Столешница модуля: итоговая глубина ${Math.round(ctWidth)} мм не совпадает `
           + `с глубиной материала "${ctMat.name}" (${ctMat.depth} мм) — свес сзади переопределён `
           + `вручную (${oB} мм вместо автоматических ${autoOverhangBack} мм), потребуется `
@@ -1859,7 +1883,7 @@ function buildModuleParts(p) {
         material: ctMat.code, thickness: ctThickness,
         length: ctLen, width: ctWidth, qty: ctMat.isDouble ? 2 : 1, kind: 'countertop',
         edging: { long1: EDGE_FRONT, long2: EDGE_FRONT, short1: EDGE_FRONT, short2: EDGE_FRONT },
-        x: 0, y: H + ctThickness / 2, z: round1((facadeThicknessResolved + oF - oB) / 2),
+        x: 0, y: H + ctThickness / 2, z: round1((facadeThicknessResolved + oF - oB - backPanelExtra) / 2),
         dims: { w: ctLen, h: ctThickness, d: ctWidth },
         note: (p.topType === 'rails' || p.topType === 'railsEdge')
           ? 'Крепится шурупами 3.5×35 через верхние планки'
@@ -3960,6 +3984,44 @@ function countertopLenAxisIsW(p) {
   return !(r === 90 || r === 270);
 }
 
+// «Задняя» (пристенная) грань столешницы в ГЛОБАЛЬНЫХ координатах — та, что
+// НЕ двигается от свеса спереди (oF), т.е. противоположна фасаду. Локально
+// свес спереди всегда толкает деталь в сторону local+Z (см. z-формулу в
+// buildModuleParts: чем больше oF, тем больше z), поэтому направление
+// local+Z ВСЕГДА означает «перёд». При повороте (part.rot) эта локальная
+// ось отображается в глобальную по чистой матрице поворота (без отражений,
+// см. комментарий у holeAxisSign выше) — проверено эмпирически на реальных
+// стыках (rot=0 → перёд = +Z; rot=270 → перёд = −X):
+//   rot=0:   перёд +Z (высокий Z) → зад −Z (низкий Z), ось глубины Z (box.d)
+//   rot=90:  перёд +X (высокий X) → зад −X (низкий X), ось глубины X (box.w)
+//   rot=180: перёд −Z (низкий Z)  → зад +Z (высокий Z), ось глубины Z (box.d)
+//   rot=270: перёд −X (низкий X)  → зад +X (высокий X), ось глубины X (box.w)
+function countertopBackEdge(p) {
+  const r = ((Math.round(p.rot || 0) % 360) + 360) % 360;
+  if (r === 0) return p.box.z - p.box.d / 2;
+  if (r === 180) return p.box.z + p.box.d / 2;
+  if (r === 90) return p.box.x - p.box.w / 2;
+  return p.box.x + p.box.w / 2; // 270
+}
+
+// Общие хелперы оси для mergeCountertops()/joinCountertopSeams() ниже — ось
+// ряда по ориентации детали (countertopLenAxisIsW), а не по соотношению
+// box.w/box.d, как у mergePlinths: у цоколя ширина всегда мала (высота
+// планки), поэтому длинная сторона однозначно определяет ось, а у
+// столешницы длина и глубина — величины одного порядка (глубина тоже сотни
+// мм), так что такое сравнение для неё ненадёжно.
+function countertopAxisOf(p) { return countertopLenAxisIsW(p) ? 'x' : 'z'; }
+function countertopSizeOn(p, ax) { return ax === 'x' ? p.box.w : p.box.d; }
+function countertopSetBoxSize(p, ax, v) { if (ax === 'x') p.box.w = v; else p.box.d = v; }
+// top-level length/width — то, что реально читают деталировка/кромка/
+// спецификация (не box.w/box.d) — должны меняться в ту же физическую
+// сторону, что и box, с поправкой на ориентацию (см. countertopLenAxisIsW).
+function countertopSetPhysSize(p, ax, v) {
+  const wIsLen = countertopLenAxisIsW(p);
+  if (ax === 'x') { if (wIsLen) p.length = v; else p.width = v; }
+  else if (wIsLen) p.width = v; else p.length = v;
+}
+
 // ---------------------------------------------------------------------------
 // СТОЛЕШНИЦА: СЛИЯНИЕ СОСЕДНИХ ТУМБ В ОДНУ СКВОЗНУЮ ДЕТАЛЬ.
 // По аналогии с mergePlinths выше — но, в отличие от цоколя, у столешницы
@@ -3978,22 +4040,8 @@ function mergeCountertops(parts) {
   const tops = parts.filter((p) => p.kind === 'countertop');
   if (tops.length < 2) return;
 
-  // Ось ряда — по ориентации детали (countertopLenAxisIsW), а не по
-  // соотношению box.w/box.d, как у mergePlinths: у цоколя ширина всегда
-  // мала (высота планки), поэтому длинная сторона однозначно определяет
-  // ось, а у столешницы длина и глубина — величины одного порядка (глубина
-  // тоже сотни мм), так что такое сравнение для неё ненадёжно.
-  const axisOf = (p) => (countertopLenAxisIsW(p) ? 'x' : 'z');
-  const sizeOn = (p, ax) => (ax === 'x' ? p.box.w : p.box.d);
-  const setSize = (p, ax, v) => { if (ax === 'x') p.box.w = v; else p.box.d = v; };
-  // top-level length/width — то, что реально читают деталировка/кромка/
-  // спецификация (не box.w/box.d) — должны расти в ту же физическую
-  // сторону, что и box, с поправкой на ориентацию (см. countertopLenAxisIsW).
-  const growPhysSize = (p, ax, v) => {
-    const wIsLen = countertopLenAxisIsW(p);
-    if (ax === 'x') { if (wIsLen) p.length = v; else p.width = v; }
-    else if (wIsLen) p.width = v; else p.length = v;
-  };
+  const axisOf = countertopAxisOf, sizeOn = countertopSizeOn, setSize = countertopSetBoxSize,
+        growPhysSize = countertopSetPhysSize;
 
   const groups = new Map();
   for (const p of tops) {
@@ -4198,6 +4246,32 @@ function joinCountertopSeams(parts, proj, warnings) {
       + `удлинена на угловом стыке с "${primary.module}", чтобы столешницы сошлись без зазора`;
   };
 
+  // Само по себе смыкание шва (growSecondaryToMeet/trimSecondary выше) НЕ
+  // означает, что столешница дотягивается до настоящей стены — между
+  // корпусами тумб в углу специально оставлен зазор (доборная планка,
+  // FILLER_GAP), так что «где сходятся корпуса» и «где стена» — разные
+  // точки. Основная деталь (primary) должна доходить до ЗАДНЕЙ (пристенной)
+  // грани вторичной по своей ДЛИННОЙ оси — это отдельная, независимая от
+  // шва корректировка (обнаружено пользователем на реальном чертеже: длинная
+  // столешница не доставала до стены, хотя сам шов уже сходился идеально).
+  const extendPrimaryToWall = (primary, secondary) => {
+    const ax = countertopAxisOf(primary);
+    const target = countertopBackEdge(secondary);
+    const lo = primary.box[ax] - countertopSizeOn(primary, ax) / 2;
+    const hi = primary.box[ax] + countertopSizeOn(primary, ax) / 2;
+    const growHi = Math.abs(target - hi) < Math.abs(target - lo);
+    const newLo = growHi ? lo : target;
+    const newHi = growHi ? target : hi;
+    const newSize = newHi - newLo;
+    if (newSize <= EPS) return false;
+    primary.box[ax] = round1((newLo + newHi) / 2);
+    countertopSetBoxSize(primary, ax, round1(newSize));
+    countertopSetPhysSize(primary, ax, round1(newSize));
+    primary.note = (primary.note ? primary.note + '; ' : '')
+      + `дотянута до стены на угловом стыке с "${secondary.module}"`;
+    return true;
+  };
+
   for (let i = 0; i < tops.length; i++) {
     for (let j = i + 1; j < tops.length; j++) {
       const A = tops[i], B = tops[j];   // A построен раньше B (порядок allParts)
@@ -4260,6 +4334,13 @@ function joinCountertopSeams(parts, proj, warnings) {
             + `разный уровень столешницы (${A.box.y} мм и ${B.box.y} мм) — стык не построен.`);
           continue;
         }
+        // Основная деталь дотягивается до задней (пристенной) грани
+        // вторичной — независимо от того, сходится ли уже шов между ними
+        // (см. extendPrimaryToWall выше). Пересчитываем перекрытия заново —
+        // после растяжения «широкая» ось (obычно X) выросла ещё сильнее, но
+        // именно она и была не менее узкой оси стыка, порядок не меняется.
+        extendPrimaryToWall(A, B);
+        ov = overlaps();
         // Ось подрезки — та, где перекрытие МЕНЬШЕ (настоящий узкий шов
         // угла), а не первая по порядку проверки внутри trimSecondary — см.
         // комментарий над её определением.

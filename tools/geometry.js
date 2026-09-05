@@ -2952,6 +2952,81 @@ for (const glass of [false, true]) {
   cases += 1;
 }
 
+// --- столешница: свес сзади зависит от типа мебели (кухня vs обычная) ------
+// Регрессия на две реальные ошибки, найденные пользователем:
+//  1) кухня (family:'kitchen') — корпус НАМЕРЕННО мельче столешницы
+//     фиксированной глубины, свес сзади должен САМ дорасти до глубины
+//     листа (проверено на точных числах из отчёта пользователя: корпус 510
+//     + фасад 18 + свес спереди 20 + столешница 600 → свес сзади 52).
+//  2) любая другая мебель (family не 'kitchen', например «Тумба») — корпус
+//     УЖЕ стоит вплотную к стене своей задней гранью; растягивать
+//     столешницу дальше корпуса, чтобы обязательно совпасть с глубиной
+//     листа, неверно — свес сзади по умолчанию должен остаться 0.
+{
+  const mk = (family) => buildModel(Object.assign({}, base, {
+    facadeThickness: 18,
+    modules: [{
+      name: 'Тумба', width: 600, height: 820, depth: 510, family,
+      leftSide: 'onBottom', rightSide: 'onBottom', topType: 'rails',
+      base: { type: 'legsPlinth', legHeight: 100 },
+      countertop: { enabled: true, material: 'ldsp38', overhangFront: 20 },
+      sections: [{ shelves: 1, drawers: 0, facade: 'doorLeft', drawerSystem: 'ballBearing' }],
+    }],
+  }));
+
+  const kitchen = mk('kitchen');
+  inspect(kitchen, 'столешница: свес сзади — кухня, авто-догон до листа');
+  const kTop = kitchen.parts.filter((p) => p.kind === 'countertop')[0];
+  if (!kTop || Math.abs(kTop.width - 600) > 1) {
+    problems.push(`столешница: кухня — глубина ${kTop && kTop.width} мм вместо 600 (свес сзади должен догнать до глубины листа)`);
+  }
+  if (kitchen.warnings.some((w) => /не совпадает с глубиной материала/.test(w))) {
+    problems.push('столешница: кухня — не должно быть предупреждения о расхождении глубины (это штатный авто-расчёт, не ручное переопределение)');
+  }
+
+  const custom = mk('custom');
+  inspect(custom, 'столешница: свес сзади — обычная тумба, заподлицо с корпусом');
+  const cTop = custom.parts.filter((p) => p.kind === 'countertop')[0];
+  // D(510) + фасад(18) + свес спереди(20) + свес сзади(0 по умолчанию) +
+  // выступ накладной задней стенки (backThickness=3, см. backPanelExtra в
+  // engine.js — обычная мебель должна закрывать ХДФ целиком) = 551
+  if (!cTop || Math.abs(cTop.width - 551) > 1) {
+    problems.push(`столешница: обычная тумба — глубина ${cTop && cTop.width} мм вместо 551 (свес сзади 0 заподлицо с корпусом + 3мм выступа накладного ХДФ, которое столешница обязана закрыть)`);
+  }
+  // Задний край столешницы должен ровно совпасть с внешней гранью задней
+  // стенки (не просто с корпусом) — это и есть регрессия на исходный баг
+  // "столешница не доходит до стены, не покрывает заднюю стенку".
+  const cBack = custom.parts.filter((p) => p.kind === 'back')[0];
+  if (cTop && cBack) {
+    const topBackZ = cTop.box.z - cTop.box.d / 2;
+    const panelOuterZ = cBack.box.z - cBack.box.d / 2;
+    if (Math.abs(topBackZ - panelOuterZ) > 0.5) {
+      problems.push(`столешница: обычная тумба — задний край столешницы (Z=${topBackZ}) не совпадает с внешней гранью задней стенки (Z=${panelOuterZ})`);
+    }
+  }
+  if (custom.warnings.some((w) => /не совпадает с глубиной материала/.test(w))) {
+    problems.push('столешница: обычная тумба — не должно быть предупреждения о расхождении глубины (несовпадение с листом здесь — норма)');
+  }
+  // Без задней стенки (noBack) закрывать нечего — поправка не должна
+  // применяться, свес сзади остаётся ровно 0 (заподлицо с корпусом).
+  const noBackModel = buildModel(Object.assign({}, base, {
+    facadeThickness: 18,
+    modules: [{
+      name: 'Тумба', width: 600, height: 820, depth: 510, family: 'custom', noBack: true,
+      leftSide: 'onBottom', rightSide: 'onBottom', topType: 'rails',
+      base: { type: 'legsPlinth', legHeight: 100 },
+      countertop: { enabled: true, material: 'ldsp38', overhangFront: 20 },
+      sections: [{ shelves: 1, drawers: 0, facade: 'doorLeft', drawerSystem: 'ballBearing' }],
+    }],
+  }));
+  inspect(noBackModel, 'столешница: свес сзади — обычная тумба без задней стенки (noBack)');
+  const nbTop = noBackModel.parts.filter((p) => p.kind === 'countertop')[0];
+  if (!nbTop || Math.abs(nbTop.width - 548) > 1) {
+    problems.push(`столешница: тумба без задней стенки — глубина ${nbTop && nbTop.width} мм вместо 548 (без задней стенки не к чему добавлять выступ)`);
+  }
+  cases += 3;
+}
+
 // --- столешница: слияние соседних тумб в одну сквозную деталь ---------------
 // Регрессия на mergeCountertops(): пока ряд помещается в один лист (макс.
 // 4100 мм у ЛДСП38/компакт-плиты) — столешница ОДНА сквозная деталь без
@@ -3085,6 +3160,24 @@ for (const glass of [false, true]) {
     for (const top of tops) {
       if (top.length < 100 || top.width < 100) {
         problems.push(`столешница: угловой стык (свес ${overhangFront}) — деталь "${top.module}" получилась ${top.length}×${top.width} мм, подозрительно маленькой стороной`);
+      }
+    }
+    // Основная деталь (Мойка) должна доходить РОВНО до задней (пристенной)
+    // грани вторичной (След) — не просто «сойтись со швом», а дотянуться до
+    // настоящей стены. Регрессия на баг, найденный пользователем на реальном
+    // чертеже: сам шов сходился, но длинная столешница не доставала до стены
+    // (между корпусами в углу нарочно оставлен зазор — доборная планка,
+    // «где сходятся корпуса» и «где стена» — разные точки).
+    const primaryTop = tops.find((p) => /Мойка/.test(p.module));
+    const secondaryTop = tops.find((p) => /След/.test(p.module));
+    if (primaryTop && secondaryTop) {
+      // В этой раскладке (Мойка rot=0, След rot=270) обе «дальние» грани —
+      // правый край по X (см. countertopBackEdge в engine.js).
+      const primaryFarX = primaryTop.box.x + primaryTop.box.w / 2;
+      const secondaryBackX = secondaryTop.box.x + secondaryTop.box.w / 2;
+      if (Math.abs(primaryFarX - secondaryBackX) > 1) {
+        problems.push(`столешница: угловой стык (свес ${overhangFront}) — длинная столешница не доходит до стены `
+          + `(край ${Math.round(primaryFarX)} мм ≠ задняя грань соседней ${Math.round(secondaryBackX)} мм)`);
       }
     }
     cases += 1;

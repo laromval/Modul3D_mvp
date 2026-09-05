@@ -14,7 +14,7 @@
 (function () {
 // Версия сборки — показывается во вкладке браузера и в шапке.
 // При выпуске новой версии меняется только эта строка.
-const APP_VERSION = 'v230';
+const APP_VERSION = 'v232';
 
 // Номер версии выводим ПЕРВЫМ делом: если дальше что-то упадёт, по нему сразу
 // видно, какая сборка открыта.
@@ -480,6 +480,39 @@ function insertModule(m) {
   // ниже) — изоляция всё равно не имеет смысла в момент добавления нового
   // модуля, снимаем её на всякий случай ДО вставки.
   exitIsolation();
+  // Столешница включается сразу при добавлении напольной тумбы — раньше
+  // нужно было отдельно зайти в панель «Столешница» и отметить чекбокс на
+  // каждой новой тумбе вручную. Наследует настройки уже включённой в
+  // проекте столешницы (материал/свесы), если такая есть — те же дефолты,
+  // что и у ручного включения через панель (countertopPrimarySettings).
+  // Два фильтра отсекают ложные срабатывания:
+  //  - высота ≤1000 мм — пенал (во всю высоту гарнитура, ~2100 мм) тоже
+  //    стоит на полу (moduleHasFloorBase это не различает), но столешница
+  //    на уровне потолка не нужна;
+  //  - baseType==='plinth' с plinthHeight===0 — это «Верхний» пресет
+  //    (навесной, tier:'upper' в presets.js): mod() даёт baseType:'plinth'
+  //    по умолчанию всем пресетам, у навесных явно обнулён только
+  //    plinthHeight, а baseType они не переопределяют — по высоте (720 мм)
+  //    его от нижней тумбы не отличить, а вот «цоколь нулевой высоты» у
+  //    настоящей напольной тумбы не бывает (нет опоры вообще).
+  const noRealSupport = m.baseType === 'plinth' && Number(m.plinthHeight) === 0;
+  if (moduleHasFloorBase(m) && !noRealSupport && !m.countertop && Number(m.height) <= 1000) {
+    // Наследуем у уже отмеченной в проекте группы, только если она есть —
+    // иначе дефолт свеса спереди зависит от ЭТОГО модуля (kitchen/обычная
+    // мебель), а не берётся из группы, которой ещё нет.
+    const groupExists = checkedCountertopModules().length > 0;
+    const src = countertopPrimarySettings();
+    m.countertop = {
+      enabled: true,
+      material: src.material,
+      overhangFront: groupExists ? src.overhangFront : defaultCountertopOverhangFront(m),
+      overhangLeft: src.overhangLeft,
+      overhangRight: src.overhangRight,
+    };
+    if (src.depth !== undefined) m.countertop.depth = src.depth;
+    if (src.overhangBack !== undefined) m.countertop.overhangBack = src.overhangBack;
+    normalizeCountertopDepth(m.countertop);
+  }
   const at = Math.min(state.activeModule + 1, state.modules.length);
   state.modules.splice(at, 0, m);
   renumberModules();
@@ -1446,6 +1479,17 @@ function moduleHasFloorBase(mod) {
   return !!mod && (mod.baseType === 'plinth' || mod.baseType === 'legsPlinth' || mod.baseType === 'legs');
 }
 
+// Дефолт свеса СПЕРЕДИ при первом включении столешницы (когда наследовать
+// не у кого — группа отмеченных тумб ещё пуста) зависит от типа мебели, как
+// и свес сзади (см. engine.js: autoOverhangBack): у кухни (family:'kitchen')
+// столешница по норме выступает над фасадом на 20 мм; у любой другой мебели
+// (тумба, комод) — заподлицо с фасадом, свеса не бывает (подтверждено
+// пользователем). Один источник правды для обоих мест, где нужен этот
+// дефолт — insertModule() и чекбокс включения в панели «Столешница».
+function defaultCountertopOverhangFront(mod) {
+  return mod && mod.family === 'kitchen' ? 20 : 0;
+}
+
 // Доступные глубины материала — берём ИЗ КАТАЛОГА (window.Modul3D.catalog.
 // COUNTERTOP_MATERIALS), а не хардкодим: появится в каталоге третья позиция
 // глубины — экран увидит её сам, без правки app.js.
@@ -1466,14 +1510,17 @@ function checkedCountertopModules() {
 // только если тумбы отмечали в разных сессиях — тогда просто показываем то,
 // что реально стоит у первой, а не выдумываем среднее.
 function countertopPrimarySettings() {
-  const src = (checkedCountertopModules()[0] || {}).countertop || {};
+  const first = checkedCountertopModules()[0];
+  const src = (first || {}).countertop || {};
   return {
     material: src.material || 'ldsp38',
     depth: src.depth,
-    // 20 мм — свес НАД ФАСАДОМ (не над сырым корпусом), см. engine.js:
-    // facadeThicknessResolved — тот же ориентир, что и у существующего
-    // WORKTOP_OVERHANG=20 (крайний модуль).
-    overhangFront: src.overhangFront !== undefined ? src.overhangFront : 20,
+    // Дефолт (модуль отмечен, но overhangFront почему-то не задан — обычно
+    // не должно случаться, mod.countertop проходит через defaultCountertop
+    // OverhangFront при включении, но проект мог быть сохранён до появления
+    // этой логики) — по типу мебели ПЕРВОЙ отмеченной тумбы, как и при
+    // самом включении.
+    overhangFront: src.overhangFront !== undefined ? src.overhangFront : defaultCountertopOverhangFront(first),
     overhangLeft: src.overhangLeft !== undefined ? src.overhangLeft : 0,
     overhangRight: src.overhangRight !== undefined ? src.overhangRight : 0,
     // overhangBack БЕЗ дефолта — undefined означает «посчитать автоматически»
@@ -1561,9 +1608,11 @@ function countertopPanelBlock() {
         <div class="field"><label>Сзади</label><input id="ctopOverhangBack" type="number" step="1"
           placeholder="авто" value="${s.overhangBack !== undefined && s.overhangBack !== null ? s.overhangBack : ''}"></div>
       </div>
-      <div class="hint">«Спереди» — свес над фасадом (типично 20 мм). «Сзади» пустое поле — глубина
-        считается автоматически, чтобы совпасть с глубиной купленного листа материала; впишите своё
-        число, только если нужно намеренно отступить от стандартной глубины (например, для стола).</div>
+      <div class="hint">«Спереди» — свес над фасадом: для кухни типично 20 мм, для остальной мебели
+        (тумба, комод) — обычно 0, заподлицо с фасадом. «Сзади» пустое поле — глубина считается
+        автоматически: у кухни — чтобы совпасть с глубиной купленного листа материала (корпус там
+        специально мельче столешницы), у остальной мебели — 0, заподлицо с корпусом (он уже стоит
+        вплотную к стене). Оба поля можно переопределить вручную — например, для стола.</div>
 
       <h3>Соединение на углу</h3>
       <div class="field">
@@ -1620,15 +1669,16 @@ function bindCountertopEvents() {
       if (mod.countertop.enabled) {
         const src = groupBefore.length ? groupBefore[0].countertop : null;
         // Дефолты ПРИ ПЕРВОМ включении на этой тумбе (группа ещё пуста),
-        // только если поля ещё не заданы — сознательно фиксированные
-        // (20/0/0), без автоподбора по типу мебели: настройка ручная,
-        // пользователь одобрил только этот дефолт как отправную точку.
+        // только если поля ещё не заданы. overhangFront зависит от типа
+        // мебели этой тумбы (defaultCountertopOverhangFront: кухня — 20 мм
+        // над фасадом, любая другая мебель — заподлицо, 0), остальные —
+        // фиксированные (0/0), пользователь одобрил их как отправную точку.
         // overhangBack СОЗНАТЕЛЬНО не получает дефолт (0 был бы неверным —
         // это «заподлицо с корпусом», а не «посчитать автоматически») —
         // остаётся undefined, если и в src его не было, engine.js сам
         // посчитает нужную глубину.
         if (!mod.countertop.material) mod.countertop.material = (src && src.material) || 'ldsp38';
-        if (mod.countertop.overhangFront === undefined) mod.countertop.overhangFront = (src && src.overhangFront !== undefined) ? src.overhangFront : 20;
+        if (mod.countertop.overhangFront === undefined) mod.countertop.overhangFront = (src && src.overhangFront !== undefined) ? src.overhangFront : defaultCountertopOverhangFront(mod);
         if (mod.countertop.overhangLeft === undefined) mod.countertop.overhangLeft = (src && src.overhangLeft !== undefined) ? src.overhangLeft : 0;
         if (mod.countertop.overhangRight === undefined) mod.countertop.overhangRight = (src && src.overhangRight !== undefined) ? src.overhangRight : 0;
         if (mod.countertop.overhangBack === undefined && src && src.overhangBack !== undefined) mod.countertop.overhangBack = src.overhangBack;
