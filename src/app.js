@@ -14,7 +14,7 @@
 (function () {
 // Версия сборки — показывается во вкладке браузера и в шапке.
 // При выпуске новой версии меняется только эта строка.
-const APP_VERSION = 'v241';
+const APP_VERSION = 'v242';
 
 // Номер версии выводим ПЕРВЫМ делом: если дальше что-то упадёт, по нему сразу
 // видно, какая сборка открыта.
@@ -1878,12 +1878,14 @@ function countertopFieldsOf(mod) {
   return {
     material: src.material || 'ldsp38',
     depth: src.depth,
-    // Декор/толщина «своего материала» — без дефолта на пустое значение:
-    // undefined означает «пользователь ещё не выбрал», это нормальное
-    // состояние сразу после переключения на custom (см. materialEl ниже,
-    // который проставляет разумные дефолты сам).
+    // Декор «своего материала» — без дефолта на пустое значение: undefined
+    // означает «пользователь ещё не выбрал», это нормальное состояние сразу
+    // после переключения на custom (см. materialEl ниже, который проставляет
+    // разумный дефолт сам). Толщина отдельно тут не хранится и не читается —
+    // она всегда берётся живьём из каталога по decorCode (dec.thickness, см.
+    // countertopMat() в engine.js) и показывается в countertopPanelBlock()
+    // рядом с названием материала (2026-09-06: поле ручного ввода убрано).
     decorCode: src.decorCode,
-    thickness: src.thickness,
     overhangFront: src.overhangFront !== undefined ? src.overhangFront : defaultCountertopOverhangFront(mod),
     overhangLeft: src.overhangLeft !== undefined ? src.overhangLeft : 0,
     overhangRight: src.overhangRight !== undefined ? src.overhangRight : 0,
@@ -1975,13 +1977,11 @@ function countertopPanelBlock() {
       ${s.material === 'custom' ? `
       <div class="field">
         <div class="ctop-decor-current-row">
-          <div class="ctop-decor-current">${decorItem ? esc(decorItem.name) : '<span class="dim">не выбран</span>'}</div>
+          <div class="ctop-decor-current" title="${decorItem ? esc(decorItem.name) : ''}">${decorItem ? esc(decorItem.name) : '<span class="dim">не выбран</span>'}</div>
           <button type="button" class="link-btn" data-material-add="countertopDecor">Изменить</button>
         </div>
-      </div>
-      <div class="field">
-        <label>Толщина, мм</label>
-        <input id="ctopThickness" type="number" step="1" min="1" value="${s.thickness || ''}" placeholder="например, 25">
+        ${decorItem && decorItem.thickness !== undefined
+          ? `<div class="ctop-decor-thickness">Толщина листа: ${decorItem.thickness} мм</div>` : ''}
       </div>
       <div class="hint">Если толщина БОЛЬШЕ 18 мм — крышка корпуса убирается, столешница крепится
         растиксами в торец боковин (как обычная столешница). Если толщина 18 мм и меньше — крышка
@@ -2114,14 +2114,15 @@ function bindCountertopEvents() {
     const val = e.target.value;
     activeCt.material = val;
     normalizeCountertopDepth(activeCt);
-    // При переключении на «свой материал» — сразу подставить разумные
-    // дефолты, если полей ещё нет, иначе пользователь увидит пустое поле
-    // толщины и «не выбран» вместо декора. Декор корпуса — самый очевидный
-    // стартовый выбор; толщина 19 мм — минимально валидное значение
-    // БОЛЬШЕ 18 (см. countertopMat() в engine.js), дальше поправит сам.
+    // При переключении на «свой материал» — сразу подставить декор корпуса
+    // как самый очевидный стартовый выбор, иначе пользователь увидит
+    // «не выбран». Толщина отдельно не задаётся — она всегда берётся из
+    // каталожной записи выбранного декора (dec.thickness), см. countertopMat()
+    // в engine.js и countertopPanelBlock() выше (2026-09-06: поле толщины на
+    // панели убрано, для нестандартной толщины материал заводится отдельной
+    // позицией в Библиотеке материалов).
     if (val === 'custom') {
       if (activeCt.decorCode === undefined) activeCt.decorCode = state.decorCode;
-      if (activeCt.thickness === undefined) activeCt.thickness = 19;
     }
     recompute();
   });
@@ -2145,14 +2146,6 @@ function bindCountertopEvents() {
   // библиотеку, без промежуточного дропдауна.
   panel.querySelectorAll('[data-material-add]').forEach((btn) => {
     btn.addEventListener('click', () => openMaterialPicker(btn.dataset.materialAdd));
-  });
-
-  const thicknessEl = document.getElementById('ctopThickness');
-  if (thicknessEl) thicknessEl.addEventListener('change', (e) => {
-    // Number('') === 0 — «|| undefined» превращает пустое/невалидное поле
-    // именно в «толщина не задана», а не в записанный ноль.
-    activeCt.thickness = Number(e.target.value) || undefined;
-    recompute();
   });
 
   const OVERHANG_FIELD_BY_ID = {

@@ -15,7 +15,7 @@ global.window = global;
 const { buildModel } = window.Modul3D.engine;
 const { buildSpecification } = window.Modul3D.specification;
 const { buildDrawings } = window.Modul3D.drawings;
-const { DECORS, BACK_MATERIALS, DRAWER_SYSTEM_ORDER } = window.Modul3D.catalog;
+const { DECORS, BACK_MATERIALS, FACADE_MATERIALS, DRAWER_SYSTEM_ORDER } = window.Modul3D.catalog;
 // С Этапа 3 монетизации формирование CSV/DXF для ЧПУ переехало на сервер
 // (window.Modul3D.cnc в браузере теперь только шлёт запрос и качает готовый
 // файл) — здесь, в headless-прогоне, берём саму логику формирования файла
@@ -3368,30 +3368,35 @@ for (const glass of [false, true]) {
 // --- столешница «свой материал» (любой декор из библиотеки, толще 18мм) ----
 // Тот же узел (растикс в торец боковины), что у ldsp38/doubleLdsp — толщина
 // решает, а не конкретный материал (подтверждено владельцем 2026-09-05).
+// Изменено 2026-09-06: толщина больше не вводится вручную (поле #ctopThickness
+// убрано) — берётся из каталожной записи декора. FAC-MDF (19мм) — единственный
+// материал в тройке DECORS/BACK_MATERIALS/FACADE_MATERIALS толще 18мм.
 {
+  const decCode = FACADE_MATERIALS['FAC-MDF'].code;
+  const decThickness = FACADE_MATERIALS['FAC-MDF'].thickness;
   const mod1 = {
     name: 'Тумба', width: 600, height: 850, depth: 560,
     leftSide: 'floor', rightSide: 'floor',
     base: { type: 'legsPlinth', legHeight: 100, plinthHeight: 100 },
     topType: 'panel',
-    countertop: { enabled: true, material: 'custom', decorCode: DECORS[0].code, thickness: 25 },
+    countertop: { enabled: true, material: 'custom', decorCode: decCode },
     sections: [{ shelves: 1, drawers: 0, facade: 'doorLeft' }],
   };
   const model = buildModel(Object.assign({}, base, { modules: [mod1] }));
-  inspect(model, 'столешница: «свой материал» 25мм — тот же растикс, что у ldsp38');
+  inspect(model, `столешница: «свой материал» ${decThickness}мм — тот же растикс, что у ldsp38`);
 
   if (model.parts.some((p) => p.kind === 'top')) {
-    problems.push('столешница-свой материал: крышка корпуса построена, хотя толщина 25мм > 18 — крышки быть не должно');
+    problems.push(`столешница-свой материал: крышка корпуса построена, хотя толщина ${decThickness}мм > 18 — крышки быть не должно`);
   }
   const ctParts = model.parts.filter((p) => p.kind === 'countertop');
   if (ctParts.length !== 1) {
     problems.push(`столешница-свой материал: ожидалась 1 деталь столешницы, получено ${ctParts.length}`);
   } else {
-    if (Math.abs(ctParts[0].thickness - 25) > 0.1) {
-      problems.push(`столешница-свой материал: толщина детали ${ctParts[0].thickness} вместо 25`);
+    if (Math.abs(ctParts[0].thickness - decThickness) > 0.1) {
+      problems.push(`столешница-свой материал: толщина детали ${ctParts[0].thickness} вместо ${decThickness}`);
     }
-    if (ctParts[0].material !== DECORS[0].code) {
-      problems.push(`столешница-свой материал: материал детали "${ctParts[0].material}" вместо декора проекта "${DECORS[0].code}"`);
+    if (ctParts[0].material !== decCode) {
+      problems.push(`столешница-свой материал: материал детали "${ctParts[0].material}" вместо декора проекта "${decCode}"`);
     }
     const dowels = ctParts[0].holes.filter((h) => h.kind === 'minifixDowel');
     if (dowels.length !== 4) problems.push(`столешница-свой материал: ${dowels.length} дюбелей вместо 4`);
@@ -3406,14 +3411,17 @@ for (const glass of [false, true]) {
 
 // --- столешница «свой материал» толщиной ≤18мм — крышка НЕ убирается -------
 // Тонкий «свой материал» ведёт себя как компакт-плита: клеится к крышке,
-// растикса нет (см. skipTopPanel: ctCustomThick требует >18мм).
+// растикса нет (см. skipTopPanel: ctCustomThick требует >18мм). U702ST9 —
+// декор с thickness:18 в каталоге (DECORS[0] намеренно без thickness, см.
+// комментарий там — использован для другого регресса ниже).
 {
+  const decCode = DECORS.find((d) => d.code === 'U702ST9').code;
   const mod1 = {
     name: 'Тумба', width: 600, height: 850, depth: 560,
     leftSide: 'floor', rightSide: 'floor',
     base: { type: 'legsPlinth', legHeight: 100, plinthHeight: 100 },
     topType: 'panel',
-    countertop: { enabled: true, material: 'custom', decorCode: DECORS[0].code, thickness: 18 },
+    countertop: { enabled: true, material: 'custom', decorCode: decCode },
     sections: [{ shelves: 1, drawers: 0, facade: 'doorLeft' }],
   };
   const model = buildModel(Object.assign({}, base, { modules: [mod1] }));
@@ -3432,16 +3440,15 @@ for (const glass of [false, true]) {
 // --- регресс: «свой материал» БЕЗ выбранного декора не должен снимать крышку
 // Найдено на ревью 2026-09-06: skipTopPanel проверял только толщину, не
 // проверял что decorCode реально резолвится — при material:'custom' без
-// decorCode (пользователь ввёл толщину, декор ещё не выбрал) крышка
-// убиралась, а столешница не строилась (ctMat.found=false) — верх корпуса
-// оставался вообще без опоры.
+// decorCode крышка убиралась, а столешница не строилась (ctMat.found=false) —
+// верх корпуса оставался вообще без опоры.
 {
   const mod1 = {
     name: 'Тумба', width: 600, height: 850, depth: 560,
     leftSide: 'floor', rightSide: 'floor',
     base: { type: 'legsPlinth', legHeight: 100, plinthHeight: 100 },
     topType: 'panel',
-    countertop: { enabled: true, material: 'custom', thickness: 25 }, // decorCode не задан
+    countertop: { enabled: true, material: 'custom' }, // decorCode не задан
     sections: [{ shelves: 1, drawers: 0, facade: 'doorLeft' }],
   };
   const model = buildModel(Object.assign({}, base, { modules: [mod1] }));
@@ -3456,6 +3463,36 @@ for (const glass of [false, true]) {
   }
   if (model.parts.some((p) => p.kind === 'countertop')) {
     problems.push('столешница-свой материал без декора: деталь столешницы построена без декора — не должна была');
+  }
+  cases += 1;
+}
+
+// --- регресс: «свой материал» с декором БЕЗ толщины в каталоге (H1180ST37) —
+// крышка должна остаться, деталь столешницы не строится. Это реальный случай
+// из каталога (см. комментарий у DECORS[0] в catalog.js), не гипотетический —
+// толщина больше не вводится вручную, поэтому «декор без thickness» стал
+// достижимым состоянием, которого раньше не было.
+{
+  const mod1 = {
+    name: 'Тумба', width: 600, height: 850, depth: 560,
+    leftSide: 'floor', rightSide: 'floor',
+    base: { type: 'legsPlinth', legHeight: 100, plinthHeight: 100 },
+    topType: 'panel',
+    countertop: { enabled: true, material: 'custom', decorCode: DECORS[0].code },
+    sections: [{ shelves: 1, drawers: 0, facade: 'doorLeft' }],
+  };
+  const model = buildModel(Object.assign({}, base, { modules: [mod1] }));
+  inspect(model, 'столешница: «свой материал» с декором без thickness в каталоге — крышка должна остаться');
+
+  if (!model.parts.some((p) => p.kind === 'top')) {
+    problems.push('столешница-декор без thickness: крышки корпуса нет — корпус остался без опоры сверху');
+  }
+  const sidePanels3 = model.partsRaw.filter((p) => p.kind === 'side');
+  if (sidePanels3.some((sp) => sp.holes.some((h) => h.kind === 'minifixCam'))) {
+    problems.push('столешница-декор без thickness: гнездо Ø15 построено, хотя столешница не резолвится — присадка в пустоту');
+  }
+  if (model.parts.some((p) => p.kind === 'countertop')) {
+    problems.push('столешница-декор без thickness: деталь столешницы построена без валидной толщины — не должна была');
   }
   cases += 1;
 }

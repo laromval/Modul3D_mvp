@@ -1573,3 +1573,8 @@ body.is-focus .scrim { opacity: 0 !important; }
   border-radius: var(--r-sm); font-size: var(--fs-sm); background: var(--surface-2);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ctop-decor-current-row .link-btn { flex: none; }
+/* Толщина текущего материала — читается только из каталога (dec.thickness),
+   поле больше не редактируется на этой панели (2026-09-06: чтобы задать
+   нестандартную толщину, материал заводится отдельной позицией в Библиотеке
+   материалов, см. комментарий у ctopMaterial change в bindCountertopEvents). */
+.ctop-decor-thickness { margin-top: 6px; font-size: var(--fs-xs); color: var(--muted); }

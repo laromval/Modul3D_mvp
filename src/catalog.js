@@ -546,6 +546,18 @@
     return fit.length ? fit[fit.length - 1] : system.nl[0];
   }
 
+  // Ищет позицию листового материала по коду сразу во ВСЕХ трёх каталогах,
+  // куда пользователь может добавить свой лист через Библиотеку материалов —
+  // DECORS (декор корпуса), BACK_MATERIALS (задняя стенка), FACADE_MATERIALS
+  // (материал фасада, объект, не массив). Общий резолвер для мест, где код
+  // материала известен, а категория — нет (engine.js: countertopMat() и
+  // ctCustomThick для столешницы «свой материал»; specification.js:
+  // ctSkipsTopPanel).
+  function findMaterialByCode(code) {
+    return [].concat(DECORS, BACK_MATERIALS, Object.values(FACADE_MATERIALS))
+      .find((d) => d.code === code) || null;
+  }
+
   // Категории фурнитуры для вкладки «Фурнитура» панели «Библиотека» —
   // группировка полностью покрывает HARDWARE_PRICES + HANDLES + LIFTS + FASTENER_PRICES.
   const HARDWARE_CATEGORY_LABEL = {
@@ -570,5 +582,6 @@
     FACADE_TYPES, FACADE_TYPE_ORDER, FACADE_MATERIALS,
     HANDLES, HANDLE_ORDER, HANDLE_HOLE_D, LIFTS, LIFT_ORDER,
     HARDWARE_CATEGORY_LABEL, HARDWARE_CATEGORY_ORDER,
+    findMaterialByCode,
   };
 })();

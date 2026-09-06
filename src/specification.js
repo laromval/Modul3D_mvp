@@ -9,7 +9,8 @@
 // ============================================================================
 (function () {
 const { EDGE_PRICES, HARDWARE_PRICES, FASTENER_PRICES, JOINT_LABEL, DRAWER_SYSTEMS,
-        HANDLES, LIFTS, GLASS, FACADE_MATERIALS, DECORS, BACK_MATERIALS, COUNTERTOP_MATERIALS } = window.Modul3D.catalog;
+        HANDLES, LIFTS, GLASS, FACADE_MATERIALS, DECORS, BACK_MATERIALS, COUNTERTOP_MATERIALS,
+        findMaterialByCode } = window.Modul3D.catalog;
 
 function round2(v) { return Math.round(v * 100) / 100; }
 
@@ -268,9 +269,16 @@ function buildSpecification(model) {
   // проект без material (engine.js в этом случае оставляет крышку,
   // безопасный дефолт) здесь ошибочно попал бы в "клей" вместо факта, что
   // крышка просто есть и крепёж — обычные шурупы/присадка крышки.
-  const ctSkipsTopPanel = (m) => m.countertop.material === 'ldsp38'
-    || m.countertop.material === 'doubleLdsp'
-    || (m.countertop.material === 'custom' && Number(m.countertop.thickness) > 18);
+  // Изменено 2026-09-06: толщина «своего материала» больше не хранится в
+  // m.countertop.thickness (поле ввода убрано) — резолвим декор по коду и
+  // берём его реальную толщину из каталога, как и engine.js
+  // (countertopMat()/ctCustomThick, тот же catalog.findMaterialByCode()).
+  const ctSkipsTopPanel = (m) => {
+    if (m.countertop.material === 'ldsp38' || m.countertop.material === 'doubleLdsp') return true;
+    if (m.countertop.material !== 'custom') return false;
+    const dec = findMaterialByCode(m.countertop.decorCode);
+    return !!dec && Number(dec.thickness) > 18;
+  };
   let worktopScrewQty = 0, worktopGlueQty = 0;
   for (const m of mods) {
     if (!m.countertop || !m.countertop.enabled) continue;
