@@ -1169,31 +1169,52 @@ h4.spec-title { margin: var(--sp-5) 0 var(--sp-2); font-size: var(--fs-md); font
 .lib-tab-btn:hover { border-color: var(--accent); color: var(--text); }
 .lib-tab-btn.active { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
 
-/* Вкладка «Материалы» (app.js: libCategoryBlock/libSubcategoryPanel) —
-   КАТЕГОРИЯ (заголовок-кнопка .lib-cat-head, сворачивает ВСЁ содержимое)
-   → ряд кнопок-ПОДКАТЕГОРИЙ (переиспользует .sec-tab/.sec-add — тот же
-   визуальный паттерн, что и у вкладок секций модуля, см. раздел 4 выше;
-   каждая кнопка сворачивает только свою таблицу через .lib-collapsed,
-   независимо от соседних) → таблицы подкатегорий одна под другой. */
-.lib-category { margin-bottom: var(--sp-2); }
-.lib-cat-head {
+/* Вкладка «Материалы» (app.js: libTopCategoryHtml/libNodeHtml/
+   libTreeRowHtml) — дерево категорий ПРОИЗВОЛЬНОЙ глубины: одна строка на
+   узел (не ряд кнопок-«таблеток», как раньше), отступ слева пропорционален
+   глубине (инлайн style в libTreeRowHtml — 16px/уровень), клик — по всей
+   строке. Верхнеуровневая категория («Листовые материалы» и т.п., depth 0)
+   — жирный акцентный текст покрупнее, не сворачивается сама целиком (см.
+   .lib-tree-top ниже — только раскрывает/прячет своих детей); остальные
+   уровни — обычный текст, без различий между собой, кроме отступа. */
+.lib-category { margin-bottom: var(--sp-3); }
+.lib-tree-row {
   display: flex; align-items: center; gap: 6px;
-  width: 100%; text-align: left;
-  background: none; border: none; padding: 0; margin: 0;
-  cursor: pointer; font-family: inherit;
+  padding-top: 6px; padding-bottom: 6px; padding-right: 6px;
+  cursor: pointer; border-radius: var(--r-sm);
+  transition: background var(--dur) var(--ease);
 }
-.lib-cat-head .mat-sub { flex: 1 1 auto; }
-.lib-toggle-ic { flex: 0 0 auto; width: 10px; font-size: 10px; color: var(--muted); }
-.lib-cat-head:hover .mat-sub { color: var(--text); }
-/* Скрытие свёрнутой категории/подкатегории — свой класс, не .dim-out (тот
-   занят поиском applyLibrarySearch) и не .lib-filtered-out (тот занят
-   фильтрами «Фирма»/«Толщина», см. ниже) — все три должны мирно
-   сосуществовать на одной и той же таблице/строке одновременно. */
+.lib-tree-row:hover { background: var(--accent-soft); }
+.lib-tree-arrow { flex: 0 0 auto; width: 10px; font-size: 10px; color: var(--muted); }
+.lib-tree-name { flex: 1 1 auto; font-size: var(--fs-sm); color: var(--text); }
+.lib-tree-top .lib-tree-name { font-size: var(--fs-md); font-weight: 700; color: var(--accent); }
+/* ✎/+/× узла — обычный текст без рамки/фона (не кнопки), курсор pointer,
+   видны по наведению на СТРОКУ (не только на сам значок), лёгкая акцентная
+   подсветка при наведении на сам значок. */
+.lib-tree-actions { flex: 0 0 auto; display: flex; gap: 8px; opacity: 0; transition: opacity var(--dur) var(--ease); }
+.lib-tree-row:hover .lib-tree-actions { opacity: 1; }
+.lib-tree-ic { color: var(--muted); font-size: var(--fs-sm); line-height: 1; cursor: pointer; }
+.lib-tree-ic:hover { color: var(--accent); }
+/* Инлайн-переименование узла (см. startTreeRename в app.js) — тот же
+   компактный инпут, что и у ячеек таблицы (.lib-table td.lib-edit-cell
+   input ниже), но без обёртки в <td>. */
+.lib-tree-name input {
+  width: 100%; border: 1px solid var(--accent); border-radius: var(--r-sm);
+  padding: 3px 5px; font-family: inherit; font-size: inherit; color: var(--text);
+  background: var(--surface-solid);
+}
+/* Скрытие свёрнутого узла дерева — свой класс, не .dim-out (тот занят
+   поиском applyLibrarySearch) и не .lib-filtered-out (тот занят фильтрами
+   листа, см. ниже) — все три должны мирно сосуществовать на одной и той же
+   таблице/строке одновременно. */
 .lib-collapsed { display: none !important; }
-.lib-subcat-btn { font-weight: 500; }
+/* Таблица позиций одного листа (app.js: libLeafTableHtml) — под строкой
+   узла, без своего отступа: содержимое (фильтры/таблица/кнопка «+») уже не
+   часть навигации по дереву, поэтому не наследует отступ глубины узла. */
+.lib-leaf-body { margin: 2px 0 var(--sp-3); }
 
-/* Фильтры «Фирма»/«Толщина» внутри подкатегории (app.js: libFiltersHtml) —
-   компактные select рядом, а не на всю ширину поля, как обычный .field select. */
+/* Фильтры внутри листа (app.js: libFiltersHtml) — компактные select рядом,
+   а не на всю ширину поля, как обычный .field select. */
 .lib-filters { display: flex; gap: var(--sp-2); margin-bottom: var(--sp-2); }
 .lib-filter-select { width: auto; min-width: 120px; padding: 5px 24px 5px 8px; font-size: var(--fs-xs); }
 /* Строка, не подходящая под выбранные фильтры — скрыта. Отдельный от
@@ -1203,13 +1224,13 @@ h4.spec-title { margin: var(--sp-5) 0 var(--sp-2); font-size: var(--fs-md); font
 
 /* Редактируемые таблицы каталога (Материалы/Фурнитура) — клик по ячейке
    превращает её в инпут (см. app.js: startCellEdit). Ширина колонок — ОДНА
-   и та же во всех подкатегориях/категориях (см. #drawer-library.lib-wide
-   выше: панель теперь фиксированной ширины, а не «под самую широкую
-   таблицу»); фиксирует её сама таблица через table-layout:fixed (инлайн,
-   только у таблиц материалов — см. libSubcategoryPanel) + <colgroup> с
-   явными шириной служебных колонок, «Наименование» без ширины забирает
-   остаток. Длинное название переносится по словам (см. :first-child ниже),
-   а не расширяет таблицу. */
+   и та же во всех листьях/категориях (см. #drawer-library.lib-wide выше:
+   панель теперь фиксированной ширины, а не «под самую широкую таблицу»);
+   фиксирует её сама таблица через table-layout:fixed (инлайн, только у
+   таблиц материалов — см. libLeafTableHtml) + <colgroup> с явными шириной
+   служебных колонок, «Наименование» без ширины забирает остаток. Длинное
+   название переносится по словам (см. :first-child ниже), а не расширяет
+   таблицу. */
 .lib-table {
   margin-bottom: var(--sp-2);
   width: 100%;

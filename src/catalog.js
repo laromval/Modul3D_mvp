@@ -23,20 +23,20 @@
     // H1180ST37: число в конце slug sourceUrl ("...natur-2800x2070x186-eg-...")
     // не парсится однозначно как толщина (соседние позиции дают чистое "x18",
     // тут "x186") — thickness не добавлен, чтобы не гадать.
-    { code: 'H1180ST37', name: 'ЛДСП Egger H1180 ST37 Дуб Халифакс натуральный', sheetPrice: 3070, sourceUrl: 'https://mobilier.md/materiale-placi/pal-melaminat/dsp_egger-ro/h1180-st37-stejar-halifax-natur-2800x2070x186-eg-pal-melaminat.html', sheetW: 2750, sheetH: 1830, unit: 'лист', image: null, subcategory: 'ДСП', brand: 'Egger' },
-    { code: 'U702ST9',   name: 'ЛДСП Egger U702 ST9 Серый кашемир', sheetPrice: 1535, sourceUrl: 'https://mobilier.md/materiale-placi/pal-melaminat/dsp_egger-ro/u702-st9-gri-casmir-2800x2070x18-eg-pal-melaminat.html', sheetW: 2750, sheetH: 1830, unit: 'лист', image: null, subcategory: 'ДСП', brand: 'Egger', thickness: 18 },
-    { code: 'H3450ST22',  name: 'ЛДСП Egger H3450 ST22 Флитвуд белый', sheetPrice: 1646, sourceUrl: 'https://mobilier.md/materiale-placi/pal-melaminat/dsp_egger-ro/h3450-st22-fleetwood-alb-2800x2070x18-eg-pal-melaminat.html', sheetW: 2750, sheetH: 1830, unit: 'лист', image: null, subcategory: 'ДСП', brand: 'Egger', thickness: 18 },
+    { code: 'H1180ST37', name: 'ЛДСП Egger H1180 ST37 Дуб Халифакс натуральный', sheetPrice: 3070, sourceUrl: 'https://mobilier.md/materiale-placi/pal-melaminat/dsp_egger-ro/h1180-st37-stejar-halifax-natur-2800x2070x186-eg-pal-melaminat.html', sheetW: 2750, sheetH: 1830, unit: 'лист', image: null, categoryPath: ['ДСП', 'Egger'] },
+    { code: 'U702ST9',   name: 'ЛДСП Egger U702 ST9 Серый кашемир', sheetPrice: 1535, sourceUrl: 'https://mobilier.md/materiale-placi/pal-melaminat/dsp_egger-ro/u702-st9-gri-casmir-2800x2070x18-eg-pal-melaminat.html', sheetW: 2750, sheetH: 1830, unit: 'лист', image: null, categoryPath: ['ДСП', 'Egger'], thickness: 18 },
+    { code: 'H3450ST22',  name: 'ЛДСП Egger H3450 ST22 Флитвуд белый', sheetPrice: 1646, sourceUrl: 'https://mobilier.md/materiale-placi/pal-melaminat/dsp_egger-ro/h3450-st22-fleetwood-alb-2800x2070x18-eg-pal-melaminat.html', sheetW: 2750, sheetH: 1830, unit: 'лист', image: null, categoryPath: ['ДСП', 'Egger'], thickness: 18 },
     // ST19 (более выраженная текстура) на сайте тоже есть, но дороже
     // (1993 против 1490) — взята более бюджетная ST7 как более
     // сопоставимая по цене с исходной заглушкой.
-    { code: 'U999ST7',   name: 'ЛДСП Egger U999 ST7 Чёрный',       sheetPrice: 1490, sourceUrl: 'https://mobilier.md/materiale-placi/pal-melaminat/dsp_egger-ro/u999-st7-negru-2800x2070x18-eg-pal-melaminat.html', sheetW: 2750, sheetH: 1830, unit: 'лист', image: null, subcategory: 'ДСП', brand: 'Egger', thickness: 18 },
+    { code: 'U999ST7',   name: 'ЛДСП Egger U999 ST7 Чёрный',       sheetPrice: 1490, sourceUrl: 'https://mobilier.md/materiale-placi/pal-melaminat/dsp_egger-ro/u999-st7-negru-2800x2070x18-eg-pal-melaminat.html', sheetW: 2750, sheetH: 1830, unit: 'лист', image: null, categoryPath: ['ДСП', 'Egger'], thickness: 18 },
   ];
 
   // ЛДСП 8мм (тонкая усиленная задняя стенка) на mobilier.md не продаётся —
   // ЛДСП/PAL melaminat там начинается от 16мм, цена осталась условной.
   const BACK_MATERIALS = [
-    { code: 'HDF-3', name: 'ХДФ белый 3мм', sheetPrice: 193, sourceUrl: 'https://mobilier.md/materiale-placi/hdf-dvp/hdf-110-alb-3-2850x2070.html', sheetW: 2440, sheetH: 1220, thickness: 3, unit: 'лист', image: null, subcategory: 'ХДФ/ДВП', brand: '' },
-    { code: 'HDF-8', name: 'ЛДСП 8мм (усиленная задняя стенка)', sheetPrice: 1500, sheetW: 2750, sheetH: 1830, thickness: 8, unit: 'лист', image: null, subcategory: 'ДСП', brand: '' },
+    { code: 'HDF-3', name: 'ХДФ белый 3мм', sheetPrice: 193, sourceUrl: 'https://mobilier.md/materiale-placi/hdf-dvp/hdf-110-alb-3-2850x2070.html', sheetW: 2440, sheetH: 1220, thickness: 3, unit: 'лист', image: null, categoryPath: ['ХДФ/ДВП'] },
+    { code: 'HDF-8', name: 'ЛДСП 8мм (усиленная задняя стенка)', sheetPrice: 1500, sheetW: 2750, sheetH: 1830, thickness: 8, unit: 'лист', image: null, categoryPath: ['ДСП'] },
   ];
 
   // Столешницы на mobilier.md продаются ПОГОННЫМ метром — готовой полосой
@@ -118,7 +118,7 @@
   const GLASS = { code: 'GLASS-6', name: 'Стекло 6 мм (полки, фасады)',
                   sheetPrice: 750, customOrder: true, priceNote: 'приближённая — уточняйте у поставщика',
                   sourceUrl: 'https://glassinterior.md/blog/cat-costa-sticla-securizata-in-republica-moldova-in-2026/',
-                  unit: 'м²', thickness: 6, image: null };
+                  unit: 'м²', thickness: 6, image: null, categoryPath: ['Стекло'] };
 
   // ---------------------------------------------------------------------------
   // ТИПЫ ФАСАДОВ
@@ -130,8 +130,8 @@
   // glassInside: за таким фасадом полки делаются из стекла
   // ---------------------------------------------------------------------------
   const FACADE_MATERIALS = {
-    'FAC-LDSP': { code: 'FAC-LDSP', name: 'ЛДСП 18 мм (фасад)', sheetPrice: 1535, sourceUrl: 'https://mobilier.md/materiale-placi/pal-melaminat/dsp_egger-ro/w1000-st9-alb-premium-2800x2070x18-eg-pal-melaminat.html', sheetW: 2750, sheetH: 1830, unit: 'лист', image: null, subcategory: 'ДСП', brand: 'Egger', thickness: 18 },
-    'FAC-MDF':  { code: 'FAC-MDF',  name: 'МДФ крашеный 19 мм', sheetPrice: 5199, sourceUrl: 'https://mobilier.md/materiale-placi/fatade-din-mdf/mdf-egger-ro/mdf-u250-pmst9-bej-caramel-19-2800x2070-eg-perfectsense.html', sheetW: 2800, sheetH: 2070, unit: 'лист', image: null, subcategory: 'МДФ-плита', brand: 'Egger', thickness: 19 },
+    'FAC-LDSP': { code: 'FAC-LDSP', name: 'ЛДСП 18 мм (фасад)', sheetPrice: 1535, sourceUrl: 'https://mobilier.md/materiale-placi/pal-melaminat/dsp_egger-ro/w1000-st9-alb-premium-2800x2070x18-eg-pal-melaminat.html', sheetW: 2750, sheetH: 1830, unit: 'лист', image: null, categoryPath: ['ДСП', 'Egger'], thickness: 18 },
+    'FAC-MDF':  { code: 'FAC-MDF',  name: 'МДФ крашеный 19 мм', sheetPrice: 5199, sourceUrl: 'https://mobilier.md/materiale-placi/fatade-din-mdf/mdf-egger-ro/mdf-u250-pmst9-bej-caramel-19-2800x2070-eg-perfectsense.html', sheetW: 2800, sheetH: 2070, unit: 'лист', image: null, categoryPath: ['МДФ-плита', 'Egger'], thickness: 19 },
     // Массив дуба листами не продаётся — это не плитный материал, а
     // рамочное столярное изделие (рама + филёнка/стекло) под заказ.
     // Цена — ОРИЕНТИР по прайсу молдавской фабрики ARAMA (arama.md,
@@ -144,7 +144,7 @@
     'FAC-WOOD-FILON': { code: 'FAC-WOOD-FILON', name: 'Фасад из массива с филёнкой',
                          sheetPrice: 3000, customOrder: true, priceNote: 'ориентировочная — уточняйте у изготовителя',
                          sourceUrl: 'https://arama.md/images/price/servicii_general_arama.pdf',
-                         unit: 'м²', image: null, subcategory: 'Массив', brand: 'ARAMA' },
+                         unit: 'м²', image: null, categoryPath: ['Массив', 'ARAMA'] },
     // 'FAC-WOOD-FRAME' — просто рама, вставка (стекло/витраж) отдельно
     // (тип фасада `woodGlass`, render:'frameGlass'): ARAMA «Fronturi ramă
     // vopsit», 120 €/м² → ≈2400 MDL. Толщина в прайсе ARAMA не указана —
@@ -152,24 +152,24 @@
     'FAC-WOOD-FRAME': { code: 'FAC-WOOD-FRAME', name: 'Фасад из массива рамочный, под стекло/витраж',
                          sheetPrice: 2400, customOrder: true, priceNote: 'ориентировочная — уточняйте у изготовителя',
                          sourceUrl: 'https://arama.md/images/price/servicii_general_arama.pdf',
-                         unit: 'м²', image: null, subcategory: 'Массив', brand: 'ARAMA' },
+                         unit: 'м²', image: null, categoryPath: ['Массив', 'ARAMA'] },
     // Алюминиевый профиль для рамочных фасадов — узкоспециализированный
     // товар, в Молдове не нашли ни одного продавца с открытыми ценой или
     // чертежом сечения (проверены mobilier.md, numina.md, ARAMA, дилеры
     // Rehau/Samet — профильной системы под фасады нет ни у кого). Цена
     // осталась условной.
-    'FAC-ALU':  { code: 'FAC-ALU',  name: 'Алюминиевый профиль (рамка)', sheetPrice: 9800, sheetW: 2000, sheetH: 1000, unit: 'лист', image: null, subcategory: 'Алюминий', brand: '' },
+    'FAC-ALU':  { code: 'FAC-ALU',  name: 'Алюминиевый профиль (рамка)', sheetPrice: 9800, sheetW: 2000, sheetH: 1000, unit: 'лист', image: null, categoryPath: ['Алюминий'] },
     // Видимая боковина под деревянный фасад: массивом её не делают —
     // ставят МДФ в шпоне того же дерева. thickness взят из названия (18мм);
     // sourceUrl-слаг даёт "19" — расхождение источника, не разрешено молча.
     'FAC-VENEER': { code: 'FAC-VENEER', name: 'МДФ шпонированный 18 мм (видимая боковина)',
-                    sheetPrice: 5796, sourceUrl: 'https://mobilier.md/materiale-placi/placi-cu-furnir/mdf-furnir-stejar-nature-19-2800x2070-mk-austria.html', sheetW: 2800, sheetH: 2070, unit: 'лист', image: null, subcategory: 'Шпонированные плиты', brand: '', thickness: 18 },
+                    sheetPrice: 5796, sourceUrl: 'https://mobilier.md/materiale-placi/placi-cu-furnir/mdf-furnir-stejar-nature-19-2800x2070-mk-austria.html', sheetW: 2800, sheetH: 2070, unit: 'лист', image: null, categoryPath: ['Шпонированные плиты'], thickness: 18 },
     // Листовое стекло на mobilier.md не продаётся (см. GLASS выше) — та же
     // приближённая цена и тот же источник (glassinterior.md), customOrder.
     'GLASS-4':  { code: 'GLASS-4',  name: 'Стекло сатин бронз 4 мм (фасад)',
                   sheetPrice: 750, customOrder: true, priceNote: 'приближённая — уточняйте у поставщика',
                   sourceUrl: 'https://glassinterior.md/blog/cat-costa-sticla-securizata-in-republica-moldova-in-2026/',
-                  unit: 'м²', image: null, subcategory: 'Стекло', brand: '', thickness: 4 },
+                  unit: 'м²', image: null, categoryPath: ['Стекло'], thickness: 4 },
   };
 
   const FACADE_TYPES = {
@@ -194,9 +194,9 @@
   // (вкладка «Материалы») редактирует price/image на месте, единственная
   // точка чтения цены — specification.js (`EDGE_PRICES[type]?.price`).
   const EDGE_PRICES = {
-    'ПВХ 2 мм': { price: 15, sourceUrl: 'https://mobilier.md/materiale-placi/cant/egger/cant-abs-w1000-st9-23x20-uw.html', unit: 'пог.м', image: null },
-    'ПВХ 0.8 мм': { price: 10, sourceUrl: 'https://mobilier.md/materiale-placi/cant/egger/cant-abs-w1000-st9-23x08.html', unit: 'пог.м', image: null },
-    'ПВХ 0.4 мм': { price: 5, sourceUrl: 'https://mobilier.md/materiale-placi/cant/egger/cant-abs-w1000-st9-22x04.html', unit: 'пог.м', image: null },
+    'ПВХ 2 мм': { price: 15, sourceUrl: 'https://mobilier.md/materiale-placi/cant/egger/cant-abs-w1000-st9-23x20-uw.html', unit: 'пог.м', image: null, categoryPath: ['ПВХ'] },
+    'ПВХ 0.8 мм': { price: 10, sourceUrl: 'https://mobilier.md/materiale-placi/cant/egger/cant-abs-w1000-st9-23x08.html', unit: 'пог.м', image: null, categoryPath: ['ПВХ'] },
+    'ПВХ 0.4 мм': { price: 5, sourceUrl: 'https://mobilier.md/materiale-placi/cant/egger/cant-abs-w1000-st9-22x04.html', unit: 'пог.м', image: null, categoryPath: ['ПВХ'] },
   };
 
   const HARDWARE_PRICES = {

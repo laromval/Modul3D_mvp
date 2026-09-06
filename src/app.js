@@ -14,7 +14,7 @@
 (function () {
 // Версия сборки — показывается во вкладке браузера и в шапке.
 // При выпуске новой версии меняется только эта строка.
-const APP_VERSION = 'v234';
+const APP_VERSION = 'v235';
 
 // Номер версии выводим ПЕРВЫМ делом: если дальше что-то упадёт, по нему сразу
 // видно, какая сборка открыта.
@@ -140,25 +140,49 @@ const state = {
   // редактируемые таблицы каталога материалов, 'hardware' — фурнитура.
   // Чисто UI-состояние, в историю отмены/файл проекта не попадает.
   libraryTab: 'modules',
-  // Свёрнутые категории/подкатегории вкладки «Материалы» (см.
-  // libCategoryBlock/libSubcategoryPanel): { cats: { decors: true, ... },
-  // subs: { 'decors::ЛДСП': true, ... } } — true, если раздел свёрнут кликом
-  // по заголовку. Отсутствие записи = развёрнуто (стартовое состояние —
-  // всё развёрнуто, как раньше). Чисто UI-состояние, как libraryTab выше:
-  // в историю отмены/файл проекта не попадает.
-  libCollapsed: { cats: {}, subs: {} },
-  // Подкатегории материалов, которые пользователь завёл кнопкой «+» рядом с
-  // рядом кнопок-подкатегорий (см. libAddSubcategory), но ещё не добавил в
-  // них ни одной позиции — { decors: ['Пластик'], back: [], facade: [] }.
-  // Как только в такой подкатегории появляется хотя бы одна позиция
-  // каталога (см. libAddRow), она и так попадает в группировку по данным
-  // (libGroupBySubcategory) — запись здесь только не даёт ПУСТОЙ
-  // подкатегории пропасть из панели, пока в неё не добавили ни одного
-  // материала. У «Кромки»/«Стекла» кнопки нет (там subcategory не поле
-  // данных — вся категория и есть одна подкатегория), эти два ключа не
-  // нужны. Чисто UI-состояние, как libCollapsed выше: в историю отмены/файл
-  // проекта не попадает.
-  libExtraSubcats: { decors: [], back: [], facade: [] },
+  // Свёрнутость узлов дерева категорий вкладки «Материалы» (см.
+  // libNodeHtml/libToggleNode/libIsNodeCollapsed ниже) — ключ узла:
+  // topCode + '::' + path.join('::'), path — item.categoryPath (или его
+  // префикс) на глубине узла, считая от 1: { 'sheet::ДСП': false,
+  // 'sheet::ДСП::Egger': true, ... }. Значение true/false — явно свёрнут/
+  // развёрнут. Отсутствие записи = СВЁРНУТ — при первом входе на вкладку
+  // видно только сами узлы дерева, без их содержимого (пользователь
+  // раскрывает нужное кликами). Узел глубины 0 (сама верхнеуровневая
+  // категория — «Листовые материалы» и т.п.) в этой карте не участвует —
+  // она никогда не прячется целиком, только раскрывает/прячет своих детей,
+  // см. state.libCatOpen ниже. Чисто UI-состояние, как libraryTab выше: в
+  // историю отмены/файл проекта не попадает.
+  libCollapsed: {},
+  // Показаны ли дочерние узлы ПЕРВОГО уровня верхнеуровневой категории
+  // («Листовые материалы»/«Материалы фасадов»/«Кромка»/«Стекло», см.
+  // libTopCategoryHtml) — { sheet: false, facade: false, edge: false, glass:
+  // false }. Отдельно от libCollapsed выше по той же причине (см. коммент
+  // там): сама категория не сворачивается как единое целое, только кликом
+  // раскрывает/прячет прямых детей. Отсутствие записи = false (свёрнуто) —
+  // то самое «при первом входе видно только название категории». Чисто
+  // UI-состояние, сессионное.
+  libCatOpen: {},
+  // «Фокус» на одном листе дерева одной верхнеуровневой категории (см.
+  // libTopCategoryHtml/libLeafTableHtml) — { sheet: 'ДСП::Egger', ... }:
+  // путь листа (join('::')) или отсутствие ключа/null — фокуса нет, дерево
+  // показывается целиком (с учётом libCollapsed выше). Клик по листу
+  // включает фокус (прячет всю остальную структуру категории, показывает
+  // только этот лист и его таблицу), повторный клик по нему же снимает
+  // фокус. Чисто UI-состояние, сессионное.
+  libActiveLeaf: {},
+  // Пустые узлы-«заглушки» дерева категорий, которые пользователь завёл
+  // значком «+» (см. libAddChildNode), но ещё не добавил в них ни одной
+  // позиции каталога — { sheet: [['Пластик']], facade: [], edge: [], glass:
+  // [] }: массив ПУТЕЙ (путь — массив строк, тот же формат, что и
+  // item.categoryPath) по коду верхнеуровневой категории. Как только в
+  // таком узле появляется хотя бы одна реальная позиция каталога (см.
+  // libAddRow), путь и так виден в дереве по данным (libChildSegments) —
+  // запись здесь только не даёт ПУСТОМУ узлу пропасть из панели, пока в
+  // него не добавили ни одного материала. Заменяет прежний
+  // state.libExtraSubcats (был только один уровень вложенности —
+  // subcategory). Чисто UI-состояние, как libCollapsed выше: в историю
+  // отмены/файл проекта не попадает.
+  libExtraNodes: { sheet: [], facade: [], edge: [], glass: [] },
   // Режим подбора материала из «Параметры проекта» (кнопка «+ Добавить
   // материал» у Материал корпуса/Материал фасада/Задняя стенка, см.
   // materialPickActionsHtml/openMaterialPicker) — { role: 'decor' | 'facadeDecor'
@@ -696,58 +720,188 @@ function libSwatchHtml(group, key, image) {
 }
 
 // ---------------------------------------------------------------------------
-// Таблицы вкладки «Материалы» — две ступени вложенности: КАТЕГОРИЯ (раздел
-// вкладки — «Материалы корпуса», «Кромка» и т.п., каждая ↔ свой раздел
-// каталога) → ПОДКАТЕГОРИЯ (поле item.subcategory каталога, например «ЛДСП»/
-// «МДФ» — своя таблица со своим фильтром «Фирма»/«Толщина»). У «Кромки»
-// (EDGE_PRICES) и «Стекла» (GLASS) позиций с полем subcategory в каталоге
-// нет — для них вся категория превращается в ОДНУ подкатегорию с тем же
-// именем, что и у самой категории (см. libCategoryBlock), поэтому один и тот
-// же код ниже строит все пять разделов, а не пять похожих друг на друга
-// функций. Обе ступени независимо сворачиваются кликом по заголовку —
-// состояние в state.libCollapsed (см. state выше), сессионное, не часть
-// проекта.
+// Таблицы вкладки «Материалы» — дерево категорий ПРОИЗВОЛЬНОЙ глубины по
+// полю item.categoryPath (массив строк — путь узла вниз от корня раздела,
+// например ['ДСП', 'Egger'] у декора, ['ПВХ'] у кромки, ['Стекло'] у стекла).
+// Узел — ВЕТКА, если под ним есть узлы глубже (см. libChildSegments), клик
+// по ней разворачивает/сворачивает НЕПОСРЕДСТВЕННЫХ детей (аккордеон), сама
+// ветка не исчезает. Узел — ЛИСТ, если глубже никто не заходит: в обычном
+// режиме навигации показывает только своё название (см. libNodeHtml), клик
+// по нему прячет всю остальную структуру дерева этой верхнеуровневой
+// категории (кроме её заголовка) и показывает таблицу позиций, чей
+// categoryPath точно равен пути листа (см. state.libActiveLeaf/
+// libLeafTableHtml). Верхнеуровневый узел (сама категория — «Листовые
+// материалы»/«Материалы фасадов»/«Кромка»/«Стекло») не сворачивается сам,
+// только раскрывает/прячет своих детей (см. state.libCatOpen). Реальные
+// каталожные item могут иметь путь РАВНЫЙ пути ветки (не только листа) —
+// например HDF-8 (categoryPath ['ДСП']) лежит рядом с Egger-декорами
+// (categoryPath ['ДСП', 'Egger']), из-за чего 'ДСП' — ветка, но у неё самой
+// тоже есть собственная позиция; такие «свои» позиции ветки показываются
+// прямо под её строкой, когда она раскрыта (см. libNodeHtml), тем же
+// рендерером таблицы, что и у листьев — умышленно без отдельного концепта.
 // ---------------------------------------------------------------------------
 
-// Группирует ЗАПИСИ { group, item } по item.subcategory, сохраняя порядок
-// первого появления; у позиций без subcategory используется fallbackName —
-// получается ровно одна группа с именем самой категории (так устроены
-// «Кромка»/«Стекло», у их позиций поля subcategory в каталоге вовсе нет).
-// Работает с записями, а не «голыми» item — это то, что позволяет
-// объединённой подкатегории «Листовые материалы» (см. libraryMaterialsBlock)
-// тянуть строки из decors/back/facade одновременно: каждая запись помнит
-// СВОЙ истинный group для инлайн-редактирования (см. libSheetRowHtml).
-function libGroupBySubcategory(entries, fallbackName) {
-  const order = [];
-  const map = {};
-  (entries || []).forEach((entry) => {
-    const it = entry && entry.item;
-    const key = (it && it.subcategory) || fallbackName;
-    if (!map[key]) { map[key] = []; order.push(key); }
-    map[key].push(entry);
-  });
-  return order.map((name) => ({ name, items: map[name] }));
-}
-
-// Массив позиций категории каталога (кроме «Кромки» — у неё объект, не
-// массив, см. libCategoryBlock) — нужен и для группировки по подкатегориям,
-// и для проверки дублей при добавлении новой подкатегории (см.
-// libSubcategoryNames/libAddSubcategory).
-function libItemsForCat(catCode) {
+// Записи { group, item } одной верхнеуровневой категории дерева — group у
+// записи ИСТИННОЕ происхождение позиции (decors/back/facade/edge/glass),
+// не обязательно совпадает с topCode объединённой категории «sheet» (см.
+// SHEET_FACADE_SUBCATS ниже) — от него зависит, в какой массив каталога
+// уйдёт правка инлайн-редактирования (см. libSaveEdit/libFindItem) и в какой
+// массив попадёт новая позиция (см. libAddRow). 'edge' — единственная
+// категория, где каталог хранит позиции объектом {имя → цена}, а не
+// массивом: оборачиваем в тот же вид записи, it.key — имя-ключ объекта (сам
+// объект своего ключа не знает).
+function libTopEntries(topCode) {
   const cat = window.Modul3D.catalog;
-  if (catCode === 'decors') return DECORS;
-  if (catCode === 'back') return BACK_MATERIALS;
-  if (catCode === 'facade') return Object.values(cat.FACADE_MATERIALS);
+  if (topCode === 'sheet') {
+    const facadeAll = Object.values(cat.FACADE_MATERIALS);
+    const facadeSheet = facadeAll.filter((it) => SHEET_FACADE_SUBCATS.indexOf((it.categoryPath || [])[0]) >= 0);
+    return []
+      .concat(DECORS.map((it) => ({ group: 'decors', item: it })))
+      .concat(facadeSheet.map((it) => ({ group: 'facade', item: it })))
+      .concat(BACK_MATERIALS.map((it) => ({ group: 'back', item: it })));
+  }
+  if (topCode === 'facade') {
+    const facadeAll = Object.values(cat.FACADE_MATERIALS);
+    return facadeAll
+      .filter((it) => SHEET_FACADE_SUBCATS.indexOf((it.categoryPath || [])[0]) < 0)
+      .map((it) => ({ group: 'facade', item: it }));
+  }
+  if (topCode === 'edge') {
+    return Object.keys(cat.EDGE_PRICES).map((name) => ({ group: 'edge', item: Object.assign({ key: name }, cat.EDGE_PRICES[name]) }));
+  }
+  if (topCode === 'glass') return [{ group: 'glass', item: cat.GLASS }];
+  if (topCode === 'countertop') {
+    // COUNTERTOP_MATERIALS (catalog.js) не имеет поля categoryPath — в
+    // отличие от decors/back/facade/edge/glass, здесь дерево строится не по
+    // отдельному полю данных, а виртуально из уже существующего materialId
+    // через COUNTERTOP_MATERIAL_LABEL (см. ниже): [ldsp38] → ['ЛДСП 38мм
+    // постформинг'] и т.п. item — мелкая копия (Object.assign), НЕ сама
+    // позиция каталога: та же техника, что уже применена к 'edge' выше
+    // (Object.assign({ key: name }, ...)) — инлайн-правки всё равно идут по
+    // it.code через libFindItem/libSaveEdit, читающие исходный массив
+    // напрямую, а не эту копию, так что редактирование остаётся рабочим.
+    return (cat.COUNTERTOP_MATERIALS || []).map((it) => ({
+      group: 'countertop',
+      item: Object.assign({}, it, { categoryPath: [COUNTERTOP_MATERIAL_LABEL[it.materialId] || it.materialId] }),
+    }));
+  }
   return [];
 }
 
-// Все названия подкатегорий категории: из фактических данных каталога + ещё
-// не заполненные подкатегории, которые пользователь завёл кнопкой «+», но
-// ещё не добавил в них ни одной позиции (см. state.libExtraSubcats).
-function libSubcategoryNames(catCode) {
-  const fromData = libItemsForCat(catCode).map((it) => it.subcategory).filter(Boolean);
-  const extra = state.libExtraSubcats[catCode] || [];
-  return Array.from(new Set(fromData.concat(extra)));
+// Все известные пути узлов категории — из реальных позиций каталога
+// (item.categoryPath) + пустые заглушки, заведённые кнопкой «+» (см.
+// state.libExtraNodes/libAddChildNode). Только на этих путях строится форма
+// дерева (libChildSegments) — сама позиция каталога может лежать глубже или
+// на любом уровне, форма дерева от этого не зависит.
+function libAllPaths(topCode) {
+  const fromItems = libTopEntries(topCode)
+    .map((e) => (e.item && e.item.categoryPath) || [])
+    .filter((p) => p.length);
+  return fromItems.concat(state.libExtraNodes[topCode] || []);
+}
+
+// Прямые дочерние сегменты узла prefixPath (путь без топ-кода) — в порядке
+// первого появления. Пустой результат = узел лист (см. libNodeHtml).
+function libChildSegments(topCode, prefixPath) {
+  const seen = [];
+  libAllPaths(topCode).forEach((p) => {
+    if (p.length <= prefixPath.length) return;
+    for (let i = 0; i < prefixPath.length; i += 1) { if (p[i] !== prefixPath[i]) return; }
+    const seg = p[prefixPath.length];
+    if (seen.indexOf(seg) < 0) seen.push(seg);
+  });
+  return seen;
+}
+
+// Реальные позиции каталога, чей categoryPath ТОЧНО равен path (см.
+// libLeafTableHtml — таблица листа, и libNodeHtml — «свои» позиции ветки,
+// см. комментарий у HDF-8 выше).
+function libEntriesAtPath(topCode, path) {
+  return libTopEntries(topCode).filter((e) => {
+    const p = (e.item && e.item.categoryPath) || [];
+    return p.length === path.length && path.every((seg, i) => p[i] === seg);
+  });
+}
+
+// Есть ли под path (включая сам path) хотя бы одна РЕАЛЬНАЯ позиция каталога
+// — используется только для защиты от удаления непустого узла (см.
+// libDeleteNode), плейсхолдеры (state.libExtraNodes) в расчёт не берём: их
+// как раз можно удалять свободно.
+function libNodeHasItems(topCode, path) {
+  return libTopEntries(topCode).some((e) => {
+    const p = (e.item && e.item.categoryPath) || [];
+    return p.length >= path.length && path.every((seg, i) => p[i] === seg);
+  });
+}
+
+// Ключ узла для state.libCollapsed (см. коммент у state выше) — только для
+// depth ≥ 1, глубина 0 (сама категория) через state.libCatOpen отдельно.
+function libNodeKey(topCode, path) {
+  return topCode + '::' + path.join('::');
+}
+function libIsNodeCollapsed(topCode, path) {
+  const v = state.libCollapsed[libNodeKey(topCode, path)];
+  return v === undefined ? true : !!v;
+}
+function libToggleNode(topCode, path) {
+  state.libCollapsed[libNodeKey(topCode, path)] = !libIsNodeCollapsed(topCode, path);
+}
+
+// Переименование СЕГМЕНТА пути на глубине узла path — у ВСЕХ реальных
+// позиций каталога и плейсхолдеров, чей путь на этой глубине совпадает (тот
+// же префикс до узла + тот же сегмент), см. значок ✎ в libTreeRowHtml.
+// Мутирует item.categoryPath НА МЕСТЕ (тот же массив, что хранится в
+// каталоге) — универсально для decors/back/facade/edge/glass, без привязки
+// к конкретному массиву данных.
+function libRenameNode(topCode, path, newName) {
+  newName = (newName || '').trim();
+  if (!newName) return;
+  const depth = path.length;
+  const prefix = path.slice(0, depth - 1);
+  const oldSeg = path[depth - 1];
+  const matches = (p) => p.length >= depth && prefix.every((seg, i) => p[i] === seg) && p[depth - 1] === oldSeg;
+  libTopEntries(topCode).forEach((e) => {
+    const p = e.item && e.item.categoryPath;
+    if (p && matches(p)) p[depth - 1] = newName;
+  });
+  (state.libExtraNodes[topCode] || []).forEach((p) => { if (matches(p)) p[depth - 1] = newName; });
+}
+
+// «+» узла дерева (не у самого глубокого листа — см. libTreeRowHtml) — та
+// же логика подтверждения, что была у прежнего libAddSubcategory: prompt на
+// название, пустой ввод — отмена, дубликат среди уже существующих ПРЯМЫХ
+// детей (данные + плейсхолдеры) — alert и выход. Новый узел — пустая
+// заглушка (см. state.libExtraNodes), сразу раскрываем родителя, чтобы он
+// не потерялся среди свёрнутых.
+function libAddChildNode(topCode, parentPath) {
+  const name = (window.prompt('Название новой категории:') || '').trim();
+  if (!name) return;
+  const existing = libChildSegments(topCode, parentPath).map((s) => s.toLowerCase());
+  if (existing.indexOf(name.toLowerCase()) >= 0) {
+    window.alert('Категория с таким названием уже есть.');
+    return;
+  }
+  if (!state.libExtraNodes[topCode]) state.libExtraNodes[topCode] = [];
+  state.libExtraNodes[topCode].push(parentPath.concat([name]));
+  if (!parentPath.length) state.libCatOpen[topCode] = true;
+  else state.libCollapsed[libNodeKey(topCode, parentPath)] = false;
+  renderLibraryPanel();
+}
+
+// «×» узла дерева — если под ним (включая сам узел) есть хотя бы одна
+// РЕАЛЬНАЯ позиция каталога (см. libNodeHasItems), ничего не удаляем и
+// предупреждаем: правки каталога здесь без бэкенда, случайное стирание цен
+// недопустимо. Иначе узел — чистый плейсхолдер (свой + все более глубокие,
+// если под ним успели завести вложенные пустые категории) — просто убираем
+// пути из state.libExtraNodes.
+function libDeleteNode(topCode, path) {
+  if (libNodeHasItems(topCode, path)) {
+    window.alert('Сначала удалите или перенесите материалы из этой категории — в ней есть товары.');
+    return;
+  }
+  const extra = state.libExtraNodes[topCode] || [];
+  state.libExtraNodes[topCode] = extra.filter((p) => !(p.length >= path.length && path.every((seg, i) => p[i] === seg)));
+  renderLibraryPanel();
 }
 
 // Уникальные непустые значения поля field среди items, в порядке появления —
@@ -763,27 +917,36 @@ function libFilterValues(items, field) {
   return vals;
 }
 
-// Фильтры «Фирма»/«Толщина» подкатегории — рисуются, только если у позиций
-// подкатегории есть хоть одно непустое значение соответствующего поля
-// (пустой список с единственным пунктом «Все» не показываем вообще). Само
-// значение фильтра читает делегированный `change`-обработчик
-// (initLibraryPanel) через closest('.lib-subcat-panel') — select здесь
-// своего состояния не хранит, только рисуется.
-function libFiltersHtml(items) {
-  const brands = libFilterValues(items, 'brand');
-  const thicknesses = libFilterValues(items, 'thickness').slice().sort((a, b) => a - b);
-  if (!brands.length && !thicknesses.length) return '';
-  const brandHtml = brands.length ? `
-    <select class="lib-filter-select" data-filter="brand">
-      <option value="">Фирма: все</option>
-      ${brands.map((b) => `<option value="${esc(b)}">${esc(b)}</option>`).join('')}
-    </select>` : '';
-  const thickHtml = thicknesses.length ? `
-    <select class="lib-filter-select" data-filter="thickness">
-      <option value="">Толщина: все</option>
-      ${thicknesses.map((t) => `<option value="${esc(String(t))}">${esc(String(t))} мм</option>`).join('')}
-    </select>` : '';
-  return `<div class="lib-filters">${brandHtml}${thickHtml}</div>`;
+// Поля-фильтры таблицы листа — по умолчанию «Толщина» (фирма теперь уровень
+// дерева categoryPath, не поле для фильтра), для «Кромки» (см.
+// libraryMaterialsBlock) дополнительно «Ширина» (item.width — поля пока
+// ни у одной позиции нет, см. LIB_EDGE_EXTRA_FILTERS ниже, фильтр просто не
+// появится, пока такое поле не заведут в catalog.js).
+const LIB_FILTER_FIELD_DEFS = [
+  { field: 'thickness', label: 'Толщина', unit: ' мм', numeric: true },
+];
+const LIB_EDGE_EXTRA_FILTERS = [{ field: 'width', label: 'Ширина', unit: ' мм', numeric: true }];
+
+// Фильтры листа — рисуются, только если у позиций листа есть хоть одно
+// непустое значение соответствующего поля (пустой список с единственным
+// пунктом «Все» не показываем вообще). Само значение фильтра читает
+// делегированный `change`-обработчик (initLibraryPanel) через
+// closest('.lib-leaf-body') — select здесь своего состояния не хранит,
+// только рисуется. extraFields — доп. поля сверх LIB_FILTER_FIELD_DEFS (см.
+// LIB_EDGE_EXTRA_FILTERS выше).
+function libFiltersHtml(items, extraFields) {
+  const defs = LIB_FILTER_FIELD_DEFS.concat(extraFields || []);
+  const blocks = defs.map((def) => {
+    let vals = libFilterValues(items, def.field);
+    if (!vals.length) return '';
+    if (def.numeric) vals = vals.slice().sort((a, b) => a - b);
+    return `
+    <select class="lib-filter-select" data-filter="${esc(def.field)}">
+      <option value="">${esc(def.label)}: все</option>
+      ${vals.map((v) => `<option value="${esc(String(v))}">${esc(String(v))}${def.unit ? esc(def.unit) : ''}</option>`).join('')}
+    </select>`;
+  }).filter(Boolean);
+  return blocks.length ? `<div class="lib-filters">${blocks.join('')}</div>` : '';
 }
 
 // «Цена приближённая/ориентировочная — уточняйте у...» — ОДИН раз перед
@@ -798,23 +961,40 @@ function libPriceNoteHtml(items) {
 }
 
 // Ширины колонок фиксированы через <colgroup> (table-layout:fixed — инлайн
-// на самой таблице, см. libSubcategoryPanel), чтобы длинное название
+// на самой таблице, см. libLeafTableHtml), чтобы длинное название
 // материала переносилось по словам, а не растягивало таблицу и вслед за ней
 // панель (см. #drawer-library.lib-wide/.lib-table в style.css). Колонка
 // «Наименование» — без явной ширины, забирает весь остаток.
-function libColgroup(hasThickness, pickMode) {
+// isCountertop — у «Столешниц» совсем другой набор колонок (Материал/
+// Глубина вместо Ед.изм./Образец, без «Цена/м²» — товар продаётся пог.
+// метром, площади листа нет, см. libCountertopRowHtml) при том же итоговом
+// количестве колонок (5), поэтому дальше по коду (colCount в
+// libLeafTableHtml) отдельно считать не нужно.
+function libColgroup(hasThickness, pickMode, hasM2, isCountertop) {
+  if (isCountertop) {
+    return `<colgroup><col><col style="width:26px"><col style="width:170px"><col style="width:90px"><col style="width:110px"></colgroup>`;
+  }
   // «Образец» — 72px: при 50px заголовок «ОБРАЗЕЦ» не помещался и визуально
   // обрезался соседней колонкой (th непрозрачный, перекрывал overflow).
-  // pickMode — доп. узкая колонка «Выбрать» (только «Листовые материалы» в
-  // режиме подбора, см. state.libPickTarget/libraryMaterialsBlock).
+  // hasM2 — доп. колонка «Цена/м²» (только объединённая категория «Листовые
+  // материалы», см. libraryMaterialsBlock/libPricePerM2 — чисто для
+  // сравнения материалов, стоимость проекта считается по листам). pickMode —
+  // доп. узкая колонка «Выбрать» (только «Листовые материалы» в режиме
+  // подбора, см. state.libPickTarget/libraryMaterialsBlock).
   return `<colgroup><col><col style="width:26px"><col style="width:62px">`
     + `<col style="width:72px"><col style="width:90px">`
+    + `${hasM2 ? '<col style="width:92px">' : ''}`
     + `${hasThickness ? '<col style="width:82px">' : ''}`
     + `${pickMode ? '<col style="width:76px">' : ''}</colgroup>`;
 }
-function libTableHead(hasThickness, pickMode) {
+function libTableHead(hasThickness, pickMode, hasM2, isCountertop) {
+  if (isCountertop) {
+    return `<thead><tr>
+      <th>Наименование</th><th></th><th>Материал</th><th>Глубина</th><th>Цена, ${esc(curSym())}/пог.м</th>
+    </tr></thead>`;
+  }
   return `<thead><tr>
-    <th>Наименование</th><th></th><th>Ед. изм.</th><th>Образец</th><th>Цена, ${esc(curSym())}</th>${hasThickness ? `<th>Толщина, мм</th>` : ''}${pickMode ? `<th></th>` : ''}
+    <th>Наименование</th><th></th><th>Ед. изм.</th><th>Образец</th><th>Цена, ${esc(curSym())}</th>${hasM2 ? `<th>Цена, ${esc(curSym())}/м²</th>` : ''}${hasThickness ? `<th>Толщина, мм</th>` : ''}${pickMode ? `<th></th>` : ''}
   </tr></thead>`;
 }
 
@@ -824,24 +1004,39 @@ function libTableHead(hasThickness, pickMode) {
 // state.backThickness (см. bindPanelEvents → #p-back). У декоров/фасадов/
 // стекла толщина не показывается отдельной колонкой (для фасада/корпуса она
 // общая на проект — bodyThickness/facadeThickness в «Параметрах проекта»).
-// data-brand/data-thickness — не для отображения, а для фильтра (см.
+// data-thickness — не для отображения, а для фильтра (см.
 // initLibraryPanel → panel.addEventListener('change', ...)).
 // entry — { group, item }: group САМОЙ ЗАПИСИ, а не категории целиком —
 // в объединённой подкатегории «Листовые материалы» (см.
 // libraryMaterialsBlock) строки одной таблицы приходят из decors/back/facade
 // одновременно, и каждая правится через libEditCell(entry.group, ...), а не
 // через код категории. pickMode — доп. кнопка «Выбрать» (см. libColgroup).
-function libSheetRowHtml(entry, hasThickness, pickMode) {
+// Цена за м² — ТОЛЬКО для сравнения материалов между собой (реальная
+// стоимость проекта в спецификации по-прежнему считается по листам с
+// технологическим запасом, см. specification.js — эта колонка её не
+// подменяет). Не редактируется — сеточный расчёт из sheetPrice/sheetW/
+// sheetH; если хотя бы одного из трёх нет (customOrder-позиции без размера
+// листа — стекло, массив под заказ), возвращает null, ячейка пустая.
+function libPricePerM2(it) {
+  if (!it || !it.sheetPrice || !it.sheetW || !it.sheetH) return null;
+  const area = (it.sheetW / 1000) * (it.sheetH / 1000);
+  if (!area) return null;
+  return Math.round((it.sheetPrice / area) * 100) / 100;
+}
+
+function libSheetRowHtml(entry, hasThickness, pickMode, hasM2) {
   const group = entry.group;
   const it = entry.item;
+  const m2Price = hasM2 ? libPricePerM2(it) : null;
   return `
     <tr data-search="${esc(String(it.name || '').toLowerCase())}"
-        data-brand="${esc(it.brand || '')}" data-thickness="${it.thickness != null ? esc(String(it.thickness)) : ''}">
+        data-thickness="${it.thickness != null ? esc(String(it.thickness)) : ''}">
       ${libEditCell(group, it.code, 'name', 'text', it.name)}
       ${libSourceLinkCell(it)}
       ${libEditCell(group, it.code, 'unit', 'text', it.unit || 'лист')}
       <td>${libSwatchHtml(group, it.code, it.image)}</td>
       ${libEditCell(group, it.code, 'sheetPrice', 'number', it.sheetPrice)}
+      ${hasM2 ? `<td>${m2Price != null ? esc(String(m2Price)) : '—'}</td>` : ''}
       ${hasThickness ? libEditCell(group, it.code, 'thickness', 'number', it.thickness) : ''}
       ${pickMode ? `<td><button type="button" class="link-btn lib-pick-btn" data-pick-group="${esc(group)}" data-pick-code="${esc(it.code)}">Выбрать</button></td>` : ''}
     </tr>`;
@@ -851,11 +1046,12 @@ function libSheetRowHtml(entry, hasThickness, pickMode) {
 // Переименовывать его на месте рискованно (specification.js читает
 // EDGE_PRICES[type] по значению из секции) — поэтому название НЕредактируемо,
 // а новая кромка добавляется вводом уникального названия (см. libAddRow).
-// it.key — имя-ключ объекта (проставляется в libCategoryBlock при разборе
+// it.key — имя-ключ объекта (проставляется в libTopEntries при разборе
 // cat.EDGE_PRICES, самого объекта своего ключа не знает).
 function libEdgeRowHtml(it) {
   return `
-    <tr data-search="${esc(String(it.key).toLowerCase())}">
+    <tr data-search="${esc(String(it.key).toLowerCase())}"
+        data-width="${it.width != null ? esc(String(it.width)) : ''}">
       <td>${esc(it.key)}</td>
       ${libSourceLinkCell(it)}
       ${libEditCell('edge', it.key, 'unit', 'text', it.unit || 'пог.м')}
@@ -864,166 +1060,186 @@ function libEdgeRowHtml(it) {
     </tr>`;
 }
 
-// Одна подкатегория: (опц.) фильтры → (опц.) подсказка о примерной цене →
-// таблица → (опц.) кнопка «+ Добавить материал». У «Стекла» кнопки нет —
-// добавлять там нечего (единственный объект каталога, не массив); у
-// «Кромки» кнопка есть, но со своим прежним UX (prompt на название, см.
-// libAddRow) — поэтому data-add-subcat у неё не проставляется.
-// entries — [{ group, item }, ...] (см. libGroupBySubcategory). addGroupMap
-// (только у объединённой «Листовые материалы») переопределяет, В КАКОЙ
-// массив каталога кладёт новую позицию кнопка «+ Добавить материал» ЭТОЙ
-// конкретной подкатегории — см. libraryMaterialsBlock: там же объяснение,
-// почему для каждой подкатегории выбран именно такой массив по умолчанию.
-function libSubcategoryPanel(catCode, subName, entries, opts, collapsed) {
-  const hasThickness = !!opts.hasThickness;
-  const pickMode = !!(opts.pickable && state.libPickTarget);
-  const rowsHtml = catCode === 'edge'
-    ? entries.map((e) => libEdgeRowHtml(e.item)).join('')
-    : entries.map((e) => libSheetRowHtml(e, hasThickness, pickMode)).join('');
-  const items = entries.map((e) => e.item);
-  const colCount = 5 + (hasThickness ? 1 : 0) + (pickMode ? 1 : 0);
-  const emptyRow = entries.length ? '' : `<tr><td colspan="${colCount}" class="hint">Пока нет позиций</td></tr>`;
-  const addGroup = (opts.addGroupMap && opts.addGroupMap[subName]) || catCode;
-  const addHtml = opts.addLabel
-    ? `<button type="button" class="link-btn lib-add" data-add="${esc(addGroup)}"${catCode !== 'edge' ? ` data-add-subcat="${esc(subName)}"` : ''}>${esc(opts.addLabel)}</button>`
-    : '';
-  return `
-    <div class="lib-subcat-panel${collapsed ? ' lib-collapsed' : ''}">
-      ${libFiltersHtml(items)}
-      ${libPriceNoteHtml(items)}
-      <table class="lib-table" style="table-layout:fixed">${libColgroup(hasThickness, pickMode)}${libTableHead(hasThickness, pickMode)}<tbody>${rowsHtml}${emptyRow}</tbody></table>
-      ${addHtml}
-    </div>`;
-}
-
-// Категория целиком: заголовок (сворачивает ВСЁ содержимое, все подкатегории
-// разом) → ряд кнопок-подкатегорий (каждая сворачивает только СВОЮ таблицу,
-// независимо от соседних — см. libSubcategoryPanel) + кнопка «+ добавить
-// подкатегорию» (только там, где subcategory — реальное поле данных, т.е.
-// opts.allowAddSubcat) → сами таблицы подкатегорий одна под другой.
-// itemsAll не используется для 'edge' — вместо этого прямо здесь разбирается
-// cat.EDGE_PRICES (объект «имя → цена», а не массив, как у остальных).
-// opts.mixedEntries — itemsAll уже пришёл готовыми записями [{group,item}]
-// (объединённая «Листовые материалы», где group у строк разный внутри одной
-// подкатегории); без этого флага itemsAll — обычный плоский массив item, и
-// group каждой записи считается равным самому catCode (как было раньше у
-// одиночных категорий decors/back/facade/glass).
-function libCategoryBlock(catCode, title, itemsAll, opts) {
-  opts = opts || {};
-  const cat = window.Modul3D.catalog;
-  const collapsedCat = !!state.libCollapsed.cats[catCode];
-  let groups;
-  if (catCode === 'edge') {
-    const items = Object.keys(cat.EDGE_PRICES).map((name) => Object.assign({ key: name }, cat.EDGE_PRICES[name]));
-    groups = [{ name: title, items: items.map((it) => ({ group: 'edge', item: it })) }];
-  } else {
-    const entries = opts.mixedEntries ? (itemsAll || []) : (itemsAll || []).map((it) => ({ group: catCode, item: it }));
-    groups = libGroupBySubcategory(entries, title);
-    if (opts.allowAddSubcat) {
-      (state.libExtraSubcats[catCode] || []).forEach((name) => {
-        if (!groups.some((g) => g.name === name)) groups.push({ name, items: [] });
-      });
-    }
-  }
-
-  const tabsHtml = groups.map((g) => {
-    const subKey = catCode + '::' + g.name;
-    const collapsedSub = !!state.libCollapsed.subs[subKey];
-    return `<button type="button" class="sec-tab lib-subcat-btn${collapsedSub ? '' : ' active'}" data-toggle-sub="${esc(subKey)}">${collapsedSub ? '▸' : '▾'} ${esc(g.name)}</button>`;
-  }).join('');
-  const addSubBtn = opts.allowAddSubcat
-    ? `<button type="button" class="sec-add" data-add-subcat-cat="${esc(catCode)}" title="Добавить подкатегорию" aria-label="Добавить подкатегорию">+</button>`
-    : '';
-  const panelsHtml = groups.map((g) => {
-    const subKey = catCode + '::' + g.name;
-    return libSubcategoryPanel(catCode, g.name, g.items, opts, !!state.libCollapsed.subs[subKey]);
-  }).join('');
-
-  return `
-    <div class="lib-category">
-      <button type="button" class="lib-cat-head" data-toggle-cat="${esc(catCode)}" aria-expanded="${collapsedCat ? 'false' : 'true'}">
-        <span class="lib-toggle-ic">${collapsedCat ? '▸' : '▾'}</span><h4 class="mat-sub">${esc(title)}</h4>
-      </button>
-      <div class="lib-cat-body${collapsedCat ? ' lib-collapsed' : ''}">
-        <div class="sec-tabs-row">
-          <div class="sec-tabs">${tabsHtml}</div>
-          ${addSubBtn}
-        </div>
-        ${panelsHtml}
-      </div>
-    </div>`;
-}
-
 // Столешницы (window.Modul3D.catalog.COUNTERTOP_MATERIALS) продаются
-// погонным метром фиксированной глубины (см. комментарий у самого массива
-// в catalog.js), поэтому таблица другая, чем у листовых материалов —
-// вместо «Цена за лист» показываем «Глубина» и «Цена за пог.м». materialId
-// группирует линейку (ldsp38 постформинг / compact12 компакт-плита) —
-// человекочитаемое название берём тут же, чтобы не плодить код в catalog.js
-// ради одной подписи в таблице.
-const COUNTERTOP_MATERIAL_LABEL = { ldsp38: 'ЛДСП 38мм постформинг', compact12: 'Компакт-плита HPL 12мм', doubleLdsp: 'Сдвоенное ЛДСП (по декору корпуса)' };
-function libCountertopTable() {
-  const cat = window.Modul3D.catalog;
-  const items = cat.COUNTERTOP_MATERIALS || [];
-  const rows = items.map((it) => `
+// погонным метром фиксированной глубины (см. комментарий у самого массива в
+// catalog.js), поэтому строка другая, чем у листовых материалов — вместо
+// «Ед. изм./Образец» показываем «Материал» (человекочитаемая метка по
+// it.materialId, см. COUNTERTOP_MATERIAL_LABEL) и «Глубина» вместо «Цена за
+// лист/Толщина». it — копия из libTopEntries с добавленным categoryPath
+// (см. там же), правки всё равно идут по it.code через libFindItem, который
+// читает исходный массив каталога напрямую.
+function libCountertopRowHtml(it) {
+  return `
     <tr data-search="${esc(String(it.name || '').toLowerCase())}">
       ${libEditCell('countertop', it.code, 'name', 'text', it.name)}
       ${libSourceLinkCell(it)}
       <td>${esc(COUNTERTOP_MATERIAL_LABEL[it.materialId] || it.materialId)}</td>
       <td>${it.depth} мм</td>
       ${libEditCell('countertop', it.code, 'pricePerMeter', 'number', it.pricePerMeter)}
-    </tr>`).join('');
-  return `
-    <h4 class="mat-sub">Столешницы (цена за пог.м)</h4>
-    <table class="lib-table"><thead><tr>
-      <th>Наименование</th><th></th><th>Материал</th><th>Глубина</th><th>Цена, ${esc(curSym())}/пог.м</th>
-    </tr></thead><tbody>${rows || '<tr><td colspan="5" class="hint">Пока нет позиций</td></tr>'}</tbody></table>
-    <button type="button" class="link-btn lib-add" data-add="countertop">+ Добавить столешницу</button>`;
+    </tr>`;
 }
 
-// subcategory теперь называет ТИП листового материала (ДСП/МДФ-плита/
-// Шпонированные плиты), а не его роль в проекте (корпус/фасад/задняя
-// стенка) — см. catalog.js. Эти три значения и выделяют «плитную» часть
-// FACADE_MATERIALS, которая переезжает в объединённую категорию «Листовые
-// материалы» вместе с decors/back; «Массив»/«Алюминий»/«Стекло» — не
-// плитные материалы, остаются в «Материалы фасадов».
+// Таблица позиций одного листа (или «своих» позиций ветки — см. HDF-8 в
+// комментарии выше libTopEntries): фильтры → подсказка о примерной цене →
+// таблица → кнопка «+ Добавить материал» (опц.). addGroupMap/addDefaultGroup
+// решают, в какой массив каталога уйдёт новая позиция — см.
+// libraryMaterialsBlock, там же объяснение выбора значения по умолчанию.
+function libLeafTableHtml(topCode, path, entries, opts) {
+  const hasThickness = !!opts.hasThickness;
+  const hasM2 = !!opts.hasM2;
+  const isCountertop = topCode === 'countertop';
+  const pickMode = !!(opts.pickable && state.libPickTarget);
+  const rowsHtml = topCode === 'edge'
+    ? entries.map((e) => libEdgeRowHtml(e.item)).join('')
+    : isCountertop
+      ? entries.map((e) => libCountertopRowHtml(e.item)).join('')
+      : entries.map((e) => libSheetRowHtml(e, hasThickness, pickMode, hasM2)).join('');
+  const items = entries.map((e) => e.item);
+  const colCount = 5 + (hasM2 ? 1 : 0) + (hasThickness ? 1 : 0) + (pickMode ? 1 : 0);
+  const emptyRow = entries.length ? '' : `<tr><td colspan="${colCount}" class="hint">Пока нет позиций</td></tr>`;
+  const addGroup = topCode === 'edge' ? 'edge' : ((opts.addGroupMap && opts.addGroupMap[path[0]]) || opts.addDefaultGroup || topCode);
+  const addHtml = opts.addLabel
+    ? `<button type="button" class="link-btn lib-add" data-add="${esc(addGroup)}" data-add-path="${esc(path.join('::'))}">${esc(opts.addLabel)}</button>`
+    : '';
+  // Фильтры (толщина/ширина, см. libFiltersHtml) читают строку по
+  // data-thickness/data-width её <tr> — у столешницы (libCountertopRowHtml)
+  // этих атрибутов нет (там своя пара колонок «Материал»/«Глубина», а не
+  // «Толщина»), поэтому для неё фильтры не рисуем: пустой data-* сломал бы
+  // фильтрацию (все строки ушли бы в «не совпало»), а не просто не показал бы её.
+  return `
+    <div class="lib-leaf-body">
+      ${isCountertop ? '' : libFiltersHtml(items, opts.filterExtraFields)}
+      ${libPriceNoteHtml(items)}
+      <table class="lib-table" style="table-layout:fixed">${libColgroup(hasThickness, pickMode, hasM2, isCountertop)}${libTableHead(hasThickness, pickMode, hasM2, isCountertop)}<tbody>${rowsHtml}${emptyRow}</tbody></table>
+      ${addHtml}
+    </div>`;
+}
+
+// Строка одного узла дерева — общая и для верхнеуровневой категории (kind
+// 'top'), и для ветки ('branch'), и для листа ('leaf'). Отступ слева
+// пропорционален глубине пути (16px/уровень); ✎/+/× — обычный текст без
+// рамки/фона, видны по наведению на строку (см. .lib-tree-actions в
+// style.css). У 'top' нет ✎/× (нельзя переименовать/удалить категорию
+// целиком), у 'leaf' нет + (единственное добавление у листа — «+ Добавить
+// материал» под его таблицей, см. libLeafTableHtml). У 'countertop' нет ни
+// ✎, ни + ни на одном уровне — его categoryPath виртуальный, выводится из
+// item.materialId (закрытый список, см. COUNTERTOP_MATERIAL_LABEL), а не
+// хранится как реальное поле каталога: libRenameNode/libAddChildNode
+// мутировали бы одноразовую копию из libTopEntries и молча ничего не meняли
+// бы после перерисовки — правильнее не показывать эти значки вовсе, чем
+// давать нерабочую кнопку. × оставлен — на реальных листьях он и так всегда
+// блокируется алертом (см. libNodeHasItems), а плейсхолдеры здесь взяться
+// неоткуда без +.
+function libTreeRowHtml(topCode, path, name, kind, collapsed) {
+  const depth = path.length;
+  const isTop = kind === 'top';
+  const isLeaf = kind === 'leaf';
+  const isCountertop = topCode === 'countertop';
+  const arrowHtml = isLeaf ? '<span class="lib-tree-arrow"></span>' : `<span class="lib-tree-arrow">${collapsed ? '▸' : '▾'}</span>`;
+  const renameIc = (isTop || isCountertop) ? '' : '<span class="lib-tree-ic" data-tree-rename="1" title="Переименовать">✎</span>';
+  const addIc = (isLeaf || isCountertop) ? '' : '<span class="lib-tree-ic" data-tree-add="1" title="Добавить категорию">+</span>';
+  const delIc = isTop ? '' : '<span class="lib-tree-ic" data-tree-del="1" title="Удалить">×</span>';
+  return `<div class="lib-tree-row${isTop ? ' lib-tree-top' : ''}" style="padding-left:${depth * 16}px"
+      data-tree-node="1" data-kind="${kind}" data-top="${esc(topCode)}" data-path="${esc(path.join('::'))}">
+    ${arrowHtml}<span class="lib-tree-name" data-tree-label="1">${esc(name)}</span><span class="lib-tree-actions">${renameIc}${addIc}${delIc}</span>
+  </div>`;
+}
+
+// Один узел дерева (ветка или лист) с его поддеревом — вызывается рекурсивно
+// для каждого дочернего сегмента (см. libChildSegments). Лист в обычном
+// режиме навигации показывает только свою строку — таблица открывается
+// кликом по нему (см. state.libActiveLeaf/libTopCategoryHtml), а не здесь.
+// У ветки, если под её собственным путём (а не только глубже) есть реальные
+// позиции каталога (см. HDF-8 в комментарии у libTopEntries), они показаны
+// сразу под её строкой при раскрытии — тем же рендерером таблицы, что и у
+// листа, специально без отдельного концепта («не усложняй»).
+function libNodeHtml(topCode, path, opts) {
+  const name = path[path.length - 1];
+  const children = libChildSegments(topCode, path);
+  if (!children.length) return libTreeRowHtml(topCode, path, name, 'leaf', false);
+  const collapsed = libIsNodeCollapsed(topCode, path);
+  const ownEntries = libEntriesAtPath(topCode, path);
+  const ownTableHtml = ownEntries.length ? libLeafTableHtml(topCode, path, ownEntries, opts) : '';
+  const childrenHtml = children.map((seg) => libNodeHtml(topCode, path.concat([seg]), opts)).join('');
+  return libTreeRowHtml(topCode, path, name, 'branch', collapsed)
+    + `<div class="lib-tree-children${collapsed ? ' lib-collapsed' : ''}">${ownTableHtml}${childrenHtml}</div>`;
+}
+
+// Верхнеуровневая категория целиком («Листовые материалы»/«Материалы
+// фасадов»/«Кромка»/«Стекло») — заголовок (сам никогда не прячется, кликом
+// раскрывает/прячет прямых детей, см. state.libCatOpen) → либо ПОЛНОЕ дерево
+// (обычная навигация), либо, если на этой категории сфокусирован лист (см.
+// state.libActiveLeaf), ТОЛЬКО его строка + таблица — вся остальная
+// структура дерева этой категории скрыта.
+function libTopCategoryHtml(topCode, title, opts) {
+  const activeKey = state.libActiveLeaf[topCode] || null;
+  let bodyHtml;
+  if (activeKey) {
+    const path = activeKey.split('::');
+    const name = path[path.length - 1];
+    bodyHtml = libTreeRowHtml(topCode, path, name, 'leaf', false)
+      + libLeafTableHtml(topCode, path, libEntriesAtPath(topCode, path), opts);
+  } else {
+    const open = !!state.libCatOpen[topCode];
+    const topSegments = libChildSegments(topCode, []);
+    const childrenHtml = topSegments.map((seg) => libNodeHtml(topCode, [seg], opts)).join('');
+    bodyHtml = `<div class="lib-tree-children${open ? '' : ' lib-collapsed'}">${childrenHtml}</div>`;
+  }
+  return `
+    <div class="lib-category" data-top-code="${esc(topCode)}">
+      ${libTreeRowHtml(topCode, [], title, 'top', !state.libCatOpen[topCode])}
+      ${bodyHtml}
+    </div>`;
+}
+
+// Столешницы (window.Modul3D.catalog.COUNTERTOP_MATERIALS) продаются
+// погонным метром фиксированной глубины (см. комментарий у самого массива
+// в catalog.js) и, в отличие от decors/back/facade/edge/glass, не имеют
+// собственного поля categoryPath — пятая ветка дерева «Материалы» строится
+// виртуально из уже существующего materialId (см. libTopEntries: топ
+// 'countertop'). materialId группирует линейку (ldsp38 постформинг /
+// compact12 компакт-плита) — человекочитаемое название берём тут же, чтобы
+// не плодить код в catalog.js ради одной подписи в дереве/таблице.
+const COUNTERTOP_MATERIAL_LABEL = { ldsp38: 'ЛДСП 38мм постформинг', compact12: 'Компакт-плита HPL 12мм', doubleLdsp: 'Сдвоенное ЛДСП (по декору корпуса)' };
+// Обратный словарь (метка листа дерева → materialId) — нужен «+ Добавить
+// столешницу» (см. libAddRow), чтобы новая позиция попадала в ту же линейку
+// материала, под чьим листом нажали кнопку, а не всегда в первую по умолчанию.
+const COUNTERTOP_MATERIAL_LABEL_TO_ID = {};
+Object.keys(COUNTERTOP_MATERIAL_LABEL).forEach((id) => { COUNTERTOP_MATERIAL_LABEL_TO_ID[COUNTERTOP_MATERIAL_LABEL[id]] = id; });
+
+// Первый сегмент categoryPath называет ТИП листового материала (ДСП/
+// МДФ-плита/Шпонированные плиты), а не его роль в проекте (корпус/фасад/
+// задняя стенка) — см. catalog.js. Эти три значения и выделяют «плитную»
+// часть FACADE_MATERIALS, которая переезжает в объединённую категорию
+// «Листовые материалы» вместе с decors/back (см. libTopEntries выше);
+// «Массив»/«Алюминий»/«Стекло» — не плитные материалы, остаются в
+// «Материалы фасадов».
 const SHEET_FACADE_SUBCATS = ['ДСП', 'МДФ-плита', 'Шпонированные плиты'];
 
-// Новая позиция объединённой подкатегории «Листовые материалы» кладётся в
-// ОДИН конкретный исходный массив каталога по умолчанию — тот, где сейчас и
-// живут материалы этого типа: «ДСП» чаще всего заводят как декор корпуса
+// Новая позиция листа объединённой категории «Листовые материалы» кладётся
+// в ОДИН конкретный исходный массив каталога по умолчанию — по первому
+// сегменту его пути (path[0]): «ДСП» чаще всего заводят как декор корпуса
 // (DECORS — самый частый случай), «МДФ-плита»/«Шпонированные плиты» —
 // позиции есть только в FACADE_MATERIALS, «ХДФ/ДВП» — только в
-// BACK_MATERIALS. Подкатегорию «Материалы фасадов» это не касается — там
-// addGroupMap не передаётся, действует старое поведение (всё в FACADE_MATERIALS).
+// BACK_MATERIALS. Для СОВСЕМ нового (заведённого кнопкой «+», ещё не
+// встречавшегося) первого сегмента используем addDefaultGroup (см.
+// libLeafTableHtml) — decors, тот же самый частый случай. Категорию
+// «Материалы фасадов» это не касается — там addGroupMap не передаётся,
+// всегда FACADE_MATERIALS (см. libAddRow: group === 'facade').
 const SHEET_ADD_GROUP_MAP = { 'ДСП': 'decors', 'МДФ-плита': 'facade', 'Шпонированные плиты': 'facade', 'ХДФ/ДВП': 'back' };
 
 function libraryMaterialsBlock() {
-  const cat = window.Modul3D.catalog;
-  const facadeAll = Object.values(cat.FACADE_MATERIALS);
-  const facadeSheet = facadeAll.filter((it) => SHEET_FACADE_SUBCATS.indexOf(it.subcategory) >= 0);
-  const facadeRest = facadeAll.filter((it) => SHEET_FACADE_SUBCATS.indexOf(it.subcategory) < 0);
-  // Порядок конкатенации даёт нужный порядок подкатегорий по первому
-  // появлению (см. libGroupBySubcategory): ДСП (decors) → МДФ-плита/
-  // Шпонированные плиты (facadeSheet) → ХДФ/ДВП (back).
-  const sheetEntries = []
-    .concat(DECORS.map((it) => ({ group: 'decors', item: it })))
-    .concat(facadeSheet.map((it) => ({ group: 'facade', item: it })))
-    .concat(BACK_MATERIALS.map((it) => ({ group: 'back', item: it })));
   return `
     <h3>Материалы</h3>
     ${libSourceHint()}
-    ${libCategoryBlock('sheet', 'Листовые материалы', sheetEntries, {
-      mixedEntries: true, hasThickness: true, pickable: true,
-      addLabel: '+ Добавить материал', addGroupMap: SHEET_ADD_GROUP_MAP,
-      // allowAddSubcat здесь намеренно нет: у объединённой категории нет
-      // единого «дефолтного» массива для СОВСЕМ новой (пока пустой)
-      // подкатегории — непонятно, куда класть первую же позицию.
+    ${libTopCategoryHtml('sheet', 'Листовые материалы', {
+      hasThickness: true, hasM2: true, pickable: true,
+      addLabel: '+ Добавить материал', addGroupMap: SHEET_ADD_GROUP_MAP, addDefaultGroup: 'decors',
     })}
-    ${libCategoryBlock('facade', 'Материалы фасадов', facadeRest, { allowAddSubcat: true, addLabel: '+ Добавить материал' })}
-    ${libCategoryBlock('edge', 'Кромка', null, { addLabel: '+ Добавить кромку' })}
-    ${libCategoryBlock('glass', 'Стекло', [cat.GLASS], {})}
-    ${libCountertopTable()}`;
+    ${libTopCategoryHtml('facade', 'Материалы фасадов', { addLabel: '+ Добавить материал' })}
+    ${libTopCategoryHtml('edge', 'Кромка', { addLabel: '+ Добавить кромку', filterExtraFields: LIB_EDGE_EXTRA_FILTERS })}
+    ${libTopCategoryHtml('glass', 'Стекло', {})}
+    ${libTopCategoryHtml('countertop', 'Столешницы', { addLabel: '+ Добавить столешницу' })}`;
 }
 
 // Фурнитура собрана из ЧЕТЫРЁХ источников каталога (HARDWARE_PRICES,
@@ -1141,8 +1357,12 @@ function libPickMaterial(rowGroup, code) {
     if (!src) return;
     const targetArr = targetGroup === 'back' ? BACK_MATERIALS : DECORS;
     const copy = {};
-    ['name', 'sheetPrice', 'sourceUrl', 'sheetW', 'sheetH', 'unit', 'thickness', 'subcategory', 'brand', 'image']
+    ['name', 'sheetPrice', 'sourceUrl', 'sheetW', 'sheetH', 'unit', 'thickness', 'image']
       .forEach((f) => { if (src[f] !== undefined) copy[f] = src[f]; });
+    // categoryPath — свой массив-копия, а не общая ссылка с источником:
+    // дальше её можно переименовать (см. libRenameNode) независимо от узла,
+    // из которого материал скопировали.
+    if (src.categoryPath) copy.categoryPath = src.categoryPath.slice();
     // Задняя стенка обязательно требует числовую толщину (state.backThickness
     // берётся из неё, см. bindPanelEvents → #p-back) — если у скопированной
     // позиции (например, декора корпуса) поля thickness нет, спрашиваем
@@ -1199,61 +1419,49 @@ function libAddHardwareRow(category) {
   }
 }
 
-// subcat — подкатегория, в которую попадёт новая позиция (кнопка «+ Добавить
-// материал» конкретной подкатегории, см. libSubcategoryPanel: data-add-subcat
-// на кнопке) — не используется для 'edge'/'hwadd:*' (там subcategory не
-// поле данных). Пустая строка тоже валидна, если кто-то вызовет без неё.
-function libAddRow(group, subcat) {
+// path — путь листа дерева, в который попадёт новая позиция (кнопка «+
+// Добавить материал» листа, см. libLeafTableHtml: data-add-path на кнопке,
+// массив строк или undefined) — не используется для 'hwadd:*'/'countertop'
+// (там дерева категорий нет). Для 'decors'/'back'/'facade' пишем path целиком
+// в item.categoryPath новой позиции; 'edge' сохраняет прежний UX (имя кромки
+// — это ключ объекта EDGE_PRICES, вводится отдельным prompt), но тоже
+// получает categoryPath = path.
+function libAddRow(group, path) {
   const cat = window.Modul3D.catalog;
+  path = path || [];
   if (group.indexOf('hwadd:') === 0) {
     libAddHardwareRow(group.slice(6));
   } else if (group === 'decors') {
-    DECORS.push({ code: 'NEW-' + Date.now(), name: 'Новый материал', sheetPrice: 0, sheetW: 2750, sheetH: 1830, unit: 'лист', image: null, subcategory: subcat || '', brand: '' });
+    DECORS.push({ code: 'NEW-' + Date.now(), name: 'Новый материал', sheetPrice: 0, sheetW: 2750, sheetH: 1830, unit: 'лист', image: null, categoryPath: path.slice() });
   } else if (group === 'back') {
     // thickness обязателен: это единственный источник state.backThickness
     // при выборе материала в «Параметрах проекта» (ручного поля-дублёра
     // больше нет) — без него расчёт в engine.js получит undefined.
-    BACK_MATERIALS.push({ code: 'NEW-' + Date.now(), name: 'Новый материал', sheetPrice: 0, sheetW: 2440, sheetH: 1220, thickness: 3, unit: 'лист', image: null, subcategory: subcat || '', brand: '' });
+    BACK_MATERIALS.push({ code: 'NEW-' + Date.now(), name: 'Новый материал', sheetPrice: 0, sheetW: 2440, sheetH: 1220, thickness: 3, unit: 'лист', image: null, categoryPath: path.slice() });
   } else if (group === 'facade') {
     const code = 'FAC-NEW-' + Date.now();
-    cat.FACADE_MATERIALS[code] = { code, name: 'Новый материал фасада', sheetPrice: 0, sheetW: 2750, sheetH: 1830, unit: 'лист', image: null, subcategory: subcat || '', brand: '' };
+    cat.FACADE_MATERIALS[code] = { code, name: 'Новый материал фасада', sheetPrice: 0, sheetW: 2750, sheetH: 1830, unit: 'лист', image: null, categoryPath: path.slice() };
   } else if (group === 'edge') {
     const name = (window.prompt('Название новой кромки:') || '').trim();
     if (!name) return;
     if (cat.EDGE_PRICES[name]) { window.alert('Кромка с таким названием уже есть в каталоге.'); return; }
-    cat.EDGE_PRICES[name] = { price: 0, unit: 'пог.м', image: null };
+    cat.EDGE_PRICES[name] = { price: 0, unit: 'пог.м', image: null, categoryPath: path.slice() };
   } else if (group === 'countertop') {
-    // materialId 'ldsp38' по умолчанию — самая частая линейка; глубину и
-    // цену пользователь правит инлайн сразу после добавления строки.
+    // materialId берём по листу дерева, под которым нажали «+ Добавить
+    // столешницу» (path[0] — метка COUNTERTOP_MATERIAL_LABEL, см.
+    // COUNTERTOP_MATERIAL_LABEL_TO_ID выше и libTopEntries) — если кнопка
+    // нажата не под конкретным листом (path пуст) или метка не распознана,
+    // 'ldsp38' по умолчанию как самая частая линейка. Глубину и цену
+    // пользователь правит инлайн сразу после добавления строки.
     if (!cat.COUNTERTOP_MATERIALS) cat.COUNTERTOP_MATERIALS = [];
-    cat.COUNTERTOP_MATERIALS.push({ code: 'CTOP-NEW-' + Date.now(), materialId: 'ldsp38',
+    const materialId = COUNTERTOP_MATERIAL_LABEL_TO_ID[path[0]] || 'ldsp38';
+    cat.COUNTERTOP_MATERIALS.push({ code: 'CTOP-NEW-' + Date.now(), materialId,
       name: 'Новая столешница', thickness: 38, depth: 600, pricePerMeter: 0, maxLength: 4100,
       unit: 'пог.м', image: null });
   } else {
     return;
   }
   recompute();
-  renderLibraryPanel();
-}
-
-// «+» рядом с рядом кнопок-подкатегорий одной категории (decors/back/facade
-// — только там subcategory реальное поле данных, см. opts.allowAddSubcat в
-// libCategoryBlock). Тот же UX, что и у добавления кромки в libAddRow выше:
-// prompt на название, пустой ввод — отмена, дубликат (без учёта регистра,
-// среди подкатегорий как из данных каталога, так и уже заведённых, но ещё
-// пустых, см. state.libExtraSubcats) — alert и выход. Сама подкатегория
-// появляется как пустая таблица (только заголовок колонок + «+ Добавить
-// материал») — ни одной позиции каталога у неё ещё нет.
-function libAddSubcategory(catCode) {
-  const name = (window.prompt('Название новой подкатегории:') || '').trim();
-  if (!name) return;
-  const existing = libSubcategoryNames(catCode);
-  if (existing.some((n) => n.toLowerCase() === name.toLowerCase())) {
-    window.alert('Подкатегория с таким названием уже есть.');
-    return;
-  }
-  if (!state.libExtraSubcats[catCode]) state.libExtraSubcats[catCode] = [];
-  state.libExtraSubcats[catCode].push(name);
   renderLibraryPanel();
 }
 
@@ -1325,6 +1533,34 @@ function startCellEdit(cell) {
   });
 }
 
+// Инлайн-переименование узла дерева категорий (значок ✎, см.
+// libTreeRowHtml/libRenameNode) — тот же паттерн, что и startCellEdit выше:
+// клик превращает название в <input>, Enter/blur сохраняет, Esc отменяет.
+function startTreeRename(row) {
+  const label = row.querySelector('[data-tree-label]');
+  if (!label || label.querySelector('input')) return;
+  const cur = label.textContent;
+  label.innerHTML = `<input type="text" value="${esc(cur)}">`;
+  const input = label.querySelector('input');
+  input.focus();
+  if (input.select) input.select();
+  const topCode = row.dataset.top;
+  const path = row.dataset.path ? row.dataset.path.split('::') : [];
+  let done = false;
+  const commit = () => {
+    if (done) return;
+    done = true;
+    const val = (input.value || '').trim();
+    if (val && val !== cur) libRenameNode(topCode, path, val);
+    renderLibraryPanel();
+  };
+  input.addEventListener('blur', commit);
+  input.addEventListener('keydown', (ev) => {
+    if (ev.key === 'Enter') { ev.preventDefault(); input.blur(); }
+    else if (ev.key === 'Escape') { ev.preventDefault(); done = true; renderLibraryPanel(); }
+  });
+}
+
 // Поиск в «Библиотеке» — та же логика, что и у поиска по панели параметров
 // (ui-shell.js: applySearch/class dim-out), адаптирована под содержимое
 // активной вкладки: карточки базы модулей (.lib-item, по data-tip) и строки
@@ -1360,9 +1596,17 @@ function renderLibraryPanel() {
   }
   if (state.libraryTab === 'materials') panel.innerHTML = libraryMaterialsBlock();
   else if (state.libraryTab === 'hardware') panel.innerHTML = libraryHardwareBlock();
+  else if (state.libraryTab === 'facades') panel.innerHTML = libraryFacadesStubBlock();
   else panel.innerHTML = libraryBlock();   // 'modules' — существующая база модулей, без изменений
   bindLibraryEvents();
   applyLibrarySearch();
+}
+
+// «Фасады-двери» — заглушка: фасад не материал, а отдельное изделие со
+// своими параметрами (толщина, тип, врезка стекла и т.п.), полноценная
+// панель — отдельная задача на будущее. Пока только заголовок и подпись.
+function libraryFacadesStubBlock() {
+  return `<h3>Фасады-двери</h3><p class="hint">Этот раздел скоро появится.</p>`;
 }
 
 // Слушатели вешаются один раз (контейнер #libraryPanel и строка вкладок
@@ -1382,29 +1626,52 @@ function initLibraryPanel() {
   if (search) search.addEventListener('input', applyLibrarySearch);
 
   panel.addEventListener('click', (e) => {
-    // Заголовок категории (вкладка «Материалы» — см. libCategoryBlock) —
-    // сворачивает/разворачивает ВСЁ её содержимое разом.
-    const catToggle = e.target.closest('[data-toggle-cat]');
-    if (catToggle) {
-      const key = catToggle.dataset.toggleCat;
-      state.libCollapsed.cats[key] = !state.libCollapsed.cats[key];
+    // Клик внутри активного инпута инлайн-переименования узла дерева (см.
+    // startTreeRename) — не должен провалиться в обработку клика по строке
+    // ниже (иначе строка переключилась бы посреди редактирования).
+    if (e.target.closest('.lib-tree-name input')) return;
+    // ✎/+/× узла дерева категорий (см. libTreeRowHtml) — ПЕРЕД обработкой
+    // клика по всей строке ниже, иначе клик по значку ещё и переключил бы
+    // сам узел.
+    const treeIcon = e.target.closest('.lib-tree-ic');
+    if (treeIcon) {
+      const row = treeIcon.closest('[data-tree-node]');
+      if (!row) return;
+      const topCode = row.dataset.top;
+      const path = row.dataset.path ? row.dataset.path.split('::') : [];
+      if (treeIcon.dataset.treeRename != null) startTreeRename(row);
+      else if (treeIcon.dataset.treeAdd != null) libAddChildNode(topCode, path);
+      else if (treeIcon.dataset.treeDel != null) libDeleteNode(topCode, path);
+      return;
+    }
+    // Клик по всей строке узла дерева (см. libTreeRowHtml) — смысл зависит
+    // от вида узла: категория/ветка разворачивает-сворачивает своих прямых
+    // детей, лист включает/выключает фокус на себе (см. state.libCatOpen/
+    // libCollapsed/libActiveLeaf и коммент у libTopCategoryHtml).
+    const treeRow = e.target.closest('[data-tree-node]');
+    if (treeRow) {
+      const topCode = treeRow.dataset.top;
+      const path = treeRow.dataset.path ? treeRow.dataset.path.split('::') : [];
+      const kind = treeRow.dataset.kind;
+      if (kind === 'top') state.libCatOpen[topCode] = !state.libCatOpen[topCode];
+      else if (kind === 'leaf') {
+        const key = path.join('::');
+        state.libActiveLeaf[topCode] = state.libActiveLeaf[topCode] === key ? null : key;
+      } else {
+        libToggleNode(topCode, path);
+      }
       renderLibraryPanel();
       return;
     }
-    // Кнопка-заголовок подкатегории — сворачивает/разворачивает ТОЛЬКО свою
-    // таблицу, независимо от соседних подкатегорий (см. libSubcategoryPanel).
-    const subToggle = e.target.closest('[data-toggle-sub]');
-    if (subToggle) {
-      const key = subToggle.dataset.toggleSub;
-      state.libCollapsed.subs[key] = !state.libCollapsed.subs[key];
-      renderLibraryPanel();
-      return;
-    }
-    // «+» рядом с рядом кнопок-подкатегорий — новая (пока пустая) подкатегория.
-    const addSubcatBtn = e.target.closest('[data-add-subcat-cat]');
-    if (addSubcatBtn) { libAddSubcategory(addSubcatBtn.dataset.addSubcatCat); return; }
+    // «+ Добавить материал/кромку/столешницу» под таблицей листа (см.
+    // libLeafTableHtml/libAddRow) — data-add-path несёт полный путь листа
+    // (пуст только у 'hwadd:*' — у фурнитуры дерева категорий нет).
     const addBtn = e.target.closest('.lib-add');
-    if (addBtn) { libAddRow(addBtn.dataset.add, addBtn.dataset.addSubcat || null); return; }
+    if (addBtn) {
+      const pathStr = addBtn.dataset.addPath || '';
+      libAddRow(addBtn.dataset.add, pathStr ? pathStr.split('::') : []);
+      return;
+    }
     const swatch = e.target.closest('.lib-swatch');
     if (swatch) { openLibImagePicker(swatch.dataset.swatchGroup, swatch.dataset.swatchKey); return; }
     // «Выбрать» — только в режиме подбора материала из «Параметры проекта»
@@ -1416,30 +1683,26 @@ function initLibraryPanel() {
     if (cell) { startCellEdit(cell); return; }
   });
 
-  // Фильтры «Фирма»/«Толщина» подкатегории (см. libFiltersHtml) — отдельный
+  // Фильтры листа (см. libFiltersHtml/LIB_FILTER_FIELD_DEFS) — отдельный
   // делегированный `change` (у <select> клик не подходит), скрывает/
   // показывает строки САМО, без recompute()/renderLibraryPanel(): это чисто
   // отображение уже отрисованной таблицы, а не правка каталога. closest на
-  // .lib-subcat-panel ограничивает область действия своей подкатегорией —
-  // фильтр одной не трогает таблицы соседних. И-логика между «Фирма» и
-  // «Толщина»: строка видна, только если проходит по ОБОИМ выбранным
-  // значениям (пустой выбор = «Все», условие не ограничивает). Класс
+  // .lib-leaf-body ограничивает область действия своим листом — фильтр
+  // одного не трогает таблицы соседних. И-логика МЕЖДУ полями (толщина/
+  // ширина/…): строка видна, только если проходит по ВСЕМ выбранным сразу
+  // (пустой выбор = «Все», условие не ограничивает). Класс
   // .lib-filtered-out — свой (display:none), не .dim-out: тот управляется
   // отдельно поиском (applyLibrarySearch) и должен продолжать работать
   // независимо, на той же строке одновременно.
   panel.addEventListener('change', (e) => {
     const sel = e.target.closest('.lib-filter-select');
     if (!sel) return;
-    const scope = sel.closest('.lib-subcat-panel');
+    const scope = sel.closest('.lib-leaf-body');
     if (!scope) return;
-    const brandSel = scope.querySelector('.lib-filter-select[data-filter="brand"]');
-    const thickSel = scope.querySelector('.lib-filter-select[data-filter="thickness"]');
-    const brandVal = brandSel ? brandSel.value : '';
-    const thickVal = thickSel ? thickSel.value : '';
+    const selects = Array.from(scope.querySelectorAll('.lib-filter-select'));
     scope.querySelectorAll('tbody tr').forEach((tr) => {
-      const okBrand = !brandVal || tr.dataset.brand === brandVal;
-      const okThick = !thickVal || tr.dataset.thickness === thickVal;
-      tr.classList.toggle('lib-filtered-out', !(okBrand && okThick));
+      const ok = selects.every((s) => !s.value || tr.dataset[s.dataset.filter] === s.value);
+      tr.classList.toggle('lib-filtered-out', !ok);
     });
   });
 
