@@ -84,4 +84,60 @@ async function sendVerificationEmail(toEmail, verificationUrl) {
   }
 }
 
-module.exports = { sendVerificationEmail };
+/**
+ * Отправляет письмо со ссылкой сброса пароля. Не бросает исключения — при
+ * отсутствии настройки или сбое API просто логирует и завершается (см.
+ * sendVerificationEmail выше — та же структура).
+ * @param {string} toEmail
+ * @param {string} resetUrl
+ */
+async function sendPasswordResetEmail(toEmail, resetUrl) {
+  if (!config.brevoApiKey) {
+    console.warn(
+      '[emailSender] BREVO_API_KEY не задан — письмо сброса пароля не отправлено ' +
+        `(${toEmail}). Настрой Brevo, чтобы восстановление пароля работало.`
+    );
+    return;
+  }
+
+  const sender = parseFromAddress(config.emailFromAddress);
+  const subject = 'Сброс пароля в Modul3D';
+  const htmlContent = [
+    '<p>Здравствуйте!</p>',
+    '<p>Чтобы сбросить пароль, перейдите по ссылке ниже:</p>',
+    `<p><a href="${resetUrl}">${resetUrl}</a></p>`,
+    '<p>Ссылка действительна ограниченное время. Если вы не запрашивали сброс пароля — проигнорируйте это письмо.</p>',
+  ].join('\n');
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+
+  try {
+    const res = await fetch(BREVO_API_URL, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        accept: 'application/json',
+        'api-key': config.brevoApiKey,
+      },
+      body: JSON.stringify({
+        sender,
+        to: [{ email: toEmail }],
+        subject,
+        htmlContent,
+      }),
+      signal: controller.signal,
+    });
+
+    if (!res.ok) {
+      const errText = await res.text().catch(() => '');
+      console.error(`[emailSender] Brevo API ответил ${res.status}: ${errText.slice(0, 300)}`);
+    }
+  } catch (err) {
+    console.error('[emailSender] не удалось отправить письмо сброса пароля:', err.message);
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+module.exports = { sendVerificationEmail, sendPasswordResetEmail };

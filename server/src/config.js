@@ -91,6 +91,12 @@ module.exports = {
     10
   ),
 
+  // Срок жизни ссылки сброса пароля в минутах (routes/auth.js: POST
+  // /auth/forgot-password, GET/POST /auth/reset-password) — короче, чем у
+  // подтверждения email, потому что ссылка сброса пароля чувствительнее
+  // (даёт прямой доступ к смене пароля, а не просто отметку "email мой").
+  passwordResetTokenTtlMinutes: parseInt(process.env.PASSWORD_RESET_TOKEN_TTL_MINUTES || '30', 10),
+
   // --- Анти-фрод при регистрации (routes/auth.js) ---
   // Сколько новых аккаунтов допускается создать с одного IP за 24 часа —
   // грубый, но простой барьер против массовой регистрации ради стартового

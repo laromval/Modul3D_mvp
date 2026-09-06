@@ -5600,6 +5600,31 @@ function initAccountPanel() {
   }
   registerBtn.addEventListener('click', () => submit('/auth/register'));
 
+  // «Забыли пароль?» — POST /auth/forgot-password всегда отвечает 200 с
+  // одинаковым сообщением независимо от того, найден email или нет (сервер
+  // не палит зарегистрированные адреса), поэтому просто показываем ответ
+  // сервера как обычный (не error) статус.
+  const forgotBtn = document.getElementById('authForgotBtn');
+  if (forgotBtn) {
+    forgotBtn.addEventListener('click', async () => {
+      const email = (emailInput.value || '').trim();
+      if (!email) {
+        setAuthStatus('Сначала введите email', 'error');
+        return;
+      }
+      forgotBtn.disabled = true;
+      setAuthStatus('Отправляем…', '');
+      try {
+        const data = await authRequest('/auth/forgot-password', { email });
+        setAuthStatus(data.message || 'Если такой email зарегистрирован, на него отправлено письмо со ссылкой для сброса пароля.', '');
+      } catch (err) {
+        setAuthStatus('Ошибка: ' + err.message, 'error');
+      } finally {
+        forgotBtn.disabled = false;
+      }
+    });
+  }
+
   if (logoutBtn) {
     logoutBtn.addEventListener('click', () => {
       setAuthToken(null);

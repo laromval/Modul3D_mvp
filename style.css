@@ -1318,6 +1318,10 @@ h4.spec-title { margin: var(--sp-5) 0 var(--sp-2); font-size: var(--fs-md); font
 .password-toggle-btn:hover { background: var(--surface-2); color: var(--text); }
 .password-toggle-btn svg { width: 16px; height: 16px; }
 
+/* «Забыли пароль?» — ссылка-кнопка под полем пароля (см. app.js:
+   initAccountPanel, обработчик #authForgotBtn, POST /auth/forgot-password). */
+#authForgotBtn { display: inline-block; margin-top: 6px; }
+
 /* Чекбокс согласия с условиями использования — та же ссылка-паттерн, что и
    остальные inline-чекбоксы в панели параметров, но с переносом на 2 строки
    (align-items: flex-start, а не center) и запасом сверху/снизу. */
