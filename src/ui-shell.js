@@ -463,7 +463,7 @@ function renderHud() {
       '<button type="button" class="btn" data-hud-open="params">Параметры</button>' +
       '<button type="button" class="btn" data-hud-open="docs">Документы</button>' +
     '</div>' +
-    '<button type="button" class="btn hud-full" data-hud-focus>Редактировать детали</button>' +
+    '<button type="button" class="btn hud-full" data-hud-focus>Режим редактирования детали</button>' +
     splitHtml;
 }
 

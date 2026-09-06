@@ -78,6 +78,18 @@ function decorLook(code) {
   return null;
 }
 
+// Лево/право боковины определяем по её имени из engine.js ('Боковина
+// левая'/'Боковина правая') — engine.js уже даёт понятные русские названия,
+// отдельного поля row.side не заводим. Используется и при разметке
+// mesh.userData.side (клик по детали внутри Focus Mode), и в подсчёте
+// границ отсека для подсветки без фасада (см. _computeSectionHiBounds) —
+// вынесено в одну функцию, чтобы не дублировать этот разбор имени дважды.
+function sideOfPartName(name) {
+  const n = name || '';
+  if (n.indexOf('лев') >= 0) return 'left';
+  if (n.indexOf('прав') >= 0) return 'right';
+  return null;
+}
 
 // ---------------------------------------------------------------------------
 // ГЕОМЕТРИЯ ДЕТАЛИ С ВЫРЕЗАМИ
@@ -222,6 +234,18 @@ const ACTIVE_MODULE_OPACITY = 0.4;
 const SECTION_HI_COLOR = 0x35c9e0;
 const SECTION_HI_EMISSIVE = 0x0d4b57;
 const SECTION_HI_OPACITY = 0.75;
+
+// Если у выбранного отсека нет фасада вовсе (facade:'open' — открытая полка,
+// или ниша под встроенную технику — engine.js для такой зоны не строит ни
+// двери, ни фасада ящика), красить бирюзовым нечего — см. render(),
+// sectionHiBounds/_computeSectionHiBounds. Вместо фасада подсвечиваем то, что
+// физически лежит внутри отсека (полки и т.п.), КРОМЕ деталей, которые не
+// привязаны к ОДНОМУ отсеку, а общие на весь модуль или на всю секцию сразу:
+// боковины, дно, крыша, цоколь, столешница (все — одна деталь на весь
+// модуль), задняя стенка (тоже одна на весь модуль — подсветить её целиком
+// ради одного отсека визуально неверно) и вертикальная стойка (стоит МЕЖДУ
+// двумя секциями, однозначного владельца-отсека у неё нет).
+const SECTION_SCOPED_EXCLUDE = new Set(['side', 'top', 'bottom', 'plinth', 'back', 'divider', 'countertop']);
 
 // Рамочный фасад: четыре бруска рамки и вставка. У витражных и алюминиевых
 // вставка стеклянная и прозрачная, у глухого деревянного — филёнка из того же
@@ -1571,6 +1595,100 @@ class Viewer3D {
     return { module, sectionIndex, zoneIndex };
   }
 
+  /**
+   * ОБРАТНАЯ задача к _resolveZoneHit: там по точке клика находится
+   * sectionIndex/zoneIndex, здесь — наоборот, по уже ИЗВЕСТНЫМ
+   * sectionIndex/zoneIndex (см. render(), opts.highlightSection) находятся
+   * мировые границы этого отсека. Нужно только для подсветки отсека БЕЗ
+   * фасада (см. SECTION_HI_COLOR/SECTION_SCOPED_EXCLUDE выше и вызов в
+   * render()) — обычная подсветка фасада тогда красить нечего, поэтому
+   * вместо неё подсвечивается содержимое отсека по этим границам.
+   *
+   * ВАЖНО: считает по «сырым» строкам source (row.box из model.partsRaw),
+   * а НЕ по мешам this.group.children, как _resolveZoneHit — вызывается ДО
+   * основного цикла render(), пока меши текущего рендера ещё не построены
+   * (this.group как раз перестраивается этим же вызовом).
+   *
+   * Ось «вдоль ширины» и направление возрастания sectionIndex вдоль неё —
+   * та же логика, что и в _resolveZoneHit (см. её комментарий про поворот
+   * модуля в плане 90/180/270°): определяются по боковинам (kind:'side',
+   * userData.side/row.name — их всегда ровно две).
+   *
+   * Возвращает { module, widthAxis, secLeft, secRight, zoneLow, zoneHigh }
+   * (границы всегда числа, открытая сторона — ±Infinity).
+   */
+  _computeSectionHiBounds(source, sectionHi, targetZoneIndex) {
+    const module = sectionHi.module;
+    const sectionIndex = sectionHi.sectionIndex;
+    let widthAxis = 'x';
+    let ascending = true;
+    {
+      let leftBox = null, rightBox = null;
+      for (const row of source) {
+        if (row.module !== module || row.kind !== 'side') continue;
+        const side = sideOfPartName(row.name);
+        if (side === 'left') leftBox = row.box;
+        else if (side === 'right') rightBox = row.box;
+      }
+      // Если обеих боковин почему-то не нашлось (не должно случаться — у
+      // корпуса их всегда две) — тихо остаёмся на оси X по возрастанию.
+      if (leftBox && rightBox) {
+        const dx = Math.abs(leftBox.x - rightBox.x);
+        const dz = Math.abs(leftBox.z - rightBox.z);
+        widthAxis = dz > dx ? 'z' : 'x';
+        ascending = widthAxis === 'z' ? leftBox.z < rightBox.z : leftBox.x < rightBox.x;
+      }
+    }
+    const alongWidth = (box) => (widthAxis === 'z' ? box.z : box.x);
+
+    // Стойки между секциями (kind:'divider') в ПОРЯДКЕ, в котором их строит
+    // engine.js: k-я по счёту стойка всегда разделяет секцию k и k+1 — это
+    // порядок построения (engine.js собирает секции по очереди слева
+    // направо в СВОЕЙ локальной системе координат), а не порядок по
+    // итоговой мировой координате, которую поворот модуля может обратить.
+    const dividerBoxes = source
+      .filter((row) => row.module === module && row.kind === 'divider')
+      .map((row) => row.box);
+    const loBox = sectionIndex > 0 ? dividerBoxes[sectionIndex - 1] : null;
+    const hiBox = sectionIndex < dividerBoxes.length ? dividerBoxes[sectionIndex] : null;
+    const loCoord = loBox ? alongWidth(loBox) : null;
+    const hiCoord = hiBox ? alongWidth(hiBox) : null;
+    let secLeft = -Infinity;
+    let secRight = Infinity;
+    if (loCoord != null && hiCoord != null) {
+      // Средняя секция — обе границы известны, направление уже не важно,
+      // просто числовой минимум/максимум.
+      secLeft = Math.min(loCoord, hiCoord);
+      secRight = Math.max(loCoord, hiCoord);
+    } else if (hiCoord != null) {
+      // Первая секция (sectionIndex===0) — известна только граница с
+      // соседней справа (по индексу) секцией; с какой стороны от неё лежит
+      // сама секция 0 (координата меньше или больше), решает ascending.
+      if (ascending) secRight = hiCoord; else secLeft = hiCoord;
+    } else if (loCoord != null) {
+      // Последняя секция — известна только граница с предыдущей.
+      if (ascending) secLeft = loCoord; else secRight = loCoord;
+    }
+    // Если границ нет вовсе (единственная секция в модуле) — secLeft/
+    // secRight остаются ±Infinity, что и требуется: вся ширина модуля.
+
+    // Несъёмные полки-перегородки ЭТОЙ секции (их координата вдоль ширины —
+    // тот же secCenterX/secCenterZ, что и у любой полки секции, попадает
+    // строго внутрь [secLeft, secRight]) размечают отсек по высоте. Высоту
+    // (в отличие от ширины) поворот модуля в плане не трогает вообще —
+    // сортировка по Y всегда верна, направление здесь не нужно.
+    const fixedYs = source
+      .filter((row) => row.module === module && row.kind === 'shelf' && row.fixed
+        && alongWidth(row.box) > secLeft && alongWidth(row.box) < secRight)
+      .map((row) => row.box.y)
+      .sort((a, b) => a - b);
+    const zi = Number.isFinite(targetZoneIndex) ? targetZoneIndex : null;
+    const zoneLow = zi !== null && zi > 0 ? fixedYs[zi - 1] : -Infinity;
+    const zoneHigh = zi !== null && zi < fixedYs.length ? fixedYs[zi] : Infinity;
+
+    return { module, widthAxis, secLeft, secRight, zoneLow, zoneHigh };
+  }
+
   _addLights() {
     this.scene.add(new THREE.AmbientLight(0xffffff, 0.7));
     const dir = new THREE.DirectionalLight(0xffffff, 0.9);
@@ -1743,6 +1861,26 @@ class Viewer3D {
     // Рисуем из несклеенного списка: у него каждая деталь знает свой модуль,
     // поэтому активный модуль можно подсветить отдельным цветом.
     const source = model.partsRaw || model.parts;
+    // targetZoneIndex не зависит от конкретной детали (row) — вынесен из
+    // цикла ниже (раньше пересчитывался на каждой строке одинаково).
+    const targetZoneIndex = sectionHi && Number.isFinite(sectionHi.zoneIndex) ? sectionHi.zoneIndex : null;
+    // Подсветка отсека БЕЗ фасада (facade:'open' или ниша под встроенную
+    // технику — engine.js для такой зоны не строит ни двери, ни фасада
+    // ящика вовсе): обычная isSectionHi ниже требует именно фасад и в этом
+    // случае никогда не сработает — пользователь не увидел бы, какой отсек
+    // сейчас открыт в редакторе. Проверяем один раз ДО цикла — есть ли у
+    // выбранного отсека вообще хоть один фасад в модели — и если нет,
+    // считаем границы отсека (_computeSectionHiBounds), чтобы вместо
+    // фасада подсветить его содержимое (см. isSectionContentHi в цикле).
+    let sectionHiBounds = null;
+    if (sectionHi) {
+      const hasFacade = source.some((row) => (row.kind === 'door' || row.kind === 'drawerFront')
+        && row.module === sectionHi.module
+        && Number.isFinite(row.sectionIndex) && row.sectionIndex === sectionHi.sectionIndex
+        && (targetZoneIndex === null ? !Number.isFinite(row.zoneIndex)
+          : (Number.isFinite(row.zoneIndex) && row.zoneIndex === targetZoneIndex)));
+      if (!hasFacade) sectionHiBounds = this._computeSectionHiBounds(source, sectionHi, targetZoneIndex);
+    }
     for (const row of source) {
       // «Скрыть фасады»: сам фасад остаётся, но становится полупрозрачным —
       // видно и наполнение корпуса, и присадку на фасаде. Ручки при этом
@@ -1785,7 +1923,7 @@ class Viewer3D {
       // сразу весь пенал. У ящиков (kind:'drawerFront') zoneIndex не бывает
       // (engine.js его не проставляет) — они подсвечиваются все вместе, как
       // единый набор фасадов секции, когда выбрана именно секция без отсеков.
-      const targetZoneIndex = sectionHi && Number.isFinite(sectionHi.zoneIndex) ? sectionHi.zoneIndex : null;
+      // (targetZoneIndex вычислен один раз до цикла — см. выше.)
       const isSectionHi = !!(sectionHi && isFacade && row.module === sectionHi.module
         && Number.isFinite(row.sectionIndex) && row.sectionIndex === sectionHi.sectionIndex
         && (targetZoneIndex === null ? !Number.isFinite(row.zoneIndex)
@@ -1796,9 +1934,21 @@ class Viewer3D {
       // подсказка осей ниже по циклу. В отличие от isSectionHi, здесь НЕ
       // проверяем isFacade — обычные детали корпуса тоже должны подсвечиваться.
       const isPartHi = !!(opts && opts.axisHintRow && row === opts.axisHintRow);
+      // Подсветка НАПОЛНЕНИЯ отсека без фасада (см. sectionHiBounds перед
+      // циклом) — вместо фасада подсвечиваем то, что физически лежит внутри
+      // границ отсека (полки и т.п.), кроме деталей без одного владельца-
+      // отсека (см. SECTION_SCOPED_EXCLUDE). Границы — включительно с обеих
+      // сторон: несъёмные полки-перегородки, которые и размечают отсек по
+      // высоте, лежат РОВНО на границе и должны попасть в подсветку сами.
+      const isSectionContentHi = !!(sectionHiBounds && row.module === sectionHiBounds.module
+        && !SECTION_SCOPED_EXCLUDE.has(row.kind)
+        && (sectionHiBounds.widthAxis === 'z' ? row.box.z : row.box.x) >= sectionHiBounds.secLeft
+        && (sectionHiBounds.widthAxis === 'z' ? row.box.z : row.box.x) <= sectionHiBounds.secRight
+        && row.box.y >= sectionHiBounds.zoneLow && row.box.y <= sectionHiBounds.zoneHigh);
       // Единственная переменная, от которой зависит бирюзовая заливка ниже:
-      // логическое ИЛИ подсветки секции и подсветки отдельной детали.
-      const hiCyan = isSectionHi || isPartHi;
+      // логическое ИЛИ подсветки фасада секции, подсветки отдельной детали
+      // (экран «Деталь») и подсветки наполнения отсека без фасада.
+      const hiCyan = isSectionHi || isPartHi || isSectionContentHi;
       // Доборные детали (фальш-планки, заглушки) красим по МАТЕРИАЛУ:
       // сделана из фасадного — выглядит как фасад, из корпусного ЛДСП —
       // как корпус. Раньше они уходили в серую заглушку по умолчанию.
@@ -2214,8 +2364,7 @@ class Viewer3D {
         // русские названия, отдельного поля не заводим.
         mesh.userData.kind = row.kind;
         if (row.kind === 'side') {
-          mesh.userData.side = (row.name || '').indexOf('лев') >= 0 ? 'left'
-            : (row.name || '').indexOf('прав') >= 0 ? 'right' : null;
+          mesh.userData.side = sideOfPartName(row.name);
         }
         // Индекс секции/зоны фасада — у дверей и фасадов ящиков (engine.js
         // makePart), числовой, в отличие от текстового row.section. Даёт

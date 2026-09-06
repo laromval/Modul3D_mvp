@@ -3661,7 +3661,7 @@ function renderSectionsList() {
           </select>
         </div>` : `
         <div class="field">
-          <div class="hint">Секция разделена на отсеки по высоте. Деление и настройка отсеков (фасад, встраиваемая техника, полки) — кликом по отсеку прямо в 3D (Focus Mode не нужен): «Разделить на отсеки» / «Редактировать отсек».</div>
+          <div class="hint">Секция разделена на отсеки по высоте. Деление и настройка отсеков (фасад, встраиваемая техника, полки) — кликом по отсеку прямо в 3D (Focus Mode не нужен): «Разделить секцию на отсеки» / «Редактировать отсек».</div>
         </div>`}
         ${glassBlock}
         ${handleBlock}
@@ -5366,7 +5366,7 @@ function initHeaderControls() {
       // нужно — engine.js считает их сам при каждой сборке модели
       // (layoutDoorZones).
       items.push({
-        type: 'numberInput', label: 'Разделить на отсеки',
+        type: 'numberInput', label: 'Разделить секцию на отсеки',
         value: Number(sec.doorZoneCount) || 1, min: 1, max: 4, buttonLabel: 'Разделить',
         onApply: (n) => {
           const applied = setDoorZoneCount(sec, n);
