@@ -17,6 +17,7 @@ const sketchRouter = require('./src/routes/sketch');
 const exportRouter = require('./src/routes/export');
 const hardwareModelsRouter = require('./src/routes/hardwareModels');
 const reviewsRouter = require('./src/routes/reviews');
+const catalogOverridesRouter = require('./src/routes/catalogOverrides');
 
 const app = express();
 
@@ -49,9 +50,10 @@ app.use('/admin', express.static(path.join(__dirname, 'public', 'admin')));
 // routers/billing.js, routers/sketch.js, routers/export.js,
 // routers/hardwareModels.js и routers/reviews.js (а не здесь глобально) —
 // /billing/webhook требует сырое тело для проверки подписи Paddle (см.
-// комментарий в billing.js), а /sketch/recognize и /export/* — увеличенные
-// лимиты (10mb и 20mb соответственно) под base64-изображение и полную
-// модель/спецификацию проекта, не нужные остальным роутам. express.json()
+// комментарий в billing.js), а /sketch/recognize, /export/* и
+// /catalog-overrides — увеличенные лимиты (10mb, 20mb и 8mb соответственно)
+// под base64-изображение, полную модель/спецификацию проекта и
+// base64-фото-образцы материалов, не нужные остальным роутам. express.json()
 // на /auth ниже молча пропускает POST /auth/register (multipart/form-data,
 // парсится отдельно через handleAvatarUpload в auth.js) — типы контента не
 // совпадают, конфликта нет.
@@ -61,6 +63,7 @@ app.use('/sketch', sketchRouter);
 app.use('/export', exportRouter);
 app.use('/hardware-models', hardwareModelsRouter);
 app.use('/reviews', reviewsRouter);
+app.use('/catalog-overrides', catalogOverridesRouter);
 
 app.use((req, res) => {
   res.status(404).json({ error: 'Не найдено.' });
