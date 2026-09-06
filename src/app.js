@@ -14,7 +14,7 @@
 (function () {
 // Версия сборки — показывается во вкладке браузера и в шапке.
 // При выпуске новой версии меняется только эта строка.
-const APP_VERSION = 'v237';
+const APP_VERSION = 'v238';
 
 // Номер версии выводим ПЕРВЫМ делом: если дальше что-то упадёт, по нему сразу
 // видно, какая сборка открыта.
@@ -1397,12 +1397,16 @@ function libSaveEdit(group, key, field, value) {
   renderLibraryPanel();
 }
 
-// Три роли подбора материала из «Параметры проекта» (см.
-// state.libPickTarget/materialPickActionsHtml) читают только ДВА массива
-// каталога: decor/facadeDecor — DECORS (декор корпуса и декор видимой
-// боковины фасада — оба поля выбирают из одного и того же списка), back —
+// Роли подбора материала (см. state.libPickTarget/materialPickActionsHtml)
+// читают только ДВА массива каталога: decor/facadeDecor/countertopDecor —
+// DECORS (декор корпуса, декор видимой боковины фасада и «свой материал»
+// столешницы — все три поля выбирают из одного и того же списка), back —
 // BACK_MATERIALS. Общий для libPickMaterial и deleteMaterialPick ниже.
-const LIB_PICK_ROLE_GROUP = { decor: 'decors', facadeDecor: 'decors', back: 'back' };
+// countertopDecor отличается от остальных тем, что пишет не в state.xxxCode
+// (глобальная настройка проекта), а в countertop-конфиг ВСЕХ отмеченных в
+// панели «Столешница» тумб (см. checkedCountertopModules) — то же самое,
+// что уже делает обычный <select id="ctopDecor"> в bindCountertopEvents.
+const LIB_PICK_ROLE_GROUP = { decor: 'decors', facadeDecor: 'decors', back: 'back', countertopDecor: 'decors' };
 
 // Клик «Выбрать» на строке «Листовых материалов» в режиме подбора.
 // rowGroup/code — ИСТИННОЕ происхождение строки (см. libSheetRowHtml:
@@ -1464,6 +1468,11 @@ function libPickMaterial(rowGroup, code) {
     state.backCode = finalCode;
     const back = BACK_MATERIALS.find((m) => m.code === finalCode);
     if (back) state.backThickness = back.thickness;
+  } else if (target.role === 'countertopDecor') {
+    // Пишет не в state.xxxCode, а в countertop-конфиг ВСЕХ отмеченных в
+    // панели «Столешница» тумб — та же группа, что и обычный select
+    // ctopDecor (applyToChecked в bindCountertopEvents).
+    checkedCountertopModules().forEach((m) => { m.countertop.decorCode = finalCode; });
   }
   state.libPickTarget = null;
   renderLibraryPanel();   // убирает колонку «Выбрать» сразу, не дожидаясь повторного открытия
@@ -1937,6 +1946,7 @@ function countertopPanelBlock() {
       <div class="field">
         <label>Декор (материал столешницы)</label>
         <select id="ctopDecor">${DECORS.map(d => `<option value="${d.code}" ${d.code === s.decorCode ? 'selected' : ''}>${esc(d.name)}</option>`).join('')}</select>
+        ${materialPickActionsHtml('countertopDecor')}
       </div>
       <div class="field">
         <label>Толщина, мм</label>
@@ -2081,6 +2091,18 @@ function bindCountertopEvents() {
     const val = e.target.value;
     applyToChecked((ct) => { ct.decorCode = val; });
     recompute();
+  });
+
+  // «+ Добавить материал»/«Удалить материал» под декором столешницы (см.
+  // materialPickActionsHtml('countertopDecor') в countertopPanelBlock) —
+  // тот же паттерн, что и в bindPanelEvents для Материала корпуса/фасада/
+  // задней стенки, но привязка ограничена ЭТОЙ панелью (querySelectorAll
+  // на document там же — задваивать обработчики на чужих кнопках не нужно).
+  panel.querySelectorAll('[data-material-add]').forEach((btn) => {
+    btn.addEventListener('click', () => openMaterialPicker(btn.dataset.materialAdd));
+  });
+  panel.querySelectorAll('[data-material-del]').forEach((btn) => {
+    btn.addEventListener('click', () => deleteMaterialPick(btn.dataset.materialDel));
   });
 
   const thicknessEl = document.getElementById('ctopThickness');
@@ -2713,7 +2735,10 @@ function deleteMaterialPick(role) {
   const targetGroup = LIB_PICK_ROLE_GROUP[role];
   if (!targetGroup) return;
   const arr = targetGroup === 'back' ? BACK_MATERIALS : DECORS;
-  const curCode = role === 'decor' ? state.decorCode : role === 'facadeDecor' ? state.facadeDecorCode : state.backCode;
+  const curCode = role === 'decor' ? state.decorCode
+    : role === 'facadeDecor' ? state.facadeDecorCode
+    : role === 'countertopDecor' ? countertopPrimarySettings().decorCode
+    : state.backCode;
   if (arr.length <= 1) {
     window.alert('Нельзя удалить последний материал — иначе не из чего будет выбирать');
     return;
@@ -2729,6 +2754,14 @@ function deleteMaterialPick(role) {
   } else {
     if (state.decorCode === curCode) state.decorCode = firstCode;
     if (state.facadeDecorCode === curCode) state.facadeDecorCode = firstCode;
+    // «Свой материал» столешницы — тот же массив DECORS, ту же удалённую
+    // позицию могли выбрать и тумбы со столешницей, независимо от того,
+    // через какую именно роль удаление вызвали (как и decor/facadeDecor
+    // выше — переключаем ВСЕ поля, ссылавшиеся на удалённый код, не только
+    // то, с которого кликнули «Удалить»).
+    checkedCountertopModules().forEach((m) => {
+      if (m.countertop && m.countertop.decorCode === curCode) m.countertop.decorCode = firstCode;
+    });
   }
   recompute();
   renderParamsPanel();
@@ -4162,13 +4195,22 @@ function bindPanelEvents() {
   // «+ Добавить материал»/«Удалить материал» под Материал корпуса/Материал
   // фасада/Задняя стенка (см. materialPickActionsHtml) — три пары кнопок,
   // перерисовываются вместе с экраном «Материалы», как и остальные поля
-  // panelView === 'materials' выше.
-  document.querySelectorAll('[data-material-add]').forEach((btn) => {
-    btn.addEventListener('click', () => openMaterialPicker(btn.dataset.materialAdd));
-  });
-  document.querySelectorAll('[data-material-del]').forEach((btn) => {
-    btn.addEventListener('click', () => deleteMaterialPick(btn.dataset.materialDel));
-  });
+  // panelView === 'materials' выше. Запрос СКОУПЛЕН на #paramsPanel (а не
+  // document) — те же атрибуты data-material-add/data-material-del теперь
+  // есть и в панели «Столешница» (countertopPanelBlock), у которой своя
+  // отдельная привязка в bindCountertopEvents(); без скоупа здесь кнопка
+  // столешницы ловила бы ВТОРОЙ обработчик при каждом renderParamsPanel(),
+  // и «Удалить материал» показывал бы два confirm() подряд на один клик
+  // (реальный баг, найденный на ревью 2026-09-06).
+  const paramsPanelEl = document.getElementById('paramsPanel');
+  if (paramsPanelEl) {
+    paramsPanelEl.querySelectorAll('[data-material-add]').forEach((btn) => {
+      btn.addEventListener('click', () => openMaterialPicker(btn.dataset.materialAdd));
+    });
+    paramsPanelEl.querySelectorAll('[data-material-del]').forEach((btn) => {
+      btn.addEventListener('click', () => deleteMaterialPick(btn.dataset.materialDel));
+    });
+  }
 
   // Добавление секции переехало в ряд вкладок секций (кнопка «+» рядом с
   // ними) — обработчик делегирован внутри renderSectionsList() на
