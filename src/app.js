@@ -1804,8 +1804,9 @@ const COUNTERTOP_MATERIAL_LABELS = {
   ldsp38: 'ЛДСП 38 мм, постформинг',
   compact12: 'Компакт-плита HPL 12 мм',
   doubleLdsp: 'Сдвоенное ЛДСП (2× декор корпуса)',
+  custom: 'Свой материал (из библиотеки)',
 };
-const COUNTERTOP_MATERIAL_ORDER = ['ldsp38', 'compact12', 'doubleLdsp'];
+const COUNTERTOP_MATERIAL_ORDER = ['ldsp38', 'compact12', 'doubleLdsp', 'custom'];
 
 // Тумба подходит под столешницу, если стоит на полу — ТА ЖЕ проверка, что и
 // isFloorStandingBase в engine.js (buildModuleParts: p.base.type). Модуль без
@@ -1851,6 +1852,12 @@ function countertopPrimarySettings() {
   return {
     material: src.material || 'ldsp38',
     depth: src.depth,
+    // Материал/толщина «своего материала» — без дефолта на пустое значение:
+    // undefined означает «пользователь ещё не выбрал», это нормальное
+    // состояние сразу после переключения на custom (см. materialEl ниже,
+    // который проставляет разумные дефолты сам).
+    decorCode: src.decorCode,
+    thickness: src.thickness,
     // Дефолт (модуль отмечен, но overhangFront почему-то не задан — обычно
     // не должно случаться, mod.countertop проходит через defaultCountertop
     // OverhangFront при включении, но проект мог быть сохранён до появления
@@ -1926,7 +1933,18 @@ function countertopPanelBlock() {
           ).join('')}
         </select>
       </div>
-      ${depths.length ? `
+      ${s.material === 'custom' ? `
+      <div class="field">
+        <label>Декор (материал столешницы)</label>
+        <select id="ctopDecor">${DECORS.map(d => `<option value="${d.code}" ${d.code === s.decorCode ? 'selected' : ''}>${esc(d.name)}</option>`).join('')}</select>
+      </div>
+      <div class="field">
+        <label>Толщина, мм</label>
+        <input id="ctopThickness" type="number" step="1" min="1" value="${s.thickness || ''}" placeholder="например, 25">
+      </div>
+      <div class="hint">Если толщина БОЛЬШЕ 18 мм — крышка корпуса убирается, столешница крепится
+        растиксами в торец боковин (как обычная столешница). Если толщина 18 мм и меньше — крышка
+        корпуса остаётся, а столешница садится на клей, как компакт-плита.</div>` : (depths.length ? `
       <div class="field">
         <label>Глубина, мм</label>
         <select id="ctopDepth">
@@ -1934,7 +1952,7 @@ function countertopPanelBlock() {
             `<option value="${d}" ${Number(s.depth) === d || (!s.depth && d === depths[0]) ? 'selected' : ''}>${d}</option>`
           ).join('')}
         </select>
-      </div>` : `<div class="hint">Глубина сдвоенной столешницы берётся по глубине корпуса тумбы — здесь не настраивается.</div>`}
+      </div>` : `<div class="hint">Глубина сдвоенной столешницы берётся по глубине корпуса тумбы — здесь не настраивается.</div>`)}
 
       <h3>Свесы, мм</h3>
       <div class="field-row4">
@@ -2019,6 +2037,11 @@ function bindCountertopEvents() {
         if (mod.countertop.overhangRight === undefined) mod.countertop.overhangRight = (src && src.overhangRight !== undefined) ? src.overhangRight : 0;
         if (mod.countertop.overhangBack === undefined && src && src.overhangBack !== undefined) mod.countertop.overhangBack = src.overhangBack;
         if (mod.countertop.depth === undefined && src && src.depth !== undefined) mod.countertop.depth = src.depth;
+        // «Свой материал» группы — декор/толщина унаследуются так же, как
+        // остальные поля выше, иначе новая тумба в группе custom осталась
+        // бы без декора и толщины.
+        if (mod.countertop.decorCode === undefined && src && src.decorCode !== undefined) mod.countertop.decorCode = src.decorCode;
+        if (mod.countertop.thickness === undefined && src && src.thickness !== undefined) mod.countertop.thickness = src.thickness;
         normalizeCountertopDepth(mod.countertop);
       }
       recompute();
@@ -2030,7 +2053,19 @@ function bindCountertopEvents() {
   const materialEl = document.getElementById('ctopMaterial');
   if (materialEl) materialEl.addEventListener('change', (e) => {
     const val = e.target.value;
-    applyToChecked((ct) => { ct.material = val; normalizeCountertopDepth(ct); });
+    applyToChecked((ct) => {
+      ct.material = val;
+      normalizeCountertopDepth(ct);
+      // При переключении на «свой материал» — сразу подставить разумные
+      // дефолты, если полей ещё нет, иначе пользователь увидит пустой
+      // select и пустое поле толщины. Декор корпуса — самый очевидный
+      // стартовый выбор; толщина 19 мм — минимально валидное значение
+      // БОЛЬШЕ 18 (см. countertopMat() в engine.js), дальше поправит сам.
+      if (val === 'custom') {
+        if (ct.decorCode === undefined) ct.decorCode = state.decorCode;
+        if (ct.thickness === undefined) ct.thickness = 19;
+      }
+    });
     recompute();
   });
 
@@ -2038,6 +2073,22 @@ function bindCountertopEvents() {
   if (depthEl) depthEl.addEventListener('change', (e) => {
     const val = Number(e.target.value) || null;
     applyToChecked((ct) => { ct.depth = val; });
+    recompute();
+  });
+
+  const decorEl = document.getElementById('ctopDecor');
+  if (decorEl) decorEl.addEventListener('change', (e) => {
+    const val = e.target.value;
+    applyToChecked((ct) => { ct.decorCode = val; });
+    recompute();
+  });
+
+  const thicknessEl = document.getElementById('ctopThickness');
+  if (thicknessEl) thicknessEl.addEventListener('change', (e) => {
+    // Number('') === 0 — «|| undefined» превращает пустое/невалидное поле
+    // именно в «толщина не задана», а не в записанный ноль.
+    const val = Number(e.target.value) || undefined;
+    applyToChecked((ct) => { ct.thickness = val; });
     recompute();
   });
 
