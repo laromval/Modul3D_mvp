@@ -14,7 +14,7 @@
 (function () {
 // Версия сборки — показывается во вкладке браузера и в шапке.
 // При выпуске новой версии меняется только эта строка.
-const APP_VERSION = 'v236';
+const APP_VERSION = 'v237';
 
 // Номер версии выводим ПЕРВЫМ делом: если дальше что-то упадёт, по нему сразу
 // видно, какая сборка открыта.
@@ -5294,8 +5294,9 @@ function initHeaderControls() {
   if (viewer) {
     viewer.onSelectModule = (name) => {
       if (!name) {                       // клик мимо модели — снять выделение
-        const changed = state.selected !== null || state.isolatedModule !== null;
+        const changed = state.selected !== null || state.isolatedModule !== null || state.selectedPart !== null;
         state.selected = null;
+        state.selectedPart = null;
         state.panelView = 'module';
         // Клик мимо снимает и режим изоляции — стекирования изоляций не бывает.
         exitIsolation();
@@ -5305,9 +5306,13 @@ function initHeaderControls() {
       }
       // Любой обычный (одиночный) клик по модулю снимает изоляцию — даже если
       // это тот же самый изолированный модуль: одно предсказуемое правило,
-      // без стекирования изоляций (см. Этап 3 плана).
+      // без стекирования изоляций (см. Этап 3 плана). Снимает и подсветку
+      // отсека (state.selectedPart), оставленную предыдущим кликом по отсеку
+      // (viewer.onSelectZone) — иначе бирюзовая подсветка «зависала» бы на
+      // старом отсеке при обычном клике мимо него по тому же/другому модулю.
       exitIsolation();
       selectModuleByName(name);
+      state.selectedPart = null;
       state.panelView = 'module';
       renderParamsPanel();
       viewer.render(currentModel, viewOpts());
@@ -5359,6 +5364,12 @@ function initHeaderControls() {
       const mm = state.modules.find((m) => m.name === module);
       const sec = mm && mm.sections[sectionIndex];
       if (!sec) return;
+      // Отсек подсвечивается в 3D СРАЗУ по клику — ещё до выбора пункта меню
+      // (по тому же принципу, что и onSelectPart в фокусе выше). Без этого
+      // подсветка появлялась только после «Редактировать отсек», а сам клик
+      // по отсеку выглядел так, будто ничего не произошло.
+      state.selectedPart = { module, kind: 'door', side: undefined, subIndex: 0, sectionIndex, zoneIndex, asPart: false };
+      viewer.render(currentModel, viewOpts());
       const items = [];
       // Число отсеков по высоте (пенал под встроенную технику) — единственный
       // способ задать его (в сайдбаре поля больше нет, см. renderSectionsList).
