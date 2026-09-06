@@ -14,7 +14,7 @@
 (function () {
 // Версия сборки — показывается во вкладке браузера и в шапке.
 // При выпуске новой версии меняется только эта строка.
-const APP_VERSION = 'v238';
+const APP_VERSION = 'v239';
 
 // Номер версии выводим ПЕРВЫМ делом: если дальше что-то упадёт, по нему сразу
 // видно, какая сборка открыта.
@@ -5368,9 +5368,15 @@ function initHeaderControls() {
       selectModuleByName(name);
       state.isolatedModule = name;
       state.selectedPart = null;
-      state.panelView = 'module';
+      state.panelView = 'part';
       renderParamsPanel();
       viewer.render(currentModel, viewOpts());
+      // Этот же обработчик вызывает и кнопка HUD «Режим редактирования детали»
+      // (клик по модулю без входа в Focus Mode) — в этот момент дровер
+      // «Параметры проекта» может быть закрыт, тогда экран «Деталь» рисуется,
+      // но невидим. Открываем дровер явно, иначе кнопка выглядит так, будто
+      // ничего не произошло.
+      if (window.Modul3D.uiShell) window.Modul3D.uiShell.openDrawer('params');
     };
 
     // Клик по ЛЮБОЙ детали ВНУТРИ уже изолированного модуля — открывает
