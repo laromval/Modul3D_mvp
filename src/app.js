@@ -228,6 +228,65 @@ const state = {
   partEditorOpen: false,
 };
 
+// ---------------------------------------------------------------------------
+// Правки каталога материалов (панель «Библиотека → Материалы»): заводской
+// снимок + восстановление — общий механизм и для отката к заводским
+// настройкам (см. logoutBtn ниже), и для подгрузки правок, сохранённых на
+// сервере (см. fetchAccount() и scheduleCatalogSave() в разделе «Аккаунт»
+// ниже). ВАЖНО: DECORS/BACK_MATERIALS и window.Modul3D.catalog.* — это
+// ссылки на массивы/объекты, захваченные ОДИН РАЗ при загрузке скрипта (см.
+// деструктуризацию выше) — восстановление обязано мутировать их НА МЕСТЕ
+// (как и libSaveEdit/libAddRow), а не переприсваивать, иначе весь остальной
+// код, читающий голые идентификаторы DECORS/BACK_MATERIALS, не увидит
+// изменений.
+// ---------------------------------------------------------------------------
+function snapshotCatalogCollections() {
+  const cat = window.Modul3D.catalog;
+  return {
+    decors: JSON.parse(JSON.stringify(DECORS)),
+    back: JSON.parse(JSON.stringify(BACK_MATERIALS)),
+    facade: JSON.parse(JSON.stringify(cat.FACADE_MATERIALS)),
+    edge: JSON.parse(JSON.stringify(cat.EDGE_PRICES)),
+    glass: JSON.parse(JSON.stringify(cat.GLASS)),
+    countertop: JSON.parse(JSON.stringify(cat.COUNTERTOP_MATERIALS || [])),
+    libExtraNodes: JSON.parse(JSON.stringify(state.libExtraNodes)),
+  };
+}
+
+// Заводской снимок каталога — снимается ОДИН раз при загрузке скрипта, до
+// того как пользователь успеет что-либо отредактировать в «Библиотеке» и до
+// первой попытки подгрузить сохранённые на сервере правки.
+const CATALOG_DEFAULTS = snapshotCatalogCollections();
+
+// Мутирует все шесть коллекций каталога + state.libExtraNodes из blob (той
+// же формы, что CATALOG_DEFAULTS/snapshotCatalogCollections()) — источник
+// blob может быть CATALOG_DEFAULTS (откат к заводским настройкам) или ответ
+// сервера GET /catalog-overrides (подгрузка сохранённых правок).
+function restoreCatalogFrom(blob) {
+  if (!blob) return;
+  const cat = window.Modul3D.catalog;
+  if (blob.decors) { DECORS.length = 0; DECORS.push.apply(DECORS, blob.decors); }
+  if (blob.back) { BACK_MATERIALS.length = 0; BACK_MATERIALS.push.apply(BACK_MATERIALS, blob.back); }
+  if (blob.facade) {
+    Object.keys(cat.FACADE_MATERIALS).forEach((k) => { delete cat.FACADE_MATERIALS[k]; });
+    Object.assign(cat.FACADE_MATERIALS, blob.facade);
+  }
+  if (blob.edge) {
+    Object.keys(cat.EDGE_PRICES).forEach((k) => { delete cat.EDGE_PRICES[k]; });
+    Object.assign(cat.EDGE_PRICES, blob.edge);
+  }
+  if (blob.glass) {
+    Object.keys(cat.GLASS).forEach((k) => { delete cat.GLASS[k]; });
+    Object.assign(cat.GLASS, blob.glass);
+  }
+  if (blob.countertop) {
+    if (!cat.COUNTERTOP_MATERIALS) cat.COUNTERTOP_MATERIALS = [];
+    cat.COUNTERTOP_MATERIALS.length = 0;
+    cat.COUNTERTOP_MATERIALS.push.apply(cat.COUNTERTOP_MATERIALS, blob.countertop);
+  }
+  if (blob.libExtraNodes) state.libExtraNodes = JSON.parse(JSON.stringify(blob.libExtraNodes));
+}
+
 // Снимает режим изоляции модуля (двойной клик в 3D) и выбор детали внутри
 // него. Имя изолированного модуля и выбранная деталь — чисто UI-состояние,
 // не привязанное к жизненному циклу state.modules: любое место, которое
@@ -865,6 +924,7 @@ function libRenameNode(topCode, path, newName) {
     if (p && matches(p)) p[depth - 1] = newName;
   });
   (state.libExtraNodes[topCode] || []).forEach((p) => { if (matches(p)) p[depth - 1] = newName; });
+  scheduleCatalogSave();
 }
 
 // «+» узла дерева (не у самого глубокого листа — см. libTreeRowHtml) — та
@@ -885,6 +945,7 @@ function libAddChildNode(topCode, parentPath) {
   state.libExtraNodes[topCode].push(parentPath.concat([name]));
   if (!parentPath.length) state.libCatOpen[topCode] = true;
   else state.libCollapsed[libNodeKey(topCode, parentPath)] = false;
+  scheduleCatalogSave();
   renderLibraryPanel();
 }
 
@@ -901,6 +962,7 @@ function libDeleteNode(topCode, path) {
   }
   const extra = state.libExtraNodes[topCode] || [];
   state.libExtraNodes[topCode] = extra.filter((p) => !(p.length >= path.length && path.every((seg, i) => p[i] === seg)));
+  scheduleCatalogSave();
   renderLibraryPanel();
 }
 
@@ -1328,6 +1390,10 @@ function libSaveEdit(group, key, field, value) {
   // обязателен для пересчёта чисел, но нужен, чтобы обновить спецификацию
   // (новая цена) и деталировку (переименованный материал) на лету.
   recompute();
+  // Фурнитура (group вида 'hw:*') не входит в снимок каталога материалов
+  // (snapshotCatalogCollections/restoreCatalogFrom её не знают) — сохранять
+  // здесь нечего, а лишний PUT только грузил бы сервер бесполезным запросом.
+  if (group.indexOf('hw:') !== 0) scheduleCatalogSave();
   renderLibraryPanel();
 }
 
@@ -1388,6 +1454,9 @@ function libPickMaterial(rowGroup, code) {
     copy.code = newCode;
     targetArr.push(copy);
     finalCode = newCode;
+    // Копия материала физически ушла в DECORS/BACK_MATERIALS — это правка
+    // каталога наравне с libSaveEdit/libAddRow, сохраняем и её.
+    scheduleCatalogSave();
   }
   if (target.role === 'decor') state.decorCode = finalCode;
   else if (target.role === 'facadeDecor') state.facadeDecorCode = finalCode;
@@ -1462,6 +1531,10 @@ function libAddRow(group, path) {
     return;
   }
   recompute();
+  // Добавление фурнитуры (group === 'hwadd:*', см. libAddHardwareRow выше) —
+  // вне снимка каталога материалов, сохранять на сервер нечего (см. тот же
+  // комментарий в libSaveEdit).
+  if (group.indexOf('hwadd:') !== 0) scheduleCatalogSave();
   renderLibraryPanel();
 }
 
@@ -5283,6 +5356,68 @@ function setAuthToken(token) {
   else localStorage.removeItem(AUTH_TOKEN_KEY);
 }
 
+// Панель «Библиотека» реально ВИДНА (drawer открыт классом .open, см.
+// ui-shell.js: openDrawer/closeDrawer) и открыта именно на вкладке
+// «Материалы» — используется, чтобы решить, нужно ли перерисовывать её
+// содержимое сразу после фоновой подгрузки/отката правок каталога.
+function isLibraryMaterialsPanelOpen() {
+  const drawer = document.getElementById('drawer-library');
+  return !!drawer && drawer.classList.contains('open') && state.libraryTab === 'materials';
+}
+
+// Фоновое сохранение правок каталога материалов на сервере (см.
+// libSaveEdit/libAddRow/libRenameNode/libAddChildNode/libDeleteNode ниже —
+// единственные точки, где реально меняются данные каталога). Задержка нужна,
+// чтобы не слать запрос на каждое нажатие клавиши при инлайн-редактировании,
+// а один раз после того, как пользователь остановился. Гость (без токена)
+// ничего не сохраняет — те же правки просто живут в памяти вкладки до
+// перезагрузки, как и раньше.
+let catalogSaveTimer = null;
+function scheduleCatalogSave() {
+  if (!getAuthToken()) return;
+  clearTimeout(catalogSaveTimer);
+  catalogSaveTimer = setTimeout(async () => {
+    // Перепроверяем токен прямо перед отправкой — за 1.5с ожидания
+    // пользователь мог выйти (или на этой же вкладке войти другим
+    // аккаунтом), и слать чужой/пустой токен с устаревшим снимком нельзя.
+    const tokenNow = getAuthToken();
+    if (!tokenNow) return;
+    try {
+      const blob = snapshotCatalogCollections();
+      const res = await fetch(`${AUTH_API_BASE}/catalog-overrides`, {
+        method: 'PUT',
+        headers: { authorization: 'Bearer ' + tokenNow, 'content-type': 'application/json' },
+        body: JSON.stringify({ data: blob }),
+      });
+      if (!res.ok) console.error('[catalogOverrides] не удалось сохранить:', await res.text().catch(() => ''));
+    } catch (err) {
+      console.error('[catalogOverrides] сеть недоступна, правки не сохранены:', err.message);
+    }
+  }, 1500);
+}
+
+// Подгрузка правок каталога, сохранённых на сервере — вызывается сразу
+// после успешного fetchAccount() (пользователь точно залогинен). Сетевые
+// ошибки — только в консоль, это фоновая синхронизация, не должна мешать
+// работе. { data: null } — пользователь ещё не сохранял правки, оставляем
+// заводской/текущий каталог как есть.
+async function loadCatalogOverrides(token) {
+  try {
+    const res = await fetch(`${AUTH_API_BASE}/catalog-overrides`, {
+      headers: { authorization: 'Bearer ' + token },
+    });
+    if (!res.ok) { console.error('[catalogOverrides] не удалось загрузить:', await res.text().catch(() => '')); return; }
+    const payload = await res.json().catch(() => ({}));
+    if (!payload || !payload.data) return;
+    restoreCatalogFrom(payload.data);
+    if (isLibraryMaterialsPanelOpen()) renderLibraryPanel();
+    recompute();
+    renderParamsPanel();
+  } catch (err) {
+    console.error('[catalogOverrides] сеть недоступна, правки не загружены:', err.message);
+  }
+}
+
 function setAuthStatus(message, kind) {
   const el = document.getElementById('authStatus');
   if (!el) return;
@@ -5414,6 +5549,10 @@ async function fetchAccount() {
     }
     if (!res.ok) throw new Error('Не удалось получить статус аккаунта.');
     authAccount = await res.json();
+    // Пользователь точно залогинен — подгружаем правки каталога материалов,
+    // сохранённые с прошлого раза (см. loadCatalogOverrides выше); у неё
+    // свой try/catch, ошибка сети сюда не всплывёт.
+    await loadCatalogOverrides(token);
   } catch (err) {
     console.error('Не удалось получить статус аккаунта:', err);
     authAccount = null;
@@ -5627,6 +5766,12 @@ function initAccountPanel() {
 
   if (logoutBtn) {
     logoutBtn.addEventListener('click', () => {
+      // Отменяем отложенное сохранение каталога — иначе оно сработает через
+      // 1.5с уже без токена (или, того хуже, с токеном другого аккаунта,
+      // если за это время успели войти заново кем-то ещё) и отправит на
+      // сервер устаревший снимок не от того пользователя (см.
+      // scheduleCatalogSave выше).
+      clearTimeout(catalogSaveTimer);
       setAuthToken(null);
       authAccount = null;
       emailInput.value = '';
@@ -5634,6 +5779,12 @@ function initAccountPanel() {
       const reviewTextEl = document.getElementById('reviewText');
       if (reviewTextEl) reviewTextEl.value = '';
       setReviewStatus('', '');
+      // Откат каталога материалов к заводским настройкам — следующий человек
+      // за этим же браузером (или тот же пользователь как гость) не должен
+      // видеть чужие правки (см. CATALOG_DEFAULTS/restoreCatalogFrom выше).
+      restoreCatalogFrom(CATALOG_DEFAULTS);
+      if (isLibraryMaterialsPanelOpen()) renderLibraryPanel();
+      recompute();
       renderAccountUI();
     });
   }
