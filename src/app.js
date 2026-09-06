@@ -14,7 +14,7 @@
 (function () {
 // Версия сборки — показывается во вкладке браузера и в шапке.
 // При выпуске новой версии меняется только эта строка.
-const APP_VERSION = 'v240';
+const APP_VERSION = 'v241';
 
 // Номер версии выводим ПЕРВЫМ делом: если дальше что-то упадёт, по нему сразу
 // видно, какая сборка открыта.
@@ -1966,7 +1966,6 @@ function countertopPanelBlock() {
     settings = `
       <h3>Материал столешницы — ${esc(mod.name)}</h3>
       <div class="field">
-        <label>Материал</label>
         <select id="ctopMaterial">
           ${COUNTERTOP_MATERIAL_ORDER.map((id) =>
             `<option value="${id}" ${id === s.material ? 'selected' : ''}>${esc(COUNTERTOP_MATERIAL_LABELS[id])}</option>`
@@ -1975,7 +1974,6 @@ function countertopPanelBlock() {
       </div>
       ${s.material === 'custom' ? `
       <div class="field">
-        <label>Материал столешницы</label>
         <div class="ctop-decor-current-row">
           <div class="ctop-decor-current">${decorItem ? esc(decorItem.name) : '<span class="dim">не выбран</span>'}</div>
           <button type="button" class="link-btn" data-material-add="countertopDecor">Изменить</button>
