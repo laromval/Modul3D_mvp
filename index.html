@@ -99,19 +99,6 @@ P — Параметры"
             <input id="authEmail" type="email" placeholder="you@example.com" autocomplete="username" />
           </div>
           <div class="field">
-            <label for="authNickname">Никнейм</label>
-            <input id="authNickname" type="text" maxlength="40" placeholder="Ваше имя в профиле" autocomplete="nickname" />
-            <span class="hint">Только для регистрации — так вас увидят в профиле и отзывах.</span>
-          </div>
-          <div class="field">
-            <label for="authAvatar">Аватар <span class="dim">необязательно</span></label>
-            <div class="avatar-upload-row">
-              <span class="avatar-preview" id="authAvatarPreview" aria-hidden="true"></span>
-              <input id="authAvatar" type="file" accept="image/jpeg,image/png,image/webp" />
-            </div>
-            <span class="hint">Только для регистрации, до 2 МБ — JPG, PNG или WEBP.</span>
-          </div>
-          <div class="field">
             <label for="authPassword">Пароль</label>
             <div class="password-field">
               <input id="authPassword" type="password" placeholder="не менее 8 символов" autocomplete="current-password" />
@@ -126,6 +113,19 @@ P — Параметры"
                 </svg>
               </button>
             </div>
+          </div>
+          <div class="field">
+            <label for="authNickname">Никнейм</label>
+            <input id="authNickname" type="text" maxlength="40" placeholder="Ваше имя в профиле" autocomplete="nickname" />
+            <span class="hint">Только для регистрации — так вас увидят в профиле и отзывах.</span>
+          </div>
+          <div class="field">
+            <label for="authAvatar">Аватар <span class="dim">необязательно</span></label>
+            <div class="avatar-upload-row">
+              <span class="avatar-preview" id="authAvatarPreview" aria-hidden="true"></span>
+              <input id="authAvatar" type="file" accept="image/jpeg,image/png,image/webp" />
+            </div>
+            <span class="hint">Только для регистрации, до 2 МБ — JPG, PNG или WEBP.</span>
           </div>
           <label class="checkbox-inline auth-terms">
             <input id="authTerms" type="checkbox" />
