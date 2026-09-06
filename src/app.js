@@ -14,7 +14,7 @@
 (function () {
 // Версия сборки — показывается во вкладке браузера и в шапке.
 // При выпуске новой версии меняется только эта строка.
-const APP_VERSION = 'v235';
+const APP_VERSION = 'v236';
 
 // Номер версии выводим ПЕРВЫМ делом: если дальше что-то упадёт, по нему сразу
 // видно, какая сборка открыта.
@@ -2321,9 +2321,17 @@ function resolveSelectedPart(mod) {
     // У модуля почти всегда несколько дверей (по секции/зоне) — subIndex
     // здесь всегда 0 (openPartEditor его не считает для door), поэтому
     // ищем ту же деталь по sectionIndex+zoneIndex, а не по порядку.
+    // Фолбэк на chosenIdx:0 (как у остальных kind) здесь НЕ годится: если
+    // именно этот отсек только что лишили фасада (facade:'open' — открыли в
+    // редакторе отсека и убрали дверь, не закрывая панель), engine.js больше
+    // не строит для него дверь вообще — candidates её не найдёт ни под каким
+    // индексом. chosenIdx:0 в таком случае молча подставил бы ПЕРВУЮ ПОПАВШУЮСЯ
+    // дверь другой секции/отсека, и бирюзовая подсветка (isPartHi ниже по
+    // viewOpts) перескочила бы на неё — заметный баг, раз теперь отсек можно
+    // менять без входа в фокус. Ничего не найдено — оставляем -1 (chosen:null,
+    // подсветки нет), это честнее случайной чужой двери.
     chosenIdx = candidates.findIndex((c) =>
       c.part.sectionIndex === sp.sectionIndex && c.part.zoneIndex === sp.zoneIndex);
-    if (chosenIdx < 0) chosenIdx = 0;
   } else {
     chosenIdx = Number.isFinite(sp.subIndex) ? sp.subIndex : 0;
     if (chosenIdx < 0 || chosenIdx >= candidates.length) chosenIdx = 0;
@@ -2475,13 +2483,15 @@ function partKindPlaceholderBlock(kind) {
     <div class="hint">Редактор для этого вида детали (${esc(title)}) появится отдельным этапом.</div>`;
 }
 
-// Компактный редактор ОДНОЙ зоны фасада — открывается «Редактировать» в
-// контекстном меню фокуса (openPartEditor) для kind:'door'. Это единственное
-// место, где настраиваются зоны многозонного фасада (в сайдбаре, см.
-// renderSectionsList, для такой секции — только подсказка со ссылкой сюда):
-// показывает поля только той зоны, по которой кликнули в 3D. Модель данных
-// фасада (sec.facade / sec.doorZones[]) — не в mod.partOverrides, поэтому
-// это отдельная от partBlock() функция, не через OVERRIDABLE_PART_KINDS.
+// Компактный редактор ОДНОГО отсека — открывается пунктом «Редактировать
+// отсек» в контекстном меню клика по отсеку в 3D (viewer.onSelectZone, вне
+// Focus Mode, см. openPartEditor(module, 'door', ...) без asPart). Это
+// единственное место, где настраиваются отсеки многозонного фасада (в
+// сайдбаре, см. renderSectionsList, для такой секции — только подсказка со
+// ссылкой сюда): показывает поля только того отсека, по которому кликнули в
+// 3D. Модель данных фасада (sec.facade / sec.doorZones[]) — не в
+// mod.partOverrides, поэтому это отдельная от partBlock() функция, не через
+// OVERRIDABLE_PART_KINDS.
 function doorZoneEditorScreen(mod, sectionIndex, zoneIndex) {
   const sec = mod.sections[sectionIndex];
   if (!sec) {
@@ -2489,7 +2499,7 @@ function doorZoneEditorScreen(mod, sectionIndex, zoneIndex) {
       ${backLinkBlock()}
       <h3>Фасад</h3>
       <div class="hint">Секция не найдена — возможно, параметры модуля изменились.
-      Закройте фокус и выберите фасад заново.</div>`;
+      Кликните по отсеку в 3D ещё раз.</div>`;
   }
   const doorZoneCount = Number(sec.doorZoneCount) || 1;
   // Однозонный режим — в модели данных нет высоты/техники/заметки на уровне
@@ -2512,8 +2522,8 @@ function doorZoneEditorScreen(mod, sectionIndex, zoneIndex) {
           </select>
         </div>
         <div class="hint">Материал фасада и ручка — на экране «Параметры проекта»
-        этого модуля. Число зон по высоте меняется через «Разделить на секции
-        по вертикали» в контекстном меню фасада в 3D.</div>
+        этого модуля. Число отсеков по высоте меняется кнопкой «Разделить на
+        отсеки» — кликните по отсеку прямо в 3D, Focus Mode не нужен.</div>
         <div class="field"><label>Полки, шт</label><input type="number" min="0" max="12" value="${sec.shelves}" data-field="shelves" data-idx="${sectionIndex}"></div>
         ${shelfDetailBlock(sec, sectionIndex)}
       </div>`;
@@ -2528,23 +2538,27 @@ function doorZoneEditorScreen(mod, sectionIndex, zoneIndex) {
 }
 
 // Точка входа в экран редактирования детали — сюда ведёт пункт
-// «Редактировать» контекстного меню фокуса (см. showFocusMenu). Когда
-// появится полноценный редактор геометрии (вырезы/пазы, орто-вид, сетка
-// 32мм, материал/толщина конкретной детали — отдельная задача с отдельной
-// архитектурой хранения ручных правок), менять нужно будет только то, ЧТО
-// показывается на экране «part» (partBlock/partKindPlaceholderBlock и
-// renderParamsPanel ниже), саму точку вызова из меню — не нужно.
+// «Редактировать деталь» контекстного меню фокуса (см. showFocusMenu,
+// viewer.onSelectPart) и, отдельно для отсека, пункт «Редактировать отсек»
+// вне фокуса (viewer.onSelectZone). Когда появится полноценный редактор
+// геометрии (вырезы/пазы, орто-вид, сетка 32мм, материал/толщина конкретной
+// детали — отдельная задача с отдельной архитектурой хранения ручных
+// правок), менять нужно будет только то, ЧТО показывается на экране «part»
+// (partBlock/partKindPlaceholderBlock и renderParamsPanel ниже), саму точку
+// вызова из меню — не нужно.
 function openPartEditor(module, kind, side, sectionIndex, zoneIndex, asPart) {
   state.selectedPart = {
     module, kind, side, subIndex: 0,
-    // У фасадов (kind:'door'/'drawerFront') — числовой индекс секции/зоны фасада,
-    // которую кликнули в 3D (см. viewer.js userData.sectionIndex/zoneIndex).
-    // Undefined для остальных видов деталей — им это поле не нужно.
+    // У фасадов (kind:'door'/'drawerFront') — числовой индекс секции/отсека
+    // фасада, по которому кликнули в 3D (см. viewer.js
+    // userData.sectionIndex/zoneIndex). Undefined для остальных видов
+    // деталей — им это поле не нужно.
     sectionIndex, zoneIndex,
     // Для kind:'door' — true, если открыли именно как деталь (пункт меню
-    // «Редактировать деталь», второй у фасада), а не как зону фасада
-    // (пункт «Редактировать секцию» → doorZoneEditorScreen). Остальным
-    // видам деталей не нужно.
+    // «Редактировать деталь» в Focus Mode, всегда asPart:true), а не как
+    // отсек фасада (пункт «Редактировать отсек» вне фокуса →
+    // doorZoneEditorScreen, asPart не передаётся). Остальным видам деталей
+    // не нужно.
     asPart: !!asPart,
   };
   state.panelView = 'part';
@@ -2867,10 +2881,11 @@ function renderParamsPanel() {
 
   const drawerTitleEl = document.getElementById('paramsDrawerTitle');
   if (drawerTitleEl) {
-    // «Редактор секции» — только для doorZoneEditorScreen (зона фасада).
+    // «Редактор отсека» — только для doorZoneEditorScreen (отсек фасада,
+    // открывается «Редактировать отсек» из onSelectZone вне Focus Mode).
     // Всё остальное на экране «part» (partBlock/partKindPlaceholderBlock,
-    // включая дверь, открытую как деталь через asPart) — «Редактор детали»,
-    // это другой, более старый экран, не про зоны фасада.
+    // включая дверь, открытую как деталь через asPart из Focus Mode) —
+    // «Редактор детали», это другой, более старый экран, не про отсеки.
     const onSectionScreen = state.panelView === 'part' && state.selectedPart
       && state.selectedPart.kind === 'door' && !state.selectedPart.asPart;
     // state.selectedPart может обнулиться (undo/redo, удаление модуля,
@@ -2879,7 +2894,7 @@ function renderParamsPanel() {
     // partPlaceholderBlock(), а заголовок без этой проверки остался бы
     // «Редактор детали».
     const onPartScreen = state.panelView === 'part' && !!state.selectedPart && !onSectionScreen;
-    drawerTitleEl.textContent = onSectionScreen ? 'Редактор секции'
+    drawerTitleEl.textContent = onSectionScreen ? 'Редактор отсека'
       : (onPartScreen ? 'Редактор детали' : 'Параметры проекта');
   }
 
@@ -3020,21 +3035,21 @@ function secActualFacadeWidth(mod, i) {
   return (part && part.box && Number.isFinite(part.box.w)) ? Math.round(part.box.w) : null;
 }
 
-// Разметка ОДНОЙ карточки зоны фасада (техника/фасад/высота/габариты/
+// Разметка ОДНОЙ карточки отсека фасада (техника/фасад/высота/габариты/
 // заметка) — чистая функция рендера без побочных эффектов и завязки на
 // замыкание конкретного места вызова. Используется в компактном контекстном
-// редакторе одной зоны, открываемом кликом по фасаду в 3D
-// (doorZoneEditorScreen, карточка только КОНКРЕТНОЙ зоны) — это единственный
-// способ настроить зоны многозонного фасада, поэтому сайдбар для такой
-// секции ограничивается подсказкой (см. renderSectionsList).
+// редакторе одного отсека, открываемом кликом по отсеку в 3D в обычном
+// режиме (doorZoneEditorScreen, карточка только КОНКРЕТНОГО отсека) — это
+// единственный способ настроить отсеки многозонного фасада, поэтому сайдбар
+// для такой секции ограничивается подсказкой (см. renderSectionsList).
 // `i` — индекс секции в mod.sections (для data-idx у полей), `zi` — индекс
-// зоны в sec.doorZones, `doorZoneCount` — общее число зон секции (для
-// заголовка «Нижняя/Верхняя/Зона N»).
+// отсека в sec.doorZones, `doorZoneCount` — общее число отсеков секции (для
+// заголовка «Нижний/Верхний/Отсек N»).
 function zoneCardHtml(sec, i, zi, doorZoneCount) {
   const zone = sec.doorZones[zi] || {};
   const isBottom = zi === 0;
   const isTop = zi === doorZoneCount - 1;
-  const title = isBottom ? 'Нижняя зона' : (isTop ? 'Верхняя зона' : `Зона ${zi + 1}`);
+  const title = isBottom ? 'Нижний отсек' : (isTop ? 'Верхний отсек' : `Отсек ${zi + 1}`);
   const appliance = zone.appliance || 'none';
   // Духовка/СВЧ показывают свою лицевую панель — фасада корпуса в
   // этой зоне нет вообще, выбор «Фасад» тут ни на что не влияет
@@ -3052,7 +3067,7 @@ function zoneCardHtml(sec, i, zi, doorZoneCount) {
         <option value="manual" ${zone.shelfMode === 'manual' ? 'selected' : ''}>Вручную</option>
       </select>
       ${zone.shelfMode === 'manual' ? `
-        <label class="mt6">Высота каждой полки от низа зоны, мм</label>
+        <label class="mt6">Высота каждой полки от низа отсека, мм</label>
         <div class="mini-row">
           ${Array.from({ length: zoneShelves }, (_, s) =>
             `<input type="number" step="10" min="0" value="${(zone.shelfHeights && zone.shelfHeights[s]) || (300 * (s + 1))}"
@@ -3082,14 +3097,14 @@ function zoneCardHtml(sec, i, zi, doorZoneCount) {
       <option value="blindFacade" ${zone.facade === 'blindFacade' ? 'selected' : ''}>Заглушка</option>
       <option value="open" ${zone.facade === 'open' ? 'selected' : ''}>Без дверей</option>
     </select>` : '<div class="hint">Ниша без фасада — техника показывает свою лицевую панель.</div>'}
-    <label class="mt6">Высота зоны (ниши), мм</label>
+    <label class="mt6">Высота отсека (ниши), мм</label>
     <div class="mini-row"><input type="number" min="0" step="10" value="${zone.height || ''}" placeholder="авто (остаток)" data-zoneheight="${zi}" data-idx="${i}"></div>
     ${appliance === 'none' ? `
     <label class="mt6">Полки, шт</label>
     <div class="mini-row"><input type="number" min="0" max="12" value="${zoneShelves}" data-zoneshelves="${zi}" data-idx="${i}"></div>
     ${zoneShelfDetail}` : ''}
     ${appliance !== 'none' ? `
-    <label class="mt6">Габариты техники, мм (для памяти — ниша считается по высоте зоны выше)</label>
+    <label class="mt6">Габариты техники, мм (для памяти — ниша считается по высоте отсека выше)</label>
     <div class="field-row">
       <div class="field"><label>Ширина</label><input type="number" min="0" step="10" value="${zone.applianceW || ''}" data-zoneappw="${zi}" data-idx="${i}"></div>
       <div class="field"><label>Глубина</label><input type="number" min="0" step="10" value="${zone.applianceD || ''}" data-zoneappd="${zi}" data-idx="${i}"></div>
@@ -3099,13 +3114,15 @@ function zoneCardHtml(sec, i, zi, doorZoneCount) {
   </div>`;
 }
 
-// Число вертикальных зон фасада (пенал под встроенную технику): клампит
+// Число вертикальных отсеков фасада (пенал под встроенную технику): клампит
 // 1..4 и подгоняет длину sec.doorZones под новое количество, не теряя уже
-// настроенные зоны (уменьшение НЕ усекает массив — «лишние» элементы просто
-// не используются, пока doorZoneCount не увеличат обратно; engine.js и
-// zoneCardHtml читают только первые doorZoneCount элементов).
-// Вызывается кнопкой «Разделить на секции по вертикали» в контекстном меню
-// фасада в 3D (единственный способ задать это число, см. viewer.onSelectPart).
+// настроенные отсеки (уменьшение НЕ усекает массив — «лишние» элементы
+// просто не используются, пока doorZoneCount не увеличат обратно; engine.js
+// и zoneCardHtml читают только первые doorZoneCount элементов).
+// Вызывается кнопкой «Разделить на отсеки» в контекстном меню отсека в 3D
+// (единственный способ задать это число, см. viewer.onSelectZone) — либо,
+// для однозонного модуля, кнопкой «Разделить на отсеки» в HUD (см.
+// setModuleDoorZoneCount).
 function setDoorZoneCount(sec, value) {
   const n = Math.max(1, Math.min(4, Math.round(Number(value)) || 1));
   sec.doorZoneCount = n;
@@ -3195,13 +3212,12 @@ function findNeighborBottomZoneHeight(mod, sectionIndex) {
 
 // Мост для ui-shell.js (HUD в 3D, см. renderHud/initHud): состояние модуля,
 // нужное HUD и для подсветки текущего поворота, и для решения — показывать
-// ли кнопку «Разделить на секции по высоте» (по явному решению — только
-// когда в модуле ровно одна секция, иначе неоднозначно какую делить, и
-// пользователь идёт через Focus Mode как раньше). Применимость самой кнопки
-// проверяем ТОЙ ЖЕ логикой, что определяет её в showFocusMenu выше (клик по
-// фасаду — kind === 'door', см. viewer.onSelectPart) — только не по клику
-// на конкретную деталь, а по уже построенной модели (currentModel.partsRaw,
-// см. overridablePartCandidates выше — тот же источник для 3D→деталь).
+// ли кнопку «Разделить на отсеки» (по явному решению — только когда в
+// модуле ровно одна секция, иначе неоднозначно какую делить, и пользователь
+// делит через клик по нужной секции в 3D — viewer.onSelectZone). Есть ли у
+// секции фасад (kind === 'door'), проверяем по уже построенной модели
+// (currentModel.partsRaw, см. overridablePartCandidates выше — тот же
+// источник для 3D→деталь).
 function getModuleHudState(moduleName) {
   const mod = state.modules.find((m) => m.name === moduleName);
   if (!mod) return null;
@@ -3216,21 +3232,21 @@ function getModuleHudState(moduleName) {
   return { rotation, canSplitByHeight, doorZoneCount };
 }
 
-// Мост для ui-shell.js: «Разделить на секции по высоте» из HUD в 3D — та же
-// логика, что применяет числовой пункт «Разделить на секции по вертикали» в
-// showFocusMenu выше (setDoorZoneCount + подгонка высоты нижней зоны под
-// соседа), но без обязательного клика по конкретному фасаду в Focus Mode:
-// секция здесь однозначна — единственная, sectionIndex 0 (см.
-// getModuleHudState — кнопка в HUD видна только тогда). Полки-перегородки
-// на стыках зон отдельно расставлять не нужно — engine.js считает их
-// прямо из sec.doorZones при каждой сборке модели (см. layoutDoorZones).
+// Мост для ui-shell.js: «Разделить на отсеки» из HUD в 3D — та же логика,
+// что применяет числовой пункт «Разделить на отсеки» в viewer.onSelectZone
+// выше (setDoorZoneCount + подгонка высоты нижнего отсека под соседа), но
+// без клика по конкретному отсеку: секция здесь однозначна — единственная,
+// sectionIndex 0 (см. getModuleHudState — кнопка в HUD видна только тогда).
+// Полки-перегородки на стыках отсеков отдельно расставлять не нужно —
+// engine.js считает их прямо из sec.doorZones при каждой сборке модели
+// (см. layoutDoorZones).
 function setModuleDoorZoneCount(moduleName, n) {
   const mod = state.modules.find((m) => m.name === moduleName);
   if (!mod || !Array.isArray(mod.sections) || mod.sections.length !== 1) return;
   const sec = mod.sections[0];
   const applied = setDoorZoneCount(sec, n);
   if (applied >= 2) {
-    // Нижняя зона по умолчанию — вровень с фасадом соседа (единая
+    // Нижний отсек по умолчанию — вровень с фасадом соседа (единая
     // горизонтальная линия по ряду), если высота ещё не задана вручную;
     // уже настроенную высоту не трогаем.
     if (!sec.doorZones[0].height) {
@@ -3283,9 +3299,9 @@ function resyncZoneHeightsForNewNeighbor(at) {
   return changed;
 }
 
-// Обработчики полей карточки(-ек) зоны фасада — делегированы на `container`
+// Обработчики полей карточки(-ек) отсека фасада — делегированы на `container`
 // (а не жёстко на #sectionsList), чтобы одинаково работать и в общем списке
-// секций сайдбара, и в компактном контекстном редакторе одной зоны
+// секций сайдбара, и в компактном контекстном редакторе одного отсека
 // (doorZoneEditorScreen). `mod` — текущий модуль (карточки внутри container
 // всегда только из его секций). `refresh` — что вызвать, когда правка меняет
 // СОСТАВ видимых полей (например появление/исчезновение select «Фасад» при
@@ -3577,10 +3593,11 @@ function renderSectionsList() {
         <div class="mini-row"><input type="number" step="10" min="300" value="${sec.rodHeight || 1900}" data-field="rodHeight" data-idx="${i}"></div>` : ''}
       </div>`;
 
-    // Вертикальные зоны фасада (пенал под встроенную технику): деление на
-    // зоны и карточка каждой зоны живут только в 3D-фокусе (клик по фасаду →
-    // doorZoneEditorScreen/zoneCardHtml), здесь для многозонной секции —
-    // просто ссылка на этот способ, без общего select «Фасад».
+    // Вертикальные отсеки фасада (пенал под встроенную технику): деление на
+    // отсеки и карточка каждого отсека живут только в 3D (клик по отсеку →
+    // doorZoneEditorScreen/zoneCardHtml, Focus Mode не нужен), здесь для
+    // многозонной секции — просто ссылка на этот способ, без общего select
+    // «Фасад».
     const doorZoneCount = Number(sec.doorZoneCount) || 1;
 
     // Строка «Ящики, шт» — при наличии ящиков рядом (не под полем, а сбоку
@@ -3601,8 +3618,8 @@ function renderSectionsList() {
     // стоит select режима распределения (shelfModeSelect), а не под ним
     // отдельным блоком. Список высот вручную (при shelfMode:'manual') —
     // отдельным блоком сразу под этой строкой. Многозонная секция — полки
-    // настраиваются по зонам в zoneCardHtml (доступно кликом по фасаду в 3D,
-    // см. doorZoneEditorScreen); engine.js игнорирует sec.shelves при
+    // настраиваются по отсекам в zoneCardHtml (доступно кликом по отсеку в
+    // 3D, см. doorZoneEditorScreen); engine.js игнорирует sec.shelves при
     // multiZone, эта строка для неё не показывается вовсе.
     // .field-row-wide-action — колонки не 50/50: полю «Полки, шт» хватает
     // ширины под 1-2 цифры, а select/кнопке с текстом («Равномерно»/
@@ -3644,7 +3661,7 @@ function renderSectionsList() {
           </select>
         </div>` : `
         <div class="field">
-          <div class="hint">Секция разделена на зоны по высоте. Деление и настройка зон (фасад, встраиваемая техника, полки) — кликом по фасаду в 3D в режиме фокуса: двойной клик по модулю → клик по фасаду → «Разделить на секции по вертикали» / «Редактировать секцию».</div>
+          <div class="hint">Секция разделена на отсеки по высоте. Деление и настройка отсеков (фасад, встраиваемая техника, полки) — кликом по отсеку прямо в 3D (Focus Mode не нужен): «Разделить на отсеки» / «Редактировать отсек».</div>
         </div>`}
         ${glassBlock}
         ${handleBlock}
@@ -3761,10 +3778,10 @@ function renderSectionsList() {
       recompute();
     });
   });
-  // зоны фасада по высоте (пенал под встроенную технику) — сами обработчики
-  // вынесены в bindZoneFieldEvents(), переиспользуется и здесь (карточки на
-  // все зоны секции), и в компактном контекстном редакторе одной зоны
-  // (doorZoneEditorScreen, открывается кликом по фасаду в 3D).
+  // отсеки фасада по высоте (пенал под встроенную технику) — сами
+  // обработчики вынесены в bindZoneFieldEvents(), переиспользуется и здесь
+  // (карточки на все отсеки секции), и в компактном контекстном редакторе
+  // одного отсека (doorZoneEditorScreen, открывается кликом по отсеку в 3D).
   bindZoneFieldEvents(list, mod);
   // «Редактировать →» — открывает отдельную панель «Ящики» для этой
   // секции (см. openDrawersPanel/drawersPanelBlock). e.currentTarget, а не
@@ -3897,7 +3914,10 @@ function showModuleMenu(modIndex, x, y) {
 }
 
 // ---------------------------------------------------------------------------
-// Контекстное меню фокуса (изоляция модуля, двойной клик в 3D)
+// Контекстное меню (showFocusMenu) — универсальное всплывающее меню в точке
+// клика в 3D. Изначально только для режима фокуса (изоляция модуля, двойной
+// клик в 3D), но переиспользуется и вне фокуса — для клика по отсеку в
+// обычном режиме (viewer.onSelectZone, см. ниже), отсюда и общее имя функции.
 // ---------------------------------------------------------------------------
 // Пока модуль изолирован, клик внутри сцены (viewer.onSelectPart — по любой
 // детали, viewer.onFocusMiss — мимо любой детали) больше не переключает
@@ -3922,8 +3942,8 @@ function closeFocusMenu() {
 // items: [{ label, action }] — action вызывается уже ПОСЛЕ закрытия меню.
 // items — обычно {label, action}. Дополнительно поддерживает составной
 // пункт {type:'numberInput', label, value, min, max, buttonLabel, onApply} —
-// число + кнопка в одной строке (например «Разделить на секции по
-// вертикали» у фасада), которая НЕ закрывает меню при вводе числа, только
+// число + кнопка в одной строке (например «Разделить на отсеки» у отсека,
+// см. viewer.onSelectZone), которая НЕ закрывает меню при вводе числа, только
 // по нажатию своей кнопки — по образцу переименования модуля в
 // showModuleMenu (поле в меню, stopPropagation на click/mousedown).
 function showFocusMenu(x, y, items) {
@@ -4226,10 +4246,10 @@ function bindPanelEvents() {
     });
   }
 
-  // Экран «Деталь» для фасада (kind:'door') — компактный редактор ОДНОЙ
-  // зоны, открытый кликом по фасаду в 3D (см. doorZoneEditorScreen,
-  // renderParamsPanel). Многозонный случай переиспользует те же поля/
-  // обработчики, что и сайдбар (bindZoneFieldEvents), только с refresh =
+  // Экран «Деталь» для фасада (kind:'door') — компактный редактор ОДНОГО
+  // отсека, открытый кликом по отсеку в 3D в обычном режиме (см.
+  // doorZoneEditorScreen, renderParamsPanel). Многозонный случай переиспользует
+  // те же поля/обработчики, что и сайдбар (bindZoneFieldEvents), только с refresh =
   // renderParamsPanel (у этого экрана нет более точечной перерисовки одной
   // карточки, в отличие от renderSectionsList для сайдбара).
   const doorZoneRoot = document.getElementById('doorZoneEditorRoot');
@@ -4593,10 +4613,11 @@ function viewOpts() {
   }
   // Секция (фасад), которую сейчас редактируют или только что выбрали в 3D,
   // подсвечивается бирюзовым — сигнал для viewer.js, какую именно
-  // подсвечивать. zoneIndex передаём отдельно: если секция разбита на зоны
-  // по высоте («Разделить на секции по вертикали» — доверь-пенал под технику),
-  // редактируется ОДНА конкретная зона, и подсвечивать нужно только её дверь,
-  // а не все зоны стопки — viewer.js сверяет zoneIndex наравне с sectionIndex.
+  // подсвечивать. zoneIndex передаём отдельно: если секция разбита на отсеки
+  // по высоте («Разделить на отсеки» — пенал под встроенную технику),
+  // редактируется ОДИН конкретный отсек, и подсвечивать нужно только его
+  // дверь, а не все отсеки стопки — viewer.js сверяет zoneIndex наравне с
+  // sectionIndex.
   const highlightSection = (state.selectedPart
       && Number.isFinite(state.selectedPart.sectionIndex))
     ? { module: state.selectedPart.module, sectionIndex: state.selectedPart.sectionIndex,
@@ -5307,64 +5328,61 @@ function initHeaderControls() {
 
     // Клик по ЛЮБОЙ детали ВНУТРИ уже изолированного модуля — открывает
     // контекстное меню фокуса в точке клика (см. showFocusMenu выше), а не
-    // сразу экран «Деталь»: «Редактировать» ведёт на openPartEditor,
-    // «Выйти из фокуса» — на exitFocusMode.
+    // сразу экран «Деталь»: «Редактировать деталь» ведёт на openPartEditor
+    // (всегда как деталь, asPart:true — общий редактор одной детали, вне
+    // зависимости от kind), «Выйти из фокуса» — на exitFocusMode. Пункты про
+    // отсек (разбиение по высоте, редактор отсека) сюда больше не входят —
+    // они переехали в viewer.onSelectZone ниже, который работает только ВНЕ
+    // изоляции (см. комментарий там).
     viewer.onSelectPart = ({ module, kind, side, sectionIndex, zoneIndex, clientX, clientY }) => {
       // Деталь подсвечивается в 3D СРАЗУ по клику — ещё до того, как открыто
       // само меню и тем более выбран его пункт (см. viewOpts/viewer.render
-      // ниже). panelView здесь НЕ трогаем — панель «Деталь»/«Секция» по-
-      // прежнему открывается только явным выбором пункта меню (openPartEditor).
+      // ниже). panelView здесь НЕ трогаем — панель «Деталь» по-прежнему
+      // открывается только явным выбором пункта меню (openPartEditor).
       state.selectedPart = { module, kind, side, subIndex: 0, sectionIndex, zoneIndex, asPart: false };
       viewer.render(currentModel, viewOpts());
+      showFocusMenu(clientX, clientY, [
+        { label: 'Редактировать деталь', action: () => openPartEditor(module, kind, side, sectionIndex, zoneIndex, true) },
+        { label: 'Выйти из фокуса', action: exitFocusMode },
+      ]);
+    };
+
+    // Клик по ОТСЕКУ (секция, при делении по высоте — конкретный отсек) ВНЕ
+    // изоляции — обычный режим, где видны все модули сразу (см. viewer.js,
+    // onSelectZone/_resolveZoneHit): срабатывает и по фасаду отсека, и по
+    // любой другой видимой детали внутри него (полка, кусок задней стенки),
+    // если фасада нет (открытая полка, ниша под встроенную технику). Это
+    // новый короткий путь к отсеку — раньше попасть в него можно было только
+    // через Focus Mode (двойной клик → onSelectPart выше), а для отсека без
+    // фасада вообще не было по чему кликнуть.
+    viewer.onSelectZone = ({ module, sectionIndex, zoneIndex, clientX, clientY }) => {
+      const mm = state.modules.find((m) => m.name === module);
+      const sec = mm && mm.sections[sectionIndex];
+      if (!sec) return;
       const items = [];
-      // Клик по фасаду — сверху пункт быстрого разбиения секции на N зон
-      // по вертикали (пенал под встроенную технику) — единственный способ
-      // задать это число (в сайдбаре поля больше нет, см. renderSectionsList):
-      // доступен прямо в 3D, где сразу видно фасад, который делим. Полки-
-      // перегородки на стыках новых зон отдельно расставлять не нужно —
-      // engine.js считает их сам при каждой сборке модели (layoutDoorZones).
-      if (kind === 'door' && Number.isFinite(sectionIndex)) {
-        const mm = state.modules.find((m) => m.name === module);
-        const sec = mm && mm.sections[sectionIndex];
-        if (sec) {
-          items.push({
-            type: 'numberInput', label: 'Разделить на секции по вертикали',
-            value: Number(sec.doorZoneCount) || 1, min: 1, max: 4, buttonLabel: 'Разделить',
-            onApply: (n) => {
-              const applied = setDoorZoneCount(sec, n);
-              if (applied >= 2) {
-                // Нижняя зона по умолчанию — вровень с фасадом соседа
-                // (единая горизонтальная линия по ряду), если высота ещё
-                // не задана вручную; уже настроенную высоту не трогаем.
-                if (!sec.doorZones[0].height) {
-                  const neighborH = findNeighborBottomZoneHeight(mm, sectionIndex);
-                  // Перевод «высота двери → высота ниши», см. setModuleDoorZoneCount.
-                  if (neighborH) {
-                    sec.doorZones[0].height = window.Modul3D.engine.nicheFromEdgeDoorHeight(neighborH, state.bodyThickness);
-                  }
-                }
-              }
-              renderParamsPanel();
-              recompute();
-            },
-          });
-        }
-      }
-      // У фасада (kind:'door') первый пункт ведёт на редактор ЗОНЫ фасада
-      // (doorZoneEditorScreen) — поэтому подпись «...секцию»; у остальных
-      // видов деталей (боковина/дно и т.п.) этот же пункт — единственный и
-      // ведёт сразу на общий редактор ОДНОЙ детали, подпись — «...деталь».
+      // Число отсеков по высоте (пенал под встроенную технику) — единственный
+      // способ задать его (в сайдбаре поля больше нет, см. renderSectionsList).
+      // Полки-перегородки на стыках новых отсеков отдельно расставлять не
+      // нужно — engine.js считает их сам при каждой сборке модели
+      // (layoutDoorZones).
       items.push({
-        label: kind === 'door' ? 'Редактировать секцию' : 'Редактировать деталь',
-        action: () => openPartEditor(module, kind, side, sectionIndex, zoneIndex),
+        type: 'numberInput', label: 'Разделить на отсеки',
+        value: Number(sec.doorZoneCount) || 1, min: 1, max: 4, buttonLabel: 'Разделить',
+        onApply: (n) => {
+          const applied = setDoorZoneCount(sec, n);
+          // Нижний отсек по умолчанию — вровень с фасадом соседа (единая
+          // горизонтальная линия по ряду), если высота ещё не задана вручную;
+          // уже настроенную высоту не трогаем.
+          if (applied >= 2 && !sec.doorZones[0].height) {
+            const neighborH = findNeighborBottomZoneHeight(mm, sectionIndex);
+            // Перевод «высота двери → высота ниши», см. setModuleDoorZoneCount.
+            if (neighborH) sec.doorZones[0].height = window.Modul3D.engine.nicheFromEdgeDoorHeight(neighborH, state.bodyThickness);
+          }
+          renderParamsPanel();
+          recompute();
+        },
       });
-      // Для фасада — отдельно ещё и «Редактировать деталь» (asPart:true), пока
-      // честная заглушка (partKindPlaceholderBlock), но с корректной 3D-
-      // подсветкой именно этой двери (см. resolveSelectedPart ниже).
-      if (kind === 'door') {
-        items.push({ label: 'Редактировать деталь', action: () => openPartEditor(module, kind, side, sectionIndex, zoneIndex, true) });
-      }
-      items.push({ label: 'Выйти из фокуса', action: exitFocusMode });
+      items.push({ label: 'Редактировать отсек', action: () => openPartEditor(module, 'door', undefined, sectionIndex, zoneIndex) });
       showFocusMenu(clientX, clientY, items);
     };
 

@@ -214,8 +214,8 @@ const HIGHLIGHT_COLOR = {
 // за фасадом).
 const ACTIVE_MODULE_OPACITY = 0.4;
 
-// Подсветка фасада ВЫБРАННОЙ СЕКЦИИ (клик по двери/ящику в Focus Mode →
-// «Редактировать секцию»): плотная бирюзовая полупрозрачная заливка поверх
+// Подсветка фасада ВЫБРАННОГО ОТСЕКА (клик по отсеку в 3D вне Focus Mode →
+// «Редактировать отсек»): плотная бирюзовая полупрозрачная заливка поверх
 // обычного цвета фасада — грани и контур детали видны сквозь неё. В отличие
 // от highlightModule (подсветка всего модуля синим) это подсветка одной
 // конкретной секции модуля, и только её фасада — не корпуса.
@@ -1248,6 +1248,26 @@ class Viewer3D {
     // у остальных деталей будет undefined. Координаты клика — чтобы app.js
     // мог поставить контекстное меню в точку клика.
     this.onSelectPart = null;
+    // Клик по ОТСЕКУ (секция +, если она разбита по высоте, конкретная зона)
+    // ВНЕ изоляции — в обычном режиме, где видны все модули сразу. Раньше
+    // отсек можно было выбрать только через двойной клик (вход в Focus Mode,
+    // см. onIsolateModule выше) и клик по его фасаду (onSelectPart выше) —
+    // для отсека БЕЗ фасада (открытая полка, ниша под встроенную технику)
+    // кликать было вообще не по чему. Здесь колбэк срабатывает и по фасаду
+    // отсека (если он есть), и по любой другой видимой детали внутри него
+    // (полка, видимый кусок задней стенки) — секцию/зону в обоих случаях
+    // определяет _resolveZoneHit ниже: у фасада-двери sectionIndex/zoneIndex
+    // уже посчитаны в engine.js (partsRaw, см. userData у door чуть ниже по
+    // коду; ящики — drawerFront — сюда не попадают, у них свой экран
+    // «Ящики»), а у остальных деталей своего sectionIndex/zoneIndex нет
+    // — они вычисляются геометрически по месту клика, сверяясь с соседними
+    // стойками/несъёмными полками-перегородками того же модуля, без обращения к
+    // engine.js. Колбэк получает { module, sectionIndex, zoneIndex, clientX,
+    // clientY } — zoneIndex может быть null, если у секции нет деления по
+    // высоте. Остальные детали (боковина, дно, крыша, цоколь, стойка между
+    // секциями и т.д. — без привязки к конкретному отсеку) по-прежнему идут
+    // в onSelectModule, это поведение не меняется.
+    this.onSelectZone = null;
     // Клик МИМО любой детали, пока активна изоляция: либо луч вообще ни во
     // что не попал (пустое место — пол и сетка лежат в this.scene, а не в
     // this.group, и в рейкаст не участвуют), либо попал в меш без
@@ -1275,7 +1295,7 @@ class Viewer3D {
     }
     this.renderer.domElement.addEventListener('pointerup', (e) => {
       if (this.controls.moved > 6) return;
-      if (!this.onSelectModule && !this.onSelectPart && !this.onFocusMiss) return;
+      if (!this.onSelectModule && !this.onSelectPart && !this.onFocusMiss && !this.onSelectZone) return;
       // Деталь теперь собирается из нескольких слоёв внутри группы, поэтому
       // луч пускаем РЕКУРСИВНО, а имя модуля ищем вверх по родителям.
       const hits = this._hitTestAt(e);      // контуры не в счёт (см. _hitTestAt)
@@ -1308,6 +1328,22 @@ class Viewer3D {
           this.onFocusMiss({ module: this._isolateModule, clientX: e.clientX, clientY: e.clientY });
         }
         return;
+      }
+      // ВНЕ изоляции: если клик пришёлся на деталь, у которой есть свой
+      // «отсек» (фасад — или, если фасада нет, любая другая видимая деталь
+      // внутри отсека — см. _resolveZoneHit), выбираем отсек СРАЗУ, без
+      // задержки на анти-дребезг двойного клика ниже — по тому же принципу,
+      // что и onSelectPart в изоляции: там тоже нет такой задержки, промаха
+      // на «вход в изоляцию» здесь не бывает (двойной клик по фасаду просто
+      // следом откроет Focus Mode отдельным обработчиком dblclick, это не
+      // конфликтует). onSelectModule в этом случае вызывать не нужно вовсе —
+      // иначе под выбором отсека мелькнул бы ещё и HUD всего модуля.
+      if (this.onSelectZone) {
+        const zoneHit = this._resolveZoneHit(hits);
+        if (zoneHit) {
+          this.onSelectZone({ ...zoneHit, clientX: e.clientX, clientY: e.clientY });
+          return;
+        }
       }
       // Промах по модели (клик по пустому месту) — снимаем выделение,
       // поэтому передаём null, а не выходим молча. Сам вызов откладываем:
@@ -1394,6 +1430,145 @@ class Viewer3D {
       if (o.userData && o.userData.module) return o.userData.module;
     }
     return null;
+  }
+
+  /**
+   * Клик ВНЕ изоляции → какой это отсек (секция + зона), см. onSelectZone
+   * выше. hits — результат _hitTestAt (первый — ближайшая точка попадания).
+   * Возвращает { module, sectionIndex, zoneIndex } или null, если попали
+   * мимо любой детали отсека (боковина/дно/крыша/цоколь/стойка/фурнитура —
+   * они остаются обычным выбором модуля, см. вызов ниже по коду).
+   *
+   * У фасада-двери секция и зона УЖЕ посчитаны в engine.js и просто
+   * лежат в userData (см. кусок кода с `mesh.userData.sectionIndex` в
+   * render()) — их достаточно прочитать (ящики — kind:'drawerFront' —
+   * сюда не попадают: у них свой экран «Ящики», не doorZones, см. ниже
+   * по коду). У отсека БЕЗ фасада (открытая
+   * полка, ниша под встроенную технику) своего sectionIndex/zoneIndex ни на
+   * одной детали нет (полке, задней стенке это ни к чему — они не привязаны
+   * к одной секции: задняя стенка вообще одна на весь модуль), поэтому
+   * секцию/зону вычисляем ГЕОМЕТРИЧЕСКИ по точке клика — делим модуль
+   * вертикальными стойками между секциями (kind:'divider', engine.js кладёт
+   * их по возрастанию вдоль ширины корпуса, в том же порядке, что и
+   * sectionIndex), а внутри найденной секции по высоте — несъёмными полками-
+   * перегородками (kind:'shelf', fixed:true — engine.js строит их «снизу
+   * вверх» на стыках зон пенала, см. engine.js, sec.doorZones/azLayout).
+   * Никакой новой геометрии тут не считается — только сортировка уже готовых
+   * мировых позиций тех же деталей, что и так стоят в сцене.
+   *
+   * ПОВОРОТ МОДУЛЯ В ПЛАНЕ (90/180/270°, см. engine.js ~3528-3530 —
+   * manualRot меняет местами x/z у КАЖДОЙ детали модуля при повороте на
+   * 90/270° и меняет знак у обеих при повороте на 180°, и своё вращение
+   * может добавить ещё и весь ряд/прогон целиком): при таком повороте деление
+   * на секции в МИРОВЫХ координатах может пойти по Z вместо X, а «слева
+   * направо» может превратиться в «справа налево» (координата растёт, а
+   * sectionIndex при этом убывает). Ни ось, ни направление здесь не читаются
+   * из параметров модуля (не хотим тащить сюда model — пришлось бы разбирать
+   * связку поворота модуля и поворота прогона), а определяются геометрически
+   * по боковинам (kind:'side', их всегда РОВНО ДВЕ — левая и правая,
+   * userData.side): разница между ними целиком уходит в одну мировую ось
+   * (любой поворот здесь кратен 90° вокруг вертикали, «размазать» разницу по
+   * диагонали он не может) — эта ось и есть «ширина» (см. widthAxis ниже), а
+   * знак разницы (левая координата меньше правой или больше) говорит,
+   * растёт sectionIndex вдоль неё или убывает (см. ascending ниже). Высоту
+   * (Y) поворот в плане не трогает вообще — она в этой развилке не участвует.
+   */
+  _resolveZoneHit(hits) {
+    if (!hits.length) return null;
+    let kindOwner = null;
+    for (let o = hits[0].object; o; o = o.parent) {
+      if (o.userData && o.userData.kind) { kindOwner = o; break; }
+    }
+    if (!kindOwner) return null;
+    const module = kindOwner.userData.module;
+    if (!module) return null;
+    const kind = kindOwner.userData.kind;
+    // Только дверь — у отсека (doorZones) свой набор полей (техника/фасад/
+    // высота/полки), а ящики (kind:'drawerFront') настраиваются отдельным
+    // экраном «Ящики» (sec.drawers), к отсекам отношения не имеют. Раньше
+    // (в Focus Mode) клик по ящику вёл на обычный редактор детали, а не на
+    // редактор отсека — сохраняем это же разделение и здесь.
+    if (kind === 'door') {
+      const sectionIndex = kindOwner.userData.sectionIndex;
+      if (!Number.isFinite(sectionIndex)) return null;
+      const zoneIndex = Number.isFinite(kindOwner.userData.zoneIndex) ? kindOwner.userData.zoneIndex : null;
+      return { module, sectionIndex, zoneIndex };
+    }
+    // Отсек без фасада — только полка (в т.ч. несъёмная полка-перегородка) и
+    // видимый кусок задней стенки нужно отдавать как «клик по отсеку»;
+    // остальное (боковина/дно/крыша/цоколь/стойка/ручки/опоры и т.п.) —
+    // как раньше, обычный выбор модуля.
+    if (kind !== 'shelf' && kind !== 'back') return null;
+    const hitPoint = hits[0].point;
+
+    // Ось «вдоль ширины» и направление возрастания sectionIndex вдоль неё —
+    // см. комментарий к методу выше. По умолчанию X, по возрастанию (как до
+    // учёта поворота модуля), но если у боковин разброс по Z оказался
+    // больше — переключаемся на Z, и если «левая» боковина лежит на БОЛЬШЕЙ
+    // координате, чем «правая» (после поворота бывает и так), — на убывание.
+    let widthAxis = 'x';
+    let ascending = true;
+    {
+      let leftPos = null, rightPos = null;
+      for (const child of this.group.children) {
+        if (!child.userData || child.userData.module !== module || child.userData.kind !== 'side') continue;
+        if (child.userData.side === 'left') leftPos = child.position;
+        else if (child.userData.side === 'right') rightPos = child.position;
+      }
+      // Если обеих боковин почему-то не нашлось (не должно случаться — у
+      // корпуса их всегда две) — тихо остаёмся на оси X по возрастанию.
+      if (leftPos && rightPos) {
+        const dx = Math.abs(leftPos.x - rightPos.x);
+        const dz = Math.abs(leftPos.z - rightPos.z);
+        widthAxis = dz > dx ? 'z' : 'x';
+        ascending = widthAxis === 'z' ? leftPos.z < rightPos.z : leftPos.x < rightPos.x;
+      }
+    }
+    const alongWidth = (pos) => (widthAxis === 'z' ? pos.z : pos.x);
+    const hitWidth = alongWidth(hitPoint);
+
+    const dividerCoords = [];
+    const fixedShelves = [];   // { w: координата вдоль ширины, y: высота }
+    for (const child of this.group.children) {
+      if (!child.userData || child.userData.module !== module) continue;
+      if (child.userData.kind === 'divider') dividerCoords.push(alongWidth(child.position));
+      else if (child.userData.kind === 'shelf' && child.userData.fixed) {
+        fixedShelves.push({ w: alongWidth(child.position), y: child.position.y });
+      }
+    }
+    // sectionIndex — число стоек, оставшихся «позади» клика В ТУ СТОРОНУ,
+    // где растёт sectionIndex (ascending) — а не просто число стоек с
+    // координатой меньше клика: при повороте модуля эти два порядка не
+    // всегда совпадают (см. комментарий к методу). Границы найденной секции
+    // (secLeft/secRight — нужны только для отбора полок-перегородок ЭТОЙ
+    // секции, а не соседней) считаем ТУТ ЖЕ, из того же самого условия
+    // «стойка позади клика» — если считать их отдельным проходом с чисто
+    // числовым сравнением (без ascending), на равенстве dc===hitWidth
+    // получилась бы вилка с другой стороны, чем сама sectionIndex.
+    let sectionIndex = 0;
+    let secLeft = -Infinity;
+    let secRight = Infinity;
+    for (const dc of dividerCoords) {
+      const isBehind = ascending ? dc < hitWidth : dc > hitWidth;
+      if (isBehind) {
+        sectionIndex++;
+        if (ascending) secLeft = Math.max(secLeft, dc); else secRight = Math.min(secRight, dc);
+      } else if (ascending) {
+        secRight = Math.min(secRight, dc);
+      } else {
+        secLeft = Math.max(secLeft, dc);
+      }
+    }
+    const zoneYs = fixedShelves
+      .filter((s) => s.w > secLeft && s.w < secRight)
+      .map((s) => s.y)
+      .sort((a, b) => a - b);
+    // Нет несъёмных перегородок в этой секции — значит, деления на зоны нет
+    // вовсе (та же секция, что и есть), zoneIndex остаётся 0 — как и у
+    // одиночной (не разбитой на зоны) двери в engine.js.
+    let zoneIndex = 0;
+    for (const zy of zoneYs) { if (hitPoint.y > zy) zoneIndex++; }
+    return { module, sectionIndex, zoneIndex };
   }
 
   _addLights() {
@@ -1602,14 +1777,14 @@ class Viewer3D {
       // её бирюзовой заливкой (см. mat/makeFramedFacade ниже). Ручки под
       // isSectionHi НЕ подпадают (makeHandle его не принимает) — они должны
       // остаться металлическими.
-      // sectionIndex один на всю секцию (и её зоны, и её ящики) — этого
-      // достаточно, ПОКА в секции нет нескольких зон двери по высоте
-      // («Разделить на секции по вертикали», engine.js zonesRaw). Если зона
-      // выбрана (sectionHi.zoneIndex — число), подсвечивать нужно ТОЛЬКО её
-      // дверь, а не всю стопку зон секции — иначе бирюзовым красится сразу
-      // весь пенал. У ящиков (kind:'drawerFront') zoneIndex не бывает
+      // sectionIndex один на всю секцию (и её отсеки, и её ящики) — этого
+      // достаточно, ПОКА в секции нет нескольких отсеков двери по высоте
+      // («Разделить на отсеки», engine.js zonesRaw). Если отсек
+      // выбран (sectionHi.zoneIndex — число), подсвечивать нужно ТОЛЬКО его
+      // дверь, а не всю стопку отсеков секции — иначе бирюзовым красится
+      // сразу весь пенал. У ящиков (kind:'drawerFront') zoneIndex не бывает
       // (engine.js его не проставляет) — они подсвечиваются все вместе, как
-      // единый набор фасадов секции, когда выбрана именно секция без зон.
+      // единый набор фасадов секции, когда выбрана именно секция без отсеков.
       const targetZoneIndex = sectionHi && Number.isFinite(sectionHi.zoneIndex) ? sectionHi.zoneIndex : null;
       const isSectionHi = !!(sectionHi && isFacade && row.module === sectionHi.module
         && Number.isFinite(row.sectionIndex) && row.sectionIndex === sectionHi.sectionIndex
@@ -2050,6 +2225,11 @@ class Viewer3D {
           mesh.userData.sectionIndex = Number.isFinite(row.sectionIndex) ? row.sectionIndex : null;
           mesh.userData.zoneIndex = Number.isFinite(row.zoneIndex) ? row.zoneIndex : null;
         }
+        // Несъёмная полка-перегородка (row.fixed, engine.js — на стыке зон
+        // пенала) размечает границы зон ПО ВЫСОТЕ внутри секции — это нужно
+        // клику по отсеку БЕЗ фасада вне изоляции (см. _resolveZoneHit).
+        // Съёмные полки этот флаг не получают (fixed остаётся undefined).
+        if (row.kind === 'shelf') mesh.userData.fixed = !!row.fixed;
         mesh.position.set(box.x * MM, box.y * MM, box.z * MM);
         mesh.rotation.y = (rotDeg * Math.PI) / 180;
         // Фрезерованный МДФ: рисуем контур фрезеровки рамкой по лицу

@@ -21,9 +21,9 @@ var viewerInstance = null;
 var lastPointer = { x: 0, y: 0 };
 var openPanel = null;
 var hudModule = null;
-// Раскрыт ли инлайн-степпер «Разделить на секции по высоте» в HUD (см.
-// renderHud) — сбрасывается при каждом показе/скрытии HUD, чтобы степпер не
-// оставался развёрнутым при переключении на другой модуль.
+// Раскрыт ли инлайн-степпер «Разделить на отсеки» в HUD (см. renderHud) —
+// сбрасывается при каждом показе/скрытии HUD, чтобы степпер не оставался
+// развёрнутым при переключении на другой модуль.
 var hudSplitOpen = false;
 var syncingDocs = false;
 
@@ -438,9 +438,9 @@ function renderHud() {
     '<div class="hud-group">Поворот: ' + escapeHtml(curLabel) + '</div>' +
     '<button type="button" class="btn hud-full" data-hud-rotate-step>⟳ Повернуть на 90°</button>';
 
-  // Кнопка «Разделить на секции по высоте» — только когда в модуле ровно
-  // одна секция и у неё есть фасад-дверь (см. app.js: getModuleHudState).
-  // По клику раскрывается компактный инлайн-степпер вместо самой кнопки.
+  // Кнопка «Разделить на отсеки» — только когда в модуле ровно одна секция
+  // и у неё есть фасад-дверь (см. app.js: getModuleHudState). По клику
+  // раскрывается компактный инлайн-степпер вместо самой кнопки.
   var splitHtml = '';
   if (hudState && hudState.canSplitByHeight) {
     splitHtml = hudSplitOpen ?
@@ -448,7 +448,7 @@ function renderHud() {
         '<input type="number" min="1" max="4" value="' + (hudState.doorZoneCount || 1) + '" data-hud-split-input>' +
         '<button type="button" class="btn" data-hud-split-apply>Разделить</button>' +
       '</div>' :
-      '<button type="button" class="btn hud-full" data-hud-split-open>Разделить на секции по высоте</button>';
+      '<button type="button" class="btn hud-full" data-hud-split-open>Разделить на отсеки</button>';
   }
 
   box.innerHTML =
@@ -467,10 +467,10 @@ function renderHud() {
     splitHtml;
 }
 
-// Применяет «Разделить на секции по высоте» из инлайн-степпера HUD (см.
+// Применяет «Разделить на отсеки» из инлайн-степпера HUD (см.
 // renderHud/data-hud-split-apply) — читает число из поля и зовёт мост
 // app.js: setModuleDoorZoneCount, затем сворачивает степпер обратно в
-// кнопку и перерисовывает HUD, чтобы показать новое число зон.
+// кнопку и перерисовывает HUD, чтобы показать новое число отсеков.
 function applyHudSplit() {
   var box = hudEl();
   var input = box && box.querySelector('[data-hud-split-input]');
@@ -614,6 +614,16 @@ function initHud() {
     viewerInstance.onIsolateModule = function (name) {
       hideHud();
       if (typeof prevIsolate === 'function') prevIsolate.call(viewerInstance, name);
+    };
+    // Клик по отсеку (вне фокуса, см. app.js: viewer.onSelectZone) тоже
+    // показывает своё меню поверх 3D (showFocusMenu) — тот же случай
+    // накопления панелей, что и у onIsolateModule выше: если HUD уже был
+    // открыт для этого модуля (клик до этого пришёлся мимо отсека), он
+    // остался бы висеть под новым меню.
+    var prevSelectZone = viewerInstance.onSelectZone;
+    viewerInstance.onSelectZone = function (payload) {
+      hideHud();
+      if (typeof prevSelectZone === 'function') prevSelectZone.call(viewerInstance, payload);
     };
   }, 60);
 }
