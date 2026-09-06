@@ -14,7 +14,7 @@
 (function () {
 // Версия сборки — показывается во вкладке браузера и в шапке.
 // При выпуске новой версии меняется только эта строка.
-const APP_VERSION = 'v238';
+const APP_VERSION = 'v239';
 
 // Номер версии выводим ПЕРВЫМ делом: если дальше что-то упадёт, по нему сразу
 // видно, какая сборка открыта.
@@ -565,9 +565,9 @@ function insertModule(m) {
   exitIsolation();
   // Столешница включается сразу при добавлении напольной тумбы — раньше
   // нужно было отдельно зайти в панель «Столешница» и отметить чекбокс на
-  // каждой новой тумбе вручную. Наследует настройки уже включённой в
-  // проекте столешницы (материал/свесы), если такая есть — те же дефолты,
-  // что и у ручного включения через панель (countertopPrimarySettings).
+  // каждой новой тумбе вручную. Фиксированные дефолты (не наследование от
+  // других тумб проекта — с 2026-09-06 у каждой тумбы своя, независимая
+  // столешница, см. activeCountertopModule/countertopFieldsOf в app.js).
   // Два фильтра отсекают ложные срабатывания:
   //  - высота ≤1000 мм — пенал (во всю высоту гарнитура, ~2100 мм) тоже
   //    стоит на полу (moduleHasFloorBase это не различает), но столешница
@@ -580,20 +580,13 @@ function insertModule(m) {
   //    настоящей напольной тумбы не бывает (нет опоры вообще).
   const noRealSupport = m.baseType === 'plinth' && Number(m.plinthHeight) === 0;
   if (moduleHasFloorBase(m) && !noRealSupport && !m.countertop && Number(m.height) <= 1000) {
-    // Наследуем у уже отмеченной в проекте группы, только если она есть —
-    // иначе дефолт свеса спереди зависит от ЭТОГО модуля (kitchen/обычная
-    // мебель), а не берётся из группы, которой ещё нет.
-    const groupExists = checkedCountertopModules().length > 0;
-    const src = countertopPrimarySettings();
     m.countertop = {
       enabled: true,
-      material: src.material,
-      overhangFront: groupExists ? src.overhangFront : defaultCountertopOverhangFront(m),
-      overhangLeft: src.overhangLeft,
-      overhangRight: src.overhangRight,
+      material: 'ldsp38',
+      overhangFront: defaultCountertopOverhangFront(m),
+      overhangLeft: 0,
+      overhangRight: 0,
     };
-    if (src.depth !== undefined) m.countertop.depth = src.depth;
-    if (src.overhangBack !== undefined) m.countertop.overhangBack = src.overhangBack;
     normalizeCountertopDepth(m.countertop);
   }
   const at = Math.min(state.activeModule + 1, state.modules.length);
@@ -1402,11 +1395,12 @@ function libSaveEdit(group, key, field, value) {
 // DECORS (декор корпуса, декор видимой боковины фасада и «свой материал»
 // столешницы — все три поля выбирают из одного и того же списка), back —
 // BACK_MATERIALS. Общий для libPickMaterial и deleteMaterialPick ниже.
-// countertopDecor отличается от остальных тем, что пишет не в state.xxxCode
-// (глобальная настройка проекта), а в countertop-конфиг ВСЕХ отмеченных в
-// панели «Столешница» тумб (см. checkedCountertopModules) — то же самое,
-// что уже делает обычный <select id="ctopDecor"> в bindCountertopEvents.
-const LIB_PICK_ROLE_GROUP = { decor: 'decors', facadeDecor: 'decors', back: 'back', countertopDecor: 'decors' };
+// countertopDecor («свой материал» столешницы) сюда НЕ входит — у него нет
+// единого целевого массива: он может ссылаться на код из ЛЮБОГО списка
+// каталога напрямую, без копирования (см. отдельная ветка в
+// libPickMaterial/deleteMaterialPick ниже — изменено 2026-09-06, копия
+// раньше плодила видимый дубль в Библиотеке).
+const LIB_PICK_ROLE_GROUP = { decor: 'decors', facadeDecor: 'decors', back: 'back' };
 
 // Клик «Выбрать» на строке «Листовых материалов» в режиме подбора.
 // rowGroup/code — ИСТИННОЕ происхождение строки (см. libSheetRowHtml:
@@ -1419,6 +1413,28 @@ const LIB_PICK_ROLE_GROUP = { decor: 'decors', facadeDecor: 'decors', back: 'bac
 function libPickMaterial(rowGroup, code) {
   const target = state.libPickTarget;
   if (!target) return;
+  if (target.role === 'countertopDecor') {
+    // «Свой материал» столешницы ссылается на код НАПРЯМУЮ, без копии в
+    // другой массив — decorCode может указывать на позицию из ЛЮБОГО
+    // списка (DECORS/FACADE_MATERIALS/BACK_MATERIALS), countertopMat() в
+    // engine.js и specification.js уже ищут материал по коду во всех трёх
+    // (см. findAnyMaterialByCode выше). Копирование, как у decor/
+    // facadeDecor/back ниже, здесь не нужно — оно оправдано ТОЛЬКО там, где
+    // поле жёстко читает один конкретный массив; здесь такого ограничения
+    // нет, а копия просто плодит дубль в Библиотеке (баг, найденный
+    // пользователем 2026-09-06). Применяется к АКТИВНОЙ тумбе (не к группе
+    // отмеченных — см. activeCountertopModule).
+    const mod = activeCountertopModule();
+    if (mod && mod.countertop) mod.countertop.decorCode = code;
+    state.libPickTarget = null;
+    renderLibraryPanel();
+    // Возвращаемся на панель «Столешница», а не просто закрываем Библиотеку
+    // (по просьбе пользователя 2026-09-06 — раньше пользователь оставался
+    // без открытой панели вообще).
+    if (window.Modul3D.uiShell) window.Modul3D.uiShell.openDrawer('countertop');
+    recompute();
+    return;
+  }
   const targetGroup = LIB_PICK_ROLE_GROUP[target.role];
   if (!targetGroup) return;
   let finalCode = code;
@@ -1468,11 +1484,6 @@ function libPickMaterial(rowGroup, code) {
     state.backCode = finalCode;
     const back = BACK_MATERIALS.find((m) => m.code === finalCode);
     if (back) state.backThickness = back.thickness;
-  } else if (target.role === 'countertopDecor') {
-    // Пишет не в state.xxxCode, а в countertop-конфиг ВСЕХ отмеченных в
-    // панели «Столешница» тумб — та же группа, что и обычный select
-    // ctopDecor (applyToChecked в bindCountertopEvents).
-    checkedCountertopModules().forEach((m) => { m.countertop.decorCode = finalCode; });
   }
   state.libPickTarget = null;
   renderLibraryPanel();   // убирает колонку «Выбрать» сразу, не дожидаясь повторного открытия
@@ -1844,35 +1855,35 @@ function countertopDepthOptions(materialId) {
   return Array.from(new Set(cat.map((x) => x.depth))).sort((a, b) => a - b);
 }
 
-// Модули, которым сейчас реально включена столешница (и которые вообще годятся
-// под неё) — это и есть «отмеченная группа», на которую массово пишут общие
-// настройки панели.
-function checkedCountertopModules() {
-  return state.modules.filter((m) => moduleHasFloorBase(m) && m.countertop && m.countertop.enabled);
+// Тумба, чью столешницу сейчас показывает/редактирует панель — ВСЕГДА
+// текущий активный модуль (state.activeModule), тот же, что подсвечен в 3D
+// и в «Параметры проекта» — единое понятие «какая тумба сейчас в фокусе» на
+// всё приложение. До 2026-09-06 было иначе: настройки применялись сразу ко
+// ВСЕЙ группе отмеченных чекбоксом тумб — пользователь путался, меняя
+// материал одной тумбы и молча меняя его у всех остальных отмеченных.
+// null — активный модуль не тумба (навесной) и столешницу поставить нельзя.
+function activeCountertopModule() {
+  const mod = state.modules[state.activeModule];
+  return moduleHasFloorBase(mod) ? mod : null;
 }
 
-// Значения для общих полей панели — берём с ПЕРВОЙ отмеченной тумбы: после
-// любой правки общих полей они одинаковы у всех отмеченных, разойтись могут
-// только если тумбы отмечали в разных сессиях — тогда просто показываем то,
-// что реально стоит у первой, а не выдумываем среднее.
-function countertopPrimarySettings() {
-  const first = checkedCountertopModules()[0];
-  const src = (first || {}).countertop || {};
+// Текущие значения полей — читаются НАПРЯМУЮ из countertop активной тумбы
+// (никакого «общего для группы» смысла, в отличие от старого
+// countertopPrimarySettings). mod может быть null (нет активной тумбы под
+// столешницу) — тогда возвращаем дефолты, но вызывающий код их не покажет
+// (settings рендерится только когда activeCountertopModule() не null).
+function countertopFieldsOf(mod) {
+  const src = (mod && mod.countertop) || {};
   return {
     material: src.material || 'ldsp38',
     depth: src.depth,
-    // Материал/толщина «своего материала» — без дефолта на пустое значение:
+    // Декор/толщина «своего материала» — без дефолта на пустое значение:
     // undefined означает «пользователь ещё не выбрал», это нормальное
     // состояние сразу после переключения на custom (см. materialEl ниже,
     // который проставляет разумные дефолты сам).
     decorCode: src.decorCode,
     thickness: src.thickness,
-    // Дефолт (модуль отмечен, но overhangFront почему-то не задан — обычно
-    // не должно случаться, mod.countertop проходит через defaultCountertop
-    // OverhangFront при включении, но проект мог быть сохранён до появления
-    // этой логики) — по типу мебели ПЕРВОЙ отмеченной тумбы, как и при
-    // самом включении.
-    overhangFront: src.overhangFront !== undefined ? src.overhangFront : defaultCountertopOverhangFront(first),
+    overhangFront: src.overhangFront !== undefined ? src.overhangFront : defaultCountertopOverhangFront(mod),
     overhangLeft: src.overhangLeft !== undefined ? src.overhangLeft : 0,
     overhangRight: src.overhangRight !== undefined ? src.overhangRight : 0,
     // overhangBack БЕЗ дефолта — undefined означает «посчитать автоматически»
@@ -1880,6 +1891,19 @@ function countertopPrimarySettings() {
     // спереди), см. countertopModuleRow/поле ctopOverhangBack ниже.
     overhangBack: src.overhangBack,
   };
+}
+
+// Материал столешницы «свой материал» может ссылаться на код из ЛЮБОГО из
+// трёх списков каталога (DECORS, FACADE_MATERIALS, BACK_MATERIALS) — та же
+// тройка, что уже ищет specification.js для листовых материалов (см. там
+// `known`), и то же самое ищет countertopMat() в engine.js. Без копирования
+// в отдельный массив (см. libPickMaterial/deleteMaterialPick ниже) —
+// копирование раньше плодило видимый дубль в Библиотеке (найдено
+// пользователем 2026-09-06).
+function findAnyMaterialByCode(code) {
+  if (!code) return null;
+  const facade = window.Modul3D.catalog.FACADE_MATERIALS || {};
+  return [].concat(DECORS, BACK_MATERIALS, Object.values(facade)).find((d) => d.code === code) || null;
 }
 
 // Подгоняет ct.depth под реально существующую позицию каталога для текущего
@@ -1904,8 +1928,11 @@ function countertopJointsSummaryBlock() {
   return `<div class="hint">Стыков столешницы: ${straight} прямых, ${corner} угловых.</div>`;
 }
 
-// Одна строка списка модулей: чекбокс для напольной тумбы, серая неактивная
-// строка с пояснением — для всего остального (см. moduleHasFloorBase).
+// Одна строка списка модулей: чекбокс для напольной тумбы (вкл/выкл
+// столешницу ИМЕННО у неё), серая неактивная строка с пояснением — для
+// всего остального (см. moduleHasFloorBase). Клик по строке (не по
+// чекбоксу) делает тумбу активной — её материал/свесы показывает settings
+// ниже (см. bindCountertopEvents: data-ctop-select).
 function countertopModuleRow(mod, i) {
   if (!moduleHasFloorBase(mod)) {
     return `<div class="ctop-mod-row disabled" title="Не тумба — столешница ставится только на напольное основание (цоколь/опоры)">
@@ -1914,10 +1941,11 @@ function countertopModuleRow(mod, i) {
     </div>`;
   }
   const checked = !!(mod.countertop && mod.countertop.enabled);
-  return `<label class="ctop-mod-row">
-    <input type="checkbox" data-ctop-toggle="${i}" ${checked ? 'checked' : ''}>
+  const active = i === state.activeModule;
+  return `<div class="ctop-mod-row ${active ? 'active' : ''}" data-ctop-select="${i}">
+    <label class="checkbox-inline"><input type="checkbox" data-ctop-toggle="${i}" ${checked ? 'checked' : ''}></label>
     <span>${esc(mod.name)}</span>
-  </label>`;
+  </div>`;
 }
 
 function countertopPanelBlock() {
@@ -1925,17 +1953,19 @@ function countertopPanelBlock() {
     return `<div class="hint">Проект пуст. Сначала добавьте тумбы — кнопкой «Библиотека» на рейке слева.</div>`;
   }
   const rows = state.modules.map((m, i) => countertopModuleRow(m, i)).join('');
-  const anyChecked = checkedCountertopModules().length > 0;
+  const mod = activeCountertopModule();
+  const enabled = !!(mod && mod.countertop && mod.countertop.enabled);
 
   let settings = '';
-  if (anyChecked) {
-    const s = countertopPrimarySettings();
+  if (mod && enabled) {
+    const s = countertopFieldsOf(mod);
     const depths = s.material === 'doubleLdsp' ? [] : countertopDepthOptions(s.material);
+    const decorItem = findAnyMaterialByCode(s.decorCode);
 
     settings = `
-      <h3>Материал столешницы</h3>
+      <h3>Материал столешницы — ${esc(mod.name)}</h3>
       <div class="field">
-        <label>Материал <span class="dim">(применяется ко всем отмеченным тумбам)</span></label>
+        <label>Материал</label>
         <select id="ctopMaterial">
           ${COUNTERTOP_MATERIAL_ORDER.map((id) =>
             `<option value="${id}" ${id === s.material ? 'selected' : ''}>${esc(COUNTERTOP_MATERIAL_LABELS[id])}</option>`
@@ -1944,8 +1974,8 @@ function countertopPanelBlock() {
       </div>
       ${s.material === 'custom' ? `
       <div class="field">
-        <label>Декор (материал столешницы)</label>
-        <select id="ctopDecor">${DECORS.map(d => `<option value="${d.code}" ${d.code === s.decorCode ? 'selected' : ''}>${esc(d.name)}</option>`).join('')}</select>
+        <label>Материал столешницы</label>
+        <div class="ctop-decor-current">${decorItem ? esc(decorItem.name) : '<span class="dim">не выбран</span>'}</div>
         ${materialPickActionsHtml('countertopDecor')}
       </div>
       <div class="field">
@@ -1976,28 +2006,37 @@ function countertopPanelBlock() {
         (тумба, комод) — обычно 0, заподлицо с фасадом. «Сзади» пустое поле — глубина считается
         автоматически: у кухни — чтобы совпасть с глубиной купленного листа материала (корпус там
         специально мельче столешницы), у остальной мебели — 0, заподлицо с корпусом (он уже стоит
-        вплотную к стене). Оба поля можно переопределить вручную — например, для стола.</div>
-
-      <h3>Соединение на углу</h3>
-      <div class="field">
-        <select id="ctopCornerJoint">
-          <option value="strip" ${state.countertopCornerJoint !== 'eurogroove' ? 'selected' : ''}>Соединительная планка</option>
-          <option value="eurogroove" ${state.countertopCornerJoint === 'eurogroove' ? 'selected' : ''}>Еврозапил + стяжки</option>
-        </select>
-        <div class="hint">Влияет только на угловые Г-образные стыки столешницы между тумбами —
-          прямые стыки в линию всегда идут через стяжку автоматически. Для компакт-плиты стык
-          всегда клей/герметик, вариантов нет.</div>
-      </div>
-      ${countertopJointsSummaryBlock()}`;
+        вплотную к стене). Оба поля можно переопределить вручную — например, для стола.</div>`;
   }
+
+  // «Соединение на углу» — настройка ОБЩАЯ на проект (влияет на любой
+  // угловой стык между двумя тумбами), а не свойство конкретной тумбы —
+  // показываем всегда, независимо от того, у какой тумбы сейчас открыты
+  // настройки материала выше (или открыты ли вообще).
+  const cornerBlock = `
+    <h3>Соединение на углу</h3>
+    <div class="field">
+      <select id="ctopCornerJoint">
+        <option value="strip" ${state.countertopCornerJoint !== 'eurogroove' ? 'selected' : ''}>Соединительная планка</option>
+        <option value="eurogroove" ${state.countertopCornerJoint === 'eurogroove' ? 'selected' : ''}>Еврозапил + стяжки</option>
+      </select>
+      <div class="hint">Влияет только на угловые Г-образные стыки столешницы между тумбами —
+        прямые стыки в линию всегда идут через стяжку автоматически. Для компакт-плиты стык
+        всегда клей/герметик, вариантов нет.</div>
+    </div>
+    ${countertopJointsSummaryBlock()}`;
+
+  let statusHint;
+  if (!mod) statusHint = `<div class="hint">Выберите тумбу в списке выше — навесные модули под столешницу не годятся.</div>`;
+  else if (!enabled) statusHint = `<div class="hint">У тумбы «${esc(mod.name)}» столешница выключена — отметьте галочку слева от названия, чтобы задать материал.</div>`;
 
   return `
     <h3>Тумбы проекта</h3>
-    <div class="hint">Отметьте напольные тумбы, на которые нужно поставить столешницу — навесные
-      модули в списке недоступны (не тумба). Материал, глубина и свесы ниже применяются сразу ко
-      всем отмеченным.</div>
+    <div class="hint">Отметьте галочкой тумбы, которым нужна столешница, и выберите тумбу кликом —
+      материал и свесы ниже относятся только к ВЫБРАННОЙ тумбе, а не ко всем отмеченным.</div>
     <div class="ctop-mod-list">${rows}</div>
-    ${anyChecked ? settings : `<div class="hint">Отметьте хотя бы одну тумбу, чтобы задать материал и свесы столешницы.</div>`}`;
+    ${settings || statusHint}
+    ${cornerBlock}`;
 }
 
 function renderCountertopPanel() {
@@ -2016,88 +2055,93 @@ function bindCountertopEvents() {
   const panel = document.getElementById('countertopPanel');
   if (!panel) return;
 
+  // Клик по строке тумбы (не по чекбоксу — у него своя обработка ниже)
+  // делает её активной (state.activeModule) — то же самое понятие «тумба в
+  // фокусе», что и вкладки модулей/клик по 3D, поэтому синхронизируем и
+  // подсветку в 3D. Панель остаётся открытой на Столешнице (в отличие от
+  // клика по вкладке модуля, здесь НЕ переключаем state.panelView).
+  panel.querySelectorAll('[data-ctop-select]').forEach((row) => {
+    row.addEventListener('click', (e) => {
+      if (e.target.closest('input')) return;
+      const idx = Number(row.dataset.ctopSelect);
+      if (idx === state.activeModule) return;
+      state.activeModule = idx;
+      state.selected = (state.modules[idx] || {}).name || null;
+      exitIsolation();
+      if (viewer && currentModel) viewer.render(currentModel, viewOpts());
+      renderCountertopPanel();
+    });
+  });
+
   panel.querySelectorAll('[data-ctop-toggle]').forEach((el) => {
     el.addEventListener('change', (e) => {
       const idx = Number(e.currentTarget.dataset.ctopToggle);
       const mod = state.modules[idx];
       if (!mod || !moduleHasFloorBase(mod)) return;
-      // Группа ДО этого переключения — если в ней уже есть отмеченные тумбы
-      // с настроенным материалом/свесами, новая тумба должна унаследовать
-      // ИХ (то, что реально показывает панель через countertopPrimarySettings),
-      // а не фиксированные дефолты — иначе 3D молча показывает разные
-      // материалы у тумб одной группы, пока пользователь не тронет любое
-      // поле настроек (баг, найденный на ревью).
-      const groupBefore = checkedCountertopModules();
       if (!mod.countertop) mod.countertop = {};
       mod.countertop.enabled = e.currentTarget.checked;
       if (mod.countertop.enabled) {
-        const src = groupBefore.length ? groupBefore[0].countertop : null;
-        // Дефолты ПРИ ПЕРВОМ включении на этой тумбе (группа ещё пуста),
-        // только если поля ещё не заданы. overhangFront зависит от типа
-        // мебели этой тумбы (defaultCountertopOverhangFront: кухня — 20 мм
-        // над фасадом, любая другая мебель — заподлицо, 0), остальные —
-        // фиксированные (0/0), пользователь одобрил их как отправную точку.
-        // overhangBack СОЗНАТЕЛЬНО не получает дефолт (0 был бы неверным —
-        // это «заподлицо с корпусом», а не «посчитать автоматически») —
-        // остаётся undefined, если и в src его не было, engine.js сам
-        // посчитает нужную глубину.
-        if (!mod.countertop.material) mod.countertop.material = (src && src.material) || 'ldsp38';
-        if (mod.countertop.overhangFront === undefined) mod.countertop.overhangFront = (src && src.overhangFront !== undefined) ? src.overhangFront : defaultCountertopOverhangFront(mod);
-        if (mod.countertop.overhangLeft === undefined) mod.countertop.overhangLeft = (src && src.overhangLeft !== undefined) ? src.overhangLeft : 0;
-        if (mod.countertop.overhangRight === undefined) mod.countertop.overhangRight = (src && src.overhangRight !== undefined) ? src.overhangRight : 0;
-        if (mod.countertop.overhangBack === undefined && src && src.overhangBack !== undefined) mod.countertop.overhangBack = src.overhangBack;
-        if (mod.countertop.depth === undefined && src && src.depth !== undefined) mod.countertop.depth = src.depth;
-        // «Свой материал» группы — декор/толщина унаследуются так же, как
-        // остальные поля выше, иначе новая тумба в группе custom осталась
-        // бы без декора и толщины.
-        if (mod.countertop.decorCode === undefined && src && src.decorCode !== undefined) mod.countertop.decorCode = src.decorCode;
-        if (mod.countertop.thickness === undefined && src && src.thickness !== undefined) mod.countertop.thickness = src.thickness;
+        // Дефолты ПРИ ПЕРВОМ включении на ЭТОЙ тумбе, только если поля ещё
+        // не заданы (тумбу могли включать/выключать раньше). Больше НЕ
+        // наследуем у других отмеченных тумб — у каждой свои настройки
+        // (см. activeCountertopModule/countertopFieldsOf выше, изменено
+        // 2026-09-06 по просьбе пользователя — раньше значения приходили
+        // от группы, это путало).
+        if (!mod.countertop.material) mod.countertop.material = 'ldsp38';
+        if (mod.countertop.overhangFront === undefined) mod.countertop.overhangFront = defaultCountertopOverhangFront(mod);
+        if (mod.countertop.overhangLeft === undefined) mod.countertop.overhangLeft = 0;
+        if (mod.countertop.overhangRight === undefined) mod.countertop.overhangRight = 0;
         normalizeCountertopDepth(mod.countertop);
       }
+      // Включили столешницу на тумбе — логично сразу показать её настройки
+      // ниже, а не оставлять открытой ту, что была выбрана до этого.
+      state.activeModule = idx;
+      state.selected = mod.name || null;
       recompute();
     });
   });
 
-  const applyToChecked = (fn) => { checkedCountertopModules().forEach((m) => fn(m.countertop)); };
+  // Дальше — поля материала/свесов АКТИВНОЙ тумбы. Если активной тумбы нет
+  // или у неё столешница выключена, этих элементов в DOM просто нет —
+  // document.getElementById вернёт null, и все `if (xxxEl)` ниже безопасно
+  // ничего не сделают.
+  const activeMod = activeCountertopModule();
+  const activeCt = activeMod && activeMod.countertop;
 
   const materialEl = document.getElementById('ctopMaterial');
   if (materialEl) materialEl.addEventListener('change', (e) => {
     const val = e.target.value;
-    applyToChecked((ct) => {
-      ct.material = val;
-      normalizeCountertopDepth(ct);
-      // При переключении на «свой материал» — сразу подставить разумные
-      // дефолты, если полей ещё нет, иначе пользователь увидит пустой
-      // select и пустое поле толщины. Декор корпуса — самый очевидный
-      // стартовый выбор; толщина 19 мм — минимально валидное значение
-      // БОЛЬШЕ 18 (см. countertopMat() в engine.js), дальше поправит сам.
-      if (val === 'custom') {
-        if (ct.decorCode === undefined) ct.decorCode = state.decorCode;
-        if (ct.thickness === undefined) ct.thickness = 19;
-      }
-    });
+    activeCt.material = val;
+    normalizeCountertopDepth(activeCt);
+    // При переключении на «свой материал» — сразу подставить разумные
+    // дефолты, если полей ещё нет, иначе пользователь увидит пустое поле
+    // толщины и «не выбран» вместо декора. Декор корпуса — самый очевидный
+    // стартовый выбор; толщина 19 мм — минимально валидное значение
+    // БОЛЬШЕ 18 (см. countertopMat() в engine.js), дальше поправит сам.
+    if (val === 'custom') {
+      if (activeCt.decorCode === undefined) activeCt.decorCode = state.decorCode;
+      if (activeCt.thickness === undefined) activeCt.thickness = 19;
+    }
     recompute();
   });
 
   const depthEl = document.getElementById('ctopDepth');
   if (depthEl) depthEl.addEventListener('change', (e) => {
-    const val = Number(e.target.value) || null;
-    applyToChecked((ct) => { ct.depth = val; });
+    activeCt.depth = Number(e.target.value) || null;
     recompute();
   });
 
-  const decorEl = document.getElementById('ctopDecor');
-  if (decorEl) decorEl.addEventListener('change', (e) => {
-    const val = e.target.value;
-    applyToChecked((ct) => { ct.decorCode = val; });
-    recompute();
-  });
-
-  // «+ Добавить материал»/«Удалить материал» под декором столешницы (см.
-  // materialPickActionsHtml('countertopDecor') в countertopPanelBlock) —
-  // тот же паттерн, что и в bindPanelEvents для Материала корпуса/фасада/
-  // задней стенки, но привязка ограничена ЭТОЙ панелью (querySelectorAll
-  // на document там же — задваивать обработчики на чужих кнопках не нужно).
+  // «+ Добавить материал»/«Удалить материал» под текущим материалом
+  // столешницы (см. materialPickActionsHtml('countertopDecor') в
+  // countertopPanelBlock) — тот же паттерн, что и в bindPanelEvents для
+  // Материала корпуса/фасада/задней стенки, но привязка ограничена ЭТОЙ
+  // панелью (querySelectorAll на panel, не на весь document — задваивать
+  // обработчики на чужих кнопках не нужно; аналогично bindPanelEvents
+  // теперь скоуплен на #paramsPanel — см. правку от 2026-09-06).
+  // Обычного select'а декора («ctopDecor») больше нет — текущий материал
+  // показывается текстом (ctop-decor-current), выбор только через
+  // библиотеку, без промежуточного дропдауна (убрано по просьбе
+  // пользователя 2026-09-06).
   panel.querySelectorAll('[data-material-add]').forEach((btn) => {
     btn.addEventListener('click', () => openMaterialPicker(btn.dataset.materialAdd));
   });
@@ -2109,8 +2153,7 @@ function bindCountertopEvents() {
   if (thicknessEl) thicknessEl.addEventListener('change', (e) => {
     // Number('') === 0 — «|| undefined» превращает пустое/невалидное поле
     // именно в «толщина не задана», а не в записанный ноль.
-    const val = Number(e.target.value) || undefined;
-    applyToChecked((ct) => { ct.thickness = val; });
+    activeCt.thickness = Number(e.target.value) || undefined;
     recompute();
   });
 
@@ -2127,10 +2170,9 @@ function bindCountertopEvents() {
       // это НЕ то же самое, что явные 0 (заподлицо с корпусом) — поэтому
       // очистка поля должна удалять переопределение, а не записывать 0.
       if (field === 'overhangBack' && e.target.value.trim() === '') {
-        applyToChecked((ct) => { delete ct.overhangBack; });
+        delete activeCt.overhangBack;
       } else {
-        const val = Number(e.target.value) || 0;
-        applyToChecked((ct) => { ct[field] = val; });
+        activeCt[field] = Number(e.target.value) || 0;
       }
       recompute();
     });
@@ -2730,15 +2772,50 @@ function openMaterialPicker(role) {
 // выбранный код из своего массива каталога. decor/facadeDecor читают ОДИН и
 // тот же массив DECORS — если удаляемый материал сейчас выбран и для второй
 // роли тоже (одинаковый декор корпуса и фасада), переключаем обе, иначе одно
-// из полей осталось бы ссылкой на уже удалённую позицию.
+// из полей осталось бы ссылкой на уже удалённую позицию. Столешница (у
+// АКТИВНОЙ тумбы, не у группы — см. activeCountertopModule) тоже могла
+// ссылаться на удалённый код — сбрасываем её при любой роли удаления, не
+// только при countertopDecor, ровно как decor/facadeDecor сбрасывают друг
+// друга.
 function deleteMaterialPick(role) {
+  if (role === 'countertopDecor') {
+    // «Свой материал» столешницы может лежать в ЛЮБОМ из трёх списков
+    // каталога (DECORS/FACADE_MATERIALS/BACK_MATERIALS) — без единого
+    // targetGroup, как у decor/facadeDecor/back ниже (см. libPickMaterial —
+    // тот же принцип «ссылка напрямую, без привязки к одному массиву»).
+    const mod = activeCountertopModule();
+    const curCode = mod && mod.countertop && mod.countertop.decorCode;
+    if (!curCode) return;
+    const item = findAnyMaterialByCode(curCode);
+    if (!item) return;
+    const inDecors = DECORS.some((d) => d.code === curCode);
+    const inBack = !inDecors && BACK_MATERIALS.some((d) => d.code === curCode);
+    const facade = window.Modul3D.catalog.FACADE_MATERIALS || {};
+    const inFacade = !inDecors && !inBack && Object.prototype.hasOwnProperty.call(facade, curCode);
+    if (inDecors && DECORS.length <= 1) {
+      window.alert('Нельзя удалить последний материал — иначе не из чего будет выбирать');
+      return;
+    }
+    if (inBack && BACK_MATERIALS.length <= 1) {
+      window.alert('Нельзя удалить последний материал — иначе не из чего будет выбирать');
+      return;
+    }
+    if (!window.confirm(`Удалить материал «${item.name}» из каталога?`)) return;
+    if (inDecors) DECORS.splice(DECORS.findIndex((d) => d.code === curCode), 1);
+    else if (inBack) BACK_MATERIALS.splice(BACK_MATERIALS.findIndex((d) => d.code === curCode), 1);
+    else if (inFacade) delete facade[curCode];
+    else return; // не нашли ни в одном из трёх — не должно случаться, ничего не делаем
+    if (state.decorCode === curCode) state.decorCode = DECORS[0].code;
+    if (state.facadeDecorCode === curCode) state.facadeDecorCode = DECORS[0].code;
+    if (state.backCode === curCode) { state.backCode = BACK_MATERIALS[0].code; state.backThickness = BACK_MATERIALS[0].thickness; }
+    delete mod.countertop.decorCode;
+    recompute();
+    return;
+  }
   const targetGroup = LIB_PICK_ROLE_GROUP[role];
   if (!targetGroup) return;
   const arr = targetGroup === 'back' ? BACK_MATERIALS : DECORS;
-  const curCode = role === 'decor' ? state.decorCode
-    : role === 'facadeDecor' ? state.facadeDecorCode
-    : role === 'countertopDecor' ? countertopPrimarySettings().decorCode
-    : state.backCode;
+  const curCode = role === 'decor' ? state.decorCode : role === 'facadeDecor' ? state.facadeDecorCode : state.backCode;
   if (arr.length <= 1) {
     window.alert('Нельзя удалить последний материал — иначе не из чего будет выбирать');
     return;
@@ -2754,14 +2831,13 @@ function deleteMaterialPick(role) {
   } else {
     if (state.decorCode === curCode) state.decorCode = firstCode;
     if (state.facadeDecorCode === curCode) state.facadeDecorCode = firstCode;
-    // «Свой материал» столешницы — тот же массив DECORS, ту же удалённую
-    // позицию могли выбрать и тумбы со столешницей, независимо от того,
-    // через какую именно роль удаление вызвали (как и decor/facadeDecor
-    // выше — переключаем ВСЕ поля, ссылавшиеся на удалённый код, не только
-    // то, с которого кликнули «Удалить»).
-    checkedCountertopModules().forEach((m) => {
-      if (m.countertop && m.countertop.decorCode === curCode) m.countertop.decorCode = firstCode;
-    });
+  }
+  // «Свой материал» столешницы АКТИВНОЙ тумбы — та же удалённая позиция
+  // могла быть выбрана и для неё, независимо от роли, с которой удаление
+  // вызвали (как decor/facadeDecor сбрасывают друг друга выше).
+  const activeMod = activeCountertopModule();
+  if (activeMod && activeMod.countertop && activeMod.countertop.decorCode === curCode) {
+    delete activeMod.countertop.decorCode;
   }
   recompute();
   renderParamsPanel();

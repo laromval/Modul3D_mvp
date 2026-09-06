@@ -1558,3 +1558,13 @@ body.is-focus .scrim { opacity: 0 !important; }
    без hover/курсора-указателя, чтобы не выглядел кликабельным. */
 .ctop-mod-row.disabled { color: var(--muted); opacity: .6; cursor: default; }
 .ctop-mod-row.disabled:hover { background: none; }
+/* Тумба, чьи материал/свесы сейчас показывает панель ниже (клик по строке,
+   см. bindCountertopEvents: data-ctop-select) — та же подсветка, что и у
+   активной вкладки модуля (.mod-tab.active). */
+.ctop-mod-row.active { background: var(--surface-2); box-shadow: inset 2px 0 0 var(--accent); }
+
+/* Текущий материал «своего материала» столешницы — просто текст (не select,
+   выбор только через Библиотеку, см. materialPickActionsHtml), тот же стиль
+   поля, что у select/input рядом. */
+.ctop-decor-current { padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--r-sm);
+  font-size: var(--fs-sm); background: var(--surface-2); }

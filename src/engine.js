@@ -1817,8 +1817,17 @@ function buildModuleParts(p) {
     // а не только `isDouble`). maxLength — по ширине листа декора, столешница
     // клеится/пилится из тех же листов, что и корпус.
     if (ct.material === 'custom') {
+      // decorCode может ссылаться на позицию из ЛЮБОГО из трёх списков
+      // каталога — DECORS, FACADE_MATERIALS (объект, не массив) или
+      // BACK_MATERIALS, БЕЗ копирования между ними (см. app.js:
+      // libPickMaterial/findAnyMaterialByCode — та же тройка, что уже ищет
+      // specification.js для листовых материалов, см. там `known`).
+      // Изменено 2026-09-06: раньше искали только в DECORS, что заставляло
+      // копировать материал из «Материалов фасадов» — плодило дубль в
+      // Библиотеке (найдено пользователем).
       const cat = window.Modul3D.catalog;
-      const dec = (cat.DECORS || []).find((d) => d.code === ct.decorCode);
+      const dec = [].concat(cat.DECORS || [], cat.BACK_MATERIALS || [], Object.values(cat.FACADE_MATERIALS || {}))
+        .find((d) => d.code === ct.decorCode);
       if (!dec) return { found: false };
       const th = Number(ct.thickness) || 0;
       // th <= 0 отсекает и пустое поле (0), и случайно введённое отрицательное
