@@ -1564,7 +1564,12 @@ body.is-focus .scrim { opacity: 0 !important; }
 .ctop-mod-row.active { background: var(--surface-2); box-shadow: inset 2px 0 0 var(--accent); }
 
 /* Текущий материал «своего материала» столешницы — просто текст (не select,
-   выбор только через Библиотеку, см. materialPickActionsHtml), тот же стиль
-   поля, что у select/input рядом. */
-.ctop-decor-current { padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--r-sm);
-  font-size: var(--fs-sm); background: var(--surface-2); }
+   выбор только через Библиотеку, см. countertopPanelBlock), тот же стиль
+   поля, что у select/input рядом. Кнопка «Изменить» (.link-btn) стоит рядом
+   в одну строку — .ctop-decor-current-row, текст занимает всё оставшееся
+   место, кнопка не сжимается. */
+.ctop-decor-current-row { display: flex; align-items: center; gap: var(--sp-3); }
+.ctop-decor-current { flex: 1; min-width: 0; padding: 8px 10px; border: 1px solid var(--border);
+  border-radius: var(--r-sm); font-size: var(--fs-sm); background: var(--surface-2);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ctop-decor-current-row .link-btn { flex: none; }
