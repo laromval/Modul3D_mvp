@@ -14,7 +14,7 @@
 (function () {
 // Версия сборки — показывается во вкладке браузера и в шапке.
 // При выпуске новой версии меняется только эта строка.
-const APP_VERSION = 'v243';
+const APP_VERSION = 'v245';
 
 // Номер версии выводим ПЕРВЫМ делом: если дальше что-то упадёт, по нему сразу
 // видно, какая сборка открыта.
@@ -52,7 +52,12 @@ if (_missing.length) {
   return;
 }
 
-const { buildModel } = window.Modul3D.engine;
+// EDGE_FRONT/EDGE_BACK/EDGE_MID — три фиксированных названия кромки
+// (совпадают с ключами каталога EDGE_PRICES), которыми ВЕСЬ engine.js
+// проставляет присадку по умолчанию (см. libDeleteSelectedRow ниже — эти
+// три позиции нельзя удалить из каталога, иначе часть деталей молча
+// осталась бы без учтённой кромки в стоимости).
+const { buildModel, EDGE_FRONT, EDGE_BACK, EDGE_MID } = window.Modul3D.engine;
 const { buildSpecification } = window.Modul3D.specification;
 const { Viewer3D } = window.Modul3D.viewer;
 const { exportDetailing, exportSpecification } = window.Modul3D.exportModule;
@@ -188,10 +193,37 @@ const state = {
   // materialPickActionsHtml/openMaterialPicker) — { role: 'decor' | 'facadeDecor'
   // | 'back' } или null, когда подбор не идёт. Пока не пуст, вкладка
   // «Библиотека → Материалы» рисует у каждой строки «Листовых материалов»
-  // дополнительную кнопку «Выбрать» (см. libSheetRowHtml/libPickMaterial).
+  // дополнительную кнопку «Выбрать» (см. libRowHtml/libPickMaterial).
   // Чисто UI-состояние, как libraryTab выше: в историю отмены/файл проекта
   // не попадает.
   libPickTarget: null,
+  // Единица, в которой показана колонка «Цена» ВО ВСЕХ таблицах вкладки
+  // «Материалы» одновременно (общий переключатель, выбирается прямо в шапке
+  // любой из таблиц, см. libPriceUnitHeaderHtml) — один из 'perMeter' |
+  // 'perPiece' | 'perM2' | 'perSheet' (см. libPriceValueForUnit). Дефолт
+  // «за м²» — так исторически было устроено сравнение материалов между
+  // собой (см. libPricePerM2), реальная стоимость проекта в спецификации
+  // всё равно считается по своим правилам (за лист/пог.метр), эта колонка
+  // только для сравнения. Чисто UI-состояние, как libraryTab выше: в
+  // историю отмены/файл проекта не попадает.
+  libPriceUnit: 'perM2',
+  // Свёрнутость колонок Длина/Ширина/Толщина («± характеристики», см.
+  // libTableHead/libLeafTableHtml) — своя у КАЖДОЙ открытой таблицы
+  // (ключ — тот же, что у libCollapsed: topCode + '::' + path.join('::')),
+  // а не общая на всю Библиотеку, в отличие от libPriceUnit выше. Отсутствие
+  // записи = развёрнуто (характеристики видны). Чисто UI-состояние,
+  // сессионное.
+  libCharsCollapsed: {},
+  // Строка таблицы материалов, выделенная кликом (см. libRowHtml/
+  // initLibraryPanel) — { group, key } или null. group/key — то же, что
+  // читает libFindItem (group — истинное происхождение позиции: decors/
+  // back/facade/edge/countertop, key — it.code или, у кромки, it.key).
+  // Используется кнопкой «− Удалить материал» под таблицей (см.
+  // libDeleteSelectedRow) — активна, только если выбранная строка
+  // принадлежит именно этой таблице. Сбрасывается при переключении вкладки
+  // Библиотеки и при фокусе на другом листе дерева (см. initLibraryPanel).
+  // Чисто UI-состояние, в историю/файл проекта не попадает.
+  libSelectedRow: null,
   // Текст в строке поиска по вкладкам модулей проекта (moduleTabsBlock,
   // поле видно только когда модулей больше 8 — см. там же). Чисто
   // UI-состояние, как libraryTab выше: в историю отмены/файл проекта не
@@ -582,7 +614,7 @@ function insertModule(m) {
   if (moduleHasFloorBase(m) && !noRealSupport && !m.countertop && Number(m.height) <= 1000) {
     m.countertop = {
       enabled: true,
-      decorCode: 'CTOP-LDSP38-600',
+      decorCode: defaultCountertopDecorCode(),
       overhangFront: defaultCountertopOverhangFront(m),
       overhangLeft: 0,
       overhangRight: 0,
@@ -728,8 +760,26 @@ function curSym() {
 // Инлайн-редактируемая ячейка: пока не кликнули — обычный текст, клик
 // (см. initLibraryPanel → делегирование на #libraryPanel) превращает её
 // в <input>, сохранение — по Enter/blur (см. startCellEdit).
-function libEditCell(group, key, field, type, value) {
-  return `<td class="lib-edit-cell" data-group="${esc(group)}" data-key="${esc(key)}" data-field="${field}" data-type="${type}">${esc(value == null ? '' : String(value))}</td>`;
+// opts.displayText — что показать вместо самого value (например, укороченное
+// название столешницы, см. libCountertopShortName, или «—» для отсутствующего
+// значения, см. libDashEditCell) — РЕАЛЬНОЕ значение для редактирования всё
+// равно берётся из data-raw (см. startCellEdit), поэтому клик по такой ячейке
+// открывает инпут с полным/настоящим значением, а не с тем, что нарисовано.
+// opts.extraClass — доп. класс на <td> (см. .lib-char-col — тумблер
+// «± характеристики», libIsCharsCollapsed).
+function libEditCell(group, key, field, type, value, opts) {
+  opts = opts || {};
+  const raw = value == null ? '' : String(value);
+  const shown = opts.displayText != null ? opts.displayText : raw;
+  const cls = 'lib-edit-cell' + (opts.extraClass ? ' ' + opts.extraClass : '');
+  return `<td class="${cls}" data-group="${esc(group)}" data-key="${esc(key)}" data-field="${field}" data-type="${type}" data-raw="${esc(raw)}">${esc(shown)}</td>`;
+}
+
+// Дефолт для колонок Длина/Ширина/Толщина (см. libRowHtml) — как обычная
+// libEditCell, только вместо пустой ячейки при отсутствующем значении
+// (бывает, например, у декора без указанной толщины) показывает «—».
+function libDashEditCell(group, key, field, value, extraClass) {
+  return libEditCell(group, key, field, 'number', value, { displayText: value == null ? '—' : undefined, extraClass });
 }
 
 // Дата ISO ('2026-09-03', см. catalog.js: CATALOG_SOURCE.lastSync) → русский
@@ -824,16 +874,17 @@ function libTopEntries(topCode) {
   if (topCode === 'countertop') {
     // COUNTERTOP_MATERIALS (catalog.js) не имеет поля categoryPath — в
     // отличие от decors/back/facade/edge/glass, здесь дерево строится не по
-    // отдельному полю данных, а виртуально из уже существующего materialId
-    // через COUNTERTOP_MATERIAL_LABEL (см. ниже): [ldsp38] → ['ЛДСП 38мм
-    // постформинг'] и т.п. item — мелкая копия (Object.assign), НЕ сама
-    // позиция каталога: та же техника, что уже применена к 'edge' выше
-    // (Object.assign({ key: name }, ...)) — инлайн-правки всё равно идут по
-    // it.code через libFindItem/libSaveEdit, читающие исходный массив
-    // напрямую, а не эту копию, так что редактирование остаётся рабочим.
+    // отдельному полю данных, а виртуально из уже существующих materialId/
+    // brand (как и у decors/facade, второй уровень дерева — фирма): [ldsp38,
+    // Kronospan] → ['ЛДСП 38мм постформинг', 'Kronospan'] и т.п. item —
+    // мелкая копия (Object.assign), НЕ сама позиция каталога: та же техника,
+    // что уже применена к 'edge' выше (Object.assign({ key: name }, ...)) —
+    // инлайн-правки всё равно идут по it.code через libFindItem/libSaveEdit,
+    // читающие исходный массив напрямую, а не эту копию, так что
+    // редактирование остаётся рабочим.
     return (cat.COUNTERTOP_MATERIALS || []).map((it) => ({
       group: 'countertop',
-      item: Object.assign({}, it, { categoryPath: [COUNTERTOP_MATERIAL_LABEL[it.materialId] || it.materialId] }),
+      item: Object.assign({}, it, { categoryPath: [COUNTERTOP_MATERIAL_LABEL[it.materialId] || it.materialId, it.brand || 'Без бренда'] }),
     }));
   }
   return [];
@@ -971,27 +1022,31 @@ function libFilterValues(items, field) {
   return vals;
 }
 
-// Поля-фильтры таблицы листа — по умолчанию «Толщина» (фирма теперь уровень
-// дерева categoryPath, не поле для фильтра), для «Кромки» (см.
-// libraryMaterialsBlock) дополнительно «Ширина» (item.width — поля пока
-// ни у одной позиции нет, см. LIB_EDGE_EXTRA_FILTERS ниже, фильтр просто не
-// появится, пока такое поле не заведут в catalog.js).
+// Поля-фильтры таблицы листа — единые для ВСЕХ категорий (декоры/задняя
+// стенка/фасады/стекло/кромка/столешницы), не только «Толщина», как раньше:
+// у каждой категории теперь есть все три поля Длина/Ширина/Толщина (местами
+// «—», см. libDimsOf) — фильтровать можно по любому. Читают не сырые поля
+// каталога (у разных категорий они называются по-разному — sheetW/maxLength/
+// null и т.п.), а уже нормализованные дистанции из libDimsOf (см.
+// libFiltersHtml/libRowHtml).
 const LIB_FILTER_FIELD_DEFS = [
+  { field: 'length', label: 'Длина', unit: ' мм', numeric: true },
+  { field: 'width', label: 'Ширина', unit: ' мм', numeric: true },
   { field: 'thickness', label: 'Толщина', unit: ' мм', numeric: true },
 ];
-const LIB_EDGE_EXTRA_FILTERS = [{ field: 'width', label: 'Ширина', unit: ' мм', numeric: true }];
 
 // Фильтры листа — рисуются, только если у позиций листа есть хоть одно
 // непустое значение соответствующего поля (пустой список с единственным
 // пунктом «Все» не показываем вообще). Само значение фильтра читает
 // делегированный `change`-обработчик (initLibraryPanel) через
 // closest('.lib-leaf-body') — select здесь своего состояния не хранит,
-// только рисуется. extraFields — доп. поля сверх LIB_FILTER_FIELD_DEFS (см.
-// LIB_EDGE_EXTRA_FILTERS выше).
-function libFiltersHtml(items, extraFields) {
-  const defs = LIB_FILTER_FIELD_DEFS.concat(extraFields || []);
-  const blocks = defs.map((def) => {
-    let vals = libFilterValues(items, def.field);
+// только рисуется. entries — { group, item }[] (как из libTopEntries) —
+// нормализуем каждую позицию через libDimsOf/libItemKind перед сбором
+// значений фильтра.
+function libFiltersHtml(entries) {
+  const dimsList = entries.map((e) => libDimsOf(libItemKind(e.group, e.item), e.item));
+  const blocks = LIB_FILTER_FIELD_DEFS.map((def) => {
+    let vals = libFilterValues(dimsList, def.field);
     if (!vals.length) return '';
     if (def.numeric) vals = vals.slice().sort((a, b) => a - b);
     return `
@@ -1014,64 +1069,68 @@ function libPriceNoteHtml(items) {
   return `<p class="hint">Цена ${esc(withNote.priceNote)}.</p>`;
 }
 
-// Ширины колонок фиксированы через <colgroup> (table-layout:fixed — инлайн
-// на самой таблице, см. libLeafTableHtml), чтобы длинное название
-// материала переносилось по словам, а не растягивало таблицу и вслед за ней
-// панель (см. #drawer-library.lib-wide/.lib-table в style.css). Колонка
-// «Наименование» — без явной ширины, забирает весь остаток.
-// isCountertop — у «Столешниц» совсем другой набор колонок (Материал/
-// Глубина вместо Ед.изм./Образец, без «Цена/м²» — товар продаётся пог.
-// метром, площади листа нет, см. libCountertopRowHtml), базово те же 5
-// колонок + необязательная «Выбрать» (pickMode — см. countertopPickMode в
-// libLeafTableHtml, считается там же в colCount по общей формуле).
-function libColgroup(hasThickness, pickMode, hasM2, isCountertop) {
-  if (isCountertop) {
-    return `<colgroup><col><col style="width:26px"><col style="width:170px"><col style="width:90px"><col style="width:110px">`
-      + `${pickMode ? '<col style="width:76px">' : ''}</colgroup>`;
-  }
-  // «Образец» — 72px: при 50px заголовок «ОБРАЗЕЦ» не помещался и визуально
-  // обрезался соседней колонкой (th непрозрачный, перекрывал overflow).
-  // hasM2 — доп. колонка «Цена/м²» (только объединённая категория «Листовые
-  // материалы», см. libraryMaterialsBlock/libPricePerM2 — чисто для
-  // сравнения материалов, стоимость проекта считается по листам). pickMode —
-  // доп. узкая колонка «Выбрать» (только «Листовые материалы» в режиме
-  // подбора, см. state.libPickTarget/libraryMaterialsBlock).
-  return `<colgroup><col><col style="width:26px"><col style="width:62px">`
-    + `<col style="width:72px"><col style="width:90px">`
-    + `${hasM2 ? '<col style="width:92px">' : ''}`
-    + `${hasThickness ? '<col style="width:82px">' : ''}`
-    + `${pickMode ? '<col style="width:76px">' : ''}</colgroup>`;
+// ---------------------------------------------------------------------------
+// Единый набор колонок ВСЕХ таблиц вкладки «Материалы»: Наименование /
+// (иконка источника) / Образец / Длина / Ширина / Толщина / Цена /
+// (опционально «Выбрать» в режиме подбора). Раньше у decors/back/facade,
+// edge и countertop были РАЗНЫЕ наборы колонок (hasM2/hasThickness/
+// isCountertop-ветвления) — теперь один рендерер на все шесть категорий,
+// различия только в том, ИЗ КАКОГО ПОЛЯ каталога берётся каждая колонка (см.
+// libItemKind/libDimsOf/libPriceValueForUnit ниже).
+// ---------------------------------------------------------------------------
+
+// kind — какой набор полей каталога читает позиция: 'sheet' (decors/back/
+// facade — обычный лист, sheetW/sheetH/sheetPrice), 'area' (стекло/массив
+// под заказ — customOrder, цена уже за м², без фиксированного листа),
+// 'edge' (EDGE_PRICES — width/thickness/price за пог.м), 'countertop'
+// (COUNTERTOP_MATERIALS — maxLength/depth/pricePerMeter).
+function libItemKind(group, it) {
+  if (group === 'edge') return 'edge';
+  if (group === 'countertop') return 'countertop';
+  if (it && (it.customOrder || it.unit === 'м²')) return 'area';
+  return 'sheet';
 }
-function libTableHead(hasThickness, pickMode, hasM2, isCountertop) {
-  if (isCountertop) {
-    return `<thead><tr>
-      <th>Наименование</th><th></th><th>Материал</th><th>Глубина</th><th>Цена, ${esc(curSym())}/пог.м</th>${pickMode ? '<th></th>' : ''}
-    </tr></thead>`;
-  }
-  return `<thead><tr>
-    <th>Наименование</th><th></th><th>Ед. изм.</th><th>Образец</th><th>Цена, ${esc(curSym())}</th>${hasM2 ? `<th>Цена, ${esc(curSym())}/м²</th>` : ''}${hasThickness ? `<th>Толщина, мм</th>` : ''}${pickMode ? `<th></th>` : ''}
-  </tr></thead>`;
+// Поле каталога, отвечающее за колонку «Длина» / «Ширина» — null, если у
+// этого вида позиций такого поля вообще не существует (кромка продаётся
+// размотанной лентой без фиксированной длины, стекло/массив под заказ режут
+// по месту — ни длины, ни ширины листа нет).
+function libLengthFieldOf(kind) {
+  if (kind === 'sheet') return 'sheetW';
+  if (kind === 'countertop') return 'maxLength';
+  return null;
+}
+function libWidthFieldOf(kind) {
+  if (kind === 'sheet') return 'sheetH';
+  if (kind === 'countertop') return 'depth';
+  if (kind === 'edge') return 'width';
+  return null;
+}
+// Нормализованные Длина/Ширина/Толщина одной позиции — числа или null
+// (поля нет вовсе, см. выше, либо конкретная позиция его не заполнила, как
+// H1180ST37 без thickness). Толщина у ВСЕХ шести категорий хранится в одном
+// и том же поле it.thickness.
+function libDimsOf(kind, it) {
+  const lenField = libLengthFieldOf(kind);
+  const widField = libWidthFieldOf(kind);
+  return {
+    length: lenField && it[lenField] != null ? it[lenField] : null,
+    width: widField && it[widField] != null ? it[widField] : null,
+    thickness: it && it.thickness != null ? it.thickness : null,
+  };
+}
+// Ключ позиции для libEditCell/libFindItem/выбора строки (см.
+// state.libSelectedRow) — it.code у всех категорий, кроме кромки: там
+// каталог хранит позиции объектом {имя → цена}, ключ — само имя (it.key,
+// проставляется в libTopEntries).
+function libRowKeyOf(group, it) {
+  return group === 'edge' ? it.key : it.code;
 }
 
-// Строка таблицы для decors/back/facade/glass — общая структура (правки идут
-// по коду item.code, см. libEditCell). Толщина — своя (редактируемая)
-// колонка только у задней стенки: у неё это единственный источник
-// state.backThickness (см. bindPanelEvents → #p-back). У декоров/фасадов/
-// стекла толщина не показывается отдельной колонкой (для фасада/корпуса она
-// общая на проект — bodyThickness/facadeThickness в «Параметрах проекта»).
-// data-thickness — не для отображения, а для фильтра (см.
-// initLibraryPanel → panel.addEventListener('change', ...)).
-// entry — { group, item }: group САМОЙ ЗАПИСИ, а не категории целиком —
-// в объединённой подкатегории «Листовые материалы» (см.
-// libraryMaterialsBlock) строки одной таблицы приходят из decors/back/facade
-// одновременно, и каждая правится через libEditCell(entry.group, ...), а не
-// через код категории. pickMode — доп. кнопка «Выбрать» (см. libColgroup).
 // Цена за м² — ТОЛЬКО для сравнения материалов между собой (реальная
 // стоимость проекта в спецификации по-прежнему считается по листам с
 // технологическим запасом, см. specification.js — эта колонка её не
-// подменяет). Не редактируется — сеточный расчёт из sheetPrice/sheetW/
-// sheetH; если хотя бы одного из трёх нет (customOrder-позиции без размера
-// листа — стекло, массив под заказ), возвращает null, ячейка пустая.
+// подменяет). Сеточный расчёт из sheetPrice/sheetW/sheetH; если хотя бы
+// одного из трёх нет, возвращает null.
 function libPricePerM2(it) {
   if (!it || !it.sheetPrice || !it.sheetW || !it.sheetH) return null;
   const area = (it.sheetW / 1000) * (it.sheetH / 1000);
@@ -1079,103 +1138,243 @@ function libPricePerM2(it) {
   return Math.round((it.sheetPrice / area) * 100) / 100;
 }
 
-function libSheetRowHtml(entry, hasThickness, pickMode, hasM2) {
+// Поле каталога, которое реально ХРАНИТ цену (единственный источник для
+// engine.js/specification.js) — единственное, что остаётся редактируемым
+// напрямую в колонке «Цена» (см. libPriceCellHtml): остальные единицы —
+// пересчёт «на лету», не редактируются.
+function libPriceFieldOf(kind) {
+  if (kind === 'countertop') return 'pricePerMeter';
+  if (kind === 'edge') return 'price';
+  return 'sheetPrice'; // 'sheet' и 'area' — оба хранят цену в sheetPrice
+}
+// В какой ЕДИНИЦЕ хранится «родная» цена данного вида позиций — колонка
+// «Цена» редактируема, только когда текущий переключатель (state.libPriceUnit)
+// совпадает с одной из этих единиц; для остальных единиц значение только
+// пересчитывается для отображения (см. libPriceCellHtml).
+function libNativeUnitsOf(kind) {
+  if (kind === 'sheet') return ['perSheet', 'perPiece']; // один лист = одна штука
+  if (kind === 'area') return ['perM2']; // sheetPrice customOrder-позиций уже цена за м²
+  if (kind === 'countertop') return ['perMeter'];
+  if (kind === 'edge') return ['perMeter'];
+  return [];
+}
+// Пересчёт цены в выбранную единицу — формулы см. в постановке задачи
+// (libraryMaterialsBlock/state.libPriceUnit): null, если для этого вида
+// позиций и этой единицы посчитать нечем (не тот тип товара/не хватает
+// полей) — ячейка тогда покажет «—», а не 0.
+function libPriceValueForUnit(kind, it, unit) {
+  if (kind === 'sheet') {
+    if (unit === 'perSheet' || unit === 'perPiece') return it.sheetPrice != null ? it.sheetPrice : null;
+    if (unit === 'perM2') return libPricePerM2(it);
+    return null; // perMeter — для листа смысла не имеет
+  }
+  if (kind === 'area') {
+    return unit === 'perM2' && it.sheetPrice != null ? it.sheetPrice : null;
+  }
+  if (kind === 'countertop') {
+    if (unit === 'perMeter') return it.pricePerMeter != null ? it.pricePerMeter : null;
+    if (unit === 'perSheet' || unit === 'perPiece') {
+      if (it.pricePerMeter == null || !it.maxLength) return null;
+      return Math.round(it.pricePerMeter * (it.maxLength / 1000) * 100) / 100;
+    }
+    if (unit === 'perM2') {
+      if (it.pricePerMeter == null || !it.depth) return null;
+      return Math.round((it.pricePerMeter / (it.depth / 1000)) * 100) / 100;
+    }
+    return null;
+  }
+  if (kind === 'edge') {
+    if (unit === 'perMeter') return it.price != null ? it.price : null;
+    if (unit === 'perM2') {
+      if (it.price == null || !it.width) return null;
+      return Math.round((it.price / (it.width / 1000)) * 100) / 100;
+    }
+    return null; // perSheet/perPiece — нет фиксированной длины ленты
+  }
+  return null;
+}
+function libPriceCellHtml(group, key, kind, it, unit) {
+  if (libNativeUnitsOf(kind).indexOf(unit) >= 0) {
+    const field = libPriceFieldOf(kind);
+    return libEditCell(group, key, field, 'number', it[field]);
+  }
+  const val = libPriceValueForUnit(kind, it, unit);
+  return `<td>${val != null ? esc(String(val)) : '—'}</td>`;
+}
+
+// Единицы измерения цены — общий переключатель на ВСЮ «Библиотеку» (см.
+// state.libPriceUnit): меняешь в шапке одной таблицы, пересчитываются все
+// остальные открытые таблицы (renderLibraryPanel — полная перерисовка).
+const LIB_PRICE_UNITS = [
+  { id: 'perMeter', label: 'м.п.' },
+  { id: 'perPiece', label: 'шт.' },
+  { id: 'perM2', label: 'м²' },
+  { id: 'perSheet', label: 'лист' },
+];
+function libPriceUnitHeaderHtml() {
+  const sym = curSym();
+  const opts = LIB_PRICE_UNITS.map((u) => `<option value="${esc(u.id)}" ${u.id === state.libPriceUnit ? 'selected' : ''}>Цена, ${esc(sym)}/${esc(u.label)}</option>`).join('');
+  return `<select class="lib-price-unit-select">${opts}</select>`;
+}
+
+// Укороченное название столешницы для колонки «Наименование» — убирает
+// служебный префикс «Столешница …, глубина N,» (тип и глубина и так видны
+// из новых колонок Толщина/Ширина) и бренд из скобок (он уже виден из
+// дерева/it.brand): «...мрамор белый (Kronospan K552SU White Iceberg)» →
+// «...мрамор белый (K552SU White Iceberg)». Само поле it.name НЕ трогаем —
+// нужно как есть для спецификации/экспорта, это только отображение (правки
+// инлайн всё равно идут по полному it.name, см. data-raw в libEditCell).
+function libCountertopShortName(it) {
+  let s = String((it && it.name) || '');
+  s = s.replace(/^Столешница.*?глубина\s*\d+,\s*/, '');
+  if (it && it.brand) s = s.split(`(${it.brand} `).join('(');
+  return s;
+}
+
+// Ширины колонок фиксированы через <colgroup> (table-layout:fixed — инлайн
+// на самой таблице, см. libLeafTableHtml), чтобы длинное название
+// материала переносилось по словам, а не растягивало таблицу и вслед за ней
+// панель (см. #drawer-library.lib-wide/.lib-table в style.css). Колонка
+// «Наименование» — без явной ширины, забирает весь остаток. Длина/Ширина/
+// Толщина помечены классом .lib-char-col — тумблер «± характеристики» (см.
+// libTableHead/style.css) прячет их одним CSS-правилом, не пересобирая
+// colspan остальных ячеек. Ширина 84px у каждой из трёх колонок (а не 76px,
+// как было рассчитано под одну-единственную «Толщина, мм») — три подписи
+// в шапке (см. libTableHead) уместились без наезда друг на друга в самой
+// широкой из них, «ТОЛЩИНА» (заголовки — capslock, .lib-table th).
+function libColgroup(pickMode) {
+  return `<colgroup><col><col style="width:26px"><col style="width:72px">`
+    + `<col class="lib-char-col" style="width:84px"><col class="lib-char-col" style="width:84px"><col class="lib-char-col" style="width:84px">`
+    + `<col style="width:118px">`
+    + `${pickMode ? '<col style="width:76px">' : ''}</colgroup>`;
+}
+// Заголовок — ДВЕ строки <thead>: в первой «Наименование»/«Образец»/«Цена»/
+// «Выбрать» растянуты на обе строки (rowspan), а Длина/Ширина/Толщина
+// собраны под одним общим заголовком-тумблером «± характеристики»
+// (colspan=3, клик сворачивает/разворачивает — см. initLibraryPanel), во
+// второй — сами подписи Длина/Ширина/Толщина. Подписи БЕЗ «, мм» — при трёх
+// колонках по 84px (см. libColgroup) полный текст «Ширина, мм»/«Толщина, мм»
+// не помещался и наезжал на соседнюю колонку (баг, найден code-review
+// 2026-09-07); единица вынесена в title-подсказку на каждой ячейке.
+function libTableHead(pickMode, collapsed) {
+  const toggleLabel = (collapsed ? '+' : '−') + ' характеристики';
+  return `<thead>
+    <tr>
+      <th rowspan="2">Наименование</th>
+      <th rowspan="2"></th>
+      <th rowspan="2">Образец</th>
+      <th colspan="3" class="lib-chars-toggle" data-chars-toggle="1" title="Показать/скрыть длину, ширину, толщину">${esc(toggleLabel)}</th>
+      <th rowspan="2">${libPriceUnitHeaderHtml()}</th>
+      ${pickMode ? '<th rowspan="2"></th>' : ''}
+    </tr>
+    <tr>
+      <th class="lib-char-col" title="Длина, мм">Длина</th>
+      <th class="lib-char-col" title="Ширина, мм">Ширина</th>
+      <th class="lib-char-col" title="Толщина, мм">Толщина</th>
+    </tr>
+  </thead>`;
+}
+
+// Одна строка таблицы — общая для ВСЕХ шести категорий (decors/back/facade/
+// glass/edge/countertop). entry — { group, item }: group САМОЙ ЗАПИСИ, а не
+// категории целиком — в объединённой подкатегории «Листовые материалы» (см.
+// libraryMaterialsBlock) строки одной таблицы приходят из decors/back/facade
+// одновременно, и каждая правится через libEditCell(entry.group, ...), а не
+// через код категории. opts.pickMode — доп. кнопка «Выбрать» (см.
+// libColgroup). data-row-group/data-row-key — клик по строке выделяет её
+// (см. state.libSelectedRow/initLibraryPanel), data-length/width/thickness —
+// то же самое, что читают фильтры (см. libFiltersHtml).
+function libRowHtml(entry, opts) {
   const group = entry.group;
   const it = entry.item;
-  const m2Price = hasM2 ? libPricePerM2(it) : null;
+  const kind = libItemKind(group, it);
+  const key = libRowKeyOf(group, it);
+  const pickMode = !!opts.pickMode;
+  const unit = state.libPriceUnit;
+  const sel = state.libSelectedRow;
+  const isSelected = !!(sel && sel.group === group && sel.key === key);
+  const searchText = String((group === 'edge' ? it.key : it.name) || '').toLowerCase();
+  const dims = libDimsOf(kind, it);
+  // Название кромки — ключ объекта EDGE_PRICES (см. catalog.js). Переименовывать
+  // его на месте рискованно (specification.js читает EDGE_PRICES[type] по
+  // значению из секции) — поэтому название НЕредактируемо, новая кромка
+  // добавляется вводом уникального названия (см. libAddRow).
+  const nameCell = group === 'edge'
+    ? `<td>${esc(it.key)}</td>`
+    : group === 'countertop'
+      ? libEditCell(group, key, 'name', 'text', it.name, { displayText: libCountertopShortName(it) })
+      : libEditCell(group, key, 'name', 'text', it.name);
+  const lenField = libLengthFieldOf(kind);
+  const widField = libWidthFieldOf(kind);
+  const lengthCell = lenField ? libDashEditCell(group, key, lenField, dims.length, 'lib-char-col') : '<td class="lib-char-col">—</td>';
+  const widthCell = widField ? libDashEditCell(group, key, widField, dims.width, 'lib-char-col') : '<td class="lib-char-col">—</td>';
+  const thicknessCell = libDashEditCell(group, key, 'thickness', dims.thickness, 'lib-char-col');
+  const priceCell = libPriceCellHtml(group, key, kind, it, unit);
+  const pickCell = pickMode
+    ? `<td><button type="button" class="link-btn lib-pick-btn" data-pick-group="${esc(group)}" data-pick-code="${esc(key)}">Выбрать</button></td>`
+    : '';
   return `
-    <tr data-search="${esc(String(it.name || '').toLowerCase())}"
-        data-thickness="${it.thickness != null ? esc(String(it.thickness)) : ''}">
-      ${libEditCell(group, it.code, 'name', 'text', it.name)}
+    <tr data-search="${esc(searchText)}" data-row-group="${esc(group)}" data-row-key="${esc(key)}"
+        data-length="${dims.length != null ? esc(String(dims.length)) : ''}"
+        data-width="${dims.width != null ? esc(String(dims.width)) : ''}"
+        data-thickness="${dims.thickness != null ? esc(String(dims.thickness)) : ''}"
+        class="${isSelected ? 'lib-row-selected' : ''}">
+      ${nameCell}
       ${libSourceLinkCell(it)}
-      ${libEditCell(group, it.code, 'unit', 'text', it.unit || 'лист')}
-      <td>${libSwatchHtml(group, it.code, it.image)}</td>
-      ${libEditCell(group, it.code, 'sheetPrice', 'number', it.sheetPrice)}
-      ${hasM2 ? `<td>${m2Price != null ? esc(String(m2Price)) : '—'}</td>` : ''}
-      ${hasThickness ? libEditCell(group, it.code, 'thickness', 'number', it.thickness) : ''}
-      ${pickMode ? `<td><button type="button" class="link-btn lib-pick-btn" data-pick-group="${esc(group)}" data-pick-code="${esc(it.code)}">Выбрать</button></td>` : ''}
-    </tr>`;
-}
-
-// Кромка: ключ объекта EDGE_PRICES — это и есть название (см. catalog.js).
-// Переименовывать его на месте рискованно (specification.js читает
-// EDGE_PRICES[type] по значению из секции) — поэтому название НЕредактируемо,
-// а новая кромка добавляется вводом уникального названия (см. libAddRow).
-// it.key — имя-ключ объекта (проставляется в libTopEntries при разборе
-// cat.EDGE_PRICES, самого объекта своего ключа не знает).
-function libEdgeRowHtml(it) {
-  return `
-    <tr data-search="${esc(String(it.key).toLowerCase())}"
-        data-width="${it.width != null ? esc(String(it.width)) : ''}">
-      <td>${esc(it.key)}</td>
-      ${libSourceLinkCell(it)}
-      ${libEditCell('edge', it.key, 'unit', 'text', it.unit || 'пог.м')}
-      <td>${libSwatchHtml('edge', it.key, it.image)}</td>
-      ${libEditCell('edge', it.key, 'price', 'number', it.price)}
-    </tr>`;
-}
-
-// Столешницы (window.Modul3D.catalog.COUNTERTOP_MATERIALS) продаются
-// погонным метром фиксированной глубины (см. комментарий у самого массива в
-// catalog.js), поэтому строка другая, чем у листовых материалов — вместо
-// «Ед. изм./Образец» показываем «Материал» (человекочитаемая метка по
-// it.materialId, см. COUNTERTOP_MATERIAL_LABEL) и «Глубина» вместо «Цена за
-// лист/Толщина». it — копия из libTopEntries с добавленным categoryPath
-// (см. там же), правки всё равно идут по it.code через libFindItem, который
-// читает исходный массив каталога напрямую.
-function libCountertopRowHtml(it, pickMode) {
-  return `
-    <tr data-search="${esc(String(it.name || '').toLowerCase())}">
-      ${libEditCell('countertop', it.code, 'name', 'text', it.name)}
-      ${libSourceLinkCell(it)}
-      <td>${esc(COUNTERTOP_MATERIAL_LABEL[it.materialId] || it.materialId)}</td>
-      <td>${it.depth} мм</td>
-      ${libEditCell('countertop', it.code, 'pricePerMeter', 'number', it.pricePerMeter)}
-      ${pickMode ? `<td><button type="button" class="link-btn lib-pick-btn" data-pick-group="countertop" data-pick-code="${esc(it.code)}">Выбрать</button></td>` : ''}
+      <td>${libSwatchHtml(group, key, it.image)}</td>
+      ${lengthCell}
+      ${widthCell}
+      ${thicknessCell}
+      ${priceCell}
+      ${pickCell}
     </tr>`;
 }
 
 // Таблица позиций одного листа (или «своих» позиций ветки — см. HDF-8 в
 // комментарии выше libTopEntries): фильтры → подсказка о примерной цене →
-// таблица → кнопка «+ Добавить материал» (опц.). addGroupMap/addDefaultGroup
-// решают, в какой массив каталога уйдёт новая позиция — см.
-// libraryMaterialsBlock, там же объяснение выбора значения по умолчанию.
+// таблица → «+ Добавить материал» / «− Удалить материал» (опц.).
+// addGroupMap/addDefaultGroup решают, в какой массив каталога уйдёт новая
+// позиция — см. libraryMaterialsBlock, там же объяснение выбора значения по
+// умолчанию.
 function libLeafTableHtml(topCode, path, entries, opts) {
-  const hasThickness = !!opts.hasThickness;
-  const hasM2 = !!opts.hasM2;
   const isCountertop = topCode === 'countertop';
-  const pickMode = !!(opts.pickable && state.libPickTarget);
   // У столешниц кнопка «Выбрать» появляется НЕ на любой подбор (в отличие
-  // от «Листовых материалов», где любая из ролей decor/facadeDecor/back/
-  // countertopDecor годится, т.к. это всё обычные листы) — только когда
-  // подбирают материал СПЕЦИАЛЬНО для столешницы (role: 'countertopDecor',
-  // см. openMaterialPicker/libPickMaterial). Для decor/facadeDecor/back
-  // карточка столешницы (продаётся погонным метром) не годится.
-  const countertopPickMode = isCountertop && !!(state.libPickTarget && state.libPickTarget.role === 'countertopDecor');
-  const effectivePickMode = isCountertop ? countertopPickMode : pickMode;
-  const rowsHtml = topCode === 'edge'
-    ? entries.map((e) => libEdgeRowHtml(e.item)).join('')
-    : isCountertop
-      ? entries.map((e) => libCountertopRowHtml(e.item, countertopPickMode)).join('')
-      : entries.map((e) => libSheetRowHtml(e, hasThickness, pickMode, hasM2)).join('');
+  // от «Листовых материалов», где любая из ролей decor/facadeDecor/back
+  // годится, т.к. это всё обычные листы) — только когда подбирают материал
+  // СПЕЦИАЛЬНО для столешницы (role: 'countertopDecor', см.
+  // openMaterialPicker/libPickMaterial). Для decor/facadeDecor/back карточка
+  // столешницы (продаётся погонным метром) не годится.
+  const pickMode = isCountertop
+    ? !!(state.libPickTarget && state.libPickTarget.role === 'countertopDecor')
+    : !!(opts.pickable && state.libPickTarget);
+  const rowsHtml = entries.map((e) => libRowHtml(e, { pickMode })).join('');
   const items = entries.map((e) => e.item);
-  const colCount = 5 + (hasM2 ? 1 : 0) + (hasThickness ? 1 : 0) + (effectivePickMode ? 1 : 0);
+  const colCount = 7 + (pickMode ? 1 : 0);
   const emptyRow = entries.length ? '' : `<tr><td colspan="${colCount}" class="hint">Пока нет позиций</td></tr>`;
   const addGroup = topCode === 'edge' ? 'edge' : ((opts.addGroupMap && opts.addGroupMap[path[0]]) || opts.addDefaultGroup || topCode);
   const addHtml = opts.addLabel
     ? `<button type="button" class="link-btn lib-add" data-add="${esc(addGroup)}" data-add-path="${esc(path.join('::'))}">${esc(opts.addLabel)}</button>`
     : '';
-  // Фильтры (толщина/ширина, см. libFiltersHtml) читают строку по
-  // data-thickness/data-width её <tr> — у столешницы (libCountertopRowHtml)
-  // этих атрибутов нет (там своя пара колонок «Материал»/«Глубина», а не
-  // «Толщина»), поэтому для неё фильтры не рисуем: пустой data-* сломал бы
-  // фильтрацию (все строки ушли бы в «не совпало»), а не просто не показал бы её.
+  // «− Удалить материал» — только там, где вообще есть массив/объект
+  // каталога, из которого можно удалить строку. «Стекло» (topCode 'glass') —
+  // единственное исключение: cat.GLASS не массив, а один фиксированный
+  // объект, удалять там нечего (у GLASS-4 внутри «Материалов фасадов» такое
+  // ограничение уже не действует — FACADE_MATERIALS обычный объект-каталог).
+  const canDelete = topCode !== 'glass';
+  const sel = state.libSelectedRow;
+  const selectedHere = canDelete && !!sel && entries.some((e) => e.group === sel.group && libRowKeyOf(e.group, e.item) === sel.key);
+  const delHtml = canDelete
+    ? `<button type="button" class="link-btn lib-row-del" ${selectedHere ? '' : 'disabled'}>− Удалить материал</button>`
+    : '';
+  const actionsHtml = (addHtml || delHtml) ? `<div class="lib-leaf-actions">${addHtml}${delHtml}</div>` : '';
+  const charsKey = libNodeKey(topCode, path);
+  const collapsed = !!state.libCharsCollapsed[charsKey];
   return `
     <div class="lib-leaf-body">
-      ${isCountertop ? '' : libFiltersHtml(items, opts.filterExtraFields)}
+      ${libFiltersHtml(entries)}
       ${libPriceNoteHtml(items)}
-      <table class="lib-table" style="table-layout:fixed">${libColgroup(hasThickness, effectivePickMode, hasM2, isCountertop)}${libTableHead(hasThickness, effectivePickMode, hasM2, isCountertop)}<tbody>${rowsHtml}${emptyRow}</tbody></table>
-      ${addHtml}
+      <table class="lib-table${collapsed ? ' chars-collapsed' : ''}" style="table-layout:fixed" data-chars-key="${esc(charsKey)}">${libColgroup(pickMode)}${libTableHead(pickMode, collapsed)}<tbody>${rowsHtml}${emptyRow}</tbody></table>
+      ${actionsHtml}
     </div>`;
 }
 
@@ -1260,10 +1459,11 @@ function libTopCategoryHtml(topCode, title, opts) {
 // погонным метром фиксированной глубины (см. комментарий у самого массива
 // в catalog.js) и, в отличие от decors/back/facade/edge/glass, не имеют
 // собственного поля categoryPath — пятая ветка дерева «Материалы» строится
-// виртуально из уже существующего materialId (см. libTopEntries: топ
-// 'countertop'). materialId группирует линейку (ldsp38 постформинг /
-// compact12 компакт-плита) — человекочитаемое название берём тут же, чтобы
-// не плодить код в catalog.js ради одной подписи в дереве/таблице.
+// виртуально из уже существующих materialId/brand (см. libTopEntries: топ
+// 'countertop', второй уровень пути — бренд, как у decors/facade). materialId
+// группирует линейку (ldsp38 постформинг / compact12 компакт-плита) —
+// человекочитаемое название берём тут же, чтобы не плодить код в catalog.js
+// ради одной подписи в дереве/таблице.
 const COUNTERTOP_MATERIAL_LABEL = { ldsp38: 'ЛДСП 38мм постформинг', compact12: 'Компакт-плита HPL 12мм', doubleLdsp: 'Сдвоенное ЛДСП (по декору корпуса)' };
 // Обратный словарь (метка листа дерева → materialId) — нужен «+ Добавить
 // столешницу» (см. libAddRow), чтобы новая позиция попадала в ту же линейку
@@ -1297,11 +1497,11 @@ function libraryMaterialsBlock() {
     <h3>Материалы</h3>
     ${libSourceHint()}
     ${libTopCategoryHtml('sheet', 'Листовые материалы', {
-      hasThickness: true, hasM2: true, pickable: true,
+      pickable: true,
       addLabel: '+ Добавить материал', addGroupMap: SHEET_ADD_GROUP_MAP, addDefaultGroup: 'decors',
     })}
     ${libTopCategoryHtml('facade', 'Материалы фасадов', { addLabel: '+ Добавить материал' })}
-    ${libTopCategoryHtml('edge', 'Кромка', { addLabel: '+ Добавить кромку', filterExtraFields: LIB_EDGE_EXTRA_FILTERS })}
+    ${libTopCategoryHtml('edge', 'Кромка', { addLabel: '+ Добавить кромку' })}
     ${libTopCategoryHtml('glass', 'Стекло', {})}
     ${libTopCategoryHtml('countertop', 'Столешницы', { addLabel: '+ Добавить столешницу', pickable: true })}`;
 }
@@ -1413,8 +1613,8 @@ function libSaveEdit(group, key, field, value) {
 const LIB_PICK_ROLE_GROUP = { decor: 'decors', facadeDecor: 'decors', back: 'back' };
 
 // Клик «Выбрать» на строке «Листовых материалов» в режиме подбора.
-// rowGroup/code — ИСТИННОЕ происхождение строки (см. libSheetRowHtml:
-// entry.group), может не совпадать с массивом нужной роли — например,
+// rowGroup/code — ИСТИННОЕ происхождение строки (см. libRowHtml: entry.group),
+// может не совпадать с массивом нужной роли — например,
 // пользователь подбирает «Материал корпуса» (читает DECORS), но кликнул по
 // строке FAC-LDSP, которая физически лежит в FACADE_MATERIALS. В этом
 // случае саму позицию не переносим (она там нужна и для типа фасада), а
@@ -1546,15 +1746,18 @@ function libAddRow(group, path) {
     if (cat.EDGE_PRICES[name]) { window.alert('Кромка с таким названием уже есть в каталоге.'); return; }
     cat.EDGE_PRICES[name] = { price: 0, unit: 'пог.м', image: null, categoryPath: path.slice() };
   } else if (group === 'countertop') {
-    // materialId берём по листу дерева, под которым нажали «+ Добавить
-    // столешницу» (path[0] — метка COUNTERTOP_MATERIAL_LABEL, см.
-    // COUNTERTOP_MATERIAL_LABEL_TO_ID выше и libTopEntries) — если кнопка
-    // нажата не под конкретным листом (path пуст) или метка не распознана,
-    // 'ldsp38' по умолчанию как самая частая линейка. Глубину и цену
-    // пользователь правит инлайн сразу после добавления строки.
+    // materialId/brand берём по листу дерева, под которым нажали «+
+    // Добавить столешницу» — path[0] метка типа (COUNTERTOP_MATERIAL_LABEL,
+    // см. COUNTERTOP_MATERIAL_LABEL_TO_ID выше и libTopEntries), path[1]
+    // бренд (второй уровень дерева, см. libTopEntries: item.categoryPath у
+    // столешниц). Если кнопка нажата не под конкретным листом (path пуст)
+    // или метка не распознана, 'ldsp38' по умолчанию как самая частая
+    // линейка. Глубину и цену пользователь правит инлайн сразу после
+    // добавления строки.
     if (!cat.COUNTERTOP_MATERIALS) cat.COUNTERTOP_MATERIALS = [];
     const materialId = COUNTERTOP_MATERIAL_LABEL_TO_ID[path[0]] || 'ldsp38';
-    cat.COUNTERTOP_MATERIALS.push({ code: 'CTOP-NEW-' + Date.now(), materialId,
+    const brand = path[1] || 'Новый бренд';
+    cat.COUNTERTOP_MATERIALS.push({ code: 'CTOP-NEW-' + Date.now(), materialId, brand,
       name: 'Новая столешница', thickness: 38, depth: 600, pricePerMeter: 0, maxLength: 4100,
       unit: 'пог.м', image: null });
   } else {
@@ -1565,6 +1768,128 @@ function libAddRow(group, path) {
   // вне снимка каталога материалов, сохранять на сервер нечего (см. тот же
   // комментарий в libSaveEdit).
   if (group.indexOf('hwadd:') !== 0) scheduleCatalogSave();
+  renderLibraryPanel();
+}
+
+// ---------------------------------------------------------------------------
+// «− Удалить материал» под таблицей листа (см. libLeafTableHtml/
+// state.libSelectedRow) — в отличие от deleteMaterialPick (кнопки «Удалить
+// материал» в «Параметрах проекта» у Материал корпуса/фасада/Задняя стенка,
+// которые знают ТОЛЬКО про decor/back), эта работает с ЛЮБОЙ из пяти
+// удаляемых категорий каталога (decors/back/facade/edge/countertop —
+// «Стекло» неудаляемо в принципе, см. canDelete в libLeafTableHtml).
+// ---------------------------------------------------------------------------
+
+// Коды FACADE_MATERIALS, жёстко зашитые в FACADE_TYPES (.material/.insert) —
+// каждый тип фасада (ldsp/mdf/glass4/wood/...) ссылается на конкретный код
+// напрямую, спецификация ищет материал по нему без проверки на
+// существование. Плюс 'FAC-VENEER' — engine.js (visibleSideMat) возвращает
+// этот код НАПРЯМУЮ литералом, в обход FACADE_TYPES. Удаление любого из этих
+// кодов молча сломало бы стоимость (и, для FAC-VENEER, деталировку боковины)
+// у всех модулей с соответствующим типом фасада — блокируем в
+// libDeleteSelectedRow. Позиции фасада, добавленные пользователем через «+
+// Добавить материал» (коды вида FAC-NEW-*), в этот список не попадают и
+// удаляются свободно.
+function libFacadeReservedCodes() {
+  const set = { 'FAC-VENEER': true };
+  Object.values(FACADE_TYPES || {}).forEach((t) => {
+    if (t.material) set[t.material] = true;
+    if (t.insert) set[t.insert] = true;
+  });
+  return set;
+}
+// Три названия кромки, которыми ВЕСЬ engine.js проставляет присадку по
+// умолчанию (EDGE_FRONT/EDGE_BACK/EDGE_MID, см. деструктуризацию в начале
+// файла) — specification.js при отсутствующем EDGE_PRICES[type] тихо
+// подставляет цену 0 (`EDGE_PRICES[type]?.price ?? 0`), поэтому удаление не
+// уронит приложение, но незаметно обнулит реальную стоимость кромки по
+// всему проекту — блокируем. Кромка, добавленная пользователем под другим
+// названием, удаляется свободно.
+const LIB_EDGE_RESERVED_NAMES = [EDGE_FRONT, EDGE_BACK, EDGE_MID];
+
+// Столешница «своего материала» (mod.countertop.decorCode) может ссылаться
+// на код из ЛЮБОГО из четырёх массивов — DECORS/BACK_MATERIALS/
+// FACADE_MATERIALS/COUNTERTOP_MATERIALS (см. findAnyMaterialByCode/
+// countertopMat в engine.js) — при удалении позиции из любого из них
+// проверяем ВСЕ модули проекта (не только активный, как делает более старая
+// deleteMaterialPick — здесь это дёшево, поле одно и то же для всех четырёх
+// категорий) и переключаем совпавшие на первый оставшийся код той же
+// категории.
+function libResetCountertopRefs(removedCode, fallbackCode) {
+  state.modules.forEach((mod) => {
+    if (mod.countertop && mod.countertop.decorCode === removedCode) {
+      mod.countertop.decorCode = fallbackCode;
+    }
+  });
+}
+
+function libDeleteSelectedRow() {
+  const sel = state.libSelectedRow;
+  if (!sel) return;
+  const cat = window.Modul3D.catalog;
+  const lastAlert = () => window.alert('Нельзя удалить последнюю позицию — иначе не из чего будет выбирать.');
+  if (sel.group === 'decors') {
+    if (DECORS.length <= 1) { lastAlert(); return; }
+    const idx = DECORS.findIndex((x) => x.code === sel.key);
+    if (idx < 0) return;
+    if (!window.confirm(`Удалить материал «${DECORS[idx].name}» из каталога?`)) return;
+    const removedCode = DECORS[idx].code;
+    DECORS.splice(idx, 1);
+    const firstCode = DECORS[0].code;
+    if (state.decorCode === removedCode) state.decorCode = firstCode;
+    if (state.facadeDecorCode === removedCode) state.facadeDecorCode = firstCode;
+    libResetCountertopRefs(removedCode, firstCode);
+  } else if (sel.group === 'back') {
+    if (BACK_MATERIALS.length <= 1) { lastAlert(); return; }
+    const idx = BACK_MATERIALS.findIndex((x) => x.code === sel.key);
+    if (idx < 0) return;
+    if (!window.confirm(`Удалить материал «${BACK_MATERIALS[idx].name}» из каталога?`)) return;
+    const removedCode = BACK_MATERIALS[idx].code;
+    BACK_MATERIALS.splice(idx, 1);
+    const first = BACK_MATERIALS[0];
+    if (state.backCode === removedCode) { state.backCode = first.code; state.backThickness = first.thickness; }
+    libResetCountertopRefs(removedCode, first.code);
+  } else if (sel.group === 'facade') {
+    if (libFacadeReservedCodes()[sel.key]) {
+      window.alert('Этот материал фасада используется системными типами фасадов (см. «Тип фасада» у секции) и не может быть удалён.');
+      return;
+    }
+    const keys = Object.keys(cat.FACADE_MATERIALS);
+    if (keys.length <= 1) { lastAlert(); return; }
+    const it = cat.FACADE_MATERIALS[sel.key];
+    if (!it) return;
+    if (!window.confirm(`Удалить материал «${it.name}» из каталога?`)) return;
+    delete cat.FACADE_MATERIALS[sel.key];
+    const firstCode = Object.keys(cat.FACADE_MATERIALS)[0];
+    libResetCountertopRefs(sel.key, firstCode);
+  } else if (sel.group === 'edge') {
+    if (LIB_EDGE_RESERVED_NAMES.indexOf(sel.key) >= 0) {
+      window.alert('Эта кромка используется расчётом присадки по умолчанию и не может быть удалена.');
+      return;
+    }
+    const keys = Object.keys(cat.EDGE_PRICES);
+    if (keys.length <= 1) { lastAlert(); return; }
+    if (!cat.EDGE_PRICES[sel.key]) return;
+    if (!window.confirm(`Удалить кромку «${sel.key}» из каталога?`)) return;
+    delete cat.EDGE_PRICES[sel.key];
+    // Кромка хранится по имени-ключу, а не по стабильному коду — кроме трёх
+    // защищённых констант выше (EDGE_FRONT/EDGE_BACK/EDGE_MID), других мест
+    // в коде, которые бы ссылались на конкретное имя кромки, не нашлось.
+  } else if (sel.group === 'countertop') {
+    const arr = cat.COUNTERTOP_MATERIALS || [];
+    if (arr.length <= 1) { lastAlert(); return; }
+    const idx = arr.findIndex((x) => x.code === sel.key);
+    if (idx < 0) return;
+    if (!window.confirm(`Удалить столешницу «${arr[idx].name}» из каталога?`)) return;
+    const removedCode = arr[idx].code;
+    arr.splice(idx, 1);
+    libResetCountertopRefs(removedCode, arr[0].code);
+  } else {
+    return;
+  }
+  state.libSelectedRow = null;
+  recompute();
+  scheduleCatalogSave();
   renderLibraryPanel();
 }
 
@@ -1602,7 +1927,7 @@ const LIB_UNIT_OPTIONS = ['лист', 'м²', 'пог.м', 'шт'];
 function startCellEdit(cell) {
   if (cell.querySelector('input') || cell.querySelector('select')) return;
   if (cell.dataset.field === 'unit') {
-    const cur = cell.textContent.trim();
+    const cur = cell.dataset.raw != null ? cell.dataset.raw : cell.textContent.trim();
     cell.innerHTML = `<select>${LIB_UNIT_OPTIONS.map((o) => `<option value="${esc(o)}" ${o === cur ? 'selected' : ''}>${esc(o)}</option>`).join('')}</select>`;
     const select = cell.querySelector('select');
     select.focus();
@@ -1617,7 +1942,7 @@ function startCellEdit(cell) {
     return;
   }
   const type = cell.dataset.type === 'number' ? 'number' : 'text';
-  const cur = cell.textContent;
+  const cur = cell.dataset.raw != null ? cell.dataset.raw : cell.textContent;
   cell.innerHTML = `<input type="${type}" ${type === 'number' ? 'step="any"' : ''} value="${esc(cur)}">`;
   const input = cell.querySelector('input');
   input.focus();
@@ -1723,6 +2048,10 @@ function initLibraryPanel() {
     const b = e.target.closest('.lib-tab-btn');
     if (!b) return;
     state.libraryTab = b.dataset.libtab;
+    // Переключили вкладку — открытые таблицы прежней вкладки скрылись,
+    // выделенная строка (см. state.libSelectedRow) больше ни к чему не
+    // относится.
+    state.libSelectedRow = null;
     renderLibraryPanel();
   });
   const search = document.getElementById('librarySearch');
@@ -1756,14 +2085,34 @@ function initLibraryPanel() {
       const topCode = treeRow.dataset.top;
       const path = treeRow.dataset.path ? treeRow.dataset.path.split('::') : [];
       const kind = treeRow.dataset.kind;
-      if (kind === 'top') state.libCatOpen[topCode] = !state.libCatOpen[topCode];
+      // Смена того, какая таблица(-ы) сейчас видна — выделенная строка (см.
+      // state.libSelectedRow) больше не обязательно принадлежит видимой
+      // таблице, сбрасываем в обоих случаях (клик по категории целиком и
+      // клик по листу — единственные места, где набор видимых таблиц
+      // реально меняется; клик по обычной ветке только раскрывает/сворачивает
+      // поддерево, таблицы внутри как были видны, так и остаются).
+      if (kind === 'top') { state.libCatOpen[topCode] = !state.libCatOpen[topCode]; state.libSelectedRow = null; }
       else if (kind === 'leaf') {
         const key = path.join('::');
         state.libActiveLeaf[topCode] = state.libActiveLeaf[topCode] === key ? null : key;
+        state.libSelectedRow = null;
       } else {
         libToggleNode(topCode, path);
       }
       renderLibraryPanel();
+      return;
+    }
+    // Заголовок-тумблер «± характеристики» (см. libTableHead) — сворачивает/
+    // разворачивает колонки Длина/Ширина/Толщина ТОЛЬКО этой таблицы (ключ —
+    // data-chars-key на самой <table>, см. libLeafTableHtml/state.libCharsCollapsed).
+    const charsToggle = e.target.closest('.lib-chars-toggle');
+    if (charsToggle) {
+      const table = charsToggle.closest('table.lib-table');
+      const key = table && table.dataset.charsKey;
+      if (key) {
+        state.libCharsCollapsed[key] = !state.libCharsCollapsed[key];
+        renderLibraryPanel();
+      }
       return;
     }
     // «+ Добавить материал/кромку/столешницу» под таблицей листа (см.
@@ -1775,17 +2124,37 @@ function initLibraryPanel() {
       libAddRow(addBtn.dataset.add, pathStr ? pathStr.split('::') : []);
       return;
     }
+    // «− Удалить материал» под таблицей листа (см. libLeafTableHtml) —
+    // работает только с уже выделенной кликом по строке позицией (см. ветку
+    // ниже), кнопка неактивна (disabled), пока ничего не выбрано.
+    const delRowBtn = e.target.closest('.lib-row-del');
+    if (delRowBtn) { libDeleteSelectedRow(); return; }
     const swatch = e.target.closest('.lib-swatch');
     if (swatch) { openLibImagePicker(swatch.dataset.swatchGroup, swatch.dataset.swatchKey); return; }
     // «Выбрать» — только в режиме подбора материала из «Параметры проекта»
     // (см. state.libPickTarget/libPickMaterial): у «Листовых материалов»
     // колонка видна для любой роли подбора, у «Столешниц» — только когда
-    // подбирают роль countertopDecor (см. countertopPickMode в
+    // подбирают роль countertopDecor (см. pickMode для isCountertop в
     // libLeafTableHtml).
     const pickBtn = e.target.closest('.lib-pick-btn');
     if (pickBtn) { libPickMaterial(pickBtn.dataset.pickGroup, pickBtn.dataset.pickCode); return; }
     const cell = e.target.closest('.lib-edit-cell');
     if (cell) { startCellEdit(cell); return; }
+    // Ссылка-источник (см. libSourceLinkCell) открывается сама (обычная
+    // <a target="_blank">) — не должна ЕЩЁ и выделять строку под собой.
+    if (e.target.closest('.lib-source-link')) return;
+    // Клик по остальной части строки таблицы — выделение для «− Удалить
+    // материал» выше (см. state.libSelectedRow). Повторный клик по уже
+    // выделенной строке снимает выделение.
+    const dataRow = e.target.closest('tr[data-row-key]');
+    if (dataRow) {
+      const g = dataRow.dataset.rowGroup;
+      const k = dataRow.dataset.rowKey;
+      const same = state.libSelectedRow && state.libSelectedRow.group === g && state.libSelectedRow.key === k;
+      state.libSelectedRow = same ? null : { group: g, key: k };
+      renderLibraryPanel();
+      return;
+    }
   });
 
   // Фильтры листа (см. libFiltersHtml/LIB_FILTER_FIELD_DEFS) — отдельный
@@ -1800,6 +2169,15 @@ function initLibraryPanel() {
   // отдельно поиском (applyLibrarySearch) и должен продолжать работать
   // независимо, на той же строке одновременно.
   panel.addEventListener('change', (e) => {
+    // Переключатель единицы цены (см. libPriceUnitHeaderHtml) — общий на
+    // всю Библиотеку (state.libPriceUnit), поэтому полная перерисовка, а не
+    // точечное обновление одной таблицы, как у фильтров ниже.
+    const priceUnitSel = e.target.closest('.lib-price-unit-select');
+    if (priceUnitSel) {
+      state.libPriceUnit = priceUnitSel.value;
+      renderLibraryPanel();
+      return;
+    }
     const sel = e.target.closest('.lib-filter-select');
     if (!sel) return;
     const scope = sel.closest('.lib-leaf-body');
@@ -1850,6 +2228,20 @@ function moduleHasFloorBase(mod) {
 // дефолт — insertModule() и чекбокс включения в панели «Столешница».
 function defaultCountertopOverhangFront(mod) {
   return mod && mod.family === 'kitchen' ? 20 : 0;
+}
+
+// Дефолтный код столешницы при первом включении — раньше был захардкожен
+// как 'CTOP-LDSP38-600' (позиция каталога, которая гарантированно
+// существовала). С появлением кнопки «− Удалить материал» в Библиотеке
+// пользователь может удалить именно её — литерал стал бы ссылкой на
+// несуществующий код. Берём первую доступную позицию каталога на момент
+// вызова (тот же приём, что и в deleteMaterialPick — arr[0].code после
+// удаления). Пустой каталог столешниц — вырожденный случай (последнюю
+// позицию удалить нельзя нигде в UI), но на всякий случай возвращаем
+// undefined, а не падаем.
+function defaultCountertopDecorCode() {
+  const arr = (window.Modul3D.catalog && window.Modul3D.catalog.COUNTERTOP_MATERIALS) || [];
+  return (arr[0] || {}).code;
 }
 
 // Тумба, чью столешницу сейчас показывает/редактирует панель — ВСЕГДА
@@ -2062,7 +2454,7 @@ function bindCountertopEvents() {
         // (см. activeCountertopModule/countertopFieldsOf выше, изменено
         // 2026-09-06 по просьбе пользователя — раньше значения приходили
         // от группы, это путало).
-        if (!mod.countertop.decorCode && !mod.countertop.double) mod.countertop.decorCode = 'CTOP-LDSP38-600';
+        if (!mod.countertop.decorCode && !mod.countertop.double) mod.countertop.decorCode = defaultCountertopDecorCode();
         if (mod.countertop.overhangFront === undefined) mod.countertop.overhangFront = defaultCountertopOverhangFront(mod);
         if (mod.countertop.overhangLeft === undefined) mod.countertop.overhangLeft = 0;
         if (mod.countertop.overhangRight === undefined) mod.countertop.overhangRight = 0;
@@ -2711,7 +3103,7 @@ function materialsBlock() {
 // «+ Добавить материал» (см. materialPickActionsHtml) — переключает
 // «Библиотеку» в режим подбора материала: пока state.libPickTarget не пуст,
 // «Листовые материалы» рисуют у каждой строки доп. кнопку «Выбрать» (см.
-// libSheetRowHtml/libPickMaterial), которая и завершает подбор.
+// libRowHtml/libPickMaterial), которая и завершает подбор.
 function openMaterialPicker(role) {
   state.libPickTarget = { role };
   state.libraryTab = 'materials';

@@ -1258,6 +1258,43 @@ h4.spec-title { margin: var(--sp-5) 0 var(--sp-2); font-size: var(--fs-md); font
   background-color: var(--surface-solid); color: var(--text);
 }
 .lib-add { display: inline-block; margin: 0 0 var(--sp-4); }
+/* «+ Добавить материал»/«− Удалить материал» под таблицей листа (app.js:
+   libLeafTableHtml) — в ряд, как .lib-pick-actions выше; собственный нижний
+   отступ несёт сам .lib-leaf-actions, у кнопок внутри него он обнулён —
+   иначе рассинхронились бы по вертикали между собой (у «+ Добавить позицию»
+   фурнитуры вне этой обёртки .lib-add остаётся как был). */
+.lib-leaf-actions { display: flex; gap: var(--sp-3); align-items: center; margin: 0 0 var(--sp-4); }
+.lib-leaf-actions .lib-add, .lib-leaf-actions .lib-row-del { margin: 0; }
+/* Ссылка-кнопка в неактивном состоянии (например «− Удалить материал», пока
+   строка не выбрана, см. app.js: libLeafTableHtml/state.libSelectedRow) —
+   без явного правила disabled-кнопка унаследовала бы обычный цвет ссылки. */
+.link-btn:disabled { opacity: .45; cursor: default; text-decoration: none; }
+
+/* Заголовок-тумблер «± характеристики» (app.js: libTableHead) — над
+   колонками Длина/Ширина/Толщина, клик сворачивает/разворачивает их. */
+.lib-chars-toggle { cursor: pointer; text-align: center; color: var(--muted); }
+.lib-chars-toggle:hover { color: var(--accent); }
+/* Свёрнутые характеристики (.chars-collapsed на самой <table>, см.
+   libLeafTableHtml/state.libCharsCollapsed) — прячем и заголовки, и ячейки
+   Длина/Ширина/Толщина одним правилом, без пересборки colspan остальных
+   ячеек. display:none на <col> тоже работает — браузер просто не учитывает
+   эту колонку в раскладке оставшихся ячеек. */
+.lib-table.chars-collapsed .lib-char-col { display: none; }
+
+/* Выбранная кликом строка таблицы (app.js: state.libSelectedRow) — под
+   «− Удалить материал» ниже таблицы. Инлайн-редактируемые ячейки внутри
+   такой строки сохраняют свой курсор (text/pointer) — правило ниже их не
+   переопределяет, они уже описаны выше (.lib-edit-cell/.lib-swatch). */
+.lib-table tbody tr.lib-row-selected { background: var(--accent-soft); }
+.lib-table tbody tr[data-row-key] { cursor: pointer; }
+
+/* Переключатель единицы цены в шапке (app.js: libPriceUnitHeaderHtml) — той
+   же компактной посадки, что и .lib-filter-select. */
+.lib-table th select.lib-price-unit-select {
+  width: 100%; border: 1px solid var(--border); border-radius: var(--r-sm);
+  padding: 3px 18px 3px 5px; font-family: inherit; font-size: var(--fs-xs);
+  font-weight: 400; background-color: var(--surface-solid); color: var(--text);
+}
 
 /* Компактная ссылка-иконка на карточку товара у поставщика (item.sourceUrl,
    см. catalog.js) — отдельная узкая колонка рядом с «Наименование», не

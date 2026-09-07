@@ -59,49 +59,49 @@
   // ей цену (было null).
   const COUNTERTOP_MATERIALS = [
     // --- Постформинг ЛДСП 38мм (5): 2 тёмных, 2 светлых/мрамор, 1 дерево ---
-    { code: 'CTOP-LDSP38-600', materialId: 'ldsp38',
+    { code: 'CTOP-LDSP38-600', materialId: 'ldsp38', brand: 'Kronospan',
       name: 'Столешница ЛДСП 38мм постформинг, глубина 600, мрамор белый (Kronospan K552SU White Iceberg)',
       thickness: 38, depth: 600, pricePerMeter: 567, maxLength: 4100, unit: 'пог.м',
       sourceUrl: 'https://mobilier.md/index.php?route=product/product&product_id=25046', image: null },
-    { code: 'CTOP-LDSP38-1063SQ', materialId: 'ldsp38',
+    { code: 'CTOP-LDSP38-1063SQ', materialId: 'ldsp38', brand: 'SwissKrono',
       name: 'Столешница ЛДСП 38мм постформинг, глубина 600, мрамор Bianco Bello (SwissKrono 1063 SQ)',
       thickness: 38, depth: 600, pricePerMeter: 898, maxLength: 4100, unit: 'пог.м',
       sourceUrl: 'https://mobilier.md/blaturi-si-panouri-de-perete/postforming/swisskrono/blat-de-bucatarie-1063-sq-marmura-bianco-bello-38-4100x600-su.html', image: null },
-    { code: 'CTOP-LDSP38-H1145ST10', materialId: 'ldsp38',
+    { code: 'CTOP-LDSP38-H1145ST10', materialId: 'ldsp38', brand: 'Egger',
       name: 'Столешница ЛДСП 38мм постформинг, глубина 600, дуб Бардолино натуральный (Egger H1145 ST10)',
       thickness: 38, depth: 600, pricePerMeter: 641, maxLength: 4100, unit: 'пог.м',
       sourceUrl: 'https://mobilier.md/blaturi-si-panouri-de-perete/postforming/egger-1/blat-de-bucatarie-h1145-st10-stejar-bardolino-natur-38-4100x600-eg.html', image: null },
-    { code: 'CTOP-LDSP38-2061RA', materialId: 'ldsp38',
+    { code: 'CTOP-LDSP38-2061RA', materialId: 'ldsp38', brand: 'SwissKrono',
       name: 'Столешница ЛДСП 38мм постформинг, глубина 600, чёрная (SwissKrono 2061 RA Negru)',
       thickness: 38, depth: 600, pricePerMeter: 664, maxLength: 4100, unit: 'пог.м',
       sourceUrl: 'https://mobilier.md/blaturi-si-panouri-de-perete/postforming/swisskrono/blat-de-bucatarie-2061-ra-negru-38-4100x600-su.html', image: null },
     // Цена была не подтверждена (null) — уточнена (1227 MDL/пог.м). На
     // сайте у карточки товара стоит отметка «outstock» (нет в наличии на
     // складе) — перед заказом уточнять у поставщика срок поставки.
-    { code: 'CTOP-LDSP38-920', materialId: 'ldsp38',
+    { code: 'CTOP-LDSP38-920', materialId: 'ldsp38', brand: 'Egger',
       name: 'Столешница ЛДСП 38мм постформинг, глубина 920, тёмный сланец (Egger F235 ST76 Ardezie Scivaro)',
       thickness: 38, depth: 920, pricePerMeter: 1227, maxLength: 4100, unit: 'пог.м',
       note: 'На сайте отмечена как «нет в наличии» — уточнять срок поставки у mobilier.md.',
       sourceUrl: 'https://mobilier.md/index.php?route=product%2Fproduct&product_id=32284', image: null },
 
     // --- Компакт-плита HPL 12мм (5): 2 светлых, 2 тёмных, 1 нейтральный ---
-    { code: 'CTOP-COMPACT12-650', materialId: 'compact12',
+    { code: 'CTOP-COMPACT12-650', materialId: 'compact12', brand: 'Egger',
       name: 'Столешница компакт-плита HPL 12мм, глубина 650, дуб Санта-Фе винтаж (Egger H1330 ST10, нейтральный)',
       thickness: 12, depth: 650, pricePerMeter: 2248, maxLength: 4100, unit: 'пог.м',
       sourceUrl: 'https://mobilier.md/countertops-and-wall-panels/compact-eng/en-work-tops-compact-laminate-h1330-st10-vintage-santa-fe-oak-12-4100x650-eg.html', image: null },
-    { code: 'CTOP-COMPACT12-F221ST87', materialId: 'compact12',
+    { code: 'CTOP-COMPACT12-F221ST87', materialId: 'compact12', brand: 'Egger',
       name: 'Столешница компакт-плита HPL 12мм, глубина 650, керамика крем (Egger F221 ST87 Tessina)',
       thickness: 12, depth: 650, pricePerMeter: 2248, maxLength: 4100, unit: 'пог.м',
       sourceUrl: 'https://mobilier.md/blaturi-si-panouri-de-perete/compact/blat-hpl-compact-f221-st87-ceramica-tessina-crem-12-4100x650.html', image: null },
-    { code: 'CTOP-COMPACT12-F8001ST9', materialId: 'compact12',
+    { code: 'CTOP-COMPACT12-F8001ST9', materialId: 'compact12', brand: 'Egger',
       name: 'Столешница компакт-плита HPL 12мм, глубина 650, мрамор светлый (Egger F8001 ST9 Marmură Crystal)',
       thickness: 12, depth: 650, pricePerMeter: 3375, maxLength: 4100, unit: 'пог.м',
       sourceUrl: 'https://mobilier.md/blaturi-si-panouri-de-perete/compact/blat-hpl-compact-f8001-st9-marmura-crystal-12-4100x650-eg.html', image: null },
-    { code: 'CTOP-COMPACT12-F206ST9', materialId: 'compact12',
+    { code: 'CTOP-COMPACT12-F206ST9', materialId: 'compact12', brand: 'Egger',
       name: 'Столешница компакт-плита HPL 12мм, глубина 650, камень чёрный (Egger F206 ST9 Pietra Grigia negru)',
       thickness: 12, depth: 650, pricePerMeter: 2248, maxLength: 4100, unit: 'пог.м',
       sourceUrl: 'https://mobilier.md/blaturi-si-panouri-de-perete/compact/blat-hpl-compact-f206st9-pietra-grigia-negru-12-4100x650-eg.html', image: null },
-    { code: 'CTOP-COMPACT12-U999ST76', materialId: 'compact12',
+    { code: 'CTOP-COMPACT12-U999ST76', materialId: 'compact12', brand: 'Egger',
       name: 'Столешница компакт-плита HPL 12мм, глубина 650, антрацит (Egger U999 ST76)',
       thickness: 12, depth: 650, pricePerMeter: 2248, maxLength: 4100, unit: 'пог.м',
       sourceUrl: 'https://mobilier.md/blaturi-si-panouri-de-perete/compact/blat-hpl-compact-u999-st76-negru-12-4100x650-eg.html', image: null },
@@ -195,10 +195,14 @@
   // Значение — объект {price, unit, image}, а не голое число: библиотека
   // (вкладка «Материалы») редактирует price/image на месте, единственная
   // точка чтения цены — specification.js (`EDGE_PRICES[type]?.price`).
+  // width/thickness (мм) — разобраны из slug sourceUrl вида
+  // "<ширина>x<толщина*10>" (напр. "23x20" → 23мм/2мм), совпадают с числом
+  // в названии ключа. Только для отображения в Библиотеке — на расчёт
+  // присадки/спецификации не влияют.
   const EDGE_PRICES = {
-    'ПВХ 2 мм': { price: 15, sourceUrl: 'https://mobilier.md/materiale-placi/cant/egger/cant-abs-w1000-st9-23x20-uw.html', unit: 'пог.м', image: null, categoryPath: ['ПВХ'] },
-    'ПВХ 0.8 мм': { price: 10, sourceUrl: 'https://mobilier.md/materiale-placi/cant/egger/cant-abs-w1000-st9-23x08.html', unit: 'пог.м', image: null, categoryPath: ['ПВХ'] },
-    'ПВХ 0.4 мм': { price: 5, sourceUrl: 'https://mobilier.md/materiale-placi/cant/egger/cant-abs-w1000-st9-22x04.html', unit: 'пог.м', image: null, categoryPath: ['ПВХ'] },
+    'ПВХ 2 мм': { price: 15, width: 23, thickness: 2, sourceUrl: 'https://mobilier.md/materiale-placi/cant/egger/cant-abs-w1000-st9-23x20-uw.html', unit: 'пог.м', image: null, categoryPath: ['ПВХ'] },
+    'ПВХ 0.8 мм': { price: 10, width: 23, thickness: 0.8, sourceUrl: 'https://mobilier.md/materiale-placi/cant/egger/cant-abs-w1000-st9-23x08.html', unit: 'пог.м', image: null, categoryPath: ['ПВХ'] },
+    'ПВХ 0.4 мм': { price: 5, width: 22, thickness: 0.4, sourceUrl: 'https://mobilier.md/materiale-placi/cant/egger/cant-abs-w1000-st9-22x04.html', unit: 'пог.м', image: null, categoryPath: ['ПВХ'] },
   };
 
   const HARDWARE_PRICES = {
