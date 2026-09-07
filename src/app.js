@@ -14,7 +14,7 @@
 (function () {
 // Версия сборки — показывается во вкладке браузера и в шапке.
 // При выпуске новой версии меняется только эта строка.
-const APP_VERSION = 'v245';
+const APP_VERSION = 'v246';
 
 // Номер версии выводим ПЕРВЫМ делом: если дальше что-то упадёт, по нему сразу
 // видно, какая сборка открыта.
@@ -6000,6 +6000,8 @@ function renderAccountUI() {
         accountAvatarEl.classList.remove('has-image');
       }
     }
+    const emailVerifyBlock = document.getElementById('emailVerifyBlock');
+    if (emailVerifyBlock) emailVerifyBlock.style.display = authAccount.emailVerified === false ? 'block' : 'none';
     if (tokensEl) tokensEl.textContent = String(authAccount.tokenBalance);
     if (subEl) {
       const st = authAccount.subscription && authAccount.subscription.status;
@@ -6307,6 +6309,42 @@ function initAccountPanel() {
     });
   }
 
+  // Повторная отправка письма подтверждения email (POST
+  // /auth/resend-verification, требует вход) — кнопка появляется в
+  // #emailVerifyBlock, пока authAccount.emailVerified === false (см.
+  // renderAccountUI выше).
+  const resendVerificationBtn = document.getElementById('resendVerificationBtn');
+  function setEmailVerifyStatus(message, kind) {
+    const el = document.getElementById('emailVerifyStatus');
+    if (!el) return;
+    el.textContent = message || '';
+    el.className = 'sketch-status' + (kind ? ` ${kind}` : '');
+  }
+  if (resendVerificationBtn) {
+    resendVerificationBtn.addEventListener('click', async () => {
+      resendVerificationBtn.disabled = true;
+      setEmailVerifyStatus('Отправляем…', '');
+      try {
+        let res;
+        try {
+          res = await fetch(`${AUTH_API_BASE}/auth/resend-verification`, {
+            method: 'POST',
+            headers: { authorization: `Bearer ${getAuthToken()}` },
+          });
+        } catch (networkErr) {
+          throw new Error('Не удалось связаться с сервером — проверьте подключение к интернету.');
+        }
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error || 'Не удалось отправить письмо, попробуйте ещё раз.');
+        setEmailVerifyStatus(data.message || 'Письмо отправлено — проверьте почту.', 'ok');
+      } catch (err) {
+        setEmailVerifyStatus('Ошибка: ' + err.message, 'error');
+      } finally {
+        resendVerificationBtn.disabled = false;
+      }
+    });
+  }
+
   // Отзыв о приложении (POST /reviews, требует вход) — уходит на модерацию,
   // поэтому после успешной отправки показываем не «опубликовано», а понятное
   // объяснение, что отзыв появится на сайте после проверки.
@@ -6339,7 +6377,17 @@ function initAccountPanel() {
           throw new Error('Не удалось связаться с сервером — проверьте подключение к интернету.');
         }
         const data = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(data.error || 'Не удалось отправить отзыв, попробуйте ещё раз.');
+        if (!res.ok) {
+          // 403 здесь означает именно неподтверждённый email (см.
+          // server/src/middleware/emailVerification.js) — сырой текст ошибки
+          // сервера упоминает API-эндпоинт, пользователю показываем понятную
+          // подсказку со ссылкой на кнопку выше вместо него.
+          if (res.status === 403) {
+            setReviewStatus('Подтвердите email, чтобы оставить отзыв — воспользуйтесь кнопкой «Отправить письмо подтверждения ещё раз» выше.', 'error');
+            return;
+          }
+          throw new Error(data.error || 'Не удалось отправить отзыв, попробуйте ещё раз.');
+        }
         reviewText.value = '';
         setReviewStatus('Спасибо! Отзыв отправлен на проверку — после одобрения он появится на сайте.', 'ok');
       } catch (err) {

@@ -7,7 +7,7 @@
 <title>Modul3D — параметрический конструктор корпусной мебели</title>
 
 <link rel="icon" type="image/svg+xml" href="favicon.svg" />
-<link rel="stylesheet" href="style.css?v245" />
+<link rel="stylesheet" href="style.css?v246" />
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <!-- Paddle.js — оверлей оплаты подписки (см. app.js: requestCheckout/initPaddle).
@@ -145,6 +145,14 @@ P — Параметры"
               <div class="account-row"><span>Аккаунт</span><b id="accountEmail"></b></div>
               <div class="account-row" id="accountNicknameRow" style="display:none"><span>Никнейм</span><b id="accountNickname"></b></div>
             </div>
+          </div>
+          <!-- Уведомление о неподтверждённом email — см. app.js: renderAccountUI
+               (показ/скрытие по authAccount.emailVerified) и initAccountPanel
+               (обработчик #resendVerificationBtn), POST /auth/resend-verification. -->
+          <div id="emailVerifyBlock" style="display:none">
+            <div class="hint">Email не подтверждён — это ограничивает отзывы и распознавание эскиза.</div>
+            <button id="resendVerificationBtn" class="btn" type="button">Отправить письмо подтверждения ещё раз</button>
+            <div id="emailVerifyStatus" class="sketch-status"></div>
           </div>
           <div class="account-row"><span>Токены ИИ-эскиза</span><b id="accountTokens"></b></div>
           <div class="account-row"><span>Подписка</span><b id="accountSubStatus"></b></div>
@@ -445,19 +453,19 @@ P — Параметры"
 
 </main>
 
-<script src="src/catalog.js?v245"></script>
-<script src="src/presets.js?v245"></script>
-<script src="src/engine.js?v245"></script>
-<script src="src/specification.js?v245"></script>
-<script src="src/legMeshes.js?v245"></script>
-<script src="src/csg.js?v245"></script>
-<script src="src/viewer.js?v245"></script>
-<script src="src/ui-shell.js?v245"></script>
-<script src="src/drawings.js?v245"></script>
-<script src="src/export.js?v245"></script>
-<script src="src/cnc.js?v245"></script>
-<script src="src/sketchAI.js?v245"></script>
-<script src="src/app.js?v245"></script>
+<script src="src/catalog.js?v246"></script>
+<script src="src/presets.js?v246"></script>
+<script src="src/engine.js?v246"></script>
+<script src="src/specification.js?v246"></script>
+<script src="src/legMeshes.js?v246"></script>
+<script src="src/csg.js?v246"></script>
+<script src="src/viewer.js?v246"></script>
+<script src="src/ui-shell.js?v246"></script>
+<script src="src/drawings.js?v246"></script>
+<script src="src/export.js?v246"></script>
+<script src="src/cnc.js?v246"></script>
+<script src="src/sketchAI.js?v246"></script>
+<script src="src/app.js?v246"></script>
 <script>if (window.Modul3D && window.Modul3D.uiShell) window.Modul3D.uiShell.start();</script>
 </body>
 </html>
