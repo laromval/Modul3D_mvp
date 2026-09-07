@@ -3497,34 +3497,67 @@ for (const glass of [false, true]) {
   cases += 1;
 }
 
-// --- столешница «сдвоенная» (галочка double, был отдельный пункт списка
-// material:'doubleLdsp' до 2026-09-06) — два листа декора корпуса, крышка
-// убирается (толщина 2×t > 18мм), растикс в торец боковины, как у ldsp38.
+// --- столешница «сдвоенная» (галочка double) — два листа ИМЕННО того
+// декора, что выбран пользователем на панели столешницы (ct.decorCode), а не
+// общий декор корпуса проекта. Крышка убирается (толщина 2×18=36мм > 18мм),
+// растикс в торец боковины, как у ldsp38. Исправлено 2026-09-07: раньше
+// «сдвоенная» ошибочно удваивала общий decor корпуса вместо decorCode с
+// панели столешницы — теперь decorCode ОБЯЗАТЕЛЕН для сдвоенной (без него —
+// noDecor, см. отдельный регресс-тест ниже). U702ST9 — декор с thickness:18
+// в каталоге (см. тест «свой материал 18мм» выше).
+{
+  const decCode = DECORS.find((d) => d.code === 'U702ST9').code;
+  const mod1 = {
+    name: 'Тумба', width: 600, height: 850, depth: 560,
+    leftSide: 'floor', rightSide: 'floor',
+    base: { type: 'legsPlinth', legHeight: 100, plinthHeight: 100 },
+    topType: 'panel',
+    countertop: { enabled: true, double: true, decorCode: decCode },
+    sections: [{ shelves: 1, drawers: 0, facade: 'doorLeft' }],
+  };
+  const model = buildModel(Object.assign({}, base, { modules: [mod1] }));
+  inspect(model, 'столешница: «сдвоенная» (double:true, decorCode=U702ST9) — крышки нет, растикс, толщина 2×18');
+
+  if (model.parts.some((p) => p.kind === 'top')) {
+    problems.push('столешница-сдвоенная: крышка корпуса построена — не должно быть, толщина 2×18 > 18');
+  }
+  const ctParts = model.parts.filter((p) => p.kind === 'countertop');
+  const expectedThickness = 2 * 18;
+  if (ctParts.length !== 1) {
+    problems.push(`столешница-сдвоенная: ожидалась 1 деталь столешницы, получено ${ctParts.length}`);
+  } else if (Math.abs(ctParts[0].thickness - expectedThickness) > 0.1) {
+    problems.push(`столешница-сдвоенная: толщина детали ${ctParts[0].thickness} вместо ${expectedThickness}`);
+  } else if (ctParts[0].material !== decCode) {
+    problems.push(`столешница-сдвоенная: материал детали "${ctParts[0].material}" вместо декора столешницы "${decCode}" — сдвоение применилось не к тому ДСП`);
+  }
+  const sidePanels4 = model.partsRaw.filter((p) => p.kind === 'side');
+  for (const sp of sidePanels4) {
+    const cams = sp.holes.filter((h) => h.kind === 'minifixCam');
+    if (cams.length !== 2) problems.push(`столешница-сдвоенная: у "${sp.name}" ${cams.length} гнёзд Ø15 вместо 2`);
+  }
+  cases += 1;
+}
+
+// --- регресс: «сдвоенная» БЕЗ decorCode — деталь не строится (noDecor), как
+// и обычный «свой материал» без декора (см. тест выше). Никакого «двойного
+// корпусного декора по умолчанию» больше не существует (2026-09-07).
 {
   const mod1 = {
     name: 'Тумба', width: 600, height: 850, depth: 560,
     leftSide: 'floor', rightSide: 'floor',
     base: { type: 'legsPlinth', legHeight: 100, plinthHeight: 100 },
     topType: 'panel',
-    countertop: { enabled: true, double: true },
+    countertop: { enabled: true, double: true }, // decorCode не задан
     sections: [{ shelves: 1, drawers: 0, facade: 'doorLeft' }],
   };
   const model = buildModel(Object.assign({}, base, { modules: [mod1] }));
-  inspect(model, 'столешница: «сдвоенная» (double:true) — крышки нет, растикс, толщина 2×корпус');
+  inspect(model, 'столешница: «сдвоенная» без decorCode — деталь не строится (регресс 2026-09-07)');
 
-  if (model.parts.some((p) => p.kind === 'top')) {
-    problems.push('столешница-сдвоенная: крышка корпуса построена — не должно быть, толщина 2×t > 18');
+  if (!model.parts.some((p) => p.kind === 'top')) {
+    problems.push('столешница-сдвоенная без decorCode: крышки корпуса нет — должна остаться (noDecor, убирать не за что)');
   }
-  const ctParts = model.parts.filter((p) => p.kind === 'countertop');
-  if (ctParts.length !== 1) {
-    problems.push(`столешница-сдвоенная: ожидалась 1 деталь столешницы, получено ${ctParts.length}`);
-  } else if (Math.abs(ctParts[0].thickness - 2 * base.bodyThickness) > 0.1) {
-    problems.push(`столешница-сдвоенная: толщина детали ${ctParts[0].thickness} вместо ${2 * base.bodyThickness}`);
-  }
-  const sidePanels4 = model.partsRaw.filter((p) => p.kind === 'side');
-  for (const sp of sidePanels4) {
-    const cams = sp.holes.filter((h) => h.kind === 'minifixCam');
-    if (cams.length !== 2) problems.push(`столешница-сдвоенная: у "${sp.name}" ${cams.length} гнёзд Ø15 вместо 2`);
+  if (model.parts.some((p) => p.kind === 'countertop')) {
+    problems.push('столешница-сдвоенная без decorCode: деталь столешницы построена без декора — не должна была');
   }
   cases += 1;
 }

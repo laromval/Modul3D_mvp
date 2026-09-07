@@ -2264,15 +2264,16 @@ function activeCountertopModule() {
 function countertopFieldsOf(mod) {
   const src = (mod && mod.countertop) || {};
   return {
-    // double — сдвоенная столешница (2 листа декора корпуса проекта,
-    // склеенных вместе); decorCode при этом движком вообще не читается (см.
-    // countertopMat() в engine.js). Иначе decorCode — код позиции каталога:
-    // либо готовая столешница (COUNTERTOP_MATERIALS, коды CTOP-...), либо
-    // обычный лист декора (DECORS/FACADE_MATERIALS/BACK_MATERIALS) — без
-    // дефолта на пустое значение: undefined означает «пользователь ещё не
-    // выбрал». Толщина/глубина отдельно тут не хранятся — берутся живьём из
-    // каталога по decorCode и показываются в countertopPanelBlock() рядом с
-    // названием материала.
+    // double — сдвоенная столешница (2 листа ТОГО ЖЕ материала, что выбран в
+    // decorCode, склеенных вместе). decorCode — код позиции каталога: либо
+    // готовая столешница (COUNTERTOP_MATERIALS, коды CTOP-...) — для неё
+    // сдвоение неприменимо, галочка в UI не показывается (см.
+    // isCatalogCountertop в countertopPanelBlock), либо обычный лист декора
+    // (DECORS/FACADE_MATERIALS/BACK_MATERIALS) — только для него доступна
+    // галочка «Сдвоенная». Без дефолта на пустое значение: undefined
+    // означает «пользователь ещё не выбрал». Толщина/глубина отдельно тут не
+    // хранятся — берутся живьём из каталога по decorCode и показываются в
+    // countertopPanelBlock() рядом с названием материала.
     double: !!src.double,
     decorCode: src.decorCode,
     overhangFront: src.overhangFront !== undefined ? src.overhangFront : defaultCountertopOverhangFront(mod),
@@ -2342,13 +2343,11 @@ function countertopPanelBlock() {
   if (mod && enabled) {
     const s = countertopFieldsOf(mod);
     const decorItem = findAnyMaterialByCode(s.decorCode) || window.Modul3D.catalog.findCountertopMaterialByCode(s.decorCode);
+    const isCatalogCountertop = !!(s.decorCode && window.Modul3D.catalog.findCountertopMaterialByCode(s.decorCode));
+    const isPlainDecor = !!decorItem && !isCatalogCountertop;
 
     settings = `
       <h3>Материал столешницы — ${esc(mod.name)}</h3>
-      <div class="field">
-        <label class="checkbox-inline"><input type="checkbox" id="ctopDouble" ${s.double ? 'checked' : ''}> Сдвоенная (2 листа декора корпуса)</label>
-      </div>
-      ${!s.double ? `
       <div class="field">
         <div class="ctop-decor-current-row">
           <div class="ctop-decor-current" title="${decorItem ? esc(decorItem.name) : ''}">${decorItem ? esc(decorItem.name) : '<span class="dim">не выбран</span>'}</div>
@@ -2357,9 +2356,13 @@ function countertopPanelBlock() {
         ${decorItem && decorItem.thickness !== undefined
           ? `<div class="ctop-decor-thickness">Толщина листа: ${decorItem.thickness} мм${decorItem.depth !== undefined ? `, глубина ${decorItem.depth} мм` : ''}</div>` : ''}
       </div>
+      ${isPlainDecor ? `
+      <div class="field">
+        <label class="checkbox-inline"><input type="checkbox" id="ctopDouble" ${s.double ? 'checked' : ''}> Сдвоенная (2 листа этого материала)</label>
+      </div>` : ''}
       <div class="hint">Если толщина БОЛЬШЕ 18 мм — крышка корпуса убирается, столешница крепится
         растиксами в торец боковин (как обычная столешница). Если толщина 18 мм и меньше — крышка
-        корпуса остаётся, а столешница садится на клей, как компакт-плита.</div>` : `<div class="hint">Глубина сдвоенной столешницы берётся по глубине корпуса тумбы — здесь не настраивается.</div>`}
+        корпуса остаётся, а столешница садится на клей, как компакт-плита.</div>
 
       <h3>Свесы, мм</h3>
       <div class="field-row4">
@@ -2474,11 +2477,11 @@ function bindCountertopEvents() {
   const activeMod = activeCountertopModule();
   const activeCt = activeMod && activeMod.countertop;
 
-  // «Сдвоенная» — два листа декора корпуса проекта, склеенных вместе;
-  // decorCode при этом движком не читается вовсе (countertopMat() в
-  // engine.js), поэтому саму галочку хранить и снимать декор не нужно —
-  // просто переключаем double, а панель сама скроет/покажет строку
-  // материала при следующей перерисовке (см. countertopPanelBlock).
+  // «Сдвоенная» — два листа ВЫБРАННОГО материала столешницы (decorCode),
+  // склеенных вместе; строка материала видна независимо от галочки (см.
+  // countertopPanelBlock) — сама галочка в DOM есть, только когда decorCode
+  // указывает на обычный лист декора (isPlainDecor), а не на готовую позицию
+  // каталога столешниц (CTOP-код), поэтому здесь просто переключаем double.
   const doubleEl = document.getElementById('ctopDouble');
   if (doubleEl) doubleEl.addEventListener('change', (e) => {
     activeCt.double = e.target.checked;
@@ -5755,9 +5758,15 @@ function initHeaderControls() {
       selectModuleByName(name);
       state.isolatedModule = name;
       state.selectedPart = null;
-      state.panelView = 'module';
+      state.panelView = 'part';
       renderParamsPanel();
       viewer.render(currentModel, viewOpts());
+      // Этот же обработчик вызывает и кнопка HUD «Режим редактирования детали»
+      // (клик по модулю без входа в Focus Mode) — в этот момент дровер
+      // «Параметры проекта» может быть закрыт, тогда экран «Деталь» рисуется,
+      // но невидим. Открываем дровер явно, иначе кнопка выглядит так, будто
+      // ничего не произошло.
+      if (window.Modul3D.uiShell) window.Modul3D.uiShell.openDrawer('params');
     };
 
     // Клик по ЛЮБОЙ детали ВНУТРИ уже изолированного модуля — открывает
