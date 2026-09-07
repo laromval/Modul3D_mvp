@@ -1731,18 +1731,19 @@ function buildModuleParts(p) {
   // ниже при постройке самой детали «Столешница» — единый источник, чтобы
   // решение «крышка есть/нет» и фактическая деталь не могли разойтись.
   const countertopMat = (ct) => {
-    if (ct.double) {
-      // Не позиция каталога — глубина = глубина корпуса модуля D, а
-      // максимальная длина цельного куска — ширина листа корпусного декора
-      // (sheetW), т.к. столешница клеится из тех же листов, что и корпус.
-      return { found: true, code: decor.code, name: `${decor.name} (сдвоенное 2×, столешница)`,
-        isDouble: true, thickness: null, depth: null, maxLength: decor.sheetW || null };
-    }
     const cat = window.Modul3D.catalog;
     // 1) готовая позиция каталога столешниц (CTOP-...) — СВОЙ резолвер,
     //    отдельно от общего findMaterialByCode() (см. catalog.js) — карточки
     //    столешниц не должны быть доступны там, где ожидается обычный лист
-    //    декора корпуса/фасада, и наоборот.
+    //    декора корпуса/фасада, и наоборот. Проверяется ПЕРВОЙ, независимо
+    //    от ct.double — готовая позиция каталога (ЛДСП38 постформинг/
+    //    компакт-плита) уже готовый товар фиксированной конструкции,
+    //    «сдвоение» для неё конструктивно бессмысленно и всегда
+    //    игнорируется (isDouble всегда false для этой ветки), даже если
+    //    галочка «Сдвоенная» случайно осталась включённой с прошлого выбора
+    //    материала (юзер сначала поставил галочку у декора, потом сменил
+    //    материал на готовую позицию, не сняв галочку) — подтверждено
+    //    владельцем-мебельщиком 2026-09-07.
     const ctCat = ct.decorCode ? cat.findCountertopMaterialByCode(ct.decorCode) : null;
     if (ctCat) {
       return { found: true, code: ctCat.code, name: ctCat.name,
@@ -1759,6 +1760,23 @@ function buildModuleParts(p) {
     if (!dec) return { found: false, reason: 'noDecor' };
     const th = Number(dec.thickness) || 0;
     if (!(th > 0)) return { found: false, reason: 'noThickness' };
+    if (ct.double) {
+      // «Сдвоенная» — два склеенных листа ИМЕННО этого декора (dec,
+      // резолвнутого из ct.decorCode выше) — того, что пользователь выбрал
+      // кнопкой «Изменить» на панели столешницы, а НЕ общий декор корпуса
+      // всего проекта (p.decor/decor). Исправлено 2026-09-07 по замечанию
+      // владельца-мебельщика: раньше здесь ошибочно брались decor.code/
+      // decor.name/decor.sheetW (декор корпуса), из-за чего название,
+      // толщина и максимальная длина цельного куска не совпадали с реально
+      // выбранным на панели материалом. thickness — толщина ОДНОГО листа
+      // этого декора (число, не null, как было раньше) — ctResolvedThickness/
+      // ctThickness ниже читают именно её (2×thickness), а не 2×t (толщину
+      // корпуса). depth: null, как и у «своего материала» ниже — это не
+      // готовая позиция каталога фиксированной глубины, глубина столешницы
+      // считается от глубины корпуса модуля D (см. ctWidth ниже по файлу).
+      return { found: true, code: dec.code, name: `${dec.name} (сдвоенное 2×, столешница)`,
+        isDouble: true, thickness: th, depth: null, maxLength: dec.sheetW || null };
+    }
     // Толщина ≤18мм (не толще стандартной корпусной ЛДСП) технически строится
     // — клеится по всей площади к цельной крышке корпуса (см. skipTopPanel
     // ниже, растикс в торец боковины только при >18). Способ крепления уже
@@ -1770,9 +1788,11 @@ function buildModuleParts(p) {
   const ctEnabled = !!(p.countertop && p.countertop.enabled);
   const ctResolved = ctEnabled ? countertopMat(p.countertop) : null;
   // Эффективная толщина резолвнутого материала — «сдвоенная» это всегда 2
-  // листа декора корпуса (2×t), а не поле каталога (там thickness:null).
+  // листа ИМЕННО выбранного на панели декора столешницы (ctResolved.thickness
+  // хранит толщину ОДНОГО листа, см. countertopMat() выше), а не толщина
+  // корпуса (t) и не decor корпуса проекта — исправлено 2026-09-07.
   const ctResolvedThickness = (ctResolved && ctResolved.found)
-    ? (ctResolved.isDouble ? 2 * t : (Number(ctResolved.thickness) || 0)) : 0;
+    ? (ctResolved.isDouble ? 2 * Number(ctResolved.thickness) : (Number(ctResolved.thickness) || 0)) : 0;
   // У обычной мебели (не кухня — там верх всегда планки-царги, см. выше)
   // цельная крышка под включённой столешницей — лишняя деталь ТОЛЬКО если
   // РЕАЛЬНАЯ толщина резолвнутого материала БОЛЬШЕ 18 мм (стандартной
@@ -1879,7 +1899,7 @@ function buildModuleParts(p) {
       const facadeThicknessResolved = p.facadeThicknessHint || p.facadeThickness || t;
       const oF = Number(ct.overhangFront) || 0, oL = Number(ct.overhangLeft) || 0,
             oR = Number(ct.overhangRight) || 0;
-      const ctThickness = ctMat.isDouble ? 2 * t : ctMat.thickness;
+      const ctThickness = ctMat.isDouble ? 2 * Number(ctMat.thickness) : ctMat.thickness;
       // Задняя стенка (ХДФ) НАКЛАДНАЯ — крепится НА задний торец корпуса и
       // всегда выступает за него на свою толщину (см. ниже: z: -D/2-tb/2,
       // то есть физический задний край сборки — не -D/2, а -D/2-tb). Для
