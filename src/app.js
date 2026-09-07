@@ -14,7 +14,7 @@
 (function () {
 // Версия сборки — показывается во вкладке браузера и в шапке.
 // При выпуске новой версии меняется только эта строка.
-const APP_VERSION = 'v242';
+const APP_VERSION = 'v243';
 
 // Номер версии выводим ПЕРВЫМ делом: если дальше что-то упадёт, по нему сразу
 // видно, какая сборка открыта.
@@ -582,12 +582,11 @@ function insertModule(m) {
   if (moduleHasFloorBase(m) && !noRealSupport && !m.countertop && Number(m.height) <= 1000) {
     m.countertop = {
       enabled: true,
-      material: 'ldsp38',
+      decorCode: 'CTOP-LDSP38-600',
       overhangFront: defaultCountertopOverhangFront(m),
       overhangLeft: 0,
       overhangRight: 0,
     };
-    normalizeCountertopDepth(m.countertop);
   }
   const at = Math.min(state.activeModule + 1, state.modules.length);
   state.modules.splice(at, 0, m);
@@ -1022,12 +1021,13 @@ function libPriceNoteHtml(items) {
 // «Наименование» — без явной ширины, забирает весь остаток.
 // isCountertop — у «Столешниц» совсем другой набор колонок (Материал/
 // Глубина вместо Ед.изм./Образец, без «Цена/м²» — товар продаётся пог.
-// метром, площади листа нет, см. libCountertopRowHtml) при том же итоговом
-// количестве колонок (5), поэтому дальше по коду (colCount в
-// libLeafTableHtml) отдельно считать не нужно.
+// метром, площади листа нет, см. libCountertopRowHtml), базово те же 5
+// колонок + необязательная «Выбрать» (pickMode — см. countertopPickMode в
+// libLeafTableHtml, считается там же в colCount по общей формуле).
 function libColgroup(hasThickness, pickMode, hasM2, isCountertop) {
   if (isCountertop) {
-    return `<colgroup><col><col style="width:26px"><col style="width:170px"><col style="width:90px"><col style="width:110px"></colgroup>`;
+    return `<colgroup><col><col style="width:26px"><col style="width:170px"><col style="width:90px"><col style="width:110px">`
+      + `${pickMode ? '<col style="width:76px">' : ''}</colgroup>`;
   }
   // «Образец» — 72px: при 50px заголовок «ОБРАЗЕЦ» не помещался и визуально
   // обрезался соседней колонкой (th непрозрачный, перекрывал overflow).
@@ -1045,7 +1045,7 @@ function libColgroup(hasThickness, pickMode, hasM2, isCountertop) {
 function libTableHead(hasThickness, pickMode, hasM2, isCountertop) {
   if (isCountertop) {
     return `<thead><tr>
-      <th>Наименование</th><th></th><th>Материал</th><th>Глубина</th><th>Цена, ${esc(curSym())}/пог.м</th>
+      <th>Наименование</th><th></th><th>Материал</th><th>Глубина</th><th>Цена, ${esc(curSym())}/пог.м</th>${pickMode ? '<th></th>' : ''}
     </tr></thead>`;
   }
   return `<thead><tr>
@@ -1123,7 +1123,7 @@ function libEdgeRowHtml(it) {
 // лист/Толщина». it — копия из libTopEntries с добавленным categoryPath
 // (см. там же), правки всё равно идут по it.code через libFindItem, который
 // читает исходный массив каталога напрямую.
-function libCountertopRowHtml(it) {
+function libCountertopRowHtml(it, pickMode) {
   return `
     <tr data-search="${esc(String(it.name || '').toLowerCase())}">
       ${libEditCell('countertop', it.code, 'name', 'text', it.name)}
@@ -1131,6 +1131,7 @@ function libCountertopRowHtml(it) {
       <td>${esc(COUNTERTOP_MATERIAL_LABEL[it.materialId] || it.materialId)}</td>
       <td>${it.depth} мм</td>
       ${libEditCell('countertop', it.code, 'pricePerMeter', 'number', it.pricePerMeter)}
+      ${pickMode ? `<td><button type="button" class="link-btn lib-pick-btn" data-pick-group="countertop" data-pick-code="${esc(it.code)}">Выбрать</button></td>` : ''}
     </tr>`;
 }
 
@@ -1144,13 +1145,21 @@ function libLeafTableHtml(topCode, path, entries, opts) {
   const hasM2 = !!opts.hasM2;
   const isCountertop = topCode === 'countertop';
   const pickMode = !!(opts.pickable && state.libPickTarget);
+  // У столешниц кнопка «Выбрать» появляется НЕ на любой подбор (в отличие
+  // от «Листовых материалов», где любая из ролей decor/facadeDecor/back/
+  // countertopDecor годится, т.к. это всё обычные листы) — только когда
+  // подбирают материал СПЕЦИАЛЬНО для столешницы (role: 'countertopDecor',
+  // см. openMaterialPicker/libPickMaterial). Для decor/facadeDecor/back
+  // карточка столешницы (продаётся погонным метром) не годится.
+  const countertopPickMode = isCountertop && !!(state.libPickTarget && state.libPickTarget.role === 'countertopDecor');
+  const effectivePickMode = isCountertop ? countertopPickMode : pickMode;
   const rowsHtml = topCode === 'edge'
     ? entries.map((e) => libEdgeRowHtml(e.item)).join('')
     : isCountertop
-      ? entries.map((e) => libCountertopRowHtml(e.item)).join('')
+      ? entries.map((e) => libCountertopRowHtml(e.item, countertopPickMode)).join('')
       : entries.map((e) => libSheetRowHtml(e, hasThickness, pickMode, hasM2)).join('');
   const items = entries.map((e) => e.item);
-  const colCount = 5 + (hasM2 ? 1 : 0) + (hasThickness ? 1 : 0) + (pickMode ? 1 : 0);
+  const colCount = 5 + (hasM2 ? 1 : 0) + (hasThickness ? 1 : 0) + (effectivePickMode ? 1 : 0);
   const emptyRow = entries.length ? '' : `<tr><td colspan="${colCount}" class="hint">Пока нет позиций</td></tr>`;
   const addGroup = topCode === 'edge' ? 'edge' : ((opts.addGroupMap && opts.addGroupMap[path[0]]) || opts.addDefaultGroup || topCode);
   const addHtml = opts.addLabel
@@ -1165,7 +1174,7 @@ function libLeafTableHtml(topCode, path, entries, opts) {
     <div class="lib-leaf-body">
       ${isCountertop ? '' : libFiltersHtml(items, opts.filterExtraFields)}
       ${libPriceNoteHtml(items)}
-      <table class="lib-table" style="table-layout:fixed">${libColgroup(hasThickness, pickMode, hasM2, isCountertop)}${libTableHead(hasThickness, pickMode, hasM2, isCountertop)}<tbody>${rowsHtml}${emptyRow}</tbody></table>
+      <table class="lib-table" style="table-layout:fixed">${libColgroup(hasThickness, effectivePickMode, hasM2, isCountertop)}${libTableHead(hasThickness, effectivePickMode, hasM2, isCountertop)}<tbody>${rowsHtml}${emptyRow}</tbody></table>
       ${addHtml}
     </div>`;
 }
@@ -1294,7 +1303,7 @@ function libraryMaterialsBlock() {
     ${libTopCategoryHtml('facade', 'Материалы фасадов', { addLabel: '+ Добавить материал' })}
     ${libTopCategoryHtml('edge', 'Кромка', { addLabel: '+ Добавить кромку', filterExtraFields: LIB_EDGE_EXTRA_FILTERS })}
     ${libTopCategoryHtml('glass', 'Стекло', {})}
-    ${libTopCategoryHtml('countertop', 'Столешницы', { addLabel: '+ Добавить столешницу' })}`;
+    ${libTopCategoryHtml('countertop', 'Столешницы', { addLabel: '+ Добавить столешницу', pickable: true })}`;
 }
 
 // Фурнитура собрана из ЧЕТЫРЁХ источников каталога (HARDWARE_PRICES,
@@ -1769,8 +1778,10 @@ function initLibraryPanel() {
     const swatch = e.target.closest('.lib-swatch');
     if (swatch) { openLibImagePicker(swatch.dataset.swatchGroup, swatch.dataset.swatchKey); return; }
     // «Выбрать» — только в режиме подбора материала из «Параметры проекта»
-    // (см. state.libPickTarget/libPickMaterial), колонка есть только у
-    // «Листовых материалов» и только пока подбор идёт.
+    // (см. state.libPickTarget/libPickMaterial): у «Листовых материалов»
+    // колонка видна для любой роли подбора, у «Столешниц» — только когда
+    // подбирают роль countertopDecor (см. countertopPickMode в
+    // libLeafTableHtml).
     const pickBtn = e.target.closest('.lib-pick-btn');
     if (pickBtn) { libPickMaterial(pickBtn.dataset.pickGroup, pickBtn.dataset.pickCode); return; }
     const cell = e.target.closest('.lib-edit-cell');
@@ -1821,13 +1832,6 @@ function initLibraryPanel() {
 // currentModel.hardwareContext.countertopJoints — эта панель ничего не
 // считает сама.
 // ---------------------------------------------------------------------------
-const COUNTERTOP_MATERIAL_LABELS = {
-  ldsp38: 'ЛДСП 38 мм, постформинг',
-  compact12: 'Компакт-плита HPL 12 мм',
-  doubleLdsp: 'Сдвоенное ЛДСП (2× декор корпуса)',
-  custom: 'Свой материал (из библиотеки)',
-};
-const COUNTERTOP_MATERIAL_ORDER = ['ldsp38', 'compact12', 'doubleLdsp', 'custom'];
 
 // Тумба подходит под столешницу, если стоит на полу — ТА ЖЕ проверка, что и
 // isFloorStandingBase в engine.js (buildModuleParts: p.base.type). Модуль без
@@ -1846,14 +1850,6 @@ function moduleHasFloorBase(mod) {
 // дефолт — insertModule() и чекбокс включения в панели «Столешница».
 function defaultCountertopOverhangFront(mod) {
   return mod && mod.family === 'kitchen' ? 20 : 0;
-}
-
-// Доступные глубины материала — берём ИЗ КАТАЛОГА (window.Modul3D.catalog.
-// COUNTERTOP_MATERIALS), а не хардкодим: появится в каталоге третья позиция
-// глубины — экран увидит её сам, без правки app.js.
-function countertopDepthOptions(materialId) {
-  const cat = (window.Modul3D.catalog.COUNTERTOP_MATERIALS || []).filter((x) => x.materialId === materialId);
-  return Array.from(new Set(cat.map((x) => x.depth))).sort((a, b) => a - b);
 }
 
 // Тумба, чью столешницу сейчас показывает/редактирует панель — ВСЕГДА
@@ -1876,15 +1872,16 @@ function activeCountertopModule() {
 function countertopFieldsOf(mod) {
   const src = (mod && mod.countertop) || {};
   return {
-    material: src.material || 'ldsp38',
-    depth: src.depth,
-    // Декор «своего материала» — без дефолта на пустое значение: undefined
-    // означает «пользователь ещё не выбрал», это нормальное состояние сразу
-    // после переключения на custom (см. materialEl ниже, который проставляет
-    // разумный дефолт сам). Толщина отдельно тут не хранится и не читается —
-    // она всегда берётся живьём из каталога по decorCode (dec.thickness, см.
-    // countertopMat() в engine.js) и показывается в countertopPanelBlock()
-    // рядом с названием материала (2026-09-06: поле ручного ввода убрано).
+    // double — сдвоенная столешница (2 листа декора корпуса проекта,
+    // склеенных вместе); decorCode при этом движком вообще не читается (см.
+    // countertopMat() в engine.js). Иначе decorCode — код позиции каталога:
+    // либо готовая столешница (COUNTERTOP_MATERIALS, коды CTOP-...), либо
+    // обычный лист декора (DECORS/FACADE_MATERIALS/BACK_MATERIALS) — без
+    // дефолта на пустое значение: undefined означает «пользователь ещё не
+    // выбрал». Толщина/глубина отдельно тут не хранятся — берутся живьём из
+    // каталога по decorCode и показываются в countertopPanelBlock() рядом с
+    // названием материала.
+    double: !!src.double,
     decorCode: src.decorCode,
     overhangFront: src.overhangFront !== undefined ? src.overhangFront : defaultCountertopOverhangFront(mod),
     overhangLeft: src.overhangLeft !== undefined ? src.overhangLeft : 0,
@@ -1907,16 +1904,6 @@ function findAnyMaterialByCode(code) {
   if (!code) return null;
   const facade = window.Modul3D.catalog.FACADE_MATERIALS || {};
   return [].concat(DECORS, BACK_MATERIALS, Object.values(facade)).find((d) => d.code === code) || null;
-}
-
-// Подгоняет ct.depth под реально существующую позицию каталога для текущего
-// материала; для doubleLdsp глубина не хранится вовсе — она берётся от
-// глубины корпуса модуля (countertopMat() в engine.js), настраивать её здесь
-// нечего. Общее для «включить столешницу на тумбе» и «сменить материал».
-function normalizeCountertopDepth(ct) {
-  if (ct.material === 'doubleLdsp') { delete ct.depth; return; }
-  const depths = countertopDepthOptions(ct.material);
-  if (depths.length && !depths.includes(Number(ct.depth))) ct.depth = depths[0];
 }
 
 // Короткая сводка «Стыков: N прямых, M угловых» — из уже готового
@@ -1962,38 +1949,25 @@ function countertopPanelBlock() {
   let settings = '';
   if (mod && enabled) {
     const s = countertopFieldsOf(mod);
-    const depths = s.material === 'doubleLdsp' ? [] : countertopDepthOptions(s.material);
-    const decorItem = findAnyMaterialByCode(s.decorCode);
+    const decorItem = findAnyMaterialByCode(s.decorCode) || window.Modul3D.catalog.findCountertopMaterialByCode(s.decorCode);
 
     settings = `
       <h3>Материал столешницы — ${esc(mod.name)}</h3>
       <div class="field">
-        <select id="ctopMaterial">
-          ${COUNTERTOP_MATERIAL_ORDER.map((id) =>
-            `<option value="${id}" ${id === s.material ? 'selected' : ''}>${esc(COUNTERTOP_MATERIAL_LABELS[id])}</option>`
-          ).join('')}
-        </select>
+        <label class="checkbox-inline"><input type="checkbox" id="ctopDouble" ${s.double ? 'checked' : ''}> Сдвоенная (2 листа декора корпуса)</label>
       </div>
-      ${s.material === 'custom' ? `
+      ${!s.double ? `
       <div class="field">
         <div class="ctop-decor-current-row">
           <div class="ctop-decor-current" title="${decorItem ? esc(decorItem.name) : ''}">${decorItem ? esc(decorItem.name) : '<span class="dim">не выбран</span>'}</div>
           <button type="button" class="link-btn" data-material-add="countertopDecor">Изменить</button>
         </div>
         ${decorItem && decorItem.thickness !== undefined
-          ? `<div class="ctop-decor-thickness">Толщина листа: ${decorItem.thickness} мм</div>` : ''}
+          ? `<div class="ctop-decor-thickness">Толщина листа: ${decorItem.thickness} мм${decorItem.depth !== undefined ? `, глубина ${decorItem.depth} мм` : ''}</div>` : ''}
       </div>
       <div class="hint">Если толщина БОЛЬШЕ 18 мм — крышка корпуса убирается, столешница крепится
         растиксами в торец боковин (как обычная столешница). Если толщина 18 мм и меньше — крышка
-        корпуса остаётся, а столешница садится на клей, как компакт-плита.</div>` : (depths.length ? `
-      <div class="field">
-        <label>Глубина, мм</label>
-        <select id="ctopDepth">
-          ${depths.map((d) =>
-            `<option value="${d}" ${Number(s.depth) === d || (!s.depth && d === depths[0]) ? 'selected' : ''}>${d}</option>`
-          ).join('')}
-        </select>
-      </div>` : `<div class="hint">Глубина сдвоенной столешницы берётся по глубине корпуса тумбы — здесь не настраивается.</div>`)}
+        корпуса остаётся, а столешница садится на клей, как компакт-плита.</div>` : `<div class="hint">Глубина сдвоенной столешницы берётся по глубине корпуса тумбы — здесь не настраивается.</div>`}
 
       <h3>Свесы, мм</h3>
       <div class="field-row4">
@@ -2088,11 +2062,10 @@ function bindCountertopEvents() {
         // (см. activeCountertopModule/countertopFieldsOf выше, изменено
         // 2026-09-06 по просьбе пользователя — раньше значения приходили
         // от группы, это путало).
-        if (!mod.countertop.material) mod.countertop.material = 'ldsp38';
+        if (!mod.countertop.decorCode && !mod.countertop.double) mod.countertop.decorCode = 'CTOP-LDSP38-600';
         if (mod.countertop.overhangFront === undefined) mod.countertop.overhangFront = defaultCountertopOverhangFront(mod);
         if (mod.countertop.overhangLeft === undefined) mod.countertop.overhangLeft = 0;
         if (mod.countertop.overhangRight === undefined) mod.countertop.overhangRight = 0;
-        normalizeCountertopDepth(mod.countertop);
       }
       // Включили столешницу на тумбе — логично сразу показать её настройки
       // ниже, а не оставлять открытой ту, что была выбрана до этого.
@@ -2109,27 +2082,14 @@ function bindCountertopEvents() {
   const activeMod = activeCountertopModule();
   const activeCt = activeMod && activeMod.countertop;
 
-  const materialEl = document.getElementById('ctopMaterial');
-  if (materialEl) materialEl.addEventListener('change', (e) => {
-    const val = e.target.value;
-    activeCt.material = val;
-    normalizeCountertopDepth(activeCt);
-    // При переключении на «свой материал» — сразу подставить декор корпуса
-    // как самый очевидный стартовый выбор, иначе пользователь увидит
-    // «не выбран». Толщина отдельно не задаётся — она всегда берётся из
-    // каталожной записи выбранного декора (dec.thickness), см. countertopMat()
-    // в engine.js и countertopPanelBlock() выше (2026-09-06: поле толщины на
-    // панели убрано, для нестандартной толщины материал заводится отдельной
-    // позицией в Библиотеке материалов).
-    if (val === 'custom') {
-      if (activeCt.decorCode === undefined) activeCt.decorCode = state.decorCode;
-    }
-    recompute();
-  });
-
-  const depthEl = document.getElementById('ctopDepth');
-  if (depthEl) depthEl.addEventListener('change', (e) => {
-    activeCt.depth = Number(e.target.value) || null;
+  // «Сдвоенная» — два листа декора корпуса проекта, склеенных вместе;
+  // decorCode при этом движком не читается вовсе (countertopMat() в
+  // engine.js), поэтому саму галочку хранить и снимать декор не нужно —
+  // просто переключаем double, а панель сама скроет/покажет строку
+  // материала при следующей перерисовке (см. countertopPanelBlock).
+  const doubleEl = document.getElementById('ctopDouble');
+  if (doubleEl) doubleEl.addEventListener('change', (e) => {
+    activeCt.double = e.target.checked;
     recompute();
   });
 

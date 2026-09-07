@@ -45,9 +45,11 @@
   // pricePerMeter + фиксированная depth (глубина полосы, мм). specification.js
   // считает эти позиции по ДЛИНЕ детали (пог.м), как EDGE_PRICES, а не по
   // площади листа, как DECORS.
-  // materialId — семейство материала из m.countertop.material ('ldsp38' /
-  // 'compact12'), НЕ то же, что code: у одной линии может быть несколько
-  // позиций разной depth (см. countertopMat() в engine.js).
+  // materialId — семейство линии позиции ('ldsp38'/'compact12'), НЕ то же,
+  // что code: у одной линии может быть несколько позиций разной depth (см.
+  // findCountertopMaterialByCode()/countertopMat() в engine.js). С 2026-09-06
+  // m.countertop.material в проекте больше нет — код позиции (m.countertop.
+  // decorCode) резолвится напрямую по code, без промежуточного materialId.
   // Подбор цветов по просьбе владельца: постформинг — 2 тёмных, 2 светлых/
   // под мрамор, 1 под дерево (5 шт); компакт-плита — 2 светлых, 2 тёмных,
   // 1 нейтральный (5 шт). Все — реальные позиции с mobilier.md, глубина
@@ -550,12 +552,24 @@
   // куда пользователь может добавить свой лист через Библиотеку материалов —
   // DECORS (декор корпуса), BACK_MATERIALS (задняя стенка), FACADE_MATERIALS
   // (материал фасада, объект, не массив). Общий резолвер для мест, где код
-  // материала известен, а категория — нет (engine.js: countertopMat() и
-  // ctCustomThick для столешницы «свой материал»; specification.js:
+  // материала известен, а категория — нет (engine.js: countertopMat()/
+  // ctResolvedThickness для столешницы «свой материал»; specification.js:
   // ctSkipsTopPanel).
   function findMaterialByCode(code) {
     return [].concat(DECORS, BACK_MATERIALS, Object.values(FACADE_MATERIALS))
       .find((d) => d.code === code) || null;
+  }
+
+  // Ищет позицию ГОТОВОГО каталога столешниц (COUNTERTOP_MATERIALS, коды
+  // "CTOP-...") — ОТДЕЛЬНО от findMaterialByCode() выше: карточки столешниц
+  // продаются погонным метром фиксированной глубины (свои поля depth/
+  // pricePerMeter/maxLength) и не должны быть доступны там, где ожидается
+  // обычный лист декора (декор корпуса/фасада/задней стенки) — попадание
+  // CTOP-кода в DECORS/BACK_MATERIALS/FACADE_MATERIALS сломало бы площадное
+  // ценообразование листа (см. countertopMat() в engine.js — сначала пробует
+  // этот резолвер, и только если не нашёл — общий findMaterialByCode()).
+  function findCountertopMaterialByCode(code) {
+    return (COUNTERTOP_MATERIALS || []).find((m) => m.code === code) || null;
   }
 
   // Категории фурнитуры для вкладки «Фурнитура» панели «Библиотека» —
@@ -582,6 +596,6 @@
     FACADE_TYPES, FACADE_TYPE_ORDER, FACADE_MATERIALS,
     HANDLES, HANDLE_ORDER, HANDLE_HOLE_D, LIFTS, LIFT_ORDER,
     HARDWARE_CATEGORY_LABEL, HARDWARE_CATEGORY_ORDER,
-    findMaterialByCode,
+    findMaterialByCode, findCountertopMaterialByCode,
   };
 })();

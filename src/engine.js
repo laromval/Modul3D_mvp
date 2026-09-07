@@ -1703,36 +1703,91 @@ function buildModuleParts(p) {
   // них шурупами крепится столешница. Экономит материал и открывает доступ
   // сверху (мойка, варочная панель, ящики).
   const isFloorStandingBase = p.base.type === 'plinth' || p.base.type === 'legsPlinth' || p.base.type === 'legs';
+  // ---------- Столешница: резолвер материала ----------
+  // Изменено 2026-09-06: выбор столешницы больше не разделён на «тип
+  // материала» (было: select ldsp38/compact12/doubleLdsp/custom + отдельное
+  // поле «Глубина, мм») — пользователь всегда просто выбирает МАТЕРИАЛ через
+  // ту же Библиотеку, что и для декора корпуса/фасада (p.countertop.decorCode).
+  // Им может стать:
+  //  - готовая позиция каталога COUNTERTOP_MATERIALS (карточка товара с
+  //    кодом "CTOP-..." — ЛДСП 38мм постформинг или компакт-плита 12мм HPL,
+  //    продаётся погонным метром ФИКСИРОВАННОЙ глубины) — глубина/цена/
+  //    макс. длина зашиты в самой карточке, другая глубина того же декора —
+  //    это ДРУГАЯ карточка каталога (см. catalog.js: COUNTERTOP_MATERIALS,
+  //    findCountertopMaterialByCode);
+  //  - обычный лист декора из общей библиотеки материалов (DECORS/
+  //    BACK_MATERIALS/FACADE_MATERIALS) — прежняя ветка material==='custom',
+  //    глубина НЕ фиксирована (клеится/пилится из обычного листа декора).
+  // «Сдвоенная» (было отдельным пунктом списка material==='doubleLdsp') —
+  // теперь отдельная галочка p.countertop.double, а не материал: два листа
+  // ДЕКОРА КОРПУСА проекта, склеенных вместе — decorCode при этом вообще не
+  // читается (строка выбора материала на панели скрыта).
+  //
+  // Резолвер читает ИСКЛЮЧИТЕЛЬНО p.countertop, никогда topType/facadeType/
+  // family (см. visibleSideMat выше и баг dbcbba0). Определён здесь (а не
+  // ниже, у самой постройки детали «Столешница») и вызывается ОДИН раз в
+  // ctResolved — тот же резолвнутый результат нужен уже сейчас, до постройки
+  // крыши корпуса (skipTopPanel решает, убирать ли цельную крышку), и снова
+  // ниже при постройке самой детали «Столешница» — единый источник, чтобы
+  // решение «крышка есть/нет» и фактическая деталь не могли разойтись.
+  const countertopMat = (ct) => {
+    if (ct.double) {
+      // Не позиция каталога — глубина = глубина корпуса модуля D, а
+      // максимальная длина цельного куска — ширина листа корпусного декора
+      // (sheetW), т.к. столешница клеится из тех же листов, что и корпус.
+      return { found: true, code: decor.code, name: `${decor.name} (сдвоенное 2×, столешница)`,
+        isDouble: true, thickness: null, depth: null, maxLength: decor.sheetW || null };
+    }
+    const cat = window.Modul3D.catalog;
+    // 1) готовая позиция каталога столешниц (CTOP-...) — СВОЙ резолвер,
+    //    отдельно от общего findMaterialByCode() (см. catalog.js) — карточки
+    //    столешниц не должны быть доступны там, где ожидается обычный лист
+    //    декора корпуса/фасада, и наоборот.
+    const ctCat = ct.decorCode ? cat.findCountertopMaterialByCode(ct.decorCode) : null;
+    if (ctCat) {
+      return { found: true, code: ctCat.code, name: ctCat.name,
+        isDouble: false, thickness: ctCat.thickness, depth: ctCat.depth, maxLength: ctCat.maxLength || null };
+    }
+    // 2) обычный лист декора из общей библиотеки материалов — DECORS,
+    //    FACADE_MATERIALS (объект, не массив) или BACK_MATERIALS, БЕЗ
+    //    копирования между ними (см. app.js: libPickMaterial/
+    //    findAnyMaterialByCode — та же тройка, что уже ищет specification.js
+    //    для листовых материалов, см. там `known`). Толщина — строго из
+    //    каталожной записи (dec.thickness), поле «Толщина» на панели
+    //    столешницы убрано ещё 2026-09-06.
+    const dec = ct.decorCode ? cat.findMaterialByCode(ct.decorCode) : null;
+    if (!dec) return { found: false, reason: 'noDecor' };
+    const th = Number(dec.thickness) || 0;
+    if (!(th > 0)) return { found: false, reason: 'noThickness' };
+    // Толщина ≤18мм (не толще стандартной корпусной ЛДСП) технически строится
+    // — клеится по всей площади к цельной крышке корпуса (см. skipTopPanel
+    // ниже, растикс в торец боковины только при >18). Способ крепления уже
+    // однозначно указан в note самой детали «Столешница» ниже (клей vs
+    // растикс) — отдельного предупреждения тут нет.
+    return { found: true, code: dec.code, name: `${dec.name} (столешница, ${th} мм)`,
+      isDouble: false, thickness: th, depth: null, maxLength: dec.sheetW || null };
+  };
+  const ctEnabled = !!(p.countertop && p.countertop.enabled);
+  const ctResolved = ctEnabled ? countertopMat(p.countertop) : null;
+  // Эффективная толщина резолвнутого материала — «сдвоенная» это всегда 2
+  // листа декора корпуса (2×t), а не поле каталога (там thickness:null).
+  const ctResolvedThickness = (ctResolved && ctResolved.found)
+    ? (ctResolved.isDouble ? 2 * t : (Number(ctResolved.thickness) || 0)) : 0;
   // У обычной мебели (не кухня — там верх всегда планки-царги, см. выше)
   // цельная крышка под включённой столешницей — лишняя деталь ТОЛЬКО если
-  // столешница из материала, что реально держит стяжку-эксцентрик в торец
-  // боковины: ЛДСП постформинг (ldsp38), сдвоенная ЛДСП (doubleLdsp) —
-  // толщина (38 / ~36 мм) позволяет присадку — или «свой материал» (custom,
-  // любой лист из общей библиотеки материалов) толщиной строго БОЛЬШЕ 18 мм
-  // (стандартной корпусной ЛДСП), подтверждено пользователем-мебельщиком
-  // 2026-09-05. Изменено 2026-09-06: толщина «своего материала» больше не
-  // вводится вручную — берётся из каталожной записи декора (dec.thickness,
-  // см. countertopMat() ниже), поэтому её нужно резолвить уже здесь.
-  // Компакт-плита (compact12, ~12 мм HPL) тонкая и плохо сверлится —
-  // крепится ТОЛЬКО клеем на сплошную опору, поэтому для неё крышка нужна
-  // как была. «Свой материал» толщиной ≤18мм — та же логика (клей, см. note
-  // детали «Столешница» ниже). Материал ещё не выбран (пустое поле, старый/
-  // повреждённый проект) — безопасный дефолт: крышку НЕ убираем (лучше
-  // лишняя деталь, чем корпус без опоры сверху).
-  const ctMaterial = p.countertop && p.countertop.material;
-  // Резолвим декор «своего материала» напрямую по каталогу (тот же поиск по
-  // тройке DECORS/BACK_MATERIALS/FACADE_MATERIALS, что позже делает
-  // countertopMat() — она объявлена ниже по функции, здесь нужен свой вызов):
-  // нужно и чтобы декор реально нашёлся, и чтобы прочитать его РЕАЛЬНУЮ
-  // толщину из каталога. Если decorCode ещё не выбран (пользователь только
-  // открыл панель столешницы) — крышку не убираем, безопасный дефолт: корпус
-  // не должен остаться без опоры сверху, пока материал не выбран до конца.
-  const ctCustomDecor = ctMaterial === 'custom' && p.countertop.decorCode
-    ? window.Modul3D.catalog.findMaterialByCode(p.countertop.decorCode) : null;
-  const ctCustomThick = !!ctCustomDecor && Number(ctCustomDecor.thickness) > 18;
-  const skipTopPanel = isFloorStandingBase && p.countertop && p.countertop.enabled
+  // РЕАЛЬНАЯ толщина резолвнутого материала БОЛЬШЕ 18 мм (стандартной
+  // корпусной ЛДСП): тогда стяжка-эксцентрик держит столешницу прямо в
+  // торец боковины (растикс, см. присадку ниже). Единое правило для ВСЕХ
+  // путей резолва (каталожная позиция ldsp38/compact12, сдвоенная, свой
+  // материал) — БЕЗ хардкода по конкретному коду/materialId (подтверждено
+  // владельцем-мебельщиком 2026-09-05/06: толщина ≤18мм — клеится к сплошной
+  // опоре, толщина >18мм — растикс в торец боковины, независимо от того,
+  // КАКАЯ это конкретно позиция каталога/декора). Материал ещё не выбран/не
+  // найден (пустое поле, старый/битый проект) — безопасный дефолт: крышку
+  // НЕ убираем (лучше лишняя деталь, чем корпус без опоры сверху).
+  const skipTopPanel = isFloorStandingBase && ctEnabled
     && !(p.topType === 'rails' || p.topType === 'railsEdge')
-    && (ctMaterial === 'ldsp38' || ctMaterial === 'doubleLdsp' || ctCustomThick);
+    && ctResolvedThickness > 18;
   if (skipTopPanel) {
     // Деталь верха корпуса не строится.
   } else if (p.topType === 'rails' || p.topType === 'railsEdge') {
@@ -1797,103 +1852,22 @@ function buildModuleParts(p) {
   // так помещаются в один лист] … если длины не хватило — не соединяем где
   // попало, а в месте соединения двух модулей».
   //
-  // Резолвер материала — читает ИСКЛЮЧИТЕЛЬНО p.countertop, никогда
-  // topType/facadeType/family (см. visibleSideMat выше и баг dbcbba0).
-  //
-  // АРХИТЕКТУРНОЕ РЕШЕНИЕ: глубина ldsp38/compact12 — это ВЫБОР позиции
-  // каталога COUNTERTOP_MATERIALS (товар продаётся полосой фиксированной
-  // глубины). p.countertop.depth (мм, опционально) — точное совпадение в
-  // линии materialId, иначе ближайшая доступная (warning), без указания —
-  // первая по возрастанию глубины. doubleLdsp — не позиция каталога,
-  // глубина = глубина корпуса модуля D, максимальная длина цельного куска —
-  // ширина листа корпусного декора (sheetW), т.к. клеится из тех же листов.
-  const countertopMat = (ct) => {
-    if (ct.material === 'doubleLdsp') {
-      return { found: true, code: decor.code, name: `${decor.name} (сдвоенное 2×, столешница)`,
-        isDouble: true, thickness: null, depth: null, maxLength: decor.sheetW || null };
-    }
-    // «Свой материал» — любой лист из общей библиотеки материалов, а не
-    // позиция каталога COUNTERTOP_MATERIALS. Как и doubleLdsp, это НЕ товар с
-    // фиксированной глубиной полосы — depth:null (см. autoOverhangBack/
-    // предупреждение о глубине листа ниже, там проверка уже на `ctMat.depth`,
-    // а не только `isDouble`). maxLength — по ширине листа декора, столешница
-    // клеится/пилится из тех же листов, что и корпус.
-    if (ct.material === 'custom') {
-      // decorCode может ссылаться на позицию из ЛЮБОГО из трёх списков
-      // каталога — DECORS, FACADE_MATERIALS (объект, не массив) или
-      // BACK_MATERIALS, БЕЗ копирования между ними (см. app.js:
-      // libPickMaterial/findAnyMaterialByCode — та же тройка, что уже ищет
-      // specification.js для листовых материалов, см. там `known`; общий
-      // резолвер этой тройки — catalog.findMaterialByCode()).
-      // Изменено 2026-09-06: раньше искали только в DECORS, что заставляло
-      // копировать материал из «Материалов фасадов» — плодило дубль в
-      // Библиотеке (найдено пользователем).
-      const dec = window.Modul3D.catalog.findMaterialByCode(ct.decorCode);
-      if (!dec) return { found: false, reason: 'noDecor' };
-      // Изменено 2026-09-06: толщина «своего материала» больше НЕ вводится
-      // вручную (поле #ctopThickness на панели столешницы убрано) — берётся
-      // строго из каталожной записи выбранного декора (dec.thickness), той
-      // же, что показывает Библиотека материалов. Нестандартную толщину
-      // листа пользователь заводит отдельной позицией в Библиотеке (форма
-      // «+Добавить материал», поле «Толщина»), а не полем на панели
-      // столешницы. th<=0 — у декора нет валидной толщины в каталоге
-      // (например, H1180ST37 в DECORS — thickness сознательно не добавлен,
-      // см. комментарий там) — деталь не строится, как и раньше при
-      // некорректной толщине.
-      const th = Number(dec.thickness) || 0;
-      if (!(th > 0)) return { found: false, reason: 'noThickness' };
-      // Толщина ≤18мм (не толще стандартной корпусной ЛДСП) технически
-      // строится — клеится по всей площади к цельной крышке корпуса, как
-      // компакт-плита (см. skipTopPanel выше, растикс в торец боковины
-      // только при >18). С 2026-09-06 это НОРМА для большинства декоров
-      // каталога (почти все 18мм), а не редкое отклонение от ручного ввода:
-      // «свой материал» для обычной тумбы/комода часто и есть тот же лист
-      // ЛДСП, что у корпуса — не кухонная столешница вообще. Отдельного
-      // предупреждения тут больше нет: способ крепления уже однозначно
-      // указан в note самой детали «Столешница» ниже (клей vs растикс) —
-      // дублировать это глобальным ⚠ на КАЖДУЮ такую столешницу было бы
-      // шумом без новой информации для пользователя.
-      return { found: true, code: dec.code, name: `${dec.name} (столешница, ${th} мм)`,
-        isDouble: false, thickness: th, depth: null, maxLength: dec.sheetW || null };
-    }
-    const cat = window.Modul3D.catalog;
-    const list = (cat.COUNTERTOP_MATERIALS || []).filter((x) => x.materialId === ct.material);
-    if (!list.length) return { found: false };
-    const sorted = list.slice().sort((a, b) => a.depth - b.depth);
-    let picked = null;
-    if (ct.depth) {
-      picked = sorted.find((m) => Math.abs(m.depth - Number(ct.depth)) < 1);
-      if (!picked) {
-        picked = sorted.reduce((best, m) =>
-          (Math.abs(m.depth - Number(ct.depth)) < Math.abs(best.depth - Number(ct.depth)) ? m : best), sorted[0]);
-        warnings.push(`Столешница: глубина ${ct.depth} мм не найдена в каталоге для `
-          + `"${ct.material}" — взята ближайшая доступная (${picked.depth} мм, ${picked.name}).`);
-      }
-    } else {
-      picked = sorted[0];
-    }
-    return { found: true, code: picked.code, name: picked.name, thickness: picked.thickness,
-      depth: picked.depth, maxLength: picked.maxLength || null };
-  };
+  // Резолвер countertopMat() и его результат (ctResolved/ctResolvedThickness)
+  // уже определены выше, перед skipTopPanel — здесь используем готовый
+  // ctResolved, повторный вызов не нужен.
 
-  if (p.countertop && p.countertop.enabled && isFloorStandingBase) {
+  if (ctEnabled && isFloorStandingBase) {
     const ct = p.countertop;
-    const ctMat = countertopMat(ct);
+    const ctMat = ctResolved;
     if (!ctMat.found) {
-      // «Свой материал» не ищется в COUNTERTOP_MATERIALS вообще (см.
-      // countertopMat() выше) — общее сообщение про этот каталог тут
-      // вводило бы в заблуждение, реальная причина всегда в decorCode или
-      // толщине каталожной записи декора, не в позиции каталога столешниц.
-      if (ct.material === 'custom') {
-        if (ctMat.reason === 'noThickness') {
-          warnings.push('Столешница модуля: «свой материал» — у выбранного материала не указана толщина '
-            + 'в каталоге — деталь не построена. Заведите этот лист отдельной позицией в Библиотеке '
-            + 'материалов с указанием толщины и выберите её заново с панели столешницы.');
-        } else {
-          warnings.push('Столешница модуля: «свой материал» — не выбран декор из библиотеки — деталь не построена.');
-        }
+      // Единый резолвер (см. countertopMat() выше) — причина всегда одна из
+      // двух: decorCode не указан/не найден ни в одном каталоге, либо у
+      // найденного декора нет валидной толщины.
+      if (ctMat.reason === 'noThickness') {
+        warnings.push('Столешница модуля: у выбранного материала не указана толщина в каталоге — деталь не построена. '
+          + 'Заведите этот лист отдельной позицией в Библиотеке материалов с указанием толщины и выберите её заново с панели столешницы.');
       } else {
-        warnings.push(`Столешница: материал "${ct.material}" не найден в каталоге COUNTERTOP_MATERIALS — деталь не построена.`);
+        warnings.push('Столешница модуля: материал не выбран из Библиотеки — деталь не построена.');
       }
     } else {
       // «Свес спереди» отсчитывается от ПЛОСКОСТИ ФАСАДА (как и в уже
@@ -1991,20 +1965,22 @@ function buildModuleParts(p) {
             ? 'Крепится стяжкой-эксцентриком напрямую в верхний торец боковин (цельной крышки/царг под столешницей нет)'
             : 'Клеится по всей площади к цельной крышке корпуса — крепёж в торец боковины для этого материала не применяется'),
       });
-      // ctFamily/ctHasTopSupport/ctMaxLength — доп. поля для пассов
-      // buildModel() (mergeCountertops/joinCountertopSeams): part.material
-      // уже РЕЗОЛВНУТЫЙ код каталога/декора, по нему нельзя ни отличить
-      // компакт-плиту от ЛДСП (нужно для клеевого шва/проверки опоры), ни
-      // узнать максимальную длину цельного куска (нужно для слияния).
+      // ctHasTopSupport/ctMaxLength — доп. поля для пассов buildModel()
+      // (mergeCountertops/joinCountertopSeams): part.material уже
+      // РЕЗОЛВНУТЫЙ код каталога/декора, по нему нельзя узнать максимальную
+      // длину цельного куска (нужно для слияния). ctFamily больше не
+      // нужен — joinCountertopSeams() с 2026-09-06 различает клеевой/
+      // растиксовый узел по РЕАЛЬНОЙ part.thickness (>18мм — растикс, иначе
+      // клей), той же, что уже лежит на этой детали (thickness: ctThickness
+      // выше) — без отдельного поля-дублёра.
       // ctHasTopSupport — булево, а не topType строкой: после
       // mergeCountertops одна деталь может покрывать несколько тумб с
       // РАЗНЫМ topType, и mergeCountertops сводит это к «есть опора под ВСЕЙ
       // деталью» (AND по всем слитым тумбам) — см. флаг там же. «Опора» —
       // это ЛЮБАЯ сплошная поверхность сверху корпуса под столешницей
       // (планки-царги ИЛИ цельная крышка, см. skipTopPanel выше), а не
-      // только планки: с skipTopPanel=true (ЛДСП/сдвоенная — крепёж в торец
+      // только планки: с skipTopPanel=true (толщина >18мм — крепёж в торец
       // боковины) опоры нет, во всех остальных случаях — есть.
-      ctPart.ctFamily = ct.material;
       ctPart.ctHasTopSupport = !skipTopPanel;
       ctPart.ctMaxLength = ctMat.maxLength || null;
       // Свес слева/справа ЭТОЙ тумбы — mergeCountertops применяет их только
@@ -4289,7 +4265,7 @@ function mergeCountertops(parts) {
         // Слитая деталь может покрывать тумбы с разным способом крепления
         // (планки/крышка/Rastex) — единого текста тут больше нет, точный
         // крепёж по каждой тумбе — в спецификации (считается отдельно по
-        // m.topType/m.countertop.material, не по этой детали).
+        // m.topType/m.countertop, не по этой детали).
         // ctHasTopSupport — AND по всем слитым тумбам (см. hasTopSupport в
         // joinCountertopSeams): под компакт-плитой сплошная опора должна
         // быть по всей длине, не только по краям.
@@ -4356,20 +4332,25 @@ function joinCountertopSeams(parts, proj, warnings) {
   const hasTopSupport = (p) => !!p.ctHasTopSupport;
 
   const seamHardware = (kind, A, B, seamLenMm) => {
-    const isCompact = A.ctFamily === 'compact12';
+    // Клеевой/растиксовый узел — по РЕАЛЬНОЙ толщине резолвнутого материала
+    // (то же единое правило >18мм, что и skipTopPanel в buildModuleParts;
+    // изменено 2026-09-06 — раньше проверялось имя семейства ct.material
+    // ('compact12'/'ldsp38'), теперь разбора по названию каталожной позиции
+    // нет вообще, только физическая толщина этой конкретной детали).
+    const isGlued = A.thickness <= 18;
     const hw = [];
-    if (isCompact) {
+    if (isGlued) {
       if (!hasTopSupport(A) || !hasTopSupport(B)) {
-        warnings.push(`Стык компакт-столешницы у тумб "${A.module}"/"${B.module}": `
-          + `под краем нет опоры (планки/крышки) — край столешницы приклеить не к чему.`);
+        warnings.push(`Стык столешницы у тумб "${A.module}"/"${B.module}": материал ≤18мм крепится клеем — `
+          + `под краем нет опоры (планки/крышки), край столешницы приклеить не к чему.`);
       }
       hw.push({ key: 'countertopSealant', qty: 1 });
       return hw;
     }
     if (kind === 'corner') {
-      if (A.ctFamily !== 'ldsp38') {
+      if (A.thickness !== 38) {
         warnings.push('Угловая стяжка LMB-KAT38-20M рассчитана под ЛДСП 38мм — '
-          + `для материала "${A.ctFamily}" цена/совместимость не подтверждены.`);
+          + `для столешницы толщиной ${A.thickness} мм цена/совместимость не подтверждены.`);
       }
       hw.push({ key: 'countertopCornerTie', qty: tieQty(seamLenMm) });
       if (cornerJoinType === 'eurogroove') hw.push({ key: 'countertopSealant', qty: 1 });

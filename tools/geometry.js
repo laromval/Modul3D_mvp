@@ -2969,7 +2969,7 @@ for (const glass of [false, true]) {
       name: 'Тумба', width: 600, height: 820, depth: 510, family,
       leftSide: 'onBottom', rightSide: 'onBottom', topType: 'rails',
       base: { type: 'legsPlinth', legHeight: 100 },
-      countertop: { enabled: true, material: 'ldsp38', overhangFront: 20 },
+      countertop: { enabled: true, decorCode: 'CTOP-LDSP38-600', overhangFront: 20 },
       sections: [{ shelves: 1, drawers: 0, facade: 'doorLeft', drawerSystem: 'ballBearing' }],
     }],
   }));
@@ -3015,7 +3015,7 @@ for (const glass of [false, true]) {
       name: 'Тумба', width: 600, height: 820, depth: 510, family: 'custom', noBack: true,
       leftSide: 'onBottom', rightSide: 'onBottom', topType: 'rails',
       base: { type: 'legsPlinth', legHeight: 100 },
-      countertop: { enabled: true, material: 'ldsp38', overhangFront: 20 },
+      countertop: { enabled: true, decorCode: 'CTOP-LDSP38-600', overhangFront: 20 },
       sections: [{ shelves: 1, drawers: 0, facade: 'doorLeft', drawerSystem: 'ballBearing' }],
     }],
   }));
@@ -3037,7 +3037,7 @@ for (const glass of [false, true]) {
     name: 'Тумба ' + (i + 1), width: w, height: 820, depth: 560,
     leftSide: 'onBottom', rightSide: 'onBottom', topType: 'rails',
     base: { type: 'legsPlinth', legHeight: 100 },
-    countertop: { enabled: true, material: 'ldsp38' },
+    countertop: { enabled: true, decorCode: 'CTOP-LDSP38-600' },
     sections: [{ shelves: 1, drawers: 0, facade: 'doorLeft', drawerSystem: 'ballBearing' }],
   }));
 
@@ -3086,18 +3086,18 @@ for (const glass of [false, true]) {
   const mods = [
     { name: 'Тумба 1', width: 600, height: 820, depth: 560, leftSide: 'onBottom', rightSide: 'onBottom',
       topType: 'rails', base: { type: 'legsPlinth', legHeight: 100 },
-      countertop: { enabled: true, material: 'ldsp38', overhangLeft: 15 },
+      countertop: { enabled: true, decorCode: 'CTOP-LDSP38-600', overhangLeft: 15 },
       sections: [{ shelves: 1, drawers: 0, facade: 'doorLeft', drawerSystem: 'ballBearing' }] },
     // Средняя тумба — свес указан по ошибке (или так вела себя старая
     // панель, применяя общее значение ко всем отмеченным) — не должен
     // повлиять на геометрию вообще.
     { name: 'Тумба 2', width: 700, height: 820, depth: 560, leftSide: 'onBottom', rightSide: 'onBottom',
       topType: 'rails', base: { type: 'legsPlinth', legHeight: 100 },
-      countertop: { enabled: true, material: 'ldsp38', overhangRight: 50, overhangLeft: 50 },
+      countertop: { enabled: true, decorCode: 'CTOP-LDSP38-600', overhangRight: 50, overhangLeft: 50 },
       sections: [{ shelves: 1, drawers: 0, facade: 'doorLeft', drawerSystem: 'ballBearing' }] },
     { name: 'Тумба 3', width: 500, height: 820, depth: 560, leftSide: 'onBottom', rightSide: 'onBottom',
       topType: 'rails', base: { type: 'legsPlinth', legHeight: 100 },
-      countertop: { enabled: true, material: 'ldsp38', overhangRight: 25 },
+      countertop: { enabled: true, decorCode: 'CTOP-LDSP38-600', overhangRight: 25 },
       sections: [{ shelves: 1, drawers: 0, facade: 'doorLeft', drawerSystem: 'ballBearing' }] },
   ];
   const model = buildModel(Object.assign({}, base, { modules: mods }));
@@ -3136,11 +3136,11 @@ for (const glass of [false, true]) {
         leftSide: 'onBottom', rightSide: 'onBottom', topType: 'railsEdge', noBack: true,
         blindPanel: true, blindStrip: 78,
         base: { type: 'legsPlinth', legHeight: 100 },
-        countertop: { enabled: true, material: 'ldsp38', overhangFront },
+        countertop: { enabled: true, decorCode: 'CTOP-LDSP38-600', overhangFront },
         sections: [{ shelves: 0, drawers: 0, facade: 'doorLeft', handle: 'bow160' }] },
       { name: 'След', width: 600, height: 820, depth: 560, leftSide: 'onBottom', rightSide: 'onBottom',
         topType: 'rails', base: { type: 'legsPlinth', legHeight: 100 },
-        countertop: { enabled: true, material: 'ldsp38' },
+        countertop: { enabled: true, decorCode: 'CTOP-LDSP38-600' },
         sections: [{ shelves: 1, drawers: 0, facade: 'doorLeft', drawerSystem: 'ballBearing' }] },
     ],
   }));
@@ -3190,8 +3190,8 @@ for (const glass of [false, true]) {
 // стяжек. Пятая тумба — topType:'panel' (не rails), а не 'rails' как у
 // остальных: у компакт-плиты (тонкая, плохо сверлится — только клеится)
 // engine.js ВСЕГДА строит сплошную опору сверху корпуса (крышку) независимо
-// от topType (см. skipTopPanel в buildModuleParts — для compact12 крышку не
-// убирает никогда, только для ldsp38/doubleLdsp), поэтому опора под швом
+// от topType (см. skipTopPanel в buildModuleParts — для материалов толщиной
+// ≤18мм крышку не убирает никогда, только толще 18мм), поэтому опора под швом
 // есть в обоих случаях и предупреждение «нет опоры под краем» здесь как раз
 // НЕ должно сработать — тест ловит регрессию в обратную сторону (появление
 // ложного предупреждения), а не саму нехватку опоры.
@@ -3201,7 +3201,7 @@ for (const glass of [false, true]) {
     leftSide: 'onBottom', rightSide: 'onBottom',
     topType: i < 4 ? 'rails' : 'panel',
     base: { type: 'legsPlinth', legHeight: 100 },
-    countertop: { enabled: true, material: 'compact12' },
+    countertop: { enabled: true, decorCode: 'CTOP-COMPACT12-650' },
     sections: [{ shelves: 1, drawers: 0, facade: 'doorLeft', drawerSystem: 'ballBearing' }],
   }));
   const model = buildModel(Object.assign({}, base, { modules: mods }));
@@ -3225,8 +3225,8 @@ for (const glass of [false, true]) {
 }
 
 // --- присадка растикс: боковина ↔ столешница (skipTopPanel) ----------------
-// Материал ldsp38/doubleLdsp/«свой материал» (>18мм) — толщина позволяет
-// присадку (подтверждено владельцем-мебельщиком 2026-09-05). ДВА растикса
+// Материал толщиной >18мм (каталожная позиция/сдвоенная/свой декор) —
+// толщина позволяет присадку (подтверждено владельцем-мебельщиком 2026-09-05). ДВА растикса
 // на боковину (не один), отступ JOINT_SETBACK=50мм от переднего и заднего
 // края глубины боковины — было подтверждено отдельно 2026-09-05 (апдейт
 // требования: изначально был 1 в центре). Одиночная тумба, без слияния —
@@ -3239,7 +3239,7 @@ for (const glass of [false, true]) {
     leftSide: 'floor', rightSide: 'floor',
     base: { type: 'legsPlinth', legHeight: 100, plinthHeight: 100 },
     topType: 'panel',
-    countertop: { enabled: true, material: 'ldsp38' },
+    countertop: { enabled: true, decorCode: 'CTOP-LDSP38-600' },
     sections: [{ shelves: 1, drawers: 0, facade: 'doorLeft' }],
   };
   const model = buildModel(Object.assign({}, base, { modules: [mod1] }));
@@ -3323,7 +3323,7 @@ for (const glass of [false, true]) {
     leftSide: 'floor', rightSide: 'floor',
     base: { type: 'legsPlinth', legHeight: 100, plinthHeight: 100 },
     topType: 'panel',
-    countertop: { enabled: true, material: 'ldsp38' },
+    countertop: { enabled: true, decorCode: 'CTOP-LDSP38-600' },
     sections: [{ shelves: 1, drawers: 0, facade: 'doorLeft' }],
   });
   const mods = widths.map((w, i) => mkMod('Тумба ' + (i + 1), w));
@@ -3379,7 +3379,7 @@ for (const glass of [false, true]) {
     leftSide: 'floor', rightSide: 'floor',
     base: { type: 'legsPlinth', legHeight: 100, plinthHeight: 100 },
     topType: 'panel',
-    countertop: { enabled: true, material: 'custom', decorCode: decCode },
+    countertop: { enabled: true, decorCode: decCode },
     sections: [{ shelves: 1, drawers: 0, facade: 'doorLeft' }],
   };
   const model = buildModel(Object.assign({}, base, { modules: [mod1] }));
@@ -3421,7 +3421,7 @@ for (const glass of [false, true]) {
     leftSide: 'floor', rightSide: 'floor',
     base: { type: 'legsPlinth', legHeight: 100, plinthHeight: 100 },
     topType: 'panel',
-    countertop: { enabled: true, material: 'custom', decorCode: decCode },
+    countertop: { enabled: true, decorCode: decCode },
     sections: [{ shelves: 1, drawers: 0, facade: 'doorLeft' }],
   };
   const model = buildModel(Object.assign({}, base, { modules: [mod1] }));
@@ -3448,7 +3448,7 @@ for (const glass of [false, true]) {
     leftSide: 'floor', rightSide: 'floor',
     base: { type: 'legsPlinth', legHeight: 100, plinthHeight: 100 },
     topType: 'panel',
-    countertop: { enabled: true, material: 'custom' }, // decorCode не задан
+    countertop: { enabled: true }, // decorCode не задан
     sections: [{ shelves: 1, drawers: 0, facade: 'doorLeft' }],
   };
   const model = buildModel(Object.assign({}, base, { modules: [mod1] }));
@@ -3478,7 +3478,7 @@ for (const glass of [false, true]) {
     leftSide: 'floor', rightSide: 'floor',
     base: { type: 'legsPlinth', legHeight: 100, plinthHeight: 100 },
     topType: 'panel',
-    countertop: { enabled: true, material: 'custom', decorCode: DECORS[0].code },
+    countertop: { enabled: true, decorCode: DECORS[0].code },
     sections: [{ shelves: 1, drawers: 0, facade: 'doorLeft' }],
   };
   const model = buildModel(Object.assign({}, base, { modules: [mod1] }));
@@ -3497,6 +3497,38 @@ for (const glass of [false, true]) {
   cases += 1;
 }
 
+// --- столешница «сдвоенная» (галочка double, был отдельный пункт списка
+// material:'doubleLdsp' до 2026-09-06) — два листа декора корпуса, крышка
+// убирается (толщина 2×t > 18мм), растикс в торец боковины, как у ldsp38.
+{
+  const mod1 = {
+    name: 'Тумба', width: 600, height: 850, depth: 560,
+    leftSide: 'floor', rightSide: 'floor',
+    base: { type: 'legsPlinth', legHeight: 100, plinthHeight: 100 },
+    topType: 'panel',
+    countertop: { enabled: true, double: true },
+    sections: [{ shelves: 1, drawers: 0, facade: 'doorLeft' }],
+  };
+  const model = buildModel(Object.assign({}, base, { modules: [mod1] }));
+  inspect(model, 'столешница: «сдвоенная» (double:true) — крышки нет, растикс, толщина 2×корпус');
+
+  if (model.parts.some((p) => p.kind === 'top')) {
+    problems.push('столешница-сдвоенная: крышка корпуса построена — не должно быть, толщина 2×t > 18');
+  }
+  const ctParts = model.parts.filter((p) => p.kind === 'countertop');
+  if (ctParts.length !== 1) {
+    problems.push(`столешница-сдвоенная: ожидалась 1 деталь столешницы, получено ${ctParts.length}`);
+  } else if (Math.abs(ctParts[0].thickness - 2 * base.bodyThickness) > 0.1) {
+    problems.push(`столешница-сдвоенная: толщина детали ${ctParts[0].thickness} вместо ${2 * base.bodyThickness}`);
+  }
+  const sidePanels4 = model.partsRaw.filter((p) => p.kind === 'side');
+  for (const sp of sidePanels4) {
+    const cams = sp.holes.filter((h) => h.kind === 'minifixCam');
+    if (cams.length !== 2) problems.push(`столешница-сдвоенная: у "${sp.name}" ${cams.length} гнёзд Ø15 вместо 2`);
+  }
+  cases += 1;
+}
+
 // --- регресс: растикс столешницы не должен задваиваться с другим minifix ---
 // узлом на той же боковине (например, глухая накладная панель — тоже вешается
 // через minifixCam). Найдено на ревью 2026-09-06: specification.js считал
@@ -3508,7 +3540,7 @@ for (const glass of [false, true]) {
     leftSide: 'floor', rightSide: 'floor',
     base: { type: 'legsPlinth', legHeight: 100, plinthHeight: 100 },
     topType: 'panel',
-    countertop: { enabled: true, material: 'ldsp38' },
+    countertop: { enabled: true, decorCode: 'CTOP-LDSP38-600' },
     sections: [
       { shelves: 1, drawers: 0, facade: 'doorLeft' },
       { shelves: 1, drawers: 0, facade: 'blindFacade' },

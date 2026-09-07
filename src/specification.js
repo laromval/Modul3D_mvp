@@ -10,7 +10,7 @@
 (function () {
 const { EDGE_PRICES, HARDWARE_PRICES, FASTENER_PRICES, JOINT_LABEL, DRAWER_SYSTEMS,
         HANDLES, LIFTS, GLASS, FACADE_MATERIALS, DECORS, BACK_MATERIALS, COUNTERTOP_MATERIALS,
-        findMaterialByCode } = window.Modul3D.catalog;
+        findMaterialByCode, findCountertopMaterialByCode } = window.Modul3D.catalog;
 
 function round2(v) { return Math.round(v * 100) / 100; }
 
@@ -263,20 +263,23 @@ function buildSpecification(model) {
   // же принцип уже в joinCountertopSeams — там compact12 тоже всегда клей,
   // не стяжка). worktopGlueQty — счётчик количества модулей, не расход
   // клея по площади (формулы расхода нет ни в правилах, ни в каталоге).
-  // Клей — только для материалов, где engine.js НЕ убирает крышку (см.
-  // skipTopPanel: ldsp38/doubleLdsp/«свой материал» толще 18мм) — тот же
-  // список БЕЛЫМ списком, а не "всё, что не compact12", иначе старый/битый
-  // проект без material (engine.js в этом случае оставляет крышку,
-  // безопасный дефолт) здесь ошибочно попал бы в "клей" вместо факта, что
-  // крышка просто есть и крепёж — обычные шурупы/присадка крышки.
-  // Изменено 2026-09-06: толщина «своего материала» больше не хранится в
-  // m.countertop.thickness (поле ввода убрано) — резолвим декор по коду и
-  // берём его реальную толщину из каталога, как и engine.js
-  // (countertopMat()/ctCustomThick, тот же catalog.findMaterialByCode()).
+  // Клей — только для материалов, где engine.js НЕ убирает крышку (толщина
+  // резолвнутого материала ≤18мм) — БЕЛЫМ списком, а не "всё, что толще
+  // X", иначе старый/битый проект без decorCode (engine.js в этом случае
+  // оставляет крышку, безопасный дефолт) здесь ошибочно попал бы в "клей"
+  // вместо факта, что крышка просто есть и крепёж — обычные шурупы/присадка
+  // крышки.
+  // Изменено 2026-09-06: столешница больше не делится на «тип материала»
+  // (ldsp38/compact12/doubleLdsp/custom) — единый m.countertop.decorCode
+  // (+ отдельная галочка double) для ЛЮБОГО пути. Правило то же, что и в
+  // engine.js (countertopMat()/skipTopPanel) — единое для ВСЕХ путей
+  // резолва, по РЕАЛЬНОЙ толщине найденного материала (>18мм), без
+  // хардкода по коду/materialId позиции.
   const ctSkipsTopPanel = (m) => {
-    if (m.countertop.material === 'ldsp38' || m.countertop.material === 'doubleLdsp') return true;
-    if (m.countertop.material !== 'custom') return false;
-    const dec = findMaterialByCode(m.countertop.decorCode);
+    if (m.countertop.double) return true;
+    const ctCat = m.countertop.decorCode ? findCountertopMaterialByCode(m.countertop.decorCode) : null;
+    if (ctCat) return Number(ctCat.thickness) > 18;
+    const dec = m.countertop.decorCode ? findMaterialByCode(m.countertop.decorCode) : null;
     return !!dec && Number(dec.thickness) > 18;
   };
   let worktopScrewQty = 0, worktopGlueQty = 0;
