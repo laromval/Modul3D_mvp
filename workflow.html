@@ -1,0 +1,362 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Modul3D — Workflow</title>
+<style>
+  :root {
+    --bg: #f8fafc;
+    --panel: #ffffff;
+    --border: #e2e8f0;
+    --text: #101317;
+    --muted: #64748b;
+    --accent: #0284c7;
+    --accent-soft: #e0f2fe;
+    --done-bg: #f1f5f9;
+    --shadow: 0 1px 2px rgba(16,19,23,0.04), 0 8px 24px rgba(16,19,23,0.06);
+    --radius: 14px;
+  }
+  [data-theme="dark"] {
+    --bg: #101317;
+    --panel: #171b21;
+    --border: #262b33;
+    --text: #e7ebf0;
+    --muted: #8b96a5;
+    --accent: #00c2ff;
+    --accent-soft: #0b2733;
+    --done-bg: #1b2028;
+    --shadow: 0 1px 2px rgba(0,0,0,0.3), 0 8px 24px rgba(0,0,0,0.35);
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    padding: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    transition: background .25s ease, color .25s ease;
+  }
+  header {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 18px 24px;
+    background: var(--panel);
+    border-bottom: 1px solid var(--border);
+    backdrop-filter: blur(8px);
+  }
+  header h1 {
+    font-size: 18px;
+    margin: 0;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+  }
+  header .sub {
+    color: var(--muted);
+    font-size: 13px;
+    margin-top: 2px;
+  }
+  .head-left { display: flex; flex-direction: column; }
+  .controls { display: flex; align-items: center; gap: 10px; }
+  .progress-pill {
+    font-size: 12px;
+    color: var(--muted);
+    background: var(--accent-soft);
+    padding: 6px 12px;
+    border-radius: 999px;
+    white-space: nowrap;
+  }
+  .theme-btn {
+    border: 1px solid var(--border);
+    background: var(--panel);
+    color: var(--text);
+    border-radius: 10px;
+    width: 36px;
+    height: 36px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    font-size: 16px;
+  }
+  .theme-btn:hover { border-color: var(--accent); }
+  main {
+    padding: 24px;
+    max-width: 1600px;
+    margin: 0 auto;
+  }
+  .board {
+    display: grid;
+    grid-template-columns: repeat(6, minmax(260px, 1fr));
+    gap: 16px;
+    align-items: start;
+  }
+  @media (max-width: 1400px) {
+    .board { grid-template-columns: repeat(3, minmax(260px, 1fr)); }
+  }
+  @media (max-width: 860px) {
+    .board { grid-template-columns: repeat(2, minmax(240px, 1fr)); }
+  }
+  @media (max-width: 560px) {
+    .board { grid-template-columns: 1fr; }
+    main { padding: 16px; }
+    header { padding: 14px 16px; }
+  }
+  .column {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+  .column-head {
+    padding: 14px 16px 12px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+  }
+  .column-head .dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    display: inline-block;
+    margin-right: 8px;
+    flex-shrink: 0;
+  }
+  .column-title {
+    font-size: 14px;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+  }
+  .count {
+    font-size: 12px;
+    color: var(--muted);
+    background: var(--done-bg);
+    border-radius: 999px;
+    padding: 2px 8px;
+    flex-shrink: 0;
+  }
+  .cards {
+    padding: 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    min-height: 40px;
+  }
+  .card {
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 12px 12px 12px 40px;
+    font-size: 13.5px;
+    line-height: 1.5;
+    background: var(--bg);
+    position: relative;
+    cursor: pointer;
+    transition: opacity .2s ease, border-color .2s ease;
+    white-space: pre-wrap;
+  }
+  .card:hover { border-color: var(--accent); }
+  .card.done {
+    opacity: 0.5;
+    background: var(--done-bg);
+    text-decoration: line-through;
+  }
+  .checkbox {
+    position: absolute;
+    left: 12px;
+    top: 12px;
+    width: 18px;
+    height: 18px;
+    border-radius: 6px;
+    border: 1.5px solid var(--muted);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+  }
+  .card.done .checkbox {
+    background: var(--accent);
+    border-color: var(--accent);
+  }
+  .checkbox svg { display: none; width: 12px; height: 12px; color: white; }
+  .card.done .checkbox svg { display: block; }
+  .empty-note {
+    padding: 16px 12px;
+    color: var(--muted);
+    font-size: 13px;
+    text-align: center;
+  }
+  footer {
+    text-align: center;
+    color: var(--muted);
+    font-size: 12px;
+    padding: 24px;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="head-left">
+    <h1>Workflow — Modul3D</h1>
+    <div class="sub">Доска задач по проекту. Клик по карточке отмечает пункт выполненным (сохраняется в этом браузере).</div>
+  </div>
+  <div class="controls">
+    <span class="progress-pill" id="progress">0 / 0 выполнено</span>
+    <button class="theme-btn" id="themeToggle" title="Переключить тему">🌙</button>
+  </div>
+</header>
+
+<main>
+  <div class="board" id="board"></div>
+</main>
+
+<footer>Modul3D · сгенерировано из Workflow.xlsx</footer>
+
+<script>
+  const columns = [
+    {
+      title: "Движок построения мебели",
+      color: "#f97316",
+      tasks: [
+        "При редактировании угловой тумбы, добавлении новых фасадов, она редактируется неверно, открывание фасадов неправильное. Также удаляется заглушка.",
+        "При нажатии модуля, который не разделён на отсеки, не работает. На боковой вкладке редактора отсеков не появляется вкладка «добавить технику»."
+      ]
+    },
+    {
+      title: "Интерфейс",
+      color: "#a855f7",
+      tasks: [
+        "Не работают стрелки для изменения размеров."
+      ]
+    },
+    {
+      title: "Сайт",
+      color: "#22c55e",
+      tasks: [
+        "Добавить иллюстрации с реального проекта.",
+        "Добавить музыку на сайт.",
+        "Когда нажимаем на кнопку «Запустить живую демонстрацию» на вкладке «Демо», запускается программа и появляются подсказки прямо в программе — куда нажимать и что делать поэтапно. Программа ведёт пользователя пошагово при создании мебели, чтобы он ознакомился с интерфейсом и понял возможности программы. Программа ведёт пользователя «за руку», как это реализовано в играх, особенно в стратегиях."
+      ]
+    },
+    {
+      title: "Монетизация",
+      color: "#eab308",
+      tasks: [
+        "По окончанию работы с движком и демо-программы — запустить оплату через Paddle."
+      ]
+    },
+    {
+      title: "Продвижение",
+      color: "#3b82f6",
+      tasks: [
+        "Рекламный ролик.",
+        "Заставка. Раз, два, три. Опа!"
+      ]
+    },
+    {
+      title: "Работа с отзывами",
+      color: "#ec4899",
+      tasks: [
+        "Создать агента, который будет читать отзывы на сайте, отвечать на вопросы посетителям и предлагать мне изменения, которые можно сделать в программе, основываясь на этих отзывах."
+      ]
+    }
+  ];
+
+  const board = document.getElementById('board');
+  const STORAGE_KEY = 'modul3d-workflow-done-v1';
+
+  function loadDone() {
+    try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}'); }
+    catch (e) { return {}; }
+  }
+  function saveDone(state) {
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); }
+    catch (e) {}
+  }
+
+  let doneState = loadDone();
+  let totalTasks = 0;
+
+  columns.forEach((col, colIndex) => {
+    totalTasks += col.tasks.length;
+
+    const colEl = document.createElement('div');
+    colEl.className = 'column';
+
+    const head = document.createElement('div');
+    head.className = 'column-head';
+    head.innerHTML = `
+      <span class="column-title"><span class="dot" style="background:${col.color}"></span>${col.title}</span>
+      <span class="count">${col.tasks.length}</span>
+    `;
+    colEl.appendChild(head);
+
+    const cardsEl = document.createElement('div');
+    cardsEl.className = 'cards';
+
+    if (col.tasks.length === 0) {
+      const empty = document.createElement('div');
+      empty.className = 'empty-note';
+      empty.textContent = 'Нет задач';
+      cardsEl.appendChild(empty);
+    } else {
+      col.tasks.forEach((task, taskIndex) => {
+        const key = colIndex + '-' + taskIndex;
+        const card = document.createElement('div');
+        card.className = 'card' + (doneState[key] ? ' done' : '');
+        card.innerHTML = `
+          <span class="checkbox"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M5 13l4 4L19 7"/></svg></span>
+          ${task}
+        `;
+        card.addEventListener('click', () => {
+          doneState[key] = !doneState[key];
+          card.classList.toggle('done');
+          saveDone(doneState);
+          updateProgress();
+        });
+        cardsEl.appendChild(card);
+      });
+    }
+
+    colEl.appendChild(cardsEl);
+    board.appendChild(colEl);
+  });
+
+  function updateProgress() {
+    const doneCount = Object.values(doneState).filter(Boolean).length;
+    document.getElementById('progress').textContent = doneCount + ' / ' + totalTasks + ' выполнено';
+  }
+  updateProgress();
+
+  // Theme handling
+  const themeBtn = document.getElementById('themeToggle');
+  function applyTheme(theme) {
+    document.documentElement.setAttribute('data-theme', theme);
+    themeBtn.textContent = theme === 'dark' ? '☀️' : '🌙';
+  }
+  let savedTheme = null;
+  try { savedTheme = localStorage.getItem('modul3d-workflow-theme'); } catch(e) {}
+  const prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+  applyTheme(savedTheme || (prefersDark ? 'dark' : 'light'));
+  themeBtn.addEventListener('click', () => {
+    const current = document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'light';
+    const next = current === 'dark' ? 'light' : 'dark';
+    applyTheme(next);
+    try { localStorage.setItem('modul3d-workflow-theme', next); } catch(e) {}
+  });
+</script>
+
+</body>
+</html>
