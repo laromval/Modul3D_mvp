@@ -14,7 +14,7 @@
 (function () {
 // Версия сборки — показывается во вкладке браузера и в шапке.
 // При выпуске новой версии меняется только эта строка.
-const APP_VERSION = 'v249';
+const APP_VERSION = 'v251';
 
 // Номер версии выводим ПЕРВЫМ делом: если дальше что-то упадёт, по нему сразу
 // видно, какая сборка открыта.
@@ -841,9 +841,10 @@ function libSwatchHtml(group, key, image) {
 // материалы»/«Материалы фасадов»/«Кромка»/«Стекло») не сворачивается сам,
 // только раскрывает/прячет своих детей (см. state.libCatOpen). Реальные
 // каталожные item могут иметь путь РАВНЫЙ пути ветки (не только листа) —
-// например HDF-8 (categoryPath ['ДСП']) лежит рядом с Egger-декорами
-// (categoryPath ['ДСП', 'Egger']), из-за чего 'ДСП' — ветка, но у неё самой
-// тоже есть собственная позиция; такие «свои» позиции ветки показываются
+// например позиция без бренда (categoryPath ['ДСП']), оказавшаяся в одной
+// категории с брендованными декорами (categoryPath ['ДСП', 'Egger']),
+// из-за чего 'ДСП' — ветка, но у неё самой тоже есть собственная позиция;
+// такие «свои» позиции ветки показываются
 // прямо под её строкой, когда она раскрыта (см. libNodeHtml), тем же
 // рендерером таблицы, что и у листьев — умышленно без отдельного концепта.
 // ---------------------------------------------------------------------------
@@ -1363,6 +1364,10 @@ function libRowHtml(entry, opts) {
     </tr>`;
 }
 
+// Подсказка на неактивной кнопке «− Удалить материал» (см. libLeafTableHtml/
+// libApplyRowSelection) — пока в таблице ничего не выделено кликом.
+const LIB_ROW_DEL_HINT = 'Сначала выберите строку в таблице';
+
 // Таблица позиций одного листа (или «своих» позиций ветки — см. HDF-8 в
 // комментарии выше libTopEntries): фильтры → подсказка о примерной цене →
 // таблица → «+ Добавить материал» / «− Удалить материал» (опц.).
@@ -1404,8 +1409,11 @@ function libLeafTableHtml(topCode, path, entries, opts) {
   const canDelete = topCode !== 'glass';
   const sel = state.libSelectedRow;
   const selectedHere = canDelete && !!sel && entries.some((e) => e.group === sel.group && libRowKeyOf(e.group, e.item) === sel.key);
+  // title — только пока кнопка disabled (см. LIB_ROW_DEL_HINT/
+  // libApplyRowSelection, который держит его в синхроне с disabled и после
+  // точечного, без полной перерисовки, выделения строки).
   const delHtml = canDelete
-    ? `<button type="button" class="link-btn lib-row-del" ${selectedHere ? '' : 'disabled'}>− Удалить материал</button>`
+    ? `<button type="button" class="link-btn lib-row-del" ${selectedHere ? '' : 'disabled'}${selectedHere ? '' : ` title="${esc(LIB_ROW_DEL_HINT)}"`}>− Удалить материал</button>`
     : '';
   const actionsHtml = (addHtml || delHtml) ? `<div class="lib-leaf-actions">${addHtml}${delHtml}</div>` : '';
   // «± характеристики» — ссылка НАД таблицей, а не заголовок внутри <thead>
@@ -2100,11 +2108,66 @@ function renderLibraryPanel() {
   refreshColumnFilterHeaderIndicators(panel);
 }
 
-// «Фасады-двери» — заглушка: фасад не материал, а отдельное изделие со
-// своими параметрами (толщина, тип, врезка стекла и т.п.), полноценная
-// панель — отдельная задача на будущее. Пока только заголовок и подпись.
+// Точечное применение выделения строки в DOM — общая часть между
+// libApplyRowSelection (тумблер, см. ниже) и libSelectRow (только
+// установка, без снятия — см. ниже). БЕЗ полной renderLibraryPanel(): она
+// случилась бы ПОСЛЕ того, как startCellEdit уже синхронно вставил <input>
+// в кликнутую ячейку (см. initLibraryPanel), и стёрла бы его раньше, чем
+// пользователь успел бы что-то набрать. Поэтому точечно: снять
+// .lib-row-selected со старой строки, поставить на новую (next === null —
+// просто снятие), и синхронизировать disabled/title у КАЖДОЙ видимой кнопки
+// «− Удалить материал» (у каждого листа своя таблица внутри .lib-leaf-body,
+// см. libLeafTableHtml — таблиц одновременно открыто может быть несколько).
+function libApplyRowSelectionDom(panel, next) {
+  state.libSelectedRow = next;
+  panel.querySelectorAll('tr[data-row-key]').forEach((tr) => {
+    const isSel = !!next && tr.dataset.rowGroup === next.group && tr.dataset.rowKey === next.key;
+    tr.classList.toggle('lib-row-selected', isSel);
+  });
+  panel.querySelectorAll('.lib-row-del').forEach((btn) => {
+    const body = btn.closest('.lib-leaf-body');
+    const table = body ? body.querySelector('table.lib-table') : null;
+    const hasSel = !!(next && table && Array.from(table.querySelectorAll('tr[data-row-key]'))
+      .some((tr) => tr.dataset.rowGroup === next.group && tr.dataset.rowKey === next.key));
+    btn.disabled = !hasSel;
+    if (hasSel) btn.removeAttribute('title');
+    else btn.title = LIB_ROW_DEL_HINT;
+  });
+}
+
+// Клик по «остальной части» строки — НЕ редактируемая ячейка (название
+// кромки, «—» в отсутствующей колонке и т.п., см. initLibraryPanel) —
+// тумблер: повторный клик по уже выделенной строке снимает выделение, как
+// и раньше. Используется только там, где второго клика по той же строке
+// заведомо означает «отменить выбор», а не «поправить что-то ещё в ней».
+function libApplyRowSelection(panel, group, key) {
+  const sel = state.libSelectedRow;
+  const same = !!(sel && sel.group === group && sel.key === key);
+  libApplyRowSelectionDom(panel, same ? null : { group, key });
+}
+
+// Клик по РЕДАКТИРУЕМОЙ ячейке (Наименование/Длина/Ширина/Толщина/Цена, см.
+// initLibraryPanel/startCellEdit) — ТОЛЬКО устанавливает выделение на эту
+// строку, никогда не снимает его. Строка почти целиком состоит из
+// редактируемых ячеек, поэтому клик по второй (и следующей) ячейке уже
+// выделенной строки — например, сначала «Наименование», потом «Толщина» —
+// должен просто подтвердить выделение и открыть редактирование ячейки, а
+// не сбросить его тумблером (для явного снятия есть клик по остальной части
+// строки, см. libApplyRowSelection выше).
+function libSelectRow(panel, group, key) {
+  const sel = state.libSelectedRow;
+  if (sel && sel.group === group && sel.key === key) return;
+  libApplyRowSelectionDom(panel, { group, key });
+}
+
+// «Двери» (вкладка data-libtab="facades", см. index.html) — заглушка: фасад
+// не материал, а отдельное изделие со своими параметрами (толщина, тип,
+// врезка стекла и т.п.), полноценная панель — отдельная задача на будущее.
+// Пока только заголовок (тот же текст, что на кнопке вкладки — раньше
+// расходился с ней: кнопка «Фасады-двери» стала «Двери», а этот заголовок
+// нет) и подпись.
 function libraryFacadesStubBlock() {
-  return `<h3>Фасады-двери</h3><p class="hint">Этот раздел скоро появится.</p>`;
+  return `<h3>Двери</h3><p class="hint">Этот раздел скоро появится.</p>`;
 }
 
 // Слушатели вешаются один раз (контейнер #libraryPanel и строка вкладок
@@ -2234,23 +2297,34 @@ function initLibraryPanel() {
     // libLeafTableHtml).
     const pickBtn = e.target.closest('.lib-pick-btn');
     if (pickBtn) { libPickMaterial(pickBtn.dataset.pickGroup, pickBtn.dataset.pickCode); return; }
+    // Клик по редактируемой ячейке (Наименование/Длина/Ширина/Толщина/Цена —
+    // почти вся строка) теперь ОДНОВРЕМЕННО выделяет строку (см.
+    // libSelectRow — только УСТАНОВКА, не тумблер: клик по второй ячейке уже
+    // выделенной строки, например сначала «Наименование», потом «Толщина»,
+    // не должен снимать выделение) И открывает инлайн-редактирование (см.
+    // startCellEdit) — раньше делалось только второе, и выделить строку
+    // (чтобы разблокировать «− Удалить материал») было практически негде.
+    // Клик ВНУТРИ уже открытого <input>/<select> (например, переставить
+    // курсор) — не должен ещё и трогать выделение: startCellEdit сам не
+    // пересоздаёт уже открытый инпут (см. его же ранний return).
     const cell = e.target.closest('.lib-edit-cell');
-    if (cell) { startCellEdit(cell); return; }
+    if (cell) {
+      if (!cell.querySelector('input') && !cell.querySelector('select')) {
+        const row = cell.closest('tr[data-row-key]');
+        if (row) libSelectRow(panel, row.dataset.rowGroup, row.dataset.rowKey);
+      }
+      startCellEdit(cell);
+      return;
+    }
     // Ссылка-источник (см. libSourceLinkCell) открывается сама (обычная
     // <a target="_blank">) — не должна ЕЩЁ и выделять строку под собой.
     if (e.target.closest('.lib-source-link')) return;
-    // Клик по остальной части строки таблицы — выделение для «− Удалить
-    // материал» выше (см. state.libSelectedRow). Повторный клик по уже
-    // выделенной строке снимает выделение.
+    // Клик по остальной части строки таблицы (нередактируемые ячейки —
+    // например, название кромки или «—» в отсутствующей колонке) —
+    // выделение для «− Удалить материал» выше (см. libApplyRowSelection).
+    // Повторный клик по уже выделенной строке снимает выделение.
     const dataRow = e.target.closest('tr[data-row-key]');
-    if (dataRow) {
-      const g = dataRow.dataset.rowGroup;
-      const k = dataRow.dataset.rowKey;
-      const same = state.libSelectedRow && state.libSelectedRow.group === g && state.libSelectedRow.key === k;
-      state.libSelectedRow = same ? null : { group: g, key: k };
-      renderLibraryPanel();
-      return;
-    }
+    if (dataRow) { libApplyRowSelection(panel, dataRow.dataset.rowGroup, dataRow.dataset.rowKey); return; }
   });
 
   // Переключатель единицы цены (см. libPriceUnitHeaderHtml) — общий на всю

@@ -1166,11 +1166,20 @@ h4.spec-title { margin: var(--sp-5) 0 var(--sp-2); font-size: var(--fs-md); font
 
 /* ---------- 14. БИБЛИОТЕКА (база модулей / материалы / фурнитура) -------- */
 
-.lib-tabs { display: flex; gap: var(--sp-1); margin-bottom: var(--sp-3); flex-wrap: wrap; }
+/* Все 4 вкладки («База модулей»/«Материалы»/«Фурнитура»/«Двери») должны
+   помещаться в один ряд БЕЗ переноса даже на базовой узкой ширине панели
+   (--drawer-w: 340px, см. .drawer-left выше — «Библиотека» получает её же
+   ширину на вкладке «База модулей», а не только на широкой .lib-wide 640px,
+   которая включается лишь для «Материалы»/«Фурнитура»). Поэтому паддинг и
+   зазор здесь плотнее, чем у обычных кнопок — не трогаем шрифт (12px,
+   var(--fs-sm)) ради читаемости, ужимаем только «воздух» вокруг текста.
+   flex-wrap оставлен подстраховкой на случай ещё более узкого экрана/зума. */
+.lib-tabs { display: flex; gap: 3px; margin-bottom: var(--sp-3); flex-wrap: wrap; }
 .lib-tab-btn {
   border: 1px solid var(--border); background: var(--surface-2); color: var(--text-2);
-  padding: 7px 12px; border-radius: var(--r-sm);
+  padding: 6px 6px; border-radius: var(--r-sm);
   font-family: inherit; font-size: var(--fs-sm); font-weight: 600; cursor: pointer;
+  white-space: nowrap;
   transition: all var(--dur) var(--ease);
 }
 .lib-tab-btn:hover { border-color: var(--accent); color: var(--text); }
