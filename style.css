@@ -588,6 +588,13 @@ body.has-modal-drawer .scrim { opacity: 1; pointer-events: auto; }
               visibility 0s linear var(--dur), width var(--dur) var(--ease);
 }
 #drawer-library.lib-wide { width: 640px; max-width: 92vw; }
+/* Свёрнутые характеристики («± характеристики», state.libCharsCollapsed,
+   см. app.js: renderLibraryPanel/libColgroup) — панель реально уже, а не
+   просто ужаты ячейки в той же ширине: цель — освободить место под
+   3D-сцену. 640px минус три колонки Длина/Ширина/Толщина по 84px (см.
+   libColgroup), которых при сворачивании в разметке вообще нет: 640 − 3×84
+   = 388px. */
+#drawer-library.lib-wide.lib-chars-collapsed { width: 388px; }
 .drawer-bottom {
   /* левый край — за рейкой триггеров, чтобы она оставалась доступной */
   left: calc(var(--rail-w) + var(--sp-3)); right: var(--sp-3); bottom: var(--sp-3);
@@ -1204,23 +1211,16 @@ h4.spec-title { margin: var(--sp-5) 0 var(--sp-2); font-size: var(--fs-md); font
   background: var(--surface-solid);
 }
 /* Скрытие свёрнутого узла дерева — свой класс, не .dim-out (тот занят
-   поиском applyLibrarySearch) и не .lib-filtered-out (тот занят фильтрами
-   листа, см. ниже) — все три должны мирно сосуществовать на одной и той же
-   таблице/строке одновременно. */
+   поиском applyLibrarySearch) — оба должны мирно сосуществовать на одной и
+   той же таблице/строке одновременно (фильтр по столбцам — теперь через
+   applyColumnFilterAndSort, скрывает строки через style.display напрямую,
+   без отдельного CSS-класса). */
 .lib-collapsed { display: none !important; }
 /* Таблица позиций одного листа (app.js: libLeafTableHtml) — под строкой
-   узла, без своего отступа: содержимое (фильтры/таблица/кнопка «+») уже не
-   часть навигации по дереву, поэтому не наследует отступ глубины узла. */
+   узла, без своего отступа: содержимое (тумблер характеристик/таблица/
+   кнопка «+») уже не часть навигации по дереву, поэтому не наследует отступ
+   глубины узла. */
 .lib-leaf-body { margin: 2px 0 var(--sp-3); }
-
-/* Фильтры внутри листа (app.js: libFiltersHtml) — компактные select рядом,
-   а не на всю ширину поля, как обычный .field select. */
-.lib-filters { display: flex; gap: var(--sp-2); margin-bottom: var(--sp-2); }
-.lib-filter-select { width: auto; min-width: 120px; padding: 5px 24px 5px 8px; font-size: var(--fs-xs); }
-/* Строка, не подходящая под выбранные фильтры — скрыта. Отдельный от
-   .dim-out класс: тот управляется поиском независимо и должен продолжать
-   работать на той же строке одновременно, без конфликта. */
-.lib-filtered-out { display: none !important; }
 
 /* Редактируемые таблицы каталога (Материалы/Фурнитура) — клик по ячейке
    превращает её в инпут (см. app.js: startCellEdit). Ширина колонок — ОДНА
@@ -1270,16 +1270,15 @@ h4.spec-title { margin: var(--sp-5) 0 var(--sp-2); font-size: var(--fs-md); font
    без явного правила disabled-кнопка унаследовала бы обычный цвет ссылки. */
 .link-btn:disabled { opacity: .45; cursor: default; text-decoration: none; }
 
-/* Заголовок-тумблер «± характеристики» (app.js: libTableHead) — над
-   колонками Длина/Ширина/Толщина, клик сворачивает/разворачивает их. */
-.lib-chars-toggle { cursor: pointer; text-align: center; color: var(--muted); }
-.lib-chars-toggle:hover { color: var(--accent); }
-/* Свёрнутые характеристики (.chars-collapsed на самой <table>, см.
-   libLeafTableHtml/state.libCharsCollapsed) — прячем и заголовки, и ячейки
-   Длина/Ширина/Толщина одним правилом, без пересборки colspan остальных
-   ячеек. display:none на <col> тоже работает — браузер просто не учитывает
-   эту колонку в раскладке оставшихся ячеек. */
-.lib-table.chars-collapsed .lib-char-col { display: none; }
+/* Тумблер «± характеристики» (app.js: libLeafTableHtml) — ссылка-кнопка НАД
+   таблицей (.link-btn, тот же стиль, что у «+ Добавить материал» под ней),
+   а НЕ заголовок внутри <thead>: раньше это был <th colspan="3"> над
+   колонками Длина/Ширина/Толщина, но при сворачивании эти колонки исчезали
+   из <colgroup>/<tbody>, а сам тумблер — нет, из-за чего шапка и тело
+   расходились по числу физических колонок (баг, найден 2026-09-11). Общий
+   на всю Библиотеку (state.libCharsCollapsed) — клик в любой из открытых
+   таблиц сворачивает/разворачивает колонки везде разом. */
+.lib-chars-toggle { display: inline-block; margin-bottom: var(--sp-2); }
 
 /* Выбранная кликом строка таблицы (app.js: state.libSelectedRow) — под
    «− Удалить материал» ниже таблицы. Инлайн-редактируемые ячейки внутри
@@ -1288,13 +1287,18 @@ h4.spec-title { margin: var(--sp-5) 0 var(--sp-2); font-size: var(--fs-md); font
 .lib-table tbody tr.lib-row-selected { background: var(--accent-soft); }
 .lib-table tbody tr[data-row-key] { cursor: pointer; }
 
-/* Переключатель единицы цены в шапке (app.js: libPriceUnitHeaderHtml) — той
-   же компактной посадки, что и .lib-filter-select. */
+/* Переключатель единицы цены в шапке (app.js: libPriceUnitHeaderHtml) — та
+   же компактная посадка, что и другие инлайн-select таблицы. */
 .lib-table th select.lib-price-unit-select {
   width: 100%; border: 1px solid var(--border); border-radius: var(--r-sm);
   padding: 3px 18px 3px 5px; font-family: inherit; font-size: var(--fs-xs);
   font-weight: 400; background-color: var(--surface-solid); color: var(--text);
 }
+/* Заголовки-столбцы с кнопкой-треугольником сортировки/фильтра (app.js:
+   libTableHead, .dth-filter-btn — тот же поповер, что и в «Деталировке»,
+   см. раздел 18 ниже) — резервируем место под кнопку в правом крае ячейки,
+   чтобы она не наезжала на текст/select заголовка. */
+.lib-table th.lib-th-filter { position: relative; padding-right: 22px; }
 
 /* Компактная ссылка-иконка на карточку товара у поставщика (item.sourceUrl,
    см. catalog.js) — отдельная узкая колонка рядом с «Наименование», не
@@ -1519,6 +1523,10 @@ body.is-focus .scrim { opacity: 0 !important; }
     content: ''; position: absolute; left: 50%; top: 7px; transform: translateX(-50%);
     width: 40px; height: 4px; border-radius: 2px; background: var(--border-strong);
   }
+  /* на мобильном ширина листа и так во весь экран (см. правило выше) —
+     единственный способ реально освободить место под 3D-сцену при
+     свёрнутых характеристиках — уменьшить высоту именно этого листа */
+  #drawer-library.lib-wide.lib-chars-collapsed { height: 58vh; }
   .drawer-head { padding-top: 18px; }
   .warnings { bottom: calc(var(--sheet-h) + 56px); max-width: 92vw; }
   .access-gate { bottom: calc(var(--sheet-h) + 116px); max-width: 92vw; flex-wrap: wrap; }
@@ -1544,10 +1552,12 @@ body.is-focus .scrim { opacity: 0 !important; }
   body { overflow: visible; }
 }
 
-/* ---------- 18. АВТОФИЛЬТР ДЕТАЛИРОВКИ (вкладка «Деталировка») ----------- */
-/* Треугольник-фильтр в заголовке таблицы деталировки (renderDetailingTable
-   в app.js) — по образцу .ctx-menu (контекстное меню модуля/фокуса), тот же
-   визуальный язык поповеров проекта. */
+/* ---------- 18. АВТОФИЛЬТР ДЕТАЛИРОВКИ / БИБЛИОТЕКИ ---------------------- */
+/* Треугольник-фильтр в заголовке таблицы (изначально renderDetailingTable,
+   с 2026-09-11 общий движок openColumnFilterMenu переиспользован и в
+   таблицах «Библиотека → Материалы», см. .lib-th-filter выше) — по образцу
+   .ctx-menu (контекстное меню модуля/фокуса), тот же визуальный язык
+   поповеров проекта. */
 
 #tab-detailing th { position: relative; padding-right: 22px; }
 .dth-filter-btn {

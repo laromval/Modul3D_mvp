@@ -14,7 +14,7 @@
 (function () {
 // Версия сборки — показывается во вкладке браузера и в шапке.
 // При выпуске новой версии меняется только эта строка.
-const APP_VERSION = 'v246';
+const APP_VERSION = 'v248';
 
 // Номер версии выводим ПЕРВЫМ делом: если дальше что-то упадёт, по нему сразу
 // видно, какая сборка открыта.
@@ -199,21 +199,27 @@ const state = {
   libPickTarget: null,
   // Единица, в которой показана колонка «Цена» ВО ВСЕХ таблицах вкладки
   // «Материалы» одновременно (общий переключатель, выбирается прямо в шапке
-  // любой из таблиц, см. libPriceUnitHeaderHtml) — один из 'perMeter' |
-  // 'perPiece' | 'perM2' | 'perSheet' (см. libPriceValueForUnit). Дефолт
-  // «за м²» — так исторически было устроено сравнение материалов между
-  // собой (см. libPricePerM2), реальная стоимость проекта в спецификации
-  // всё равно считается по своим правилам (за лист/пог.метр), эта колонка
-  // только для сравнения. Чисто UI-состояние, как libraryTab выше: в
-  // историю отмены/файл проекта не попадает.
-  libPriceUnit: 'perM2',
+  // любой из таблиц, см. libPriceUnitHeaderHtml) — 'native' (по умолчанию)
+  // или один из 'perMeter' | 'perPiece' | 'perM2' | 'perSheet' (см.
+  // libPriceValueForUnit). 'native' — «как на сайте»: показывает цену в
+  // РОДНОЙ единице конкретной позиции (см. libNativeUnitsOf/
+  // libPriceEffectiveUnit) — ровно то число, что лежит в её catalog-поле,
+  // без пересчёта; у разных позиций это может быть разная единица (лист vs
+  // пог.метр). Остальные четыре — принудительный пересчёт ВСЕХ позиций в
+  // одну и ту же единицу, ручной выбор пользователя для сравнения
+  // материалов между собой (см. libPricePerM2) — реальная стоимость проекта
+  // в спецификации всё равно считается по своим правилам (за лист/
+  // пог.метр), эта колонка их не подменяет. Чисто UI-состояние, как
+  // libraryTab выше: в историю отмены/файл проекта не попадает.
+  libPriceUnit: 'native',
   // Свёрнутость колонок Длина/Ширина/Толщина («± характеристики», см.
-  // libTableHead/libLeafTableHtml) — своя у КАЖДОЙ открытой таблицы
-  // (ключ — тот же, что у libCollapsed: topCode + '::' + path.join('::')),
-  // а не общая на всю Библиотеку, в отличие от libPriceUnit выше. Отсутствие
-  // записи = развёрнуто (характеристики видны). Чисто UI-состояние,
+  // libTableHead/libLeafTableHtml) — ОБЩАЯ на всю Библиотеку (как
+  // libPriceUnit выше), а не своя у каждой открытой таблицы: одна и та же
+  // кнопка в любой из одновременно открытых таблиц сворачивает/разворачивает
+  // их все разом — цель именно в этом (высвободить место под 3D-сцену, а не
+  // сравнивать таблицы между собой в разных режимах). Чисто UI-состояние,
   // сессионное.
-  libCharsCollapsed: {},
+  libCharsCollapsed: false,
   // Строка таблицы материалов, выделенная кликом (см. libRowHtml/
   // initLibraryPanel) — { group, key } или null. group/key — то же, что
   // читает libFindItem (group — истинное происхождение позиции: decors/
@@ -1009,54 +1015,12 @@ function libDeleteNode(topCode, path) {
   renderLibraryPanel();
 }
 
-// Уникальные непустые значения поля field среди items, в порядке появления —
-// источник вариантов для выпадающих списков «Фирма»/«Толщина» (см.
-// libFiltersHtml).
-function libFilterValues(items, field) {
-  const vals = [];
-  items.forEach((it) => {
-    const v = it && it[field];
-    if (v === undefined || v === null || v === '') return;
-    if (vals.indexOf(v) < 0) vals.push(v);
-  });
-  return vals;
-}
-
-// Поля-фильтры таблицы листа — единые для ВСЕХ категорий (декоры/задняя
-// стенка/фасады/стекло/кромка/столешницы), не только «Толщина», как раньше:
-// у каждой категории теперь есть все три поля Длина/Ширина/Толщина (местами
-// «—», см. libDimsOf) — фильтровать можно по любому. Читают не сырые поля
-// каталога (у разных категорий они называются по-разному — sheetW/maxLength/
-// null и т.п.), а уже нормализованные дистанции из libDimsOf (см.
-// libFiltersHtml/libRowHtml).
-const LIB_FILTER_FIELD_DEFS = [
-  { field: 'length', label: 'Длина', unit: ' мм', numeric: true },
-  { field: 'width', label: 'Ширина', unit: ' мм', numeric: true },
-  { field: 'thickness', label: 'Толщина', unit: ' мм', numeric: true },
-];
-
-// Фильтры листа — рисуются, только если у позиций листа есть хоть одно
-// непустое значение соответствующего поля (пустой список с единственным
-// пунктом «Все» не показываем вообще). Само значение фильтра читает
-// делегированный `change`-обработчик (initLibraryPanel) через
-// closest('.lib-leaf-body') — select здесь своего состояния не хранит,
-// только рисуется. entries — { group, item }[] (как из libTopEntries) —
-// нормализуем каждую позицию через libDimsOf/libItemKind перед сбором
-// значений фильтра.
-function libFiltersHtml(entries) {
-  const dimsList = entries.map((e) => libDimsOf(libItemKind(e.group, e.item), e.item));
-  const blocks = LIB_FILTER_FIELD_DEFS.map((def) => {
-    let vals = libFilterValues(dimsList, def.field);
-    if (!vals.length) return '';
-    if (def.numeric) vals = vals.slice().sort((a, b) => a - b);
-    return `
-    <select class="lib-filter-select" data-filter="${esc(def.field)}">
-      <option value="">${esc(def.label)}: все</option>
-      ${vals.map((v) => `<option value="${esc(String(v))}">${esc(String(v))}${def.unit ? esc(def.unit) : ''}</option>`).join('')}
-    </select>`;
-  }).filter(Boolean);
-  return blocks.length ? `<div class="lib-filters">${blocks.join('')}</div>` : '';
-}
+// Фильтр Длина/Ширина/Толщина таблиц Библиотеки раньше был отдельным набором
+// плоских <select> (libFilterValues/LIB_FILTER_FIELD_DEFS/libFiltersHtml) —
+// заменён 2026-09-11 на тот же поповер сортировки/фильтра, что и в
+// «Деталировке» (кнопки-треугольники в шапке таблицы, см. libTableHead/
+// openColumnFilterMenu), старый механизм убран целиком, не оставляя двух
+// параллельных способов фильтрации.
 
 // «Цена приближённая/ориентировочная — уточняйте у...» — ОДИН раз перед
 // таблицей подкатегории, а не в каждой строке (см. item.priceNote в
@@ -1193,19 +1157,44 @@ function libPriceValueForUnit(kind, it, unit) {
   }
   return null;
 }
+// 'native' (см. state.libPriceUnit) — не настоящая единица, а «как на
+// сайте»: подставляем вместо него ПЕРВУЮ родную единицу конкретного вида
+// позиций (libNativeUnitsOf(kind)[0]) и дальше везде работаем с ней, как
+// если бы её выбрали явно — в т.ч. редактируемость ячейки (см.
+// libPriceCellHtml) остаётся как у родной единицы.
+function libPriceEffectiveUnit(kind, unit) {
+  return unit === 'native' ? libNativeUnitsOf(kind)[0] : unit;
+}
 function libPriceCellHtml(group, key, kind, it, unit) {
-  if (libNativeUnitsOf(kind).indexOf(unit) >= 0) {
+  const effUnit = libPriceEffectiveUnit(kind, unit);
+  if (libNativeUnitsOf(kind).indexOf(effUnit) >= 0) {
     const field = libPriceFieldOf(kind);
     return libEditCell(group, key, field, 'number', it[field]);
   }
-  const val = libPriceValueForUnit(kind, it, unit);
+  const val = libPriceValueForUnit(kind, it, effUnit);
   return `<td>${val != null ? esc(String(val)) : '—'}</td>`;
+}
+// То же значение, что рисует libPriceCellHtml, но простой строкой — читает
+// поповер сортировки/фильтра колонки «Цена» (см. openColumnFilterMenu/
+// libFilterRowsCache): единственный источник правды для «что показано в
+// ячейке» один и тот же для обеих функций (libPriceEffectiveUnit).
+function libPriceDisplayValue(kind, it, unit) {
+  const effUnit = libPriceEffectiveUnit(kind, unit);
+  if (libNativeUnitsOf(kind).indexOf(effUnit) >= 0) {
+    const v = it[libPriceFieldOf(kind)];
+    return v != null ? String(v) : '';
+  }
+  const val = libPriceValueForUnit(kind, it, effUnit);
+  return val != null ? String(val) : '—';
 }
 
 // Единицы измерения цены — общий переключатель на ВСЮ «Библиотеку» (см.
 // state.libPriceUnit): меняешь в шапке одной таблицы, пересчитываются все
 // остальные открытые таблицы (renderLibraryPanel — полная перерисовка).
+// 'native' первым пунктом — дефолт (см. state.libPriceUnit), показывает
+// цену «как на сайте», без пересчёта (см. libPriceEffectiveUnit).
 const LIB_PRICE_UNITS = [
+  { id: 'native', label: 'как на сайте' },
   { id: 'perMeter', label: 'м.п.' },
   { id: 'perPiece', label: 'шт.' },
   { id: 'perM2', label: 'м²' },
@@ -1213,7 +1202,10 @@ const LIB_PRICE_UNITS = [
 ];
 function libPriceUnitHeaderHtml() {
   const sym = curSym();
-  const opts = LIB_PRICE_UNITS.map((u) => `<option value="${esc(u.id)}" ${u.id === state.libPriceUnit ? 'selected' : ''}>Цена, ${esc(sym)}/${esc(u.label)}</option>`).join('');
+  const opts = LIB_PRICE_UNITS.map((u) => {
+    const label = u.id === 'native' ? `Цена, ${esc(sym)} (${esc(u.label)})` : `Цена, ${esc(sym)}/${esc(u.label)}`;
+    return `<option value="${esc(u.id)}" ${u.id === state.libPriceUnit ? 'selected' : ''}>${label}</option>`;
+  }).join('');
   return `<select class="lib-price-unit-select">${opts}</select>`;
 }
 
@@ -1236,44 +1228,68 @@ function libCountertopShortName(it) {
 // материала переносилось по словам, а не растягивало таблицу и вслед за ней
 // панель (см. #drawer-library.lib-wide/.lib-table в style.css). Колонка
 // «Наименование» — без явной ширины, забирает весь остаток. Длина/Ширина/
-// Толщина помечены классом .lib-char-col — тумблер «± характеристики» (см.
-// libTableHead/style.css) прячет их одним CSS-правилом, не пересобирая
-// colspan остальных ячеек. Ширина 84px у каждой из трёх колонок (а не 76px,
-// как было рассчитано под одну-единственную «Толщина, мм») — три подписи
-// в шапке (см. libTableHead) уместились без наезда друг на друга в самой
-// широкой из них, «ТОЛЩИНА» (заголовки — capslock, .lib-table th).
-function libColgroup(pickMode) {
+// Толщина (класс .lib-char-col) при свёрнутых характеристиках (collapsed,
+// см. state.libCharsCollapsed) вообще НЕ выводятся в разметку — раньше их
+// прятали одним CSS-правилом (display:none на <col>+<th>/<td>), но тумблер
+// «± характеристики» жил ВНУТРИ <thead> общим заголовком (colspan=3) и не
+// сжимался вместе с ними, из-за чего шапка и тело расходились по ширине
+// (баг, найден 2026-09-11). Исправление — не только НЕ рисовать сами
+// колонки в разметке при collapsed, но и вынести тумблер ИЗ <thead> вообще
+// (см. libLeafTableHtml — теперь это отдельная кнопка-ссылка НАД таблицей,
+// как «+ Добавить материал» под ней), чтобы <thead> ни в одном состоянии не
+// нуждался в colspan/rowspan — тогда физическое число колонок в шапке и
+// теле совпадает тривиально, само собой. Ширина 84px у каждой из трёх
+// колонок (а не 76px, как было рассчитано под одну-единственную
+// «Толщина, мм») — три подписи в шапке (см. libTableHead) уместились без
+// наезда друг на друга в самой широкой из них, «ТОЛЩИНА» (заголовки —
+// capslock, .lib-table th).
+function libColgroup(pickMode, collapsed) {
+  const charCols = collapsed ? '' : `<col class="lib-char-col" style="width:84px"><col class="lib-char-col" style="width:84px"><col class="lib-char-col" style="width:84px">`;
   return `<colgroup><col><col style="width:26px"><col style="width:72px">`
-    + `<col class="lib-char-col" style="width:84px"><col class="lib-char-col" style="width:84px"><col class="lib-char-col" style="width:84px">`
+    + charCols
     + `<col style="width:118px">`
     + `${pickMode ? '<col style="width:76px">' : ''}</colgroup>`;
 }
-// Заголовок — ДВЕ строки <thead>: в первой «Наименование»/«Образец»/«Цена»/
-// «Выбрать» растянуты на обе строки (rowspan), а Длина/Ширина/Толщина
-// собраны под одним общим заголовком-тумблером «± характеристики»
-// (colspan=3, клик сворачивает/разворачивает — см. initLibraryPanel), во
-// второй — сами подписи Длина/Ширина/Толщина. Подписи БЕЗ «, мм» — при трёх
-// колонках по 84px (см. libColgroup) полный текст «Ширина, мм»/«Толщина, мм»
-// не помещался и наезжал на соседнюю колонку (баг, найден code-review
-// 2026-09-07); единица вынесена в title-подсказку на каждой ячейке.
-function libTableHead(pickMode, collapsed) {
-  const toggleLabel = (collapsed ? '+' : '−') + ' характеристики';
+// Заголовок — ОДНА строка <thead> (никаких rowspan/colspan, см. коммент у
+// libColgroup выше — тумблер «± характеристики» больше не здесь), Длина/
+// Ширина/Толщина рисуются, только когда !collapsed — раз колонок в теле нет
+// (см. libColgroup/libRowHtml), то и заголовков под ними быть не должно.
+// Подписи Длина/Ширина/Толщина — БЕЗ «, мм»: при трёх колонках по 84px
+// полный текст «Ширина, мм»/«Толщина, мм» не помещался и наезжал на
+// соседнюю колонку (баг, найден code-review 2026-09-07); единица вынесена в
+// title-подсказку на каждой ячейке. Каждый фильтруемый столбец (см. п.3
+// задачи 2026-09-11) несёт кнопку-треугольник .dth-filter-btn — тот же
+// поповер сортировки/фильтра, что и в «Деталировке» (см.
+// openColumnFilterMenu), tableKey — тот же charsKey, что различает
+// одновременно открытые таблицы Библиотеки между собой.
+function libTableHead(pickMode, collapsed, tableKey) {
+  const filterBtn = (colIndex) => `<button type="button" class="dth-filter-btn" data-filter-key="${esc(tableKey)}" data-col="${colIndex}" title="Сортировка и фильтр">▾</button>`;
+  const charsHeadCells = collapsed ? '' : `
+      <th class="lib-char-col lib-th-filter" title="Длина, мм"><span class="dth-label">Длина</span>${filterBtn(1)}</th>
+      <th class="lib-char-col lib-th-filter" title="Ширина, мм"><span class="dth-label">Ширина</span>${filterBtn(2)}</th>
+      <th class="lib-char-col lib-th-filter" title="Толщина, мм"><span class="dth-label">Толщина</span>${filterBtn(3)}</th>`;
   return `<thead>
     <tr>
-      <th rowspan="2">Наименование</th>
-      <th rowspan="2"></th>
-      <th rowspan="2">Образец</th>
-      <th colspan="3" class="lib-chars-toggle" data-chars-toggle="1" title="Показать/скрыть длину, ширину, толщину">${esc(toggleLabel)}</th>
-      <th rowspan="2">${libPriceUnitHeaderHtml()}</th>
-      ${pickMode ? '<th rowspan="2"></th>' : ''}
-    </tr>
-    <tr>
-      <th class="lib-char-col" title="Длина, мм">Длина</th>
-      <th class="lib-char-col" title="Ширина, мм">Ширина</th>
-      <th class="lib-char-col" title="Толщина, мм">Толщина</th>
+      <th class="lib-th-filter"><span class="dth-label">Наименование</span>${filterBtn(0)}</th>
+      <th></th>
+      <th>Образец</th>
+      ${charsHeadCells}
+      <th class="lib-th-filter"><span class="dth-label">${libPriceUnitHeaderHtml()}</span>${filterBtn(4)}</th>
+      ${pickMode ? '<th></th>' : ''}
     </tr>
   </thead>`;
 }
+
+// Кэш строк для поповера сортировки/фильтра колонок Наименование/Длина/
+// Ширина/Толщина/Цена (см. openColumnFilterMenu/libLeafTableHtml) — по
+// ОДНОМУ массиву [{ idx, vals }] на каждую открытую таблицу листа, ключ —
+// тот же charsKey/tableKey, что и у data-chars-key на самой <table>
+// (несколько таблиц может быть открыто в Библиотеке одновременно, у каждой
+// свой независимый фильтр). Заполняется здесь же, в libRowHtml (opts.tableKey/
+// opts.rowIdx из libLeafTableHtml), а не отдельным проходом по entries — так
+// значение колонки «Цена» гарантированно совпадает с тем, что реально
+// нарисовано в ячейке (единый источник — libPriceDisplayValue).
+const libFilterRowsCache = {};
 
 // Одна строка таблицы — общая для ВСЕХ шести категорий (decors/back/facade/
 // glass/edge/countertop). entry — { group, item }: group САМОЙ ЗАПИСИ, а не
@@ -1281,15 +1297,19 @@ function libTableHead(pickMode, collapsed) {
 // libraryMaterialsBlock) строки одной таблицы приходят из decors/back/facade
 // одновременно, и каждая правится через libEditCell(entry.group, ...), а не
 // через код категории. opts.pickMode — доп. кнопка «Выбрать» (см.
-// libColgroup). data-row-group/data-row-key — клик по строке выделяет её
-// (см. state.libSelectedRow/initLibraryPanel), data-length/width/thickness —
-// то же самое, что читают фильтры (см. libFiltersHtml).
+// libColgroup). opts.collapsed — «± характеристики» (см. libLeafTableHtml):
+// при true ячейки Длина/Ширина/Толщина вообще не выводятся (не просто
+// прячутся CSS — см. коммент у libColgroup, почему). data-row-group/
+// data-row-key — клик по строке выделяет её (см. state.libSelectedRow/
+// initLibraryPanel), data-row-idx (opts.tableKey/opts.rowIdx) — то, что
+// читает applyColumnFilterAndSort для этой же таблицы.
 function libRowHtml(entry, opts) {
   const group = entry.group;
   const it = entry.item;
   const kind = libItemKind(group, it);
   const key = libRowKeyOf(group, it);
   const pickMode = !!opts.pickMode;
+  const collapsed = !!opts.collapsed;
   const unit = state.libPriceUnit;
   const sel = state.libSelectedRow;
   const isSelected = !!(sel && sel.group === group && sel.key === key);
@@ -1299,25 +1319,38 @@ function libRowHtml(entry, opts) {
   // его на месте рискованно (specification.js читает EDGE_PRICES[type] по
   // значению из секции) — поэтому название НЕредактируемо, новая кромка
   // добавляется вводом уникального названия (см. libAddRow).
+  const nameDisplay = group === 'edge' ? String(it.key || '') : group === 'countertop' ? libCountertopShortName(it) : String(it.name || '');
   const nameCell = group === 'edge'
-    ? `<td>${esc(it.key)}</td>`
+    ? `<td>${esc(nameDisplay)}</td>`
     : group === 'countertop'
-      ? libEditCell(group, key, 'name', 'text', it.name, { displayText: libCountertopShortName(it) })
+      ? libEditCell(group, key, 'name', 'text', it.name, { displayText: nameDisplay })
       : libEditCell(group, key, 'name', 'text', it.name);
   const lenField = libLengthFieldOf(kind);
   const widField = libWidthFieldOf(kind);
-  const lengthCell = lenField ? libDashEditCell(group, key, lenField, dims.length, 'lib-char-col') : '<td class="lib-char-col">—</td>';
-  const widthCell = widField ? libDashEditCell(group, key, widField, dims.width, 'lib-char-col') : '<td class="lib-char-col">—</td>';
-  const thicknessCell = libDashEditCell(group, key, 'thickness', dims.thickness, 'lib-char-col');
+  const lengthCell = collapsed ? '' : (lenField ? libDashEditCell(group, key, lenField, dims.length, 'lib-char-col') : '<td class="lib-char-col">—</td>');
+  const widthCell = collapsed ? '' : (widField ? libDashEditCell(group, key, widField, dims.width, 'lib-char-col') : '<td class="lib-char-col">—</td>');
+  const thicknessCell = collapsed ? '' : libDashEditCell(group, key, 'thickness', dims.thickness, 'lib-char-col');
   const priceCell = libPriceCellHtml(group, key, kind, it, unit);
+  const priceDisplay = libPriceDisplayValue(kind, it, unit);
   const pickCell = pickMode
     ? `<td><button type="button" class="link-btn lib-pick-btn" data-pick-group="${esc(group)}" data-pick-code="${esc(key)}">Выбрать</button></td>`
     : '';
+  if (opts.tableKey != null && opts.rowIdx != null) {
+    if (!libFilterRowsCache[opts.tableKey]) libFilterRowsCache[opts.tableKey] = [];
+    libFilterRowsCache[opts.tableKey].push({
+      idx: opts.rowIdx,
+      vals: [
+        nameDisplay,
+        dims.length != null ? String(dims.length) : '',
+        dims.width != null ? String(dims.width) : '',
+        dims.thickness != null ? String(dims.thickness) : '',
+        priceDisplay,
+      ],
+    });
+  }
   return `
     <tr data-search="${esc(searchText)}" data-row-group="${esc(group)}" data-row-key="${esc(key)}"
-        data-length="${dims.length != null ? esc(String(dims.length)) : ''}"
-        data-width="${dims.width != null ? esc(String(dims.width)) : ''}"
-        data-thickness="${dims.thickness != null ? esc(String(dims.thickness)) : ''}"
+        data-row-idx="${opts.rowIdx != null ? opts.rowIdx : ''}"
         class="${isSelected ? 'lib-row-selected' : ''}">
       ${nameCell}
       ${libSourceLinkCell(it)}
@@ -1347,9 +1380,17 @@ function libLeafTableHtml(topCode, path, entries, opts) {
   const pickMode = isCountertop
     ? !!(state.libPickTarget && state.libPickTarget.role === 'countertopDecor')
     : !!(opts.pickable && state.libPickTarget);
-  const rowsHtml = entries.map((e) => libRowHtml(e, { pickMode })).join('');
+  const charsKey = libNodeKey(topCode, path);
+  const collapsed = !!state.libCharsCollapsed;
+  // Кэш этого листа пересобирается с нуля на каждый рендер (см.
+  // libFilterRowsCache/libRowHtml) — иначе после удаления/добавления
+  // позиции в нём остались бы "хвостовые" записи от прошлого рендера с
+  // бо́льшим числом строк (безвредно для applyColumnFilterAndSort — она
+  // смотрит только на реальные tr[data-row-idx] — но лишняя память и путаница).
+  libFilterRowsCache[charsKey] = [];
+  const rowsHtml = entries.map((e, i) => libRowHtml(e, { pickMode, collapsed, tableKey: charsKey, rowIdx: i })).join('');
   const items = entries.map((e) => e.item);
-  const colCount = 7 + (pickMode ? 1 : 0);
+  const colCount = (collapsed ? 4 : 7) + (pickMode ? 1 : 0);
   const emptyRow = entries.length ? '' : `<tr><td colspan="${colCount}" class="hint">Пока нет позиций</td></tr>`;
   const addGroup = topCode === 'edge' ? 'edge' : ((opts.addGroupMap && opts.addGroupMap[path[0]]) || opts.addDefaultGroup || topCode);
   const addHtml = opts.addLabel
@@ -1367,13 +1408,19 @@ function libLeafTableHtml(topCode, path, entries, opts) {
     ? `<button type="button" class="link-btn lib-row-del" ${selectedHere ? '' : 'disabled'}>− Удалить материал</button>`
     : '';
   const actionsHtml = (addHtml || delHtml) ? `<div class="lib-leaf-actions">${addHtml}${delHtml}</div>` : '';
-  const charsKey = libNodeKey(topCode, path);
-  const collapsed = !!state.libCharsCollapsed[charsKey];
+  // «± характеристики» — ссылка НАД таблицей, а не заголовок внутри <thead>
+  // (см. коммент у libColgroup/libTableHead, почему): общий на всю
+  // Библиотеку тумблер (state.libCharsCollapsed), клик в любой из открытых
+  // таблиц сворачивает/разворачивает колонки Длина/Ширина/Толщина везде
+  // разом (обработчик — делегированный click на .lib-chars-toggle, см.
+  // initLibraryPanel, ему всё равно, внутри таблицы кнопка или снаружи).
+  const charsToggleLabel = (collapsed ? '+' : '−') + ' характеристики';
+  const charsToggleHtml = `<button type="button" class="link-btn lib-chars-toggle" data-chars-toggle="1" title="Показать/скрыть длину, ширину, толщину">${esc(charsToggleLabel)}</button>`;
   return `
     <div class="lib-leaf-body">
-      ${libFiltersHtml(entries)}
+      ${charsToggleHtml}
       ${libPriceNoteHtml(items)}
-      <table class="lib-table${collapsed ? ' chars-collapsed' : ''}" style="table-layout:fixed" data-chars-key="${esc(charsKey)}">${libColgroup(pickMode)}${libTableHead(pickMode, collapsed)}<tbody>${rowsHtml}${emptyRow}</tbody></table>
+      <table class="lib-table${collapsed ? ' chars-collapsed' : ''}" style="table-layout:fixed" data-chars-key="${esc(charsKey)}">${libColgroup(pickMode, collapsed)}${libTableHead(pickMode, collapsed, charsKey)}<tbody>${rowsHtml}${emptyRow}</tbody></table>
       ${actionsHtml}
     </div>`;
 }
@@ -2010,6 +2057,11 @@ function applyLibrarySearch() {
 function renderLibraryPanel() {
   const panel = document.getElementById('libraryPanel');
   if (!panel) return;
+  // Полная перерисовка вот-вот заменит innerHTML целиком — открытый поповер
+  // сортировки/фильтра колонки (см. openColumnFilterMenu) держит ссылку на
+  // кнопку/таблицу, которые сейчас пропадут из DOM, закрываем его заранее
+  // (тот же приём, что и renderDetailingTable/closeColumnFilterMenu).
+  closeColumnFilterMenu();
   document.querySelectorAll('.lib-tab-btn').forEach((b) => {
     b.classList.toggle('active', b.dataset.libtab === state.libraryTab);
   });
@@ -2017,10 +2069,16 @@ function renderLibraryPanel() {
   // #drawer-library переключается на свою (тоже фиксированную, но большую)
   // ширину (см. .lib-wide в style.css: одна и та же ширина для всех таблиц
   // раздела, а не «под самую широкую», как раньше); на «Базе модулей»
-  // ширина панели остаётся стандартной.
+  // ширина панели остаётся стандартной. .lib-chars-collapsed — доп. сужение
+  // при свёрнутых характеристиках (state.libCharsCollapsed, см.
+  // #drawer-library.lib-wide.lib-chars-collapsed в style.css) — реально
+  // освобождает место под 3D-сцену, а не просто ужимает ячейки в той же
+  // ширине панели.
   const drawer = document.getElementById('drawer-library');
   if (drawer) {
-    drawer.classList.toggle('lib-wide', state.libraryTab === 'materials' || state.libraryTab === 'hardware');
+    const wide = state.libraryTab === 'materials' || state.libraryTab === 'hardware';
+    drawer.classList.toggle('lib-wide', wide);
+    drawer.classList.toggle('lib-chars-collapsed', wide && !!state.libCharsCollapsed);
   }
   if (state.libraryTab === 'materials') panel.innerHTML = libraryMaterialsBlock();
   else if (state.libraryTab === 'hardware') panel.innerHTML = libraryHardwareBlock();
@@ -2028,6 +2086,18 @@ function renderLibraryPanel() {
   else panel.innerHTML = libraryBlock();   // 'modules' — существующая база модулей, без изменений
   bindLibraryEvents();
   applyLibrarySearch();
+  // Применяет уже сохранённое состояние поповера сортировки/фильтра (см.
+  // openColumnFilterMenu/columnFilterStates) к каждой заново отрисованной
+  // таблице листа отдельно (ключ — data-chars-key, тот же, что и у «±
+  // характеристики») — иначе после переключения дерева/добавления позиции
+  // ранее выбранный фильтр сбросился бы визуально, хотя состояние осталось.
+  panel.querySelectorAll('table.lib-table[data-chars-key]').forEach((table) => {
+    const tableKey = table.dataset.charsKey;
+    const rowsCache = libFilterRowsCache[tableKey] || [];
+    const colspan = table.querySelectorAll('colgroup col').length || 1;
+    applyColumnFilterAndSort(table, tableKey, rowsCache, colspan, 'Нет позиций, соответствующих фильтру');
+  });
+  refreshColumnFilterHeaderIndicators(panel);
 }
 
 // «Фасады-двери» — заглушка: фасад не материал, а отдельное изделие со
@@ -2102,17 +2172,43 @@ function initLibraryPanel() {
       renderLibraryPanel();
       return;
     }
-    // Заголовок-тумблер «± характеристики» (см. libTableHead) — сворачивает/
-    // разворачивает колонки Длина/Ширина/Толщина ТОЛЬКО этой таблицы (ключ —
-    // data-chars-key на самой <table>, см. libLeafTableHtml/state.libCharsCollapsed).
+    // Заголовок-тумблер «± характеристики» (см. libTableHead) — общий на всю
+    // Библиотеку (state.libCharsCollapsed — булево, не по ключу таблицы):
+    // клик в ЛЮБОЙ из одновременно открытых таблиц сворачивает/разворачивает
+    // колонки Длина/Ширина/Толщина сразу везде и сужает саму панель (см.
+    // .lib-chars-collapsed в renderLibraryPanel/style.css).
     const charsToggle = e.target.closest('.lib-chars-toggle');
     if (charsToggle) {
-      const table = charsToggle.closest('table.lib-table');
-      const key = table && table.dataset.charsKey;
-      if (key) {
-        state.libCharsCollapsed[key] = !state.libCharsCollapsed[key];
-        renderLibraryPanel();
-      }
+      state.libCharsCollapsed = !state.libCharsCollapsed;
+      renderLibraryPanel();
+      return;
+    }
+    // Кнопка-треугольник сортировки/фильтра столбца (Наименование/Длина/
+    // Ширина/Толщина/Цена, см. libTableHead) — тот же поповер, что и в
+    // «Деталировке» (см. openColumnFilterMenu), только tableKey свой у
+    // каждой открытой таблицы (data-filter-key === data-chars-key листа).
+    const filterBtn = e.target.closest('.dth-filter-btn');
+    if (filterBtn) {
+      e.stopPropagation();
+      const tableKey = filterBtn.dataset.filterKey;
+      const colIndex = Number(filterBtn.dataset.col);
+      const rowsCache = libFilterRowsCache[tableKey] || [];
+      const uniqueValues = Array.from(new Set(rowsCache.map((row) => row.vals[colIndex])))
+        .sort((a, b) => a.localeCompare(b, 'ru', { numeric: true, sensitivity: 'base' }));
+      openColumnFilterMenu({
+        tableKey,
+        colIndex,
+        btnEl: filterBtn,
+        uniqueValues,
+        onChange: () => {
+          const table = filterBtn.closest('table.lib-table');
+          if (table) {
+            const colspan = table.querySelectorAll('colgroup col').length || 1;
+            applyColumnFilterAndSort(table, tableKey, libFilterRowsCache[tableKey] || [], colspan, 'Нет позиций, соответствующих фильтру');
+          }
+          refreshColumnFilterHeaderIndicators(panel);
+        },
+      });
       return;
     }
     // «+ Добавить материал/кромку/столешницу» под таблицей листа (см.
@@ -2157,36 +2253,19 @@ function initLibraryPanel() {
     }
   });
 
-  // Фильтры листа (см. libFiltersHtml/LIB_FILTER_FIELD_DEFS) — отдельный
-  // делегированный `change` (у <select> клик не подходит), скрывает/
-  // показывает строки САМО, без recompute()/renderLibraryPanel(): это чисто
-  // отображение уже отрисованной таблицы, а не правка каталога. closest на
-  // .lib-leaf-body ограничивает область действия своим листом — фильтр
-  // одного не трогает таблицы соседних. И-логика МЕЖДУ полями (толщина/
-  // ширина/…): строка видна, только если проходит по ВСЕМ выбранным сразу
-  // (пустой выбор = «Все», условие не ограничивает). Класс
-  // .lib-filtered-out — свой (display:none), не .dim-out: тот управляется
-  // отдельно поиском (applyLibrarySearch) и должен продолжать работать
-  // независимо, на той же строке одновременно.
+  // Переключатель единицы цены (см. libPriceUnitHeaderHtml) — общий на всю
+  // Библиотеку (state.libPriceUnit), поэтому полная перерисовка, а не
+  // точечное обновление одной таблицы. Фильтр по столбцам (Длина/Ширина/
+  // Толщина/Наименование/Цена) теперь не отдельный <select> с `change`, а
+  // поповер сортировки/фильтра (см. .dth-filter-btn выше, в делегированном
+  // `click`) — старый механизм убран целиком.
   panel.addEventListener('change', (e) => {
-    // Переключатель единицы цены (см. libPriceUnitHeaderHtml) — общий на
-    // всю Библиотеку (state.libPriceUnit), поэтому полная перерисовка, а не
-    // точечное обновление одной таблицы, как у фильтров ниже.
     const priceUnitSel = e.target.closest('.lib-price-unit-select');
     if (priceUnitSel) {
       state.libPriceUnit = priceUnitSel.value;
       renderLibraryPanel();
       return;
     }
-    const sel = e.target.closest('.lib-filter-select');
-    if (!sel) return;
-    const scope = sel.closest('.lib-leaf-body');
-    if (!scope) return;
-    const selects = Array.from(scope.querySelectorAll('.lib-filter-select'));
-    scope.querySelectorAll('tbody tr').forEach((tr) => {
-      const ok = selects.every((s) => !s.value || tr.dataset[s.dataset.filter] === s.value);
-      tr.classList.toggle('lib-filtered-out', !ok);
-    });
   });
 
   initLibImageInput();
@@ -5168,100 +5247,87 @@ function materialName(code) {
   return code || '—';
 }
 
-// Автофильтр и сортировка таблицы «Деталировка» — Excel-style: треугольник
-// в каждом заголовке открывает поповер с сортировкой (одноуровневой — новая
-// заменяет предыдущую, как в Excel) и чекбоксами уникальных значений столбца.
-// Это ЧИСТО визуальный фильтр над уже отрисованным <table> — model.parts,
-// экспорт (exportDetailing) и № детали (r.num) он не трогает: строки только
-// визуально переставляются/скрываются, значение в ячейке «№» не пересчитывается.
-// Состояние живёт в замыкании (НЕ localStorage) и переживает recompute() —
-// renderDetailingTable вызывается заново при КАЖДОМ изменении параметров и
-// каждый раз заново применяет сохранённое состояние к свежим строкам.
-const DETAIL_COLUMNS = [
-  { label: '№' }, { label: 'Модуль' }, { label: 'Наименование' }, { label: 'Секция' },
-  { label: 'Материал' }, { label: 'Длина' }, { label: 'Ширина' }, { label: 'Кол-во' },
-  { label: 'Кромка L1' }, { label: 'Кромка L2' }, { label: 'Кромка S1' }, { label: 'Кромка S2' },
-  { label: 'Текстура' }, { label: 'Примечание' },
-];
-const detailFilterState = {
-  sortCol: null,   // индекс столбца DETAIL_COLUMNS с активной сортировкой, либо null
-  sortDir: 'asc',  // 'asc' | 'desc'
-  hidden: {},      // { colIndex: Set<string> } — снятые в поповере значения (скрытые строки)
-};
-// Строки текущего рендера таблицы — [{ idx, r, vals }], vals — по одному
-// значению на столбец DETAIL_COLUMNS, ровно в том виде, что напечатан в
-// ячейке (для «Материала» — полное название + толщина, а не код).
-let detailRowsCache = [];
-let detailFilterMenuOutsideHandler = null;
+// -----------------------------------------------------------------------
+// Универсальный автофильтр+сортировка одного столбца — Excel-style: общий
+// «движок», используемый и вкладкой «Деталировка» (одна таблица, ключ
+// 'detailing'), и панелью «Библиотека → Материалы» (одновременно может
+// быть открыто несколько таблиц — свой ключ у каждой, см.
+// libLeafTableHtml/data-chars-key). Один и тот же поповер (треугольник в
+// заголовке → сортировка/чекбоксы уникальных значений столбца) и одна и та
+// же логика скрытия/сортировки строк по DOM — то, ЧТО именно фильтровать
+// (набор столбцов, откуда брать значения строки), решает вызывающий код
+// через rowsCache/uniqueValues, здесь только хранилище состояния и сам
+// поповер. Это ЧИСТО визуальный фильтр над уже отрисованным <table> — саму
+// модель/каталог он не трогает, строки только визуально переставляются/
+// скрываются. Состояние живёт в замыкании (НЕ localStorage, НЕ state
+// проекта) и переживает recompute()/перерисовку — каждый рендер таблицы
+// заново применяет уже сохранённое состояние к свежим строкам (см.
+// applyColumnFilterAndSort).
+// -----------------------------------------------------------------------
+const columnFilterStates = {}; // { [tableKey]: { sortCol, sortDir, hidden: {colIndex: Set<string>} } }
+let columnFilterMenuOutsideHandler = null;
 
-function detailRowValues(r) {
-  return [
-    String(r.num), r.module || '', r.name, r.section,
-    `${materialName(r.material)}, ${r.thickness} мм`,
-    String(r.length), String(r.width), String(r.qty),
-    r.edging.long1 || '—', r.edging.long2 || '—', r.edging.short1 || '—', r.edging.short2 || '—',
-    r.grainDirection ? 'да' : 'нет', r.note || '',
-  ];
+function getColumnFilterState(tableKey) {
+  if (!columnFilterStates[tableKey]) columnFilterStates[tableKey] = { sortCol: null, sortDir: 'asc', hidden: {} };
+  return columnFilterStates[tableKey];
 }
-
-function detailHasActiveState() {
-  if (detailFilterState.sortCol !== null) return true;
-  return Object.keys(detailFilterState.hidden).some(
-    (k) => detailFilterState.hidden[k] && detailFilterState.hidden[k].size > 0);
+function columnFilterHasActiveState(tableKey) {
+  const st = columnFilterStates[tableKey];
+  if (!st) return false;
+  if (st.sortCol !== null) return true;
+  return Object.keys(st.hidden).some((k) => st.hidden[k] && st.hidden[k].size > 0);
 }
-
-function closeDetailFilterMenu() {
+function resetColumnFilterState(tableKey) {
+  delete columnFilterStates[tableKey];
+}
+function closeColumnFilterMenu() {
   const old = document.getElementById('detailFilterMenu');
   if (old && old.remove) old.remove();
-  if (detailFilterMenuOutsideHandler) {
-    document.removeEventListener('click', detailFilterMenuOutsideHandler);
-    detailFilterMenuOutsideHandler = null;
+  if (columnFilterMenuOutsideHandler) {
+    document.removeEventListener('click', columnFilterMenuOutsideHandler);
+    columnFilterMenuOutsideHandler = null;
   }
 }
-
-// Обновляет только иконку/подсветку кнопок-треугольников — без пересоздания
-// слушателей (вызывается и после полной перерисовки, и «на лету» из поповера,
-// пока сама таблица не перестраивается, чтобы попап не закрывался при каждом
-// клике по чекбоксу).
-function refreshDetailHeaderIndicators(el) {
-  el = el || document.getElementById('tab-detailing');
-  if (!el) return;
-  el.querySelectorAll('.dth-filter-btn').forEach((btn) => {
+// Обновляет только иконку/подсветку кнопок-треугольников (во ВСЕХ таблицах
+// внутри scopeEl разом — в Библиотеке их может быть открыто несколько
+// одновременно) — без пересоздания слушателей, каждая кнопка несёт свои
+// data-filter-key/data-col.
+function refreshColumnFilterHeaderIndicators(scopeEl) {
+  if (!scopeEl) return;
+  scopeEl.querySelectorAll('.dth-filter-btn').forEach((btn) => {
+    const tableKey = btn.dataset.filterKey;
     const ci = Number(btn.dataset.col);
-    const filterActive = !!(detailFilterState.hidden[ci] && detailFilterState.hidden[ci].size > 0);
-    const sortActive = detailFilterState.sortCol === ci;
+    const st = columnFilterStates[tableKey];
+    const filterActive = !!(st && st.hidden[ci] && st.hidden[ci].size > 0);
+    const sortActive = !!(st && st.sortCol === ci);
     btn.classList.toggle('active', filterActive || sortActive);
-    btn.textContent = sortActive ? (detailFilterState.sortDir === 'desc' ? '↓' : '↑') : '▾';
+    btn.textContent = sortActive ? (st.sortDir === 'desc' ? '↓' : '↑') : '▾';
   });
 }
-
-function refreshDetailResetButton() {
-  const btn = document.getElementById('detailResetFilters');
-  if (btn) btn.style.display = detailHasActiveState() ? '' : 'none';
-}
-
 // Применяет сохранённое состояние (фильтр + сортировка) к УЖЕ отрисованной
-// таблице: скрывает строки, чьи значения сняты в поповере, и переставляет
-// оставшиеся <tr> по активной сортировке. Работает прямо по DOM, не трогая
-// innerHTML целиком, — так поповер может оставаться открытым при каждом
-// клике по чекбоксу.
-function applyDetailFilterAndSort(el) {
-  el = el || document.getElementById('tab-detailing');
-  const tbody = el && el.querySelector('tbody');
+// таблице tableEl: скрывает строки, чьи значения сняты в поповере, и
+// переставляет оставшиеся <tr> по активной сортировке. Работает прямо по
+// DOM (tr[data-row-idx] внутри tableEl), не трогая innerHTML целиком, —
+// так поповер может оставаться открытым при каждом клике по чекбоксу.
+// rowsCache — [{ idx, vals }], vals[ci] — значение колонки ci ровно в том
+// виде, что напечатано в ячейке.
+function applyColumnFilterAndSort(tableEl, tableKey, rowsCache, emptyColspan, emptyMessage) {
+  const tbody = tableEl && tableEl.querySelector('tbody');
   if (!tbody) return;
   const oldEmpty = tbody.querySelector('.detail-empty-row');
   if (oldEmpty) oldEmpty.remove();
 
   const trs = Array.prototype.slice.call(tbody.querySelectorAll('tr[data-row-idx]'));
-  if (!trs.length) return; // деталей в модели нет вообще — это не про фильтр
+  if (!trs.length) return; // строк нет вообще — это не про фильтр
 
+  const st = getColumnFilterState(tableKey);
   let visibleCount = 0;
   trs.forEach((tr) => {
-    const row = detailRowsCache[Number(tr.dataset.rowIdx)];
+    const row = rowsCache[Number(tr.dataset.rowIdx)];
     let hide = false;
     if (row) {
-      for (const ciStr in detailFilterState.hidden) {
-        const hiddenSet = detailFilterState.hidden[ciStr];
+      for (const ciStr in st.hidden) {
+        const hiddenSet = st.hidden[ciStr];
         if (hiddenSet && hiddenSet.size && hiddenSet.has(row.vals[Number(ciStr)])) { hide = true; break; }
       }
     }
@@ -5269,12 +5335,12 @@ function applyDetailFilterAndSort(el) {
     if (!hide) visibleCount += 1;
   });
 
-  if (detailFilterState.sortCol !== null) {
-    const ci = detailFilterState.sortCol;
-    const dir = detailFilterState.sortDir === 'desc' ? -1 : 1;
+  if (st.sortCol !== null) {
+    const ci = st.sortCol;
+    const dir = st.sortDir === 'desc' ? -1 : 1;
     trs.sort((a, b) => {
-      const ra = detailRowsCache[Number(a.dataset.rowIdx)];
-      const rb = detailRowsCache[Number(b.dataset.rowIdx)];
+      const ra = rowsCache[Number(a.dataset.rowIdx)];
+      const rb = rowsCache[Number(b.dataset.rowIdx)];
       const va = ra ? ra.vals[ci] : '';
       const vb = rb ? rb.vals[ci] : '';
       return va.localeCompare(vb, 'ru', { numeric: true, sensitivity: 'base' }) * dir;
@@ -5285,24 +5351,23 @@ function applyDetailFilterAndSort(el) {
   if (!visibleCount) {
     const tr = document.createElement('tr');
     tr.className = 'detail-empty-row';
-    tr.innerHTML = `<td colspan="${DETAIL_COLUMNS.length}">Нет деталей, соответствующих фильтру</td>`;
+    tr.innerHTML = `<td colspan="${emptyColspan}">${esc(emptyMessage || 'Нет строк, соответствующих фильтру')}</td>`;
     tbody.appendChild(tr);
   }
 }
-
 // Поповер сортировки+фильтра одного столбца — по образцу showFocusMenu
 // (.ctx-menu, position: fixed, закрытие по клику вне себя и по Esc).
-function openDetailFilterMenu(colIndex, btnEl) {
-  closeDetailFilterMenu();
-  const col = DETAIL_COLUMNS[colIndex];
-  if (!col) return;
-
-  // Уникальные значения — из ТЕКУЩИХ строк (detailRowsCache), не из ранее
-  // сохранённого фильтра: значение, пропавшее из модели после изменения
-  // параметров, само перестаёт попадать в список чекбоксов.
-  const uniqueValues = Array.from(new Set(detailRowsCache.map((row) => row.vals[colIndex])))
-    .sort((a, b) => a.localeCompare(b, 'ru', { numeric: true, sensitivity: 'base' }));
-  const hiddenSet = detailFilterState.hidden[colIndex] || new Set();
+// params: { tableKey, colIndex, btnEl, uniqueValues, onChange } — uniqueValues
+// уже отсортированный список строк-значений столбца (вызывающий код сам
+// решает, откуда их брать — см. openDetailFilterMenu/initLibraryPanel),
+// onChange зовётся после каждого изменения (сортировка/чекбокс/сброс),
+// чтобы вызывающий код применил applyColumnFilterAndSort к СВОЕЙ таблице и
+// обновил индикаторы/кнопку сброса.
+function openColumnFilterMenu(params) {
+  closeColumnFilterMenu();
+  const { tableKey, colIndex, btnEl, uniqueValues, onChange } = params;
+  const st = getColumnFilterState(tableKey);
+  const hiddenSet = st.hidden[colIndex] || new Set();
   const allChecked = uniqueValues.every((v) => !hiddenSet.has(v));
 
   const menu = document.createElement('div');
@@ -5338,57 +5403,113 @@ function openDetailFilterMenu(colIndex, btnEl) {
   menu.style.left = Math.round(left) + 'px';
   menu.style.top = Math.round(top) + 'px';
 
-  const applyLive = () => {
-    applyDetailFilterAndSort();
-    refreshDetailHeaderIndicators();
-    refreshDetailResetButton();
-  };
   const selectAllCb = menu.querySelector('#dfSelectAll');
   const valueCbs = Array.prototype.slice.call(menu.querySelectorAll('.df-values-list input[type="checkbox"]'));
   const commitHiddenValues = () => {
     const newHidden = new Set();
     valueCbs.forEach((cb, i) => { if (!cb.checked) newHidden.add(uniqueValues[i]); });
-    if (newHidden.size) detailFilterState.hidden[colIndex] = newHidden;
-    else delete detailFilterState.hidden[colIndex];
+    if (newHidden.size) st.hidden[colIndex] = newHidden;
+    else delete st.hidden[colIndex];
   };
   if (selectAllCb) {
     selectAllCb.addEventListener('change', () => {
       valueCbs.forEach((cb) => { cb.checked = selectAllCb.checked; });
       commitHiddenValues();
-      applyLive();
+      onChange();
     });
   }
   valueCbs.forEach((cb) => {
     cb.addEventListener('change', () => {
       if (selectAllCb) selectAllCb.checked = valueCbs.every((c) => c.checked);
       commitHiddenValues();
-      applyLive();
+      onChange();
     });
   });
 
   const bindAction = (sel, fn) => {
     const b = menu.querySelector(sel);
-    if (b) b.addEventListener('click', () => { closeDetailFilterMenu(); fn(); });
+    if (b) b.addEventListener('click', () => { closeColumnFilterMenu(); fn(); });
   };
-  bindAction('[data-action="sort-asc"]', () => {
-    detailFilterState.sortCol = colIndex; detailFilterState.sortDir = 'asc'; applyLive();
-  });
-  bindAction('[data-action="sort-desc"]', () => {
-    detailFilterState.sortCol = colIndex; detailFilterState.sortDir = 'desc'; applyLive();
-  });
-  bindAction('[data-action="clear-filter"]', () => {
-    delete detailFilterState.hidden[colIndex]; applyLive();
-  });
+  bindAction('[data-action="sort-asc"]', () => { st.sortCol = colIndex; st.sortDir = 'asc'; onChange(); });
+  bindAction('[data-action="sort-desc"]', () => { st.sortCol = colIndex; st.sortDir = 'desc'; onChange(); });
+  bindAction('[data-action="clear-filter"]', () => { delete st.hidden[colIndex]; onChange(); });
 
   // Клик мимо меню закрывает его без действия — слушатель вешаем следующим
   // тиком, иначе клик по треугольнику, который ОТКРЫЛ это меню, сам же его
   // мгновенно и закроет (см. showFocusMenu — тот же приём).
   setTimeout(() => {
-    detailFilterMenuOutsideHandler = (e) => {
-      if (!menu.contains(e.target)) closeDetailFilterMenu();
+    columnFilterMenuOutsideHandler = (e) => {
+      if (!menu.contains(e.target)) closeColumnFilterMenu();
     };
-    document.addEventListener('click', detailFilterMenuOutsideHandler);
+    document.addEventListener('click', columnFilterMenuOutsideHandler);
   }, 0);
+}
+
+// -----------------------------------------------------------------------
+// «Деталировка» — тонкая обёртка над общим движком выше: ключ таблицы
+// фиксированный ('detailing', на экране она всегда одна, в отличие от
+// Библиотеки), сам движок не трогает model.parts/экспорт (exportDetailing)/
+// № детали (r.num) — только визуальное отображение уже готовой таблицы.
+// -----------------------------------------------------------------------
+const DETAIL_TABLE_KEY = 'detailing';
+const DETAIL_COLUMNS = [
+  { label: '№' }, { label: 'Модуль' }, { label: 'Наименование' }, { label: 'Секция' },
+  { label: 'Материал' }, { label: 'Длина' }, { label: 'Ширина' }, { label: 'Кол-во' },
+  { label: 'Кромка L1' }, { label: 'Кромка L2' }, { label: 'Кромка S1' }, { label: 'Кромка S2' },
+  { label: 'Текстура' }, { label: 'Примечание' },
+];
+// Строки текущего рендера таблицы — [{ idx, vals }], vals — по одному
+// значению на столбец DETAIL_COLUMNS, ровно в том виде, что напечатан в
+// ячейке (для «Материала» — полное название + толщина, а не код).
+let detailRowsCache = [];
+
+function detailRowValues(r) {
+  return [
+    String(r.num), r.module || '', r.name, r.section,
+    `${materialName(r.material)}, ${r.thickness} мм`,
+    String(r.length), String(r.width), String(r.qty),
+    r.edging.long1 || '—', r.edging.long2 || '—', r.edging.short1 || '—', r.edging.short2 || '—',
+    r.grainDirection ? 'да' : 'нет', r.note || '',
+  ];
+}
+
+function detailHasActiveState() {
+  return columnFilterHasActiveState(DETAIL_TABLE_KEY);
+}
+
+function refreshDetailHeaderIndicators(el) {
+  el = el || document.getElementById('tab-detailing');
+  refreshColumnFilterHeaderIndicators(el);
+}
+
+function refreshDetailResetButton() {
+  const btn = document.getElementById('detailResetFilters');
+  if (btn) btn.style.display = detailHasActiveState() ? '' : 'none';
+}
+
+function applyDetailFilterAndSort(el) {
+  el = el || document.getElementById('tab-detailing');
+  const table = el && el.querySelector('table');
+  applyColumnFilterAndSort(table, DETAIL_TABLE_KEY, detailRowsCache, DETAIL_COLUMNS.length, 'Нет деталей, соответствующих фильтру');
+}
+
+function openDetailFilterMenu(colIndex, btnEl) {
+  // Уникальные значения — из ТЕКУЩИХ строк (detailRowsCache), не из ранее
+  // сохранённого фильтра: значение, пропавшее из модели после изменения
+  // параметров, само перестаёт попадать в список чекбоксов.
+  const uniqueValues = Array.from(new Set(detailRowsCache.map((row) => row.vals[colIndex])))
+    .sort((a, b) => a.localeCompare(b, 'ru', { numeric: true, sensitivity: 'base' }));
+  openColumnFilterMenu({
+    tableKey: DETAIL_TABLE_KEY,
+    colIndex,
+    btnEl,
+    uniqueValues,
+    onChange: () => {
+      applyDetailFilterAndSort();
+      refreshDetailHeaderIndicators();
+      refreshDetailResetButton();
+    },
+  });
 }
 
 function bindDetailFilterHeaders(el) {
@@ -5406,20 +5527,20 @@ function renderDetailingTable(model) {
   // Если модель поменялась (recompute из другого места), пока висел поповер
   // фильтра — закрываем его: он ссылается на список значений устаревшего
   // рендера, оставлять открытым поверх новой таблицы не нужно.
-  closeDetailFilterMenu();
+  closeColumnFilterMenu();
   // Ножки — фурнитура, а не деталь из листа: в деталировку не попадают,
   // их количество считается в спецификации. Объединение одинаковых деталей
   // (сумма qty, общий номер позиции) уже сделано в engine.js — mergeEqualParts/
   // mergeKey — model.parts приходит СЮДА уже склеенным, повторно группировать
   // не нужно.
   const parts = model.parts.filter(r => !r.hardware);
-  detailRowsCache = parts.map((r, i) => ({ idx: i, r, vals: detailRowValues(r) }));
+  detailRowsCache = parts.map((r, i) => ({ idx: i, vals: detailRowValues(r) }));
 
   const headCells = DETAIL_COLUMNS.map((c, ci) => `
     <th data-col="${ci}"><span class="dth-label">${esc(c.label)}</span>
-      <button type="button" class="dth-filter-btn" data-col="${ci}" title="Сортировка и фильтр">▾</button>
+      <button type="button" class="dth-filter-btn" data-filter-key="${DETAIL_TABLE_KEY}" data-col="${ci}" title="Сортировка и фильтр">▾</button>
     </th>`).join('');
-  const rows = detailRowsCache.map(({ idx, r, vals }) => `
+  const rows = detailRowsCache.map(({ idx, vals }) => `
     <tr data-row-idx="${idx}">
       <td>${vals[0]}</td>
       <td>${esc(vals[1])}</td>
@@ -5449,9 +5570,7 @@ function renderDetailingTable(model) {
 
   const resetBtn = document.getElementById('detailResetFilters');
   if (resetBtn) resetBtn.addEventListener('click', () => {
-    detailFilterState.sortCol = null;
-    detailFilterState.sortDir = 'asc';
-    detailFilterState.hidden = {};
+    resetColumnFilterState(DETAIL_TABLE_KEY);
     renderDetailingTable(model);
   });
 }
