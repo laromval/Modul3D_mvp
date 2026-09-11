@@ -6085,7 +6085,7 @@ function renderAccountUI() {
   const accountInfo = document.getElementById('accountInfo');
   const plansPanel = document.getElementById('plansPanel');
   const accountToggle = document.getElementById('accountToggle');
-  const sketchNote = document.getElementById('sketchAuthNote');
+  const sketchNote = document.getElementById('sketchAuthNote'); const workflowLink = document.getElementById('workflowLink'); if (workflowLink) workflowLink.style.display = (authAccount && authAccount.email === 'laromval@gmail.com') ? 'flex' : 'none';
 
   // Панель тарифов — временный экран поверх формы входа/аккаунта (см.
   // showPlansPanel); при любой обычной перерисовке возвращаемся к обычному
