@@ -14,7 +14,7 @@
 (function () {
 // Версия сборки — показывается во вкладке браузера и в шапке.
 // При выпуске новой версии меняется только эта строка.
-const APP_VERSION = 'v251';
+const APP_VERSION = 'v252';
 
 // Номер версии выводим ПЕРВЫМ делом: если дальше что-то упадёт, по нему сразу
 // видно, какая сборка открыта.
@@ -6058,13 +6058,26 @@ const AUTH_TOKEN_KEY = window.Modul3D.sketchAI.AUTH_TOKEN_KEY;
 // { email, subscription: { status, currentPeriodEnd }, tokenBalance }
 let authAccount = null;
 
+// localStorage может быть недоступен (приватный режим части браузеров,
+// политика безопасности, иногда — open по file://, см. autosaveProject/
+// offerAutosaveRestore выше, где ровно по этой причине уже стоит try/catch)
+// — тогда чтение/запись бросает SecurityError. Раньше здесь не было защиты:
+// исключение из getAuthToken() внутри scheduleCatalogSave() (её вызывает,
+// среди прочего, libDeleteSelectedRow — «− Удалить материал» в Библиотеке)
+// прерывало функцию ДО финального renderLibraryPanel(), и удалённая позиция
+// пропадала из каталога, но не с экрана — кнопка выглядела нерабочей на
+// любой строке. Без токена (недоступен или гость) — тот же результат, что и
+// раньше: null/отсутствие действия, дальше код и так трактует это как
+// «гость».
 function getAuthToken() {
-  return localStorage.getItem(AUTH_TOKEN_KEY);
+  try { return localStorage.getItem(AUTH_TOKEN_KEY); } catch (err) { return null; }
 }
 
 function setAuthToken(token) {
-  if (token) localStorage.setItem(AUTH_TOKEN_KEY, token);
-  else localStorage.removeItem(AUTH_TOKEN_KEY);
+  try {
+    if (token) localStorage.setItem(AUTH_TOKEN_KEY, token);
+    else localStorage.removeItem(AUTH_TOKEN_KEY);
+  } catch (err) { console.warn('Auth token save failed:', err); }
 }
 
 // Панель «Библиотека» реально ВИДНА (drawer открыт классом .open, см.
