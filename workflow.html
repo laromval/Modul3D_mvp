@@ -6,7 +6,9 @@
 <title>Modul3D — Workflow</title>
 <style>
   :root {
-    --bg: #f8fafc;
+    --bg: #eef2f7;
+    --stage: radial-gradient(circle at 50% 40%, #ffffff 0%, #e8eef5 100%);
+    --grid-line: rgba(148, 163, 184, .14);
     --panel: #ffffff;
     --border: #e2e8f0;
     --text: #101317;
@@ -20,6 +22,8 @@
   }
   [data-theme="dark"] {
     --bg: #101317;
+    --stage: radial-gradient(circle at 50% 40%, #262b33 0%, #101317 100%);
+    --grid-line: rgba(255, 255, 255, .045);
     --panel: #171b21;
     --border: #262b33;
     --text: #e7ebf0;
@@ -40,6 +44,23 @@
     -webkit-font-smoothing: antialiased;
     transition: background .25s ease, color .25s ease;
   }
+  /* фон в стиле сцены modul3d.app — радиальный градиент + сетка */
+  .page-bg {
+    position: fixed;
+    inset: 0;
+    z-index: -1;
+    background: var(--stage);
+  }
+  .page-bg::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background-image:
+      linear-gradient(var(--grid-line) 1px, transparent 1px),
+      linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
+    background-size: 44px 44px;
+    opacity: .9;
+  }
   header {
     position: sticky;
     top: 0;
@@ -47,24 +68,56 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 16px;
-    padding: 18px 24px;
+    flex-wrap: wrap;
+    gap: 10px 16px;
+    padding: 14px 24px;
     background: var(--panel);
     border-bottom: 1px solid var(--border);
     backdrop-filter: blur(8px);
   }
-  header h1 {
+  .head-left { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+  .brand { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+  .brand-mark { width: 24px; height: 24px; flex: none; display: block; align-self: center; }
+  .brand-mark .bm-wire { fill: none; stroke: var(--accent); stroke-width: 3; stroke-linejoin: round; }
+  .brand-mark .bm-fill { fill: var(--accent); opacity: .18; }
+  .brand-name {
     font-size: 18px;
-    margin: 0;
-    font-weight: 600;
+    font-weight: 800;
     letter-spacing: -0.01em;
+    color: var(--text);
+    white-space: nowrap;
+  }
+  .brand-name b { color: var(--accent); font-weight: 800; }
+  .brand-page {
+    font-size: 15px;
+    font-weight: 500;
+    color: var(--muted);
+    white-space: nowrap;
   }
   header .sub {
     color: var(--muted);
-    font-size: 13px;
-    margin-top: 2px;
+    font-size: 12.5px;
   }
-  .head-left { display: flex; flex-direction: column; }
+  .tabs {
+    display: flex;
+    gap: 8px;
+  }
+  .tab-btn {
+    border: 1px solid var(--border);
+    background: var(--bg);
+    color: var(--muted);
+    font-size: 13.5px;
+    font-weight: 500;
+    padding: 8px 16px;
+    border-radius: 10px;
+    cursor: pointer;
+  }
+  .tab-btn:hover { border-color: var(--accent); color: var(--text); }
+  .tab-btn.active {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #fff;
+  }
   .controls { display: flex; align-items: center; gap: 10px; }
   .progress-pill {
     font-size: 12px;
@@ -92,27 +145,6 @@
     padding: 24px;
     max-width: 1600px;
     margin: 0 auto;
-  }
-  .tabs {
-    display: flex;
-    gap: 8px;
-    margin-bottom: 18px;
-  }
-  .tab-btn {
-    border: 1px solid var(--border);
-    background: var(--panel);
-    color: var(--muted);
-    font-size: 13.5px;
-    font-weight: 500;
-    padding: 8px 16px;
-    border-radius: 10px;
-    cursor: pointer;
-  }
-  .tab-btn:hover { border-color: var(--accent); color: var(--text); }
-  .tab-btn.active {
-    background: var(--accent);
-    border-color: var(--accent);
-    color: #fff;
   }
   .board {
     display: grid;
@@ -161,6 +193,10 @@
     font-weight: 600;
     display: flex;
     align-items: center;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
   .count {
     font-size: 12px;
@@ -172,17 +208,21 @@
   }
   .filter-row {
     display: flex;
-    gap: 6px;
-    padding: 10px 12px;
+    gap: 4px;
+    padding: 8px 10px;
     border-bottom: 1px solid var(--border);
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    scrollbar-width: none;
   }
+  .filter-row::-webkit-scrollbar { display: none; }
   .filter-btn {
+    flex: 0 0 auto;
     border: 1px solid var(--border);
     background: transparent;
     color: var(--muted);
-    font-size: 11.5px;
-    padding: 4px 9px;
+    font-size: 10.5px;
+    padding: 3px 7px;
     border-radius: 999px;
     cursor: pointer;
     white-space: nowrap;
@@ -359,10 +399,24 @@
 </head>
 <body>
 
+<div class="page-bg" aria-hidden="true"></div>
+
 <header>
   <div class="head-left">
-    <h1>Workflow — Modul3D</h1>
+    <div class="brand">
+      <svg class="brand-mark" viewBox="0 0 64 64" aria-hidden="true">
+        <path class="bm-wire" d="M32 12 52 22v20L32 52 12 42V22z"/>
+        <path class="bm-wire" d="M12 22l20 10 20-10M32 32v20"/>
+        <path class="bm-fill" d="M32 32 52 22v20L32 52z"/>
+      </svg>
+      <span class="brand-name">Modul<b>3D</b></span>
+      <span class="brand-page">— Workflow</span>
+    </div>
     <div class="sub">Доска задач и заметки по проекту. Всё сохраняется в этом браузере.</div>
+  </div>
+  <div class="tabs">
+    <button class="tab-btn" data-tab="board">Доска задач</button>
+    <button class="tab-btn" data-tab="notes">Заметки</button>
   </div>
   <div class="controls">
     <span class="progress-pill" id="progress">0 / 0 выполнено</span>
@@ -371,10 +425,6 @@
 </header>
 
 <main>
-  <div class="tabs">
-    <button class="tab-btn" data-tab="board">Доска задач</button>
-    <button class="tab-btn" data-tab="notes">Заметки</button>
-  </div>
   <div class="board" id="board"></div>
   <div class="notes-wrap" id="notesWrap" hidden></div>
 </main>
@@ -570,7 +620,7 @@
       const filterDefs = [
         { key: 'all', label: 'Все', n: col.tasks.length },
         { key: 'active', label: 'В работе', n: activeCount },
-        { key: 'done', label: 'Выполненные', n: doneCount }
+        { key: 'done', label: 'Готово', n: doneCount }
       ];
       filterDefs.forEach(f => {
         const btn = document.createElement('button');
