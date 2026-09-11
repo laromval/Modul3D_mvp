@@ -32,11 +32,8 @@
     { code: 'U999ST7',   name: 'ЛДСП Egger U999 ST7 Чёрный',       sheetPrice: 1490, sourceUrl: 'https://mobilier.md/materiale-placi/pal-melaminat/dsp_egger-ro/u999-st7-negru-2800x2070x18-eg-pal-melaminat.html', sheetW: 2750, sheetH: 1830, unit: 'лист', image: null, categoryPath: ['ДСП', 'Egger'], thickness: 18 },
   ];
 
-  // ЛДСП 8мм (тонкая усиленная задняя стенка) на mobilier.md не продаётся —
-  // ЛДСП/PAL melaminat там начинается от 16мм, цена осталась условной.
   const BACK_MATERIALS = [
     { code: 'HDF-3', name: 'ХДФ белый 3мм', sheetPrice: 193, sourceUrl: 'https://mobilier.md/materiale-placi/hdf-dvp/hdf-110-alb-3-2850x2070.html', sheetW: 2440, sheetH: 1220, thickness: 3, unit: 'лист', image: null, categoryPath: ['ХДФ/ДВП'] },
-    { code: 'HDF-8', name: 'ЛДСП 8мм (усиленная задняя стенка)', sheetPrice: 1500, sheetW: 2750, sheetH: 1830, thickness: 8, unit: 'лист', image: null, categoryPath: ['ДСП'] },
   ];
 
   // Столешницы на mobilier.md продаются ПОГОННЫМ метром — готовой полосой
@@ -207,8 +204,10 @@
 
   const HARDWARE_PRICES = {
     // Блюм на mobilier.md не продаётся вообще (0 совпадений по бренду) —
-    // цена оставлена условной, соответствие не найдено.
-    hinge: { name: 'Петля накладная Blum CLIP 110°', article: 'BLUM-CLIP', price: 210, unit: 'шт', category: 'hinge', hardwareModelSlot: 'hingeCup' },
+    // цена оставлена условной. sourceUrl — официальная страница линейки
+    // Blum CLIP top (включает исполнение 110°); цены на этой странице нет,
+    // проверить актуальную цену у поставщика.
+    hinge: { name: 'Петля накладная Blum CLIP 110°', article: 'BLUM-CLIP', price: 210, sourceUrl: 'https://www.blum.com/us/en/products/hingesystems/clip-top/programme/', unit: 'шт', category: 'hinge', hardwareModelSlot: 'hingeCup' },
     handle: { name: 'Ручка мебельная скоба 128мм', article: 'RH-128', price: 76, sourceUrl: 'https://mobilier.md/accesorii-pentru-mobilier/furnitura-decorativa/minere-pentru-mobila/modern-1/ua-b31112806mj-miner-ua-b311-128mm-inox.html', unit: 'шт', category: 'handle' },
     // Цена — пара штук по цене за 1 шт (GTV GX1 H45 L500, бренд Blum
     // на сайте отсутствует, направляющая эконом-класса).
@@ -220,9 +219,11 @@
                          article: 'SUP-5G', price: 6, sourceUrl: 'https://mobilier.md/accesorii-pentru-mobilier/furnitura-functionala/elemente-de-asamblare/pp-gl-b48-01-suport-polita-din-b48-4-8mm.html', unit: 'шт', category: 'support' },
     // На сайте есть только зажимная петля для стекла без Ø26 (GTV
     // ZP-CIG-07UZE, 16 MDL) — другой тип крепления, не аналог, поэтому
-    // не подставлена; цена осталась условной.
+    // не подставлена; цена осталась условной. sourceUrl — та же страница
+    // линейки Blum CLIP top, в её разделе «Glass door applications»
+    // описана петля именно под высверленное отверстие Ø26.
     hingeGlass: { name: 'Петля для стеклянной двери (отверстие Ø26)',
-                  article: 'HNG-GLASS', price: 520, unit: 'шт', category: 'hinge', hardwareModelSlot: 'hingeGlass' },
+                  article: 'HNG-GLASS', price: 520, sourceUrl: 'https://www.blum.com/us/en/products/hingesystems/clip-top/programme/', unit: 'шт', category: 'hinge', hardwareModelSlot: 'hingeGlass' },
     plinthClip: { name: 'Крепление цоколя', article: 'PLC-1', price: 2, sourceUrl: 'https://mobilier.md/accesorii-pentru-mobilier/furnitura-decorativa/picioare-si-rotile/nm-kl-dpa-20-clipsa-picior-bucatarie-dpa-h-100150-negru.html', unit: 'шт', category: 'plinth' },
     countertopCornerTie: { name: 'Угловая стяжка для столешницы Egger 38 (LMB-KAT38-20M)', article: 'LMB-KAT38-20M', price: 75, sourceUrl: 'https://mobilier.md/index.php?product_id=32214&route=product%2Fproduct', unit: 'шт', category: 'countertop' },
     // ЦЕНА-ЗАГЛУШКА, не найдена на mobilier.md, подтвердить у пользователя
@@ -269,10 +270,15 @@
   // ==========================================================================
   // Blum и Hettich на mobilier.md не продаются вообще (0 совпадений по
   // каждому бренду) — setPrice для tandembox/legrabox/innotech/quadro/
-  // quadroSlide ниже остались условными, соответствие не найдено.
+  // quadroSlide ниже остались условными, с mobilier.md не сверялись.
+  // sourceUrl у каждой системы ниже ведёт на официальную страницу Blum/
+  // Hettich — цены там не публикуются (маркетинговые/каталожные страницы
+  // производителя, не магазин), поэтому setPrice по-прежнему требует
+  // проверки, сам sourceUrl подтверждён (открыт и проверен).
   const DRAWER_SYSTEMS = {
     tandembox: {
       src: 'Blum, каталог TANDEMBOX antaro, раздел «Cutting»',
+      sourceUrl: 'https://www.blum.com/eu/en/products/boxsystems/tandembox-antaro/overview/',
       assumed: [],
       // Раскрой по каталогу Blum (TANDEMBOX antaro, раздел «Cutting»):
       //   дно  — ширина LW − 75, длина NL − 24 (ХДФ/ЛДСП-задняя стенка)
@@ -296,6 +302,7 @@
     },
     legrabox: {
       src: 'Blum, каталог LEGRABOX',
+      sourceUrl: 'https://www.blum.com/us/en/products/boxsystems/legrabox/programme/',
       assumed: [],
       name: 'Blum LEGRABOX',
       metal: true,
@@ -311,6 +318,7 @@
     },
     innotech: {
       src: 'Hettich, каталог InnoTech Atira',
+      sourceUrl: 'https://www.hettich.com/en-us/products/drawer-systems/innotech-atira',
       assumed: [],
       // Раскрой по каталогу Hettich (InnoTech Atira):
       //   BL = NL + 10;  BB = LB − 2·EB − 51,5;  RB = LB − 2·EB − 63.
@@ -342,6 +350,9 @@
       // ИСТОЧНИК размеров. Правило проекта: число в каталоге либо взято из
       // документа, либо помечено в assumed — выдумывать нельзя.
       src: 'Hettich MTA_9 302 560 00 от 15.03.2021',
+      // Официальная страница именно насадного (plug-on) исполнения EB20
+      // (толщина боковины ≤16мм) в eShop Hettich — подтверждена открытием.
+      sourceUrl: 'https://shop.hettich.com/fi_EN/-/Quadro-V6-with-Silent-System,-plug-on-installation,-EB20-(drawer-side-profile-thickness-≤-16-mm)/bp/variant9396745349412',
       assumed: [],
       metal: false,                                  // ящик режется из ЛДСП
       // Ряд NL по инструкции монтажа MTA_9 302 560 00 (V6, насадной монтаж)
@@ -403,6 +414,10 @@
     quadroSlide: {
       name: 'Hettich Quadro V6 Stop Control / Silent System, надвижной монтаж, EB20',
       src: 'Hettich MTA_9 296 800 00 от 13.10.2020',
+      // Тот самый документ MTA_9 296 800 00 — официальная инструкция
+      // монтажа Hettich «Quadro V6 Stop Control / Silent System Slide-on,
+      // EB 20 (≤16мм)» от 13.10.2020, открыта и сверена.
+      sourceUrl: 'https://web2.hettich.com/hbh/addon/montage/MTA_929680000_QV6_SFG_SFD_EB20.pdf',
       // Не подтверждено документом — показывается предупреждением в панели
       assumed: [],
       metal: false,
@@ -511,26 +526,33 @@
   // производителей. minH/maxH — высота фасада, maxW — ширина корпуса, мм.
   // ---------------------------------------------------------------------------
   // Blum, Hettich и Samet на mobilier.md не продаются вообще (0 совпадений
-  // по каждому бренду) — цены во всех восьми позициях ниже условные,
-  // соответствие на сайте не найдено.
+  // по каждому бренду) — цены во всех восьми позициях ниже условные, с
+  // mobilier.md не сверялись. sourceUrl проставлен на официальные страницы
+  // Blum/Hettich там, где нашлась модель с точно таким названием — цены на
+  // этих страницах не публикуются (это каталожные/маркетинговые страницы,
+  // не магазин), поэтому цена так и остаётся условной и требует проверки.
+  // Для Samet (sametSmart/sametRapid) на samet.com.tr и sametglobal.com
+  // товаров с названиями «Smart Lift»/«Rapid Lift» не нашлось — реальная
+  // линейка называется иначе (Multi Mech/Solo Mech/Slim Mech/Gas Spring/
+  // D-Lite Lift), выдумывать соответствие не стали, sourceUrl не добавлен.
   const LIFTS = {
     aventosHK:  { id: 'aventosHK', brand: 'Blum', name: 'Blum AVENTOS HK (откидной)',
-                  article: 'AVENTOS-HK', price: 4200, minH: 240, maxH: 600, maxW: 1800,
+                  article: 'AVENTOS-HK', price: 4200, sourceUrl: 'https://www.blum.com/eu/en/products/liftsystems/aventos-hk/programme/', minH: 240, maxH: 600, maxW: 1800,
                   note: 'Фасад откидывается вверх одной плоскостью', category: 'mechanism' },
     aventosHF:  { id: 'aventosHF', brand: 'Blum', name: 'Blum AVENTOS HF (складной, два фасада)',
-                  article: 'AVENTOS-HF', price: 8900, minH: 480, maxH: 1040, maxW: 1800,
+                  article: 'AVENTOS-HF', price: 8900, sourceUrl: 'https://www.blum.com/us/en/products/liftsystems/aventos-hf/programme/', minH: 480, maxH: 1040, maxW: 1800,
                   note: 'Складывается пополам — для высоких антресолей', category: 'mechanism' },
     aventosHL:  { id: 'aventosHL', brand: 'Blum', name: 'Blum AVENTOS HL (параллельный подъём)',
-                  article: 'AVENTOS-HL', price: 9800, minH: 300, maxH: 580, maxW: 1800,
+                  article: 'AVENTOS-HL', price: 9800, sourceUrl: 'https://www.blum.com/us/en/products/liftsystems/aventos-hl/programme/', minH: 300, maxH: 580, maxW: 1800,
                   note: 'Фасад уходит параллельно вверх, открывая весь проём', category: 'mechanism' },
     aventosHS:  { id: 'aventosHS', brand: 'Blum', name: 'Blum AVENTOS HS (подъём над корпусом)',
-                  article: 'AVENTOS-HS', price: 10500, minH: 350, maxH: 800, maxW: 1800,
+                  article: 'AVENTOS-HS', price: 10500, sourceUrl: 'https://www.blum.com/us/en/products/liftsystems/aventos-hs/programme/', minH: 350, maxH: 800, maxW: 1800,
                   note: 'Единый фасад поднимается над корпусом', category: 'mechanism' },
     hettichHL:  { id: 'hettichHL', brand: 'Hettich', name: 'Hettich Lift Advanced HL',
-                  article: 'HT-LIFT-HL', price: 3900, minH: 200, maxH: 700, maxW: 1200,
+                  article: 'HT-LIFT-HL', price: 3900, sourceUrl: 'https://shop.hettich.com/us_EN/Further-products/Flap-fittings/Flap-lift-fittings/Flap-lift-fitting-Lift-Advanced-HL,-403---462/p/9079600', minH: 200, maxH: 700, maxW: 1200,
                   note: 'Откидной подъёмник для навесных шкафов', category: 'mechanism' },
     hettichHF:  { id: 'hettichHF', brand: 'Hettich', name: 'Hettich Lift Advanced HF (складной)',
-                  article: 'HT-LIFT-HF', price: 7600, minH: 480, maxH: 1000, maxW: 1200,
+                  article: 'HT-LIFT-HF', price: 7600, sourceUrl: 'https://shop.hettich.com/us_EN/Further-products/Flap-fittings/Folding-flap-fittings/Folding-flap-fitting-Lift-Advanced-HF,-440---550/p/9079605', minH: 480, maxH: 1000, maxW: 1200,
                   note: 'Складной фасад из двух частей', category: 'mechanism' },
     sametSmart: { id: 'sametSmart', brand: 'Samet', name: 'Samet Smart Lift',
                   article: 'SM-SMART', price: 2400, minH: 240, maxH: 600, maxW: 1000,
