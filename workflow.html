@@ -14,6 +14,7 @@
     --accent: #0284c7;
     --accent-soft: #e0f2fe;
     --done-bg: #f1f5f9;
+    --danger: #ef4444;
     --shadow: 0 1px 2px rgba(16,19,23,0.04), 0 8px 24px rgba(16,19,23,0.06);
     --radius: 14px;
   }
@@ -26,6 +27,7 @@
     --accent: #00c2ff;
     --accent-soft: #0b2733;
     --done-bg: #1b2028;
+    --danger: #f87171;
     --shadow: 0 1px 2px rgba(0,0,0,0.3), 0 8px 24px rgba(0,0,0,0.35);
   }
   * { box-sizing: border-box; }
@@ -72,7 +74,7 @@
     border-radius: 999px;
     white-space: nowrap;
   }
-  .theme-btn {
+  .icon-btn {
     border: 1px solid var(--border);
     background: var(--panel);
     color: var(--text);
@@ -85,11 +87,32 @@
     cursor: pointer;
     font-size: 16px;
   }
-  .theme-btn:hover { border-color: var(--accent); }
+  .icon-btn:hover { border-color: var(--accent); }
   main {
     padding: 24px;
     max-width: 1600px;
     margin: 0 auto;
+  }
+  .tabs {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 18px;
+  }
+  .tab-btn {
+    border: 1px solid var(--border);
+    background: var(--panel);
+    color: var(--muted);
+    font-size: 13.5px;
+    font-weight: 500;
+    padding: 8px 16px;
+    border-radius: 10px;
+    cursor: pointer;
+  }
+  .tab-btn:hover { border-color: var(--accent); color: var(--text); }
+  .tab-btn.active {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #fff;
   }
   .board {
     display: grid;
@@ -118,7 +141,7 @@
     flex-direction: column;
   }
   .column-head {
-    padding: 14px 16px 12px;
+    padding: 14px 16px 10px;
     border-bottom: 1px solid var(--border);
     display: flex;
     align-items: center;
@@ -147,6 +170,29 @@
     padding: 2px 8px;
     flex-shrink: 0;
   }
+  .filter-row {
+    display: flex;
+    gap: 6px;
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--border);
+    flex-wrap: wrap;
+  }
+  .filter-btn {
+    border: 1px solid var(--border);
+    background: transparent;
+    color: var(--muted);
+    font-size: 11.5px;
+    padding: 4px 9px;
+    border-radius: 999px;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .filter-btn:hover { border-color: var(--accent); color: var(--text); }
+  .filter-btn.active {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #fff;
+  }
   .cards {
     padding: 10px;
     display: flex;
@@ -157,20 +203,22 @@
   .card {
     border: 1px solid var(--border);
     border-radius: 10px;
-    padding: 12px 12px 12px 40px;
+    padding: 12px 58px 12px 40px;
     font-size: 13.5px;
     line-height: 1.5;
     background: var(--bg);
     position: relative;
-    cursor: pointer;
     transition: opacity .2s ease, border-color .2s ease;
-    white-space: pre-wrap;
   }
   .card:hover { border-color: var(--accent); }
   .card.done {
-    opacity: 0.5;
+    opacity: 0.55;
     background: var(--done-bg);
-    text-decoration: line-through;
+  }
+  .card.done .card-text { text-decoration: line-through; }
+  .card-text {
+    white-space: pre-wrap;
+    cursor: pointer;
   }
   .checkbox {
     position: absolute;
@@ -184,6 +232,7 @@
     align-items: center;
     justify-content: center;
     flex-shrink: 0;
+    cursor: pointer;
   }
   .card.done .checkbox {
     background: var(--accent);
@@ -191,12 +240,115 @@
   }
   .checkbox svg { display: none; width: 12px; height: 12px; color: white; }
   .card.done .checkbox svg { display: block; }
+  .icon-mini {
+    position: absolute;
+    top: 10px;
+    width: 22px;
+    height: 22px;
+    border: none;
+    background: transparent;
+    color: var(--muted);
+    cursor: pointer;
+    font-size: 12.5px;
+    border-radius: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .icon-mini:hover { color: var(--accent); background: var(--done-bg); }
+  .icon-mini.copied { color: #22c55e; }
+  .copy-icon { right: 32px; }
+  .edit-icon { right: 8px; }
   .empty-note {
     padding: 16px 12px;
     color: var(--muted);
     font-size: 13px;
     text-align: center;
   }
+  .card.editing {
+    padding: 10px;
+    cursor: default;
+  }
+  .edit-textarea, .add-textarea {
+    width: 100%;
+    min-height: 64px;
+    border: 1px solid var(--accent);
+    border-radius: 8px;
+    background: var(--panel);
+    color: var(--text);
+    font-family: inherit;
+    font-size: 13.5px;
+    padding: 8px;
+    resize: vertical;
+  }
+  .edit-actions, .add-actions {
+    display: flex;
+    gap: 6px;
+    margin-top: 8px;
+    flex-wrap: wrap;
+  }
+  .btn {
+    border: 1px solid var(--border);
+    background: var(--panel);
+    color: var(--text);
+    font-size: 12px;
+    padding: 6px 10px;
+    border-radius: 8px;
+    cursor: pointer;
+  }
+  .btn:hover { border-color: var(--accent); }
+  .btn.primary {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #fff;
+  }
+  .btn.danger { color: var(--danger); border-color: var(--danger); background: transparent; }
+  .btn.danger:hover { background: var(--danger); color: #fff; }
+  .add-row { padding: 4px 10px 10px; }
+  .add-btn {
+    width: 100%;
+    border: 1px dashed var(--border);
+    background: transparent;
+    color: var(--muted);
+    padding: 10px;
+    border-radius: 10px;
+    cursor: pointer;
+    font-size: 13px;
+    text-align: left;
+  }
+  .add-btn:hover { border-color: var(--accent); color: var(--accent); }
+  .add-form { padding: 0 10px 10px; }
+
+  .notes-wrap {
+    max-width: 760px;
+    margin: 0 auto;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .note-card {
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 14px 58px 14px 16px;
+    font-size: 14px;
+    line-height: 1.55;
+    background: var(--panel);
+    box-shadow: var(--shadow);
+    position: relative;
+  }
+  .note-card:hover { border-color: var(--accent); }
+  .note-text { white-space: pre-wrap; cursor: pointer; }
+  .note-meta { margin-top: 8px; font-size: 11.5px; color: var(--muted); }
+  .note-card.editing { padding: 12px; cursor: default; }
+  .notes-empty {
+    padding: 30px 12px;
+    color: var(--muted);
+    font-size: 13.5px;
+    text-align: center;
+    border: 1px dashed var(--border);
+    border-radius: 10px;
+  }
+
   footer {
     text-align: center;
     color: var(--muted);
@@ -210,22 +362,35 @@
 <header>
   <div class="head-left">
     <h1>Workflow — Modul3D</h1>
-    <div class="sub">Доска задач по проекту. Клик по карточке отмечает пункт выполненным (сохраняется в этом браузере).</div>
+    <div class="sub">Доска задач и заметки по проекту. Всё сохраняется в этом браузере.</div>
   </div>
   <div class="controls">
     <span class="progress-pill" id="progress">0 / 0 выполнено</span>
-    <button class="theme-btn" id="themeToggle" title="Переключить тему">🌙</button>
+    <button class="icon-btn" id="themeToggle" title="Переключить тему">🌙</button>
   </div>
 </header>
 
 <main>
+  <div class="tabs">
+    <button class="tab-btn" data-tab="board">Доска задач</button>
+    <button class="tab-btn" data-tab="notes">Заметки</button>
+  </div>
   <div class="board" id="board"></div>
+  <div class="notes-wrap" id="notesWrap" hidden></div>
 </main>
 
-<footer>Modul3D · сгенерировано из Workflow.xlsx</footer>
+<footer>Modul3D · доска задач и заметки (изначально собрано из Workflow.xlsx)</footer>
 
 <script>
-  const columns = [
+  const STORAGE_KEY = 'modul3d-workflow-data-v3';
+  const OLD_KEY_V2 = 'modul3d-workflow-data-v2';
+  const OLD_KEY_V1 = 'modul3d-workflow-done-v1';
+
+  function uid() {
+    return 't' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+  }
+
+  const defaultColumns = [
     {
       title: "Движок построения мебели",
       color: "#f97316",
@@ -274,71 +439,403 @@
     }
   ];
 
+  function buildDefaultState() {
+    let oldDone = {};
+    try { oldDone = JSON.parse(localStorage.getItem(OLD_KEY_V1) || '{}'); } catch (e) {}
+    return {
+      columns: defaultColumns.map((col, colIndex) => ({
+        title: col.title,
+        color: col.color,
+        tasks: col.tasks.map((text, taskIndex) => ({
+          id: uid(),
+          text: text,
+          done: !!oldDone[colIndex + '-' + taskIndex]
+        }))
+      })),
+      notes: []
+    };
+  }
+
+  function loadState() {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (parsed && Array.isArray(parsed.columns)) {
+          if (!Array.isArray(parsed.notes)) parsed.notes = [];
+          return parsed;
+        }
+      }
+    } catch (e) {}
+    try {
+      const rawV2 = localStorage.getItem(OLD_KEY_V2);
+      if (rawV2) {
+        const parsedV2 = JSON.parse(rawV2);
+        if (parsedV2 && Array.isArray(parsedV2.columns)) {
+          return { columns: parsedV2.columns, notes: [] };
+        }
+      }
+    } catch (e) {}
+    return buildDefaultState();
+  }
+
+  function saveState() {
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch (e) {}
+  }
+
+  let state = loadState();
+  saveState();
+
+  // transient UI state (not persisted)
+  const filters = {};    // colIndex -> 'all' | 'active' | 'done'
+  const adding = {};     // colIndex -> true while add-task form is open
+  let editing = null;    // { colIndex, taskId } while a task card is in edit mode
+  let addingNote = false;
+  let editingNoteId = null;
+  let activeTab = 'board';
+
   const board = document.getElementById('board');
-  const STORAGE_KEY = 'modul3d-workflow-done-v1';
+  const notesWrap = document.getElementById('notesWrap');
 
-  function loadDone() {
-    try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}'); }
-    catch (e) { return {}; }
-  }
-  function saveDone(state) {
-    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); }
-    catch (e) {}
+  function escapeHtml(str) {
+    return String(str)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
   }
 
-  let doneState = loadDone();
-  let totalTasks = 0;
-
-  columns.forEach((col, colIndex) => {
-    totalTasks += col.tasks.length;
-
-    const colEl = document.createElement('div');
-    colEl.className = 'column';
-
-    const head = document.createElement('div');
-    head.className = 'column-head';
-    head.innerHTML = `
-      <span class="column-title"><span class="dot" style="background:${col.color}"></span>${col.title}</span>
-      <span class="count">${col.tasks.length}</span>
-    `;
-    colEl.appendChild(head);
-
-    const cardsEl = document.createElement('div');
-    cardsEl.className = 'cards';
-
-    if (col.tasks.length === 0) {
-      const empty = document.createElement('div');
-      empty.className = 'empty-note';
-      empty.textContent = 'Нет задач';
-      cardsEl.appendChild(empty);
+  function copyText(text, btn) {
+    const done = () => {
+      const original = btn.innerHTML;
+      btn.innerHTML = '✓';
+      btn.classList.add('copied');
+      setTimeout(() => { btn.innerHTML = original; btn.classList.remove('copied'); }, 1200);
+    };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(done).catch(() => fallbackCopy(text, done));
     } else {
-      col.tasks.forEach((task, taskIndex) => {
-        const key = colIndex + '-' + taskIndex;
-        const card = document.createElement('div');
-        card.className = 'card' + (doneState[key] ? ' done' : '');
-        card.innerHTML = `
-          <span class="checkbox"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M5 13l4 4L19 7"/></svg></span>
-          ${task}
-        `;
-        card.addEventListener('click', () => {
-          doneState[key] = !doneState[key];
-          card.classList.toggle('done');
-          saveDone(doneState);
-          updateProgress();
+      fallbackCopy(text, done);
+    }
+  }
+
+  function fallbackCopy(text, cb) {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.position = 'fixed';
+    ta.style.left = '-9999px';
+    document.body.appendChild(ta);
+    ta.select();
+    try { document.execCommand('copy'); } catch (e) {}
+    document.body.removeChild(ta);
+    if (cb) cb();
+  }
+
+  function switchTab(tab) {
+    activeTab = tab;
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
+    board.hidden = tab !== 'board';
+    notesWrap.hidden = tab !== 'notes';
+    if (tab === 'notes') renderNotes();
+  }
+
+  document.querySelectorAll('.tab-btn').forEach(b => {
+    b.addEventListener('click', () => switchTab(b.dataset.tab));
+  });
+
+  function renderBoard() {
+    board.innerHTML = '';
+    let totalDone = 0, totalAll = 0;
+
+    state.columns.forEach((col, colIndex) => {
+      totalAll += col.tasks.length;
+      totalDone += col.tasks.filter(t => t.done).length;
+
+      const colEl = document.createElement('div');
+      colEl.className = 'column';
+
+      const activeCount = col.tasks.filter(t => !t.done).length;
+      const doneCount = col.tasks.filter(t => t.done).length;
+
+      const head = document.createElement('div');
+      head.className = 'column-head';
+      head.innerHTML = `
+        <span class="column-title"><span class="dot" style="background:${col.color}"></span>${escapeHtml(col.title)}</span>
+        <span class="count">${col.tasks.length}</span>
+      `;
+      colEl.appendChild(head);
+
+      const filterRow = document.createElement('div');
+      filterRow.className = 'filter-row';
+      const currentFilter = filters[colIndex] || 'all';
+      const filterDefs = [
+        { key: 'all', label: 'Все', n: col.tasks.length },
+        { key: 'active', label: 'В работе', n: activeCount },
+        { key: 'done', label: 'Выполненные', n: doneCount }
+      ];
+      filterDefs.forEach(f => {
+        const btn = document.createElement('button');
+        btn.className = 'filter-btn' + (currentFilter === f.key ? ' active' : '');
+        btn.textContent = f.label + ' ' + f.n;
+        btn.addEventListener('click', () => {
+          filters[colIndex] = f.key;
+          renderBoard();
         });
-        cardsEl.appendChild(card);
+        filterRow.appendChild(btn);
+      });
+      colEl.appendChild(filterRow);
+
+      const cardsEl = document.createElement('div');
+      cardsEl.className = 'cards';
+
+      const visibleTasks = col.tasks.filter(t => {
+        if (currentFilter === 'active') return !t.done;
+        if (currentFilter === 'done') return t.done;
+        return true;
+      });
+
+      if (visibleTasks.length === 0) {
+        const empty = document.createElement('div');
+        empty.className = 'empty-note';
+        empty.textContent = col.tasks.length === 0 ? 'Нет задач' : 'Нет задач в этом фильтре';
+        cardsEl.appendChild(empty);
+      } else {
+        visibleTasks.forEach(task => {
+          const isEditing = editing && editing.colIndex === colIndex && editing.taskId === task.id;
+          const card = document.createElement('div');
+          card.className = 'card' + (task.done ? ' done' : '') + (isEditing ? ' editing' : '');
+
+          if (isEditing) {
+            card.innerHTML = `
+              <textarea class="edit-textarea">${escapeHtml(task.text)}</textarea>
+              <div class="edit-actions">
+                <button class="btn primary" data-action="save">Сохранить</button>
+                <button class="btn" data-action="cancel">Отмена</button>
+                <button class="btn danger" data-action="delete">Удалить</button>
+              </div>
+            `;
+            const textarea = card.querySelector('.edit-textarea');
+            card.querySelector('[data-action="save"]').addEventListener('click', () => {
+              const val = textarea.value.trim();
+              if (val) {
+                task.text = val;
+                saveState();
+              }
+              editing = null;
+              renderBoard();
+            });
+            card.querySelector('[data-action="cancel"]').addEventListener('click', () => {
+              editing = null;
+              renderBoard();
+            });
+            card.querySelector('[data-action="delete"]').addEventListener('click', () => {
+              col.tasks = col.tasks.filter(t => t.id !== task.id);
+              editing = null;
+              saveState();
+              renderBoard();
+            });
+            textarea.addEventListener('keydown', (e) => {
+              if (e.key === 'Escape') { editing = null; renderBoard(); }
+              if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { card.querySelector('[data-action="save"]').click(); }
+            });
+            setTimeout(() => textarea.focus(), 0);
+          } else {
+            card.innerHTML = `
+              <span class="checkbox"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M5 13l4 4L19 7"/></svg></span>
+              <span class="card-text">${escapeHtml(task.text)}</span>
+              <button class="icon-mini copy-icon" title="Копировать текст">⧉</button>
+              <button class="icon-mini edit-icon" title="Редактировать">✎</button>
+            `;
+            card.querySelector('.checkbox').addEventListener('click', (e) => {
+              e.stopPropagation();
+              task.done = !task.done;
+              saveState();
+              renderBoard();
+            });
+            card.querySelector('.copy-icon').addEventListener('click', (e) => {
+              e.stopPropagation();
+              copyText(task.text, e.currentTarget);
+            });
+            const enterEdit = () => {
+              editing = { colIndex, taskId: task.id };
+              renderBoard();
+            };
+            card.querySelector('.edit-icon').addEventListener('click', (e) => {
+              e.stopPropagation();
+              enterEdit();
+            });
+            card.querySelector('.card-text').addEventListener('click', enterEdit);
+          }
+
+          cardsEl.appendChild(card);
+        });
+      }
+
+      colEl.appendChild(cardsEl);
+
+      const addRow = document.createElement('div');
+      if (adding[colIndex]) {
+        addRow.className = 'add-form';
+        addRow.innerHTML = `
+          <textarea class="add-textarea" placeholder="Текст новой задачи…"></textarea>
+          <div class="add-actions">
+            <button class="btn primary" data-action="add-save">Добавить</button>
+            <button class="btn" data-action="add-cancel">Отмена</button>
+          </div>
+        `;
+        const textarea = addRow.querySelector('.add-textarea');
+        addRow.querySelector('[data-action="add-save"]').addEventListener('click', () => {
+          const val = textarea.value.trim();
+          if (val) {
+            col.tasks.push({ id: uid(), text: val, done: false });
+            saveState();
+          }
+          adding[colIndex] = false;
+          renderBoard();
+        });
+        addRow.querySelector('[data-action="add-cancel"]').addEventListener('click', () => {
+          adding[colIndex] = false;
+          renderBoard();
+        });
+        textarea.addEventListener('keydown', (e) => {
+          if (e.key === 'Escape') { adding[colIndex] = false; renderBoard(); }
+          if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { addRow.querySelector('[data-action="add-save"]').click(); }
+        });
+        setTimeout(() => textarea.focus(), 0);
+      } else {
+        addRow.className = 'add-row';
+        addRow.innerHTML = `<button class="add-btn">+ Добавить задачу</button>`;
+        addRow.querySelector('.add-btn').addEventListener('click', () => {
+          adding[colIndex] = true;
+          renderBoard();
+        });
+      }
+      colEl.appendChild(addRow);
+
+      board.appendChild(colEl);
+    });
+
+    document.getElementById('progress').textContent = totalDone + ' / ' + totalAll + ' выполнено';
+  }
+
+  function formatDate(ts) {
+    try { return new Date(ts).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }); }
+    catch (e) { return ''; }
+  }
+
+  function renderNotes() {
+    notesWrap.innerHTML = '';
+
+    if (!state.notes.length && !addingNote) {
+      const empty = document.createElement('div');
+      empty.className = 'notes-empty';
+      empty.textContent = 'Пока нет заметок';
+      notesWrap.appendChild(empty);
+    } else {
+      state.notes.forEach(note => {
+        const isEditing = editingNoteId === note.id;
+        const card = document.createElement('div');
+        card.className = 'note-card' + (isEditing ? ' editing' : '');
+
+        if (isEditing) {
+          card.innerHTML = `
+            <textarea class="edit-textarea">${escapeHtml(note.text)}</textarea>
+            <div class="edit-actions">
+              <button class="btn primary" data-action="save">Сохранить</button>
+              <button class="btn" data-action="cancel">Отмена</button>
+              <button class="btn danger" data-action="delete">Удалить</button>
+            </div>
+          `;
+          const textarea = card.querySelector('.edit-textarea');
+          card.querySelector('[data-action="save"]').addEventListener('click', () => {
+            const val = textarea.value.trim();
+            if (val) {
+              note.text = val;
+              note.editedAt = Date.now();
+              saveState();
+            }
+            editingNoteId = null;
+            renderNotes();
+          });
+          card.querySelector('[data-action="cancel"]').addEventListener('click', () => {
+            editingNoteId = null;
+            renderNotes();
+          });
+          card.querySelector('[data-action="delete"]').addEventListener('click', () => {
+            state.notes = state.notes.filter(n => n.id !== note.id);
+            editingNoteId = null;
+            saveState();
+            renderNotes();
+          });
+          textarea.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') { editingNoteId = null; renderNotes(); }
+            if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { card.querySelector('[data-action="save"]').click(); }
+          });
+          setTimeout(() => textarea.focus(), 0);
+        } else {
+          card.innerHTML = `
+            <span class="note-text">${escapeHtml(note.text)}</span>
+            <div class="note-meta">${formatDate(note.createdAt)}${note.editedAt ? ' · изменено ' + formatDate(note.editedAt) : ''}</div>
+            <button class="icon-mini copy-icon" title="Копировать текст">⧉</button>
+            <button class="icon-mini edit-icon" title="Редактировать">✎</button>
+          `;
+          card.querySelector('.copy-icon').addEventListener('click', (e) => {
+            e.stopPropagation();
+            copyText(note.text, e.currentTarget);
+          });
+          const enterEdit = () => { editingNoteId = note.id; renderNotes(); };
+          card.querySelector('.edit-icon').addEventListener('click', (e) => {
+            e.stopPropagation();
+            enterEdit();
+          });
+          card.querySelector('.note-text').addEventListener('click', enterEdit);
+        }
+
+        notesWrap.appendChild(card);
       });
     }
 
-    colEl.appendChild(cardsEl);
-    board.appendChild(colEl);
-  });
-
-  function updateProgress() {
-    const doneCount = Object.values(doneState).filter(Boolean).length;
-    document.getElementById('progress').textContent = doneCount + ' / ' + totalTasks + ' выполнено';
+    const addRow = document.createElement('div');
+    if (addingNote) {
+      addRow.className = 'add-form';
+      addRow.innerHTML = `
+        <textarea class="add-textarea" placeholder="Текст новой заметки…"></textarea>
+        <div class="add-actions">
+          <button class="btn primary" data-action="add-save">Добавить</button>
+          <button class="btn" data-action="add-cancel">Отмена</button>
+        </div>
+      `;
+      const textarea = addRow.querySelector('.add-textarea');
+      addRow.querySelector('[data-action="add-save"]').addEventListener('click', () => {
+        const val = textarea.value.trim();
+        if (val) {
+          state.notes.push({ id: uid(), text: val, createdAt: Date.now() });
+          saveState();
+        }
+        addingNote = false;
+        renderNotes();
+      });
+      addRow.querySelector('[data-action="add-cancel"]').addEventListener('click', () => {
+        addingNote = false;
+        renderNotes();
+      });
+      textarea.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') { addingNote = false; renderNotes(); }
+        if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { addRow.querySelector('[data-action="add-save"]').click(); }
+      });
+      setTimeout(() => textarea.focus(), 0);
+    } else {
+      addRow.className = 'add-row';
+      addRow.innerHTML = `<button class="add-btn">+ Добавить заметку</button>`;
+      addRow.querySelector('.add-btn').addEventListener('click', () => {
+        addingNote = true;
+        renderNotes();
+      });
+    }
+    notesWrap.appendChild(addRow);
   }
-  updateProgress();
+
+  renderBoard();
+  switchTab('board');
 
   // Theme handling
   const themeBtn = document.getElementById('themeToggle');
