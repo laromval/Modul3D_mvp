@@ -14,7 +14,7 @@
 (function () {
 // Версия сборки — показывается во вкладке браузера и в шапке.
 // При выпуске новой версии меняется только эта строка.
-const APP_VERSION = 'v250';
+const APP_VERSION = 'v251';
 
 // Номер версии выводим ПЕРВЫМ делом: если дальше что-то упадёт, по нему сразу
 // видно, какая сборка открыта.
@@ -6159,7 +6159,7 @@ function renderAccountUI() {
   const accountInfo = document.getElementById('accountInfo');
   const plansPanel = document.getElementById('plansPanel');
   const accountToggle = document.getElementById('accountToggle');
-  const sketchNote = document.getElementById('sketchAuthNote');
+  const sketchNote = document.getElementById('sketchAuthNote'); const workflowLink = document.getElementById('workflowLink'); if (workflowLink) workflowLink.style.display = (authAccount && authAccount.email === 'laromval@gmail.com') ? 'flex' : 'none';
 
   // Панель тарифов — временный экран поверх формы входа/аккаунта (см.
   // showPlansPanel); при любой обычной перерисовке возвращаемся к обычному
@@ -6327,11 +6327,25 @@ function initAccountPanel() {
   }
 
   toggle.addEventListener('click', () => {
-    popover.style.display = popover.style.display === 'none' ? 'block' : 'none';
+    const opening = popover.style.display === 'none';
+    popover.style.display = opening ? 'block' : 'none';
+    // При открытии подтягиваем свежий статус аккаунта — иначе если email
+    // подтвердили по ссылке из письма в другой вкладке, #emailVerifyBlock
+    // остаётся показан до перелогина (authAccount не обновлялся сам собой).
+    if (opening && getAuthToken()) fetchAccount();
   });
   popover.addEventListener('click', (e) => e.stopPropagation());
   document.addEventListener('click', (e) => {
     if (!popover.contains(e.target) && !toggle.contains(e.target)) popover.style.display = 'none';
+  });
+  // Тот же сценарий (подтверждение по ссылке в другой вкладке), но когда
+  // панель аккаунта уже была открыта и осталась открытой, пока пользователь
+  // переключался на почту и обратно — по возврату на вкладку тоже подтягиваем
+  // статус, если email ещё не подтверждён.
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState !== 'visible') return;
+    if (popover.style.display === 'none') return;
+    if (authAccount && authAccount.emailVerified === false) fetchAccount();
   });
 
   // Глазик показа/скрытия пароля — обычный паттерн, переключает type поля
@@ -6528,7 +6542,17 @@ function initAccountPanel() {
           throw new Error('Не удалось связаться с сервером — проверьте подключение к интернету.');
         }
         const data = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(data.error || 'Не удалось отправить письмо, попробуйте ещё раз.');
+        if (!res.ok) {
+          // 400 здесь означает, что email уже подтверждён (см. POST
+          // /auth/resend-verification на сервере) — значит просто не успели
+          // обновить authAccount после подтверждения по ссылке из письма.
+          // Подтягиваем статус заново, чтобы блок сразу скрылся сам.
+          if (res.status === 400) {
+            await fetchAccount();
+            return;
+          }
+          throw new Error(data.error || 'Не удалось отправить письмо, попробуйте ещё раз.');
+        }
         setEmailVerifyStatus(data.message || 'Письмо отправлено — проверьте почту.', 'ok');
       } catch (err) {
         setEmailVerifyStatus('Ошибка: ' + err.message, 'error');
