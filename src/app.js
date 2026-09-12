@@ -14,7 +14,7 @@
 (function () {
 // Версия сборки — показывается во вкладке браузера и в шапке.
 // При выпуске новой версии меняется только эта строка.
-const APP_VERSION = 'v253';
+const APP_VERSION = 'v258';
 
 // Номер версии выводим ПЕРВЫМ делом: если дальше что-то упадёт, по нему сразу
 // видно, какая сборка открыта.
@@ -197,6 +197,17 @@ const state = {
   // Чисто UI-состояние, как libraryTab выше: в историю отмены/файл проекта
   // не попадает.
   libPickTarget: null,
+  // Разовое уведомление для панели «Столешница» (countertopPanelBlock) —
+  // ставится сразу после того, как «Изменить» материал столешницы применил
+  // его не только к активной тумбе, но и ко всей физически стыкующейся
+  // цепочке (см. libPickMaterial, role: 'countertopDecor'). Строка текста
+  // или null. countertopPanelBlock() показывает его один раз и тут же
+  // обнуляет — следующий рендер панели (любое другое изменение) его больше
+  // не покажет. Ставится, только когда в цепочке больше одного модуля —
+  // на одиночную тумбу без соседей уведомление не показываем (поведение не
+  // отличается от применения материала до появления цепочек). Чисто
+  // UI-состояние, в историю отмены/файл проекта не попадает.
+  countertopChainNotice: null,
   // Единица, в которой показана колонка «Цена» ВО ВСЕХ таблицах вкладки
   // «Материалы» одновременно (общий переключатель, выбирается прямо в шапке
   // любой из таблиц, см. libPriceUnitHeaderHtml) — 'native' (по умолчанию)
@@ -984,6 +995,7 @@ function libRenameNode(topCode, path, newName) {
 // заглушка (см. state.libExtraNodes), сразу раскрываем родителя, чтобы он
 // не потерялся среди свёрнутых.
 function libAddChildNode(topCode, parentPath) {
+  if (!requireLibraryEditAuth()) return;
   const name = (window.prompt('Название новой категории:') || '').trim();
   if (!name) return;
   const existing = libChildSegments(topCode, parentPath).map((s) => s.toLowerCase());
@@ -1006,6 +1018,7 @@ function libAddChildNode(topCode, parentPath) {
 // если под ним успели завести вложенные пустые категории) — просто убираем
 // пути из state.libExtraNodes.
 function libDeleteNode(topCode, path) {
+  if (!requireLibraryEditAuth()) return;
   if (libNodeHasItems(topCode, path)) {
     window.alert('Сначала удалите или перенесите материалы из этой категории — в ней есть товары.');
     return;
@@ -1166,27 +1179,36 @@ function libPriceValueForUnit(kind, it, unit) {
 function libPriceEffectiveUnit(kind, unit) {
   return unit === 'native' ? libNativeUnitsOf(kind)[0] : unit;
 }
+// Цена в ячейке округляется до целого (без копеек) и получает валюту
+// (curSym()) СПРАВА от числа — сама валюта раньше жила в заголовке столбца
+// (см. libPriceUnitHeaderHtml), теперь только в каждой строке. Округление и
+// валюта — только в displayText (см. opts.displayText у libEditCell): клик
+// по ячейке для редактирования по-прежнему открывает точное нецелое
+// сохранённое значение из data-raw, реальное it[field] не трогаем.
 function libPriceCellHtml(group, key, kind, it, unit) {
   const effUnit = libPriceEffectiveUnit(kind, unit);
   if (libNativeUnitsOf(kind).indexOf(effUnit) >= 0) {
     const field = libPriceFieldOf(kind);
-    return libEditCell(group, key, field, 'number', it[field]);
+    const priceVal = it[field];
+    const display = priceVal != null ? `${Math.round(priceVal)} ${curSym()}` : undefined;
+    return libEditCell(group, key, field, 'number', priceVal, { displayText: display });
   }
   const val = libPriceValueForUnit(kind, it, effUnit);
-  return `<td>${val != null ? esc(String(val)) : '—'}</td>`;
+  return `<td>${val != null ? esc(`${Math.round(val)} ${curSym()}`) : '—'}</td>`;
 }
 // То же значение, что рисует libPriceCellHtml, но простой строкой — читает
 // поповер сортировки/фильтра колонки «Цена» (см. openColumnFilterMenu/
 // libFilterRowsCache): единственный источник правды для «что показано в
-// ячейке» один и тот же для обеих функций (libPriceEffectiveUnit).
+// ячейке» один и тот же для обеих функций (libPriceEffectiveUnit), включая
+// округление и валюту.
 function libPriceDisplayValue(kind, it, unit) {
   const effUnit = libPriceEffectiveUnit(kind, unit);
   if (libNativeUnitsOf(kind).indexOf(effUnit) >= 0) {
     const v = it[libPriceFieldOf(kind)];
-    return v != null ? String(v) : '';
+    return v != null ? `${Math.round(v)} ${curSym()}` : '';
   }
   const val = libPriceValueForUnit(kind, it, effUnit);
-  return val != null ? String(val) : '—';
+  return val != null ? `${Math.round(val)} ${curSym()}` : '—';
 }
 
 // Единицы измерения цены — общий переключатель на ВСЮ «Библиотеку» (см.
@@ -1202,9 +1224,8 @@ const LIB_PRICE_UNITS = [
   { id: 'perSheet', label: 'лист' },
 ];
 function libPriceUnitHeaderHtml() {
-  const sym = curSym();
   const opts = LIB_PRICE_UNITS.map((u) => {
-    const label = u.id === 'native' ? `Цена, ${esc(sym)} (${esc(u.label)})` : `Цена, ${esc(sym)}/${esc(u.label)}`;
+    const label = u.id === 'native' ? `Цена (${esc(u.label)})` : `Цена/${esc(u.label)}`;
     return `<option value="${esc(u.id)}" ${u.id === state.libPriceUnit ? 'selected' : ''}>${label}</option>`;
   }).join('');
   return `<select class="lib-price-unit-select">${opts}</select>`;
@@ -1222,6 +1243,52 @@ function libCountertopShortName(it) {
   s = s.replace(/^Столешница.*?глубина\s*\d+,\s*/, '');
   if (it && it.brand) s = s.split(`(${it.brand} `).join('(');
   return s;
+}
+
+// Тип листового материала в name не всегда совпадает по написанию с
+// categoryPath[0] дерева (напр. «ЛДСП» в имени vs «ДСП» в дереве,
+// «Алюминиевый» vs «Алюминий») — таблица ниже даёт варианты написания типа,
+// встречающиеся в catalog.js, для каждого верхнего сегмента пути.
+const SHEET_TYPE_NAME_ALIASES = {
+  'ДСП': ['лдсп', 'дсп'],
+  'МДФ-плита': ['мдф'],
+  'Шпонированные плиты': ['мдф шпонированный', 'шпонированные плиты', 'шпон'],
+  'ХДФ/ДВП': ['хдф', 'двп'],
+  'Массив': ['массив'],
+  'Алюминий': ['алюминиевый', 'алюминий'],
+  'Стекло': ['стекло'],
+};
+
+// Короткое название для колонки «Наименование» (decors/back/facade/glass) —
+// убирает из начала name тип материала и бренд, если они там буквально
+// повторяют путь дерева categoryPath (уже виден в хлебных крошках над
+// таблицей, см. libBreadcrumbHtml) — «ЛДСП Egger H1180 ST37 Дуб Халифакс
+// натуральный» → «H1180 ST37 Дуб Халифакс натуральный». Само item.name НЕ
+// трогаем — нужно как есть для спецификации/экспорта, это только
+// отображение (тот же принцип, что у libCountertopShortName выше). Если имя
+// не начинается с типа/бренда (как у части позиций ARAMA — «Фасад из
+// массива с филёнкой» вообще без «Массив»/ARAMA в начале) — ничего не
+// убираем, отдаём name как есть.
+function libSheetShortName(it) {
+  const name = String(it.name || '');
+  const path = it.categoryPath;
+  if (!path || !path.length) return name;
+  let words = name.split(' ');
+  const lower = words.map((w) => w.toLowerCase());
+  const aliases = SHEET_TYPE_NAME_ALIASES[path[0]] || [];
+  let matched = null;
+  aliases.forEach((alias) => {
+    if (matched != null) return;
+    const aliasWords = alias.split(' ');
+    if (aliasWords.length > lower.length) return;
+    if (aliasWords.every((w, i) => lower[i] === w)) matched = aliasWords.length;
+  });
+  if (matched == null) return name;
+  words = words.slice(matched);
+  if (path[1] && words[0] && words[0].toLowerCase() === path[1].toLowerCase()) words = words.slice(1);
+  const rest = words.join(' ').trim();
+  if (!rest) return name;
+  return rest.charAt(0).toUpperCase() + rest.slice(1);
 }
 
 // Ширины колонок фиксированы через <colgroup> (table-layout:fixed — инлайн
@@ -1320,12 +1387,10 @@ function libRowHtml(entry, opts) {
   // его на месте рискованно (specification.js читает EDGE_PRICES[type] по
   // значению из секции) — поэтому название НЕредактируемо, новая кромка
   // добавляется вводом уникального названия (см. libAddRow).
-  const nameDisplay = group === 'edge' ? String(it.key || '') : group === 'countertop' ? libCountertopShortName(it) : String(it.name || '');
+  const nameDisplay = group === 'edge' ? String(it.key || '') : group === 'countertop' ? libCountertopShortName(it) : libSheetShortName(it);
   const nameCell = group === 'edge'
     ? `<td>${esc(nameDisplay)}</td>`
-    : group === 'countertop'
-      ? libEditCell(group, key, 'name', 'text', it.name, { displayText: nameDisplay })
-      : libEditCell(group, key, 'name', 'text', it.name);
+    : libEditCell(group, key, 'name', 'text', it.name, { displayText: nameDisplay });
   const lenField = libLengthFieldOf(kind);
   const widField = libWidthFieldOf(kind);
   const lengthCell = collapsed ? '' : (lenField ? libDashEditCell(group, key, lenField, dims.length, 'lib-char-col') : '<td class="lib-char-col">—</td>');
@@ -1483,19 +1548,42 @@ function libNodeHtml(topCode, path, opts) {
     + `<div class="lib-tree-children${collapsed ? ' lib-collapsed' : ''}">${ownTableHtml}${childrenHtml}</div>`;
 }
 
+// Хлебные крошки над таблицей сфокусированного листа (см. state.libActiveLeaf/
+// libTopCategoryHtml ниже) — раньше там была только строка с именем самого
+// листа (libTreeRowHtml), и после фокуса на конечной категории родительские
+// сегменты пути («Листовые материалы» → «ДСП») терялись, было непонятно, где
+// находишься. Показывает путь «...› Лист» начиная со следующего уровня ПОСЛЕ
+// заголовка раздела (сам заголовок раздела — title — уже показан отдельной
+// строкой выше, см. libTopCategoryHtml, крошки его не повторяют): все
+// сегменты, кроме последнего (сам лист — текущее место), кликабельны и
+// возвращают в то место дерева, по которому кликнули (снимают фокус +
+// раскрывают путь до него, см. обработчик .lib-breadcrumb-seg в
+// initLibraryPanel).
+function libBreadcrumbHtml(topCode, path) {
+  const partsHtml = path.map((seg, i) => {
+    const isCurrent = i === path.length - 1;
+    const segPath = path.slice(0, i + 1).join('::');
+    const sepHtml = i > 0 ? '<span class="lib-breadcrumb-sep">›</span>' : '';
+    const segHtml = isCurrent
+      ? `<span class="lib-breadcrumb-current">${esc(seg)}</span>`
+      : `<button type="button" class="link-btn lib-breadcrumb-seg" data-bc-top="${esc(topCode)}" data-bc-path="${esc(segPath)}">${esc(seg)}</button>`;
+    return sepHtml + segHtml;
+  }).join('');
+  return `<div class="lib-breadcrumb">${partsHtml}</div>`;
+}
+
 // Верхнеуровневая категория целиком («Листовые материалы»/«Материалы
 // фасадов»/«Кромка»/«Стекло») — заголовок (сам никогда не прячется, кликом
 // раскрывает/прячет прямых детей, см. state.libCatOpen) → либо ПОЛНОЕ дерево
 // (обычная навигация), либо, если на этой категории сфокусирован лист (см.
-// state.libActiveLeaf), ТОЛЬКО его строка + таблица — вся остальная
-// структура дерева этой категории скрыта.
+// state.libActiveLeaf), ТОЛЬКО хлебные крошки его пути + таблица — вся
+// остальная структура дерева этой категории скрыта.
 function libTopCategoryHtml(topCode, title, opts) {
   const activeKey = state.libActiveLeaf[topCode] || null;
   let bodyHtml;
   if (activeKey) {
     const path = activeKey.split('::');
-    const name = path[path.length - 1];
-    bodyHtml = libTreeRowHtml(topCode, path, name, 'leaf', false)
+    bodyHtml = libBreadcrumbHtml(topCode, path)
       + libLeafTableHtml(topCode, path, libEntriesAtPath(topCode, path), opts);
   } else {
     const open = !!state.libCatOpen[topCode];
@@ -1687,10 +1775,41 @@ function libPickMaterial(rowGroup, code) {
     // facadeDecor/back ниже, здесь не нужно — оно оправдано ТОЛЬКО там, где
     // поле жёстко читает один конкретный массив; здесь такого ограничения
     // нет, а копия просто плодит дубль в Библиотеке (баг, найденный
-    // пользователем 2026-09-06). Применяется к АКТИВНОЙ тумбе (не к группе
-    // отмеченных — см. activeCountertopModule).
+    // пользователем 2026-09-06). Применяется к АКТИВНОЙ тумбе и, вместе с
+    // ней, ко всей физически стыкующейся цепочке столешниц (см.
+    // window.Modul3D.engine.getCountertopChainModules) — это не то же самое,
+    // что старая групповая правка по отмеченным чекбоксом тумбам (см.
+    // комментарий у activeCountertopModule): группа здесь определяется
+    // геометрией (реально касающиеся друг друга столешницы выглядят единой
+    // сплошной поверхностью), а не произвольной отметкой пользователя.
+    // Отдельно стоящая тумба/остров без соседей просто вернётся цепочкой из
+    // одного себя же — поведение не отличается от применения к одной тумбе.
     const mod = activeCountertopModule();
-    if (mod && mod.countertop) mod.countertop.decorCode = code;
+    if (mod && mod.countertop) {
+      const engineApi = window.Modul3D.engine;
+      let chainNames = [mod.name];
+      if (currentModel && engineApi && typeof engineApi.getCountertopChainModules === 'function') {
+        try {
+          const chain = engineApi.getCountertopChainModules(currentModel, mod.name);
+          if (Array.isArray(chain) && chain.length) chainNames = chain;
+        } catch (e) {
+          // Геометрия могла ещё не пересчитаться (currentModel null при самом
+          // первом вызове) — тихо откатываемся на одиночную тумбу, а не роняем
+          // подбор материала из-за вспомогательной функции.
+        }
+      }
+      const chainSet = new Set(chainNames);
+      let appliedCount = 0;
+      state.modules.forEach((m) => {
+        if (chainSet.has(m.name) && m.countertop) {
+          m.countertop.decorCode = code;
+          appliedCount += 1;
+        }
+      });
+      state.countertopChainNotice = appliedCount > 1
+        ? `Материал применён к ${appliedCount} тумбам стыкующейся цепочки столешницы.`
+        : null;
+    }
     state.libPickTarget = null;
     renderLibraryPanel();
     // Возвращаемся на панель «Столешница», а не просто закрываем Библиотеку
@@ -1781,6 +1900,7 @@ function libAddHardwareRow(category) {
 // — это ключ объекта EDGE_PRICES, вводится отдельным prompt), но тоже
 // получает categoryPath = path.
 function libAddRow(group, path) {
+  if (!requireLibraryEditAuth()) return;
   const cat = window.Modul3D.catalog;
   path = path || [];
   if (group.indexOf('hwadd:') === 0) {
@@ -2046,6 +2166,7 @@ function initLibUsageModal() {
 }
 
 function libDeleteSelectedRow() {
+  if (!requireLibraryEditAuth()) return;
   const sel = state.libSelectedRow;
   if (!sel) return;
   const cat = window.Modul3D.catalog;
@@ -2116,6 +2237,7 @@ function libDeleteSelectedRow() {
 // FileReader → dataURL, без бэкенда.
 let pendingLibImageTarget = null;
 function openLibImagePicker(group, key) {
+  if (!requireLibraryEditAuth()) return;
   const input = document.getElementById('libImageInput');
   if (!input) return;
   pendingLibImageTarget = { group, key };
@@ -2144,6 +2266,7 @@ const LIB_UNIT_OPTIONS = ['лист', 'м²', 'пог.м', 'шт'];
 // Клик по ячейке → инлайн-инпут (или <select> для поля «unit», см.
 // LIB_UNIT_OPTIONS выше); Enter/blur — сохранить, Esc — отменить.
 function startCellEdit(cell) {
+  if (!requireLibraryEditAuth()) return;
   if (cell.querySelector('input') || cell.querySelector('select')) return;
   if (cell.dataset.field === 'unit') {
     const cur = cell.dataset.raw != null ? cell.dataset.raw : cell.textContent.trim();
@@ -2184,6 +2307,7 @@ function startCellEdit(cell) {
 // libTreeRowHtml/libRenameNode) — тот же паттерн, что и startCellEdit выше:
 // клик превращает название в <input>, Enter/blur сохраняет, Esc отменяет.
 function startTreeRename(row) {
+  if (!requireLibraryEditAuth()) return;
   const label = row.querySelector('[data-tree-label]');
   if (!label || label.querySelector('input')) return;
   const cur = label.textContent;
@@ -2373,6 +2497,26 @@ function initLibraryPanel() {
       else if (treeIcon.dataset.treeDel != null) libDeleteNode(topCode, path);
       return;
     }
+    // Хлебная крошка над таблицей сфокусированного листа (см.
+    // libBreadcrumbHtml) — клик по любому сегменту, кроме текущего
+    // (последнего — сам лист), снимает фокус категории и раскрывает дерево
+    // ровно настолько, чтобы этот сегмент стал виден: саму категорию (см.
+    // state.libCatOpen) и всех СОБСТВЕННЫХ предков сегмента (см.
+    // libNodeKey/state.libCollapsed) — сам сегмент, если это ветка, остаётся
+    // в текущем состоянии свёрнутости.
+    const bcSeg = e.target.closest('.lib-breadcrumb-seg');
+    if (bcSeg) {
+      const topCode = bcSeg.dataset.bcTop;
+      const segPath = bcSeg.dataset.bcPath ? bcSeg.dataset.bcPath.split('::') : [];
+      state.libActiveLeaf[topCode] = null;
+      state.libCatOpen[topCode] = true;
+      for (let j = 1; j < segPath.length; j++) {
+        state.libCollapsed[libNodeKey(topCode, segPath.slice(0, j))] = false;
+      }
+      state.libSelectedRow = null;
+      renderLibraryPanel();
+      return;
+    }
     // Клик по всей строке узла дерева (см. libTreeRowHtml) — смысл зависит
     // от вида узла: категория/ветка разворачивает-сворачивает своих прямых
     // детей, лист включает/выключает фокус на себе (см. state.libCatOpen/
@@ -2388,7 +2532,20 @@ function initLibraryPanel() {
       // клик по листу — единственные места, где набор видимых таблиц
       // реально меняется; клик по обычной ветке только раскрывает/сворачивает
       // поддерево, таблицы внутри как были видны, так и остаются).
-      if (kind === 'top') { state.libCatOpen[topCode] = !state.libCatOpen[topCode]; state.libSelectedRow = null; }
+      if (kind === 'top') {
+        // Если сейчас показана таблица сфокусированного листа (см.
+        // state.libActiveLeaf) — клик по заголовку категории выходит из
+        // фокуса и раскрывает дерево, а не молча переключает libCatOpen
+        // (который в режиме фокуса не влияет на рендер, см.
+        // libTopCategoryHtml, ветка if (activeKey)).
+        if (state.libActiveLeaf[topCode]) {
+          state.libActiveLeaf[topCode] = null;
+          state.libCatOpen[topCode] = true;
+        } else {
+          state.libCatOpen[topCode] = !state.libCatOpen[topCode];
+        }
+        state.libSelectedRow = null;
+      }
       else if (kind === 'leaf') {
         const key = path.join('::');
         state.libActiveLeaf[topCode] = state.libActiveLeaf[topCode] === key ? null : key;
@@ -2649,6 +2806,15 @@ function countertopModuleRow(mod, i) {
 }
 
 function countertopPanelBlock() {
+  // Разовая обратная связь после «Изменить» материал столешницы, когда его
+  // применили не только к активной тумбе, но и ко всей стыкующейся цепочке
+  // (см. libPickMaterial, state.countertopChainNotice). Читаем и сразу
+  // обнуляем — следующий рендер панели (любое другое изменение) уже не
+  // покажет её повторно, как и обычные статусы-подтверждения в приложении
+  // (см. setEmailVerifyStatus/setReviewStatus — та же идея «показать один раз»,
+  // только без отдельного DOM-элемента, тут панель целиком перерисовывается).
+  const chainNotice = state.countertopChainNotice;
+  state.countertopChainNotice = null;
   if (!state.modules.length) {
     return `<div class="hint">Проект пуст. Сначала добавьте тумбы — кнопкой «Библиотека» на рейке слева.</div>`;
   }
@@ -2672,6 +2838,7 @@ function countertopPanelBlock() {
         </div>
         ${decorItem && decorItem.thickness !== undefined
           ? `<div class="ctop-decor-thickness">Толщина листа: ${decorItem.thickness} мм${decorItem.depth !== undefined ? `, глубина ${decorItem.depth} мм` : ''}</div>` : ''}
+        ${chainNotice ? `<div class="sketch-status ok">${esc(chainNotice)}</div>` : ''}
       </div>
       ${isPlainDecor ? `
       <div class="field">
@@ -3450,6 +3617,7 @@ function openMaterialPicker(role) {
 // вызывает только openMaterialPicker, без варианта удаления — убрано по
 // просьбе пользователя 2026-09-06.
 function deleteMaterialPick(role) {
+  if (!requireLibraryEditAuth()) return;
   const targetGroup = LIB_PICK_ROLE_GROUP[role];
   if (!targetGroup) return;
   const arr = targetGroup === 'back' ? BACK_MATERIALS : DECORS;
@@ -6245,6 +6413,18 @@ function setAuthToken(token) {
     if (token) localStorage.setItem(AUTH_TOKEN_KEY, token);
     else localStorage.removeItem(AUTH_TOKEN_KEY);
   } catch (err) { console.warn('Auth token save failed:', err); }
+}
+
+// Гость (без токена входа) правки в каталоге всё равно никуда не сохраняет
+// (см. scheduleCatalogSave) — молча позволять ему открывать редактирование
+// было бессмысленно: после перезагрузки всё пропадало без предупреждения.
+// Единая проверка перед ЛЮБЫМ действием, меняющим каталог, — вызывается
+// самой первой строкой в каждой из функций, что открывают/выполняют правку
+// (не только там, где данные отправляются на сервер).
+function requireLibraryEditAuth() {
+  if (getAuthToken()) return true;
+  window.alert('Для редактирования библиотеки зарегистрируйтесь или войдите в аккаунт');
+  return false;
 }
 
 // Панель «Библиотека» реально ВИДНА (drawer открыт классом .open, см.
