@@ -1231,6 +1231,20 @@ h4.spec-title { margin: var(--sp-5) 0 var(--sp-2); font-size: var(--fs-md); font
    глубины узла. */
 .lib-leaf-body { margin: 2px 0 var(--sp-3); }
 
+/* Хлебные крошки над таблицей сфокусированного листа (app.js:
+   libBreadcrumbHtml/libTopCategoryHtml) — «Раздел › ветка › лист», заменяют
+   собой одиночную строку узла дерева, которая была здесь раньше. Тот же
+   компактный шрифт, что у самого узла дерева (.lib-tree-name); сегменты-
+   ссылки — обычный .link-btn (см. правило ниже), последний сегмент (сам
+   лист, некликабельный) выделен цветом текста, как заголовок категории
+   (.lib-tree-top .lib-tree-name), чтобы явно читался как «ты здесь». Без
+   собственной ширины/переноса, чтобы не расширять зафиксированную ширину
+   панели (см. #drawer-library.lib-wide). */
+.lib-breadcrumb { margin: 2px 0 8px; font-size: var(--fs-sm); line-height: 1.4; }
+.lib-breadcrumb-seg { font-size: inherit; }
+.lib-breadcrumb-sep { margin: 0 4px; color: var(--muted); }
+.lib-breadcrumb-current { color: var(--accent); font-weight: 700; }
+
 /* Редактируемые таблицы каталога (Материалы/Фурнитура) — клик по ячейке
    превращает её в инпут (см. app.js: startCellEdit). Ширина колонок — ОДНА
    и та же во всех листьях/категориях (см. #drawer-library.lib-wide выше:

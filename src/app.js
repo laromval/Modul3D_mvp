@@ -14,7 +14,7 @@
 (function () {
 // Версия сборки — показывается во вкладке браузера и в шапке.
 // При выпуске новой версии меняется только эта строка.
-const APP_VERSION = 'v253';
+const APP_VERSION = 'v254';
 
 // Номер версии выводим ПЕРВЫМ делом: если дальше что-то упадёт, по нему сразу
 // видно, какая сборка открыта.
@@ -1494,19 +1494,40 @@ function libNodeHtml(topCode, path, opts) {
     + `<div class="lib-tree-children${collapsed ? ' lib-collapsed' : ''}">${ownTableHtml}${childrenHtml}</div>`;
 }
 
+// Хлебные крошки над таблицей сфокусированного листа (см. state.libActiveLeaf/
+// libTopCategoryHtml ниже) — раньше там была только строка с именем самого
+// листа (libTreeRowHtml), и после фокуса на конечной категории родительские
+// сегменты пути («Листовые материалы» → «ДСП») терялись, было непонятно, где
+// находишься. Показывает ПОЛНЫЙ путь «Раздел › ... › Лист»: все сегменты,
+// кроме последнего (сам лист — текущее место), кликабельны и возвращают в то
+// место дерева, по которому кликнули (снимают фокус + раскрывают путь до
+// него, см. обработчик .lib-breadcrumb-seg в initLibraryPanel).
+function libBreadcrumbHtml(topCode, title, path) {
+  const segs = [title].concat(path);
+  const partsHtml = segs.map((seg, i) => {
+    const isCurrent = i === segs.length - 1;
+    const segPath = path.slice(0, i).join('::'); // i=0 → '' (сам заголовок раздела)
+    const sepHtml = i > 0 ? '<span class="lib-breadcrumb-sep">›</span>' : '';
+    const segHtml = isCurrent
+      ? `<span class="lib-breadcrumb-current">${esc(seg)}</span>`
+      : `<button type="button" class="link-btn lib-breadcrumb-seg" data-bc-top="${esc(topCode)}" data-bc-path="${esc(segPath)}">${esc(seg)}</button>`;
+    return sepHtml + segHtml;
+  }).join('');
+  return `<div class="lib-breadcrumb">${partsHtml}</div>`;
+}
+
 // Верхнеуровневая категория целиком («Листовые материалы»/«Материалы
 // фасадов»/«Кромка»/«Стекло») — заголовок (сам никогда не прячется, кликом
 // раскрывает/прячет прямых детей, см. state.libCatOpen) → либо ПОЛНОЕ дерево
 // (обычная навигация), либо, если на этой категории сфокусирован лист (см.
-// state.libActiveLeaf), ТОЛЬКО его строка + таблица — вся остальная
-// структура дерева этой категории скрыта.
+// state.libActiveLeaf), ТОЛЬКО хлебные крошки его пути + таблица — вся
+// остальная структура дерева этой категории скрыта.
 function libTopCategoryHtml(topCode, title, opts) {
   const activeKey = state.libActiveLeaf[topCode] || null;
   let bodyHtml;
   if (activeKey) {
     const path = activeKey.split('::');
-    const name = path[path.length - 1];
-    bodyHtml = libTreeRowHtml(topCode, path, name, 'leaf', false)
+    bodyHtml = libBreadcrumbHtml(topCode, title, path)
       + libLeafTableHtml(topCode, path, libEntriesAtPath(topCode, path), opts);
   } else {
     const open = !!state.libCatOpen[topCode];
@@ -2249,6 +2270,26 @@ function initLibraryPanel() {
       if (treeIcon.dataset.treeRename != null) startTreeRename(row);
       else if (treeIcon.dataset.treeAdd != null) libAddChildNode(topCode, path);
       else if (treeIcon.dataset.treeDel != null) libDeleteNode(topCode, path);
+      return;
+    }
+    // Хлебная крошка над таблицей сфокусированного листа (см.
+    // libBreadcrumbHtml) — клик по любому сегменту, кроме текущего
+    // (последнего — сам лист), снимает фокус категории и раскрывает дерево
+    // ровно настолько, чтобы этот сегмент стал виден: саму категорию (см.
+    // state.libCatOpen) и всех СОБСТВЕННЫХ предков сегмента (см.
+    // libNodeKey/state.libCollapsed) — сам сегмент, если это ветка, остаётся
+    // в текущем состоянии свёрнутости.
+    const bcSeg = e.target.closest('.lib-breadcrumb-seg');
+    if (bcSeg) {
+      const topCode = bcSeg.dataset.bcTop;
+      const segPath = bcSeg.dataset.bcPath ? bcSeg.dataset.bcPath.split('::') : [];
+      state.libActiveLeaf[topCode] = null;
+      state.libCatOpen[topCode] = true;
+      for (let j = 1; j < segPath.length; j++) {
+        state.libCollapsed[libNodeKey(topCode, segPath.slice(0, j))] = false;
+      }
+      state.libSelectedRow = null;
+      renderLibraryPanel();
       return;
     }
     // Клик по всей строке узла дерева (см. libTreeRowHtml) — смысл зависит
