@@ -14,7 +14,7 @@
 (function () {
 // Версия сборки — показывается во вкладке браузера и в шапке.
 // При выпуске новой версии меняется только эта строка.
-const APP_VERSION = 'v256';
+const APP_VERSION = 'v257';
 
 // Номер версии выводим ПЕРВЫМ делом: если дальше что-то упадёт, по нему сразу
 // видно, какая сборка открыта.
@@ -995,6 +995,7 @@ function libRenameNode(topCode, path, newName) {
 // заглушка (см. state.libExtraNodes), сразу раскрываем родителя, чтобы он
 // не потерялся среди свёрнутых.
 function libAddChildNode(topCode, parentPath) {
+  if (!requireLibraryEditAuth()) return;
   const name = (window.prompt('Название новой категории:') || '').trim();
   if (!name) return;
   const existing = libChildSegments(topCode, parentPath).map((s) => s.toLowerCase());
@@ -1017,6 +1018,7 @@ function libAddChildNode(topCode, parentPath) {
 // если под ним успели завести вложенные пустые категории) — просто убираем
 // пути из state.libExtraNodes.
 function libDeleteNode(topCode, path) {
+  if (!requireLibraryEditAuth()) return;
   if (libNodeHasItems(topCode, path)) {
     window.alert('Сначала удалите или перенесите материалы из этой категории — в ней есть товары.');
     return;
@@ -1898,6 +1900,7 @@ function libAddHardwareRow(category) {
 // — это ключ объекта EDGE_PRICES, вводится отдельным prompt), но тоже
 // получает categoryPath = path.
 function libAddRow(group, path) {
+  if (!requireLibraryEditAuth()) return;
   const cat = window.Modul3D.catalog;
   path = path || [];
   if (group.indexOf('hwadd:') === 0) {
@@ -1996,6 +1999,7 @@ function libResetCountertopRefs(removedCode, fallbackCode) {
 }
 
 function libDeleteSelectedRow() {
+  if (!requireLibraryEditAuth()) return;
   const sel = state.libSelectedRow;
   if (!sel) return;
   const cat = window.Modul3D.catalog;
@@ -2069,6 +2073,7 @@ function libDeleteSelectedRow() {
 // FileReader → dataURL, без бэкенда.
 let pendingLibImageTarget = null;
 function openLibImagePicker(group, key) {
+  if (!requireLibraryEditAuth()) return;
   const input = document.getElementById('libImageInput');
   if (!input) return;
   pendingLibImageTarget = { group, key };
@@ -2097,6 +2102,7 @@ const LIB_UNIT_OPTIONS = ['лист', 'м²', 'пог.м', 'шт'];
 // Клик по ячейке → инлайн-инпут (или <select> для поля «unit», см.
 // LIB_UNIT_OPTIONS выше); Enter/blur — сохранить, Esc — отменить.
 function startCellEdit(cell) {
+  if (!requireLibraryEditAuth()) return;
   if (cell.querySelector('input') || cell.querySelector('select')) return;
   if (cell.dataset.field === 'unit') {
     const cur = cell.dataset.raw != null ? cell.dataset.raw : cell.textContent.trim();
@@ -2137,6 +2143,7 @@ function startCellEdit(cell) {
 // libTreeRowHtml/libRenameNode) — тот же паттерн, что и startCellEdit выше:
 // клик превращает название в <input>, Enter/blur сохраняет, Esc отменяет.
 function startTreeRename(row) {
+  if (!requireLibraryEditAuth()) return;
   const label = row.querySelector('[data-tree-label]');
   if (!label || label.querySelector('input')) return;
   const cur = label.textContent;
@@ -3438,6 +3445,7 @@ function openMaterialPicker(role) {
 // столешницы (см. countertopPanelBlock) вызывает только openMaterialPicker,
 // без варианта удаления — убрано по просьбе пользователя 2026-09-06.
 function deleteMaterialPick(role) {
+  if (!requireLibraryEditAuth()) return;
   const targetGroup = LIB_PICK_ROLE_GROUP[role];
   if (!targetGroup) return;
   const arr = targetGroup === 'back' ? BACK_MATERIALS : DECORS;
@@ -6238,6 +6246,18 @@ function setAuthToken(token) {
     if (token) localStorage.setItem(AUTH_TOKEN_KEY, token);
     else localStorage.removeItem(AUTH_TOKEN_KEY);
   } catch (err) { console.warn('Auth token save failed:', err); }
+}
+
+// Гость (без токена входа) правки в каталоге всё равно никуда не сохраняет
+// (см. scheduleCatalogSave) — молча позволять ему открывать редактирование
+// было бессмысленно: после перезагрузки всё пропадало без предупреждения.
+// Единая проверка перед ЛЮБЫМ действием, меняющим каталог, — вызывается
+// самой первой строкой в каждой из функций, что открывают/выполняют правку
+// (не только там, где данные отправляются на сервер).
+function requireLibraryEditAuth() {
+  if (getAuthToken()) return true;
+  window.alert('Для редактирования библиотеки зарегистрируйтесь или войдите в аккаунт');
+  return false;
 }
 
 // Панель «Библиотека» реально ВИДНА (drawer открыт классом .open, см.
