@@ -3754,6 +3754,20 @@ function buildModel(project) {
   // Столешницы соседних тумб сливаются в одну сквозную деталь, пока
   // помещаются в один лист материала (по аналогии с mergePlinths выше) —
   // только когда упираются в максимальную длину, остаётся настоящий стык.
+  //
+  // Снимок столешниц по модулям СНИМАЕТСЯ ДО mergeCountertops — она (и
+  // joinCountertopSeams следом) мутируют part.box на месте (setSize/
+  // growPhysSize/trimSecondary и т.п.) и при слиянии убирают из allParts
+  // все детали ряда, кроме головной, — принадлежность к отдельным модулям
+  // после этого теряется. box копируется (а не берётся ссылкой), иначе
+  // снимок «поехал» бы вместе с дальнейшими мутациями тех же объектов.
+  // Нужен для computeCountertopChains() ниже — определяет, какие тумбы
+  // физически стыкуются столешницами (для автосмены материала по цепочке
+  // в UI), независимо от того, совпадает ли материал сейчас.
+  const countertopSegmentsRaw = allParts
+    .filter((p) => p.kind === 'countertop')
+    .map((p) => ({ module: p.module, box: Object.assign({}, p.box) }));
+
   mergeCountertops(allParts);
   const countertopJoints = joinCountertopSeams(allParts, proj, warnings);
 
@@ -3785,6 +3799,13 @@ function buildModel(project) {
       countertopJoints,
       sectionsCount: mods.length, jointCount },
     warnings: uniqueWarnings,
+    // Группы модулей, чьи столешницы физически соприкасаются (см.
+    // computeCountertopChains ниже) — НЕ по совпадению материала, а по
+    // геометрии стыка (тот же тест, что в joinCountertopSeams). Используется
+    // в UI, чтобы при смене материала столешницы одной тумбы автоматически
+    // применить его ко всей цепочке стыкующихся тумб, но не ко всем модулям
+    // проекта (отдельно стоящая секция/остров со своим швом — не в цепочке).
+    countertopChains: computeCountertopChains(countertopSegmentsRaw),
   };
 }
 
@@ -4577,6 +4598,114 @@ function joinCountertopSeams(parts, proj, warnings) {
   return joints;
 }
 
+// ---------------------------------------------------------------------------
+// СТОЛЕШНИЦА: ЦЕПОЧКИ ФИЗИЧЕСКОГО СТЫКА (для автосмены материала в UI).
+// Независимая от joinCountertopSeams функция — та решает, ставить ли крепёж
+// стыка, и ругается на разный материал/уровень; эта — просто отвечает на
+// геометрический вопрос «эти тумбы физически соприкасаются столешницами?»,
+// БЕЗ фильтра по материалу (материал как раз и предстоит распространить по
+// цепочке). EPS=1 и все пороги перекрытия — те же константы, что уже
+// использует joinCountertopSeams, ничего нового не введено. segments —
+// снимок { module, box }, снятый ДО mergeCountertops() в buildModel (см.
+// countertopSegmentsRaw), пока у каждого модуля ещё своя отдельная деталь
+// столешницы.
+//
+// Повторяет ВСЕ геометрические признаки стыка, которые joinCountertopSeams
+// использует, чтобы вообще построить joint (см. её код выше) — сама
+// подрезка/растяжение детали (trimSecondary/growSecondaryToMeet/
+// extendPrimaryToWall) сюда не нужны, для связности модулей достаточно
+// факта касания:
+//   1) прямой стык впритык (touchX/touchZ + overlap > половины меньшей
+//      глубины/ширины);
+//   2) угловой стык, где сырые прямоугольники столешниц уже пересекаются по
+//      ОБЕИМ осям без всякого растяжения (joinCountertopSeams строит
+//      corner-joint сразу, минуя growSecondaryToMeet);
+//   3) угловой стык через реальный зазор — доборная планка/FILLER_GAP
+//      невставленного углового модуля (тест looksCorner: одна ось
+//      перекрывается существенно, по другой — зазор меньше максимальной
+//      глубины/ширины сегмента).
+function computeCountertopChains(segments) {
+  const EPS = 1;
+  const n = segments.length;
+  const parent = segments.map((_, i) => i);
+  const find = (i) => {
+    while (parent[i] !== i) { parent[i] = parent[parent[i]]; i = parent[i]; }
+    return i;
+  };
+  const union = (i, j) => {
+    const ri = find(i), rj = find(j);
+    if (ri !== rj) parent[ri] = rj;
+  };
+
+  const rectX = (s) => [s.box.x - s.box.w / 2, s.box.x + s.box.w / 2];
+  const rectZ = (s) => [s.box.z - s.box.d / 2, s.box.z + s.box.d / 2];
+
+  for (let i = 0; i < n; i++) {
+    for (let j = i + 1; j < n; j++) {
+      const A = segments[i], B = segments[j];
+      if (Math.abs(A.box.y - B.box.y) > EPS) continue; // разный уровень — не стык
+      const [aLoX, aHiX] = rectX(A), [bLoX, bHiX] = rectX(B);
+      const [aLoZ, aHiZ] = rectZ(A), [bLoZ, bHiZ] = rectZ(B);
+      const xOverlap = Math.min(aHiX, bHiX) - Math.max(aLoX, bLoX);
+      const zOverlap = Math.min(aHiZ, bHiZ) - Math.max(aLoZ, bLoZ);
+      const touchX = Math.abs(aHiX - bLoX) < EPS || Math.abs(bHiX - aLoX) < EPS;
+      const touchZ = Math.abs(aHiZ - bLoZ) < EPS || Math.abs(bHiZ - aLoZ) < EPS;
+      // 1) прямой стык впритык — см. joinCountertopSeams, блок touchX/touchZ.
+      if ((touchX && zOverlap > Math.min(A.box.d, B.box.d) * 0.5)
+          || (touchZ && xOverlap > Math.min(A.box.w, B.box.w) * 0.5)) {
+        union(i, j);
+        continue;
+      }
+      // 2) угловой стык, где сырые прямоугольники УЖЕ пересекаются по ОБЕИМ
+      // осям без растяжения — joinCountertopSeams строит corner-joint сразу
+      // (ветка `ov.xOverlap > EPS && ov.zOverlap > EPS` после touchX/touchZ,
+      // строка ~4567).
+      if (xOverlap > EPS && zOverlap > EPS) {
+        union(i, j);
+        continue;
+      }
+      // 3) угловой стык через реальный зазор (доборная планка/FILLER_GAP
+      // невставленного углового модуля) — тот же тест looksCorner, что в
+      // joinCountertopSeams (строки ~4548-4559): одна ось пересекается
+      // существенно, по другой — зазор меньше максимальной глубины/ширины
+      // сегмента.
+      const zGap = zOverlap < -EPS ? -zOverlap : 0;
+      const xGap = xOverlap < -EPS ? -xOverlap : 0;
+      const looksCorner = (xOverlap > EPS && zGap > EPS && zGap < Math.max(A.box.d, B.box.d))
+                        || (zOverlap > EPS && xGap > EPS && xGap < Math.max(A.box.w, B.box.w));
+      if (looksCorner) union(i, j);
+    }
+  }
+
+  // Схлопываем в группы по корню union-find, а внутри группы — имена
+  // модулей через Set: у одного модуля теоретически может быть больше
+  // одного сегмента столешницы (например, Г-образная столешница из двух
+  // прямоугольников на одном модуле) — сейчас buildModuleParts строит на
+  // модуль ровно одну деталь kind:'countertop' (проверено 2026-09-12), но
+  // дублей имени на выходе быть не должно в любом случае.
+  const groupsByRoot = new Map();
+  for (let i = 0; i < n; i++) {
+    const r = find(i);
+    if (!groupsByRoot.has(r)) groupsByRoot.set(r, new Set());
+    groupsByRoot.get(r).add(segments[i].module);
+  }
+  return [...groupsByRoot.values()].map((set) => [...set]);
+}
+
+// Модули, чья столешница физически стыкуется со столешницей moduleName
+// (включая сам moduleName) — для UI, который должен при смене материала
+// столешницы одной тумбы применить его ко всей цепочке. Возвращает
+// [moduleName] и когда группы нет (у модуля нет столешницы вовсе), и когда
+// модуль в проекте один/не стыкуется ни с кем — вызывающему коду не нужно
+// отдельно обрабатывать «пустой» случай.
+function getCountertopChainModules(model, moduleName) {
+  const chains = (model && model.countertopChains) || [];
+  for (const group of chains) {
+    if (group.indexOf(moduleName) !== -1) return group;
+  }
+  return [moduleName];
+}
+
 // Список модулей-источников для колонки «Модуль» в деталировке — заголовок
 // колонки уже говорит, что там модуль, поэтому «Модуль 1 + Модуль 2» —
 // лишнее повторение слова и на десятке модулей займёт всю ширину колонки.
@@ -4646,5 +4775,9 @@ window.Modul3D.engine = {
   // формулу стыков между зонами.
   layoutDoorZones,
   nicheFromEdgeDoorHeight,
+  // Цепочка модулей, чьи столешницы физически стыкуются с moduleName (см.
+  // computeCountertopChains/model.countertopChains в buildModel) — для
+  // автосмены материала столешницы по всей цепочке в UI.
+  getCountertopChainModules,
 };
 })();

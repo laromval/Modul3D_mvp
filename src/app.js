@@ -14,7 +14,7 @@
 (function () {
 // Версия сборки — показывается во вкладке браузера и в шапке.
 // При выпуске новой версии меняется только эта строка.
-const APP_VERSION = 'v252';
+const APP_VERSION = 'v253';
 
 // Номер версии выводим ПЕРВЫМ делом: если дальше что-то упадёт, по нему сразу
 // видно, какая сборка открыта.
@@ -197,6 +197,17 @@ const state = {
   // Чисто UI-состояние, как libraryTab выше: в историю отмены/файл проекта
   // не попадает.
   libPickTarget: null,
+  // Разовое уведомление для панели «Столешница» (countertopPanelBlock) —
+  // ставится сразу после того, как «Изменить» материал столешницы применил
+  // его не только к активной тумбе, но и ко всей физически стыкующейся
+  // цепочке (см. libPickMaterial, role: 'countertopDecor'). Строка текста
+  // или null. countertopPanelBlock() показывает его один раз и тут же
+  // обнуляет — следующий рендер панели (любое другое изменение) его больше
+  // не покажет. Ставится, только когда в цепочке больше одного модуля —
+  // на одиночную тумбу без соседей уведомление не показываем (поведение не
+  // отличается от применения материала до появления цепочек). Чисто
+  // UI-состояние, в историю отмены/файл проекта не попадает.
+  countertopChainNotice: null,
   // Единица, в которой показана колонка «Цена» ВО ВСЕХ таблицах вкладки
   // «Материалы» одновременно (общий переключатель, выбирается прямо в шапке
   // любой из таблиц, см. libPriceUnitHeaderHtml) — 'native' (по умолчанию)
@@ -1687,10 +1698,41 @@ function libPickMaterial(rowGroup, code) {
     // facadeDecor/back ниже, здесь не нужно — оно оправдано ТОЛЬКО там, где
     // поле жёстко читает один конкретный массив; здесь такого ограничения
     // нет, а копия просто плодит дубль в Библиотеке (баг, найденный
-    // пользователем 2026-09-06). Применяется к АКТИВНОЙ тумбе (не к группе
-    // отмеченных — см. activeCountertopModule).
+    // пользователем 2026-09-06). Применяется к АКТИВНОЙ тумбе и, вместе с
+    // ней, ко всей физически стыкующейся цепочке столешниц (см.
+    // window.Modul3D.engine.getCountertopChainModules) — это не то же самое,
+    // что старая групповая правка по отмеченным чекбоксом тумбам (см.
+    // комментарий у activeCountertopModule): группа здесь определяется
+    // геометрией (реально касающиеся друг друга столешницы выглядят единой
+    // сплошной поверхностью), а не произвольной отметкой пользователя.
+    // Отдельно стоящая тумба/остров без соседей просто вернётся цепочкой из
+    // одного себя же — поведение не отличается от применения к одной тумбе.
     const mod = activeCountertopModule();
-    if (mod && mod.countertop) mod.countertop.decorCode = code;
+    if (mod && mod.countertop) {
+      const engineApi = window.Modul3D.engine;
+      let chainNames = [mod.name];
+      if (currentModel && engineApi && typeof engineApi.getCountertopChainModules === 'function') {
+        try {
+          const chain = engineApi.getCountertopChainModules(currentModel, mod.name);
+          if (Array.isArray(chain) && chain.length) chainNames = chain;
+        } catch (e) {
+          // Геометрия могла ещё не пересчитаться (currentModel null при самом
+          // первом вызове) — тихо откатываемся на одиночную тумбу, а не роняем
+          // подбор материала из-за вспомогательной функции.
+        }
+      }
+      const chainSet = new Set(chainNames);
+      let appliedCount = 0;
+      state.modules.forEach((m) => {
+        if (chainSet.has(m.name) && m.countertop) {
+          m.countertop.decorCode = code;
+          appliedCount += 1;
+        }
+      });
+      state.countertopChainNotice = appliedCount > 1
+        ? `Материал применён к ${appliedCount} тумбам стыкующейся цепочки столешницы.`
+        : null;
+    }
     state.libPickTarget = null;
     renderLibraryPanel();
     // Возвращаемся на панель «Столешница», а не просто закрываем Библиотеку
@@ -2485,6 +2527,15 @@ function countertopModuleRow(mod, i) {
 }
 
 function countertopPanelBlock() {
+  // Разовая обратная связь после «Изменить» материал столешницы, когда его
+  // применили не только к активной тумбе, но и ко всей стыкующейся цепочке
+  // (см. libPickMaterial, state.countertopChainNotice). Читаем и сразу
+  // обнуляем — следующий рендер панели (любое другое изменение) уже не
+  // покажет её повторно, как и обычные статусы-подтверждения в приложении
+  // (см. setEmailVerifyStatus/setReviewStatus — та же идея «показать один раз»,
+  // только без отдельного DOM-элемента, тут панель целиком перерисовывается).
+  const chainNotice = state.countertopChainNotice;
+  state.countertopChainNotice = null;
   if (!state.modules.length) {
     return `<div class="hint">Проект пуст. Сначала добавьте тумбы — кнопкой «Библиотека» на рейке слева.</div>`;
   }
@@ -2508,6 +2559,7 @@ function countertopPanelBlock() {
         </div>
         ${decorItem && decorItem.thickness !== undefined
           ? `<div class="ctop-decor-thickness">Толщина листа: ${decorItem.thickness} мм${decorItem.depth !== undefined ? `, глубина ${decorItem.depth} мм` : ''}</div>` : ''}
+        ${chainNotice ? `<div class="sketch-status ok">${esc(chainNotice)}</div>` : ''}
       </div>
       ${isPlainDecor ? `
       <div class="field">
