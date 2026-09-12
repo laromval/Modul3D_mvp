@@ -139,6 +139,7 @@
   .tab-btn:hover::after { transform: scaleX(1); }
   .tab-btn.active { color: var(--text); }
   .tab-btn.active::after { transform: scaleX(1); }
+  a.tab-btn { text-decoration: none; display: inline-block; }
   .controls { display: flex; align-items: center; gap: 10px; }
   .progress-pill {
     font-size: 12px;
@@ -436,6 +437,7 @@
     </div>
   </div>
   <div class="tabs">
+    <a class="tab-btn" href="https://api.modul3d.app/admin/reviews.html" target="_blank" rel="noopener">Отзывы</a>
     <button class="tab-btn" data-tab="board">Доска задач</button>
     <button class="tab-btn" data-tab="notes">Заметки</button>
   </div>
