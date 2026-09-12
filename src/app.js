@@ -14,7 +14,7 @@
 (function () {
 // Версия сборки — показывается во вкладке браузера и в шапке.
 // При выпуске новой версии меняется только эта строка.
-const APP_VERSION = 'v255';
+const APP_VERSION = 'v256';
 
 // Номер версии выводим ПЕРВЫМ делом: если дальше что-то упадёт, по нему сразу
 // видно, какая сборка открыта.
@@ -1550,15 +1550,17 @@ function libNodeHtml(topCode, path, opts) {
 // libTopCategoryHtml ниже) — раньше там была только строка с именем самого
 // листа (libTreeRowHtml), и после фокуса на конечной категории родительские
 // сегменты пути («Листовые материалы» → «ДСП») терялись, было непонятно, где
-// находишься. Показывает ПОЛНЫЙ путь «Раздел › ... › Лист»: все сегменты,
-// кроме последнего (сам лист — текущее место), кликабельны и возвращают в то
-// место дерева, по которому кликнули (снимают фокус + раскрывают путь до
-// него, см. обработчик .lib-breadcrumb-seg в initLibraryPanel).
-function libBreadcrumbHtml(topCode, title, path) {
-  const segs = [title].concat(path);
-  const partsHtml = segs.map((seg, i) => {
-    const isCurrent = i === segs.length - 1;
-    const segPath = path.slice(0, i).join('::'); // i=0 → '' (сам заголовок раздела)
+// находишься. Показывает путь «...› Лист» начиная со следующего уровня ПОСЛЕ
+// заголовка раздела (сам заголовок раздела — title — уже показан отдельной
+// строкой выше, см. libTopCategoryHtml, крошки его не повторяют): все
+// сегменты, кроме последнего (сам лист — текущее место), кликабельны и
+// возвращают в то место дерева, по которому кликнули (снимают фокус +
+// раскрывают путь до него, см. обработчик .lib-breadcrumb-seg в
+// initLibraryPanel).
+function libBreadcrumbHtml(topCode, path) {
+  const partsHtml = path.map((seg, i) => {
+    const isCurrent = i === path.length - 1;
+    const segPath = path.slice(0, i + 1).join('::');
     const sepHtml = i > 0 ? '<span class="lib-breadcrumb-sep">›</span>' : '';
     const segHtml = isCurrent
       ? `<span class="lib-breadcrumb-current">${esc(seg)}</span>`
@@ -1579,7 +1581,7 @@ function libTopCategoryHtml(topCode, title, opts) {
   let bodyHtml;
   if (activeKey) {
     const path = activeKey.split('::');
-    bodyHtml = libBreadcrumbHtml(topCode, title, path)
+    bodyHtml = libBreadcrumbHtml(topCode, path)
       + libLeafTableHtml(topCode, path, libEntriesAtPath(topCode, path), opts);
   } else {
     const open = !!state.libCatOpen[topCode];
@@ -2359,7 +2361,20 @@ function initLibraryPanel() {
       // клик по листу — единственные места, где набор видимых таблиц
       // реально меняется; клик по обычной ветке только раскрывает/сворачивает
       // поддерево, таблицы внутри как были видны, так и остаются).
-      if (kind === 'top') { state.libCatOpen[topCode] = !state.libCatOpen[topCode]; state.libSelectedRow = null; }
+      if (kind === 'top') {
+        // Если сейчас показана таблица сфокусированного листа (см.
+        // state.libActiveLeaf) — клик по заголовку категории выходит из
+        // фокуса и раскрывает дерево, а не молча переключает libCatOpen
+        // (который в режиме фокуса не влияет на рендер, см.
+        // libTopCategoryHtml, ветка if (activeKey)).
+        if (state.libActiveLeaf[topCode]) {
+          state.libActiveLeaf[topCode] = null;
+          state.libCatOpen[topCode] = true;
+        } else {
+          state.libCatOpen[topCode] = !state.libCatOpen[topCode];
+        }
+        state.libSelectedRow = null;
+      }
       else if (kind === 'leaf') {
         const key = path.join('::');
         state.libActiveLeaf[topCode] = state.libActiveLeaf[topCode] === key ? null : key;
