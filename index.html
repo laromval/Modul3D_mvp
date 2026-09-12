@@ -7,7 +7,7 @@
 <title>Modul3D — параметрический конструктор корпусной мебели</title>
 
 <link rel="icon" type="image/svg+xml" href="favicon.svg" />
-<link rel="stylesheet" href="style.css?v252" />
+<link rel="stylesheet" href="style.css?v253" />
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <!-- Paddle.js — оверлей оплаты подписки (см. app.js: requestCheckout/initPaddle).
@@ -415,6 +415,27 @@ P — Параметры"
     </div>
   </div>
 
+  <!-- ---------- Модальное окно «используется в проекте» ----------
+       Блокирует удаление материала/фурнитуры из «Библиотеки», если позиция
+       назначена хоть одному модулю проекта — см. src/app.js:
+       showLibUsageModal/libFindMaterialUsages/libDeleteSelectedRow/
+       deleteMaterialPick. Единственное действие — закрыть, обхода
+       блокировки внутри окна нет (никакой «удалить всё равно»). -->
+  <div class="confirm-modal-scrim" id="libUsageModal" aria-hidden="true">
+    <div class="confirm-modal" role="dialog" aria-modal="true" aria-labelledby="libUsageModalTitle">
+      <div class="confirm-modal-head">
+        <h2 class="confirm-modal-title" id="libUsageModalTitle">Материал используется в проекте</h2>
+        <button class="icon-btn confirm-modal-close" type="button" id="libUsageModalClose" aria-label="Закрыть">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
+        </button>
+      </div>
+      <div class="confirm-modal-body" id="libUsageModalBody"></div>
+      <div class="confirm-modal-actions">
+        <button type="button" class="btn btn-primary" id="libUsageModalOk">Понятно</button>
+      </div>
+    </div>
+  </div>
+
   <!-- ---------- Мобильная шторка 40 px ---------- -->
   <div class="mobile-sheet-bar" id="mobileBar">
     <button class="rail-btn" type="button" data-panel="library" aria-label="Библиотека">
@@ -453,19 +474,19 @@ P — Параметры"
 
 </main>
 
-<script src="src/catalog.js?v252"></script>
-<script src="src/presets.js?v252"></script>
-<script src="src/engine.js?v252"></script>
-<script src="src/specification.js?v252"></script>
-<script src="src/legMeshes.js?v252"></script>
-<script src="src/csg.js?v252"></script>
-<script src="src/viewer.js?v252"></script>
-<script src="src/ui-shell.js?v252"></script>
-<script src="src/drawings.js?v252"></script>
-<script src="src/export.js?v252"></script>
-<script src="src/cnc.js?v252"></script>
-<script src="src/sketchAI.js?v252"></script>
-<script src="src/app.js?v252"></script>
+<script src="src/catalog.js?v253"></script>
+<script src="src/presets.js?v253"></script>
+<script src="src/engine.js?v253"></script>
+<script src="src/specification.js?v253"></script>
+<script src="src/legMeshes.js?v253"></script>
+<script src="src/csg.js?v253"></script>
+<script src="src/viewer.js?v253"></script>
+<script src="src/ui-shell.js?v253"></script>
+<script src="src/drawings.js?v253"></script>
+<script src="src/export.js?v253"></script>
+<script src="src/cnc.js?v253"></script>
+<script src="src/sketchAI.js?v253"></script>
+<script src="src/app.js?v253"></script>
 <script>if (window.Modul3D && window.Modul3D.uiShell) window.Modul3D.uiShell.start();</script>
 </body>
 </html>

@@ -14,7 +14,7 @@
 (function () {
 // Версия сборки — показывается во вкладке браузера и в шапке.
 // При выпуске новой версии меняется только эта строка.
-const APP_VERSION = 'v252';
+const APP_VERSION = 'v253';
 
 // Номер версии выводим ПЕРВЫМ делом: если дальше что-то упадёт, по нему сразу
 // видно, какая сборка открыта.
@@ -1832,7 +1832,11 @@ function libAddRow(group, path) {
 // материал» в «Параметрах проекта» у Материал корпуса/фасада/Задняя стенка,
 // которые знают ТОЛЬКО про decor/back), эта работает с ЛЮБОЙ из пяти
 // удаляемых категорий каталога (decors/back/facade/edge/countertop —
-// «Стекло» неудаляемо в принципе, см. canDelete в libLeafTableHtml).
+// «Стекло» неудаляемо в принципе, см. canDelete в libLeafTableHtml). Перед
+// самим удалением (кроме edge — см. libFindMaterialUsages) проверяет через
+// libFindMaterialUsages, не назначена ли позиция хоть где-то в проекте — если
+// да, удаление блокируется целиком и показывается showLibUsageModal() со
+// списком мест использования, без молчаливой замены на другой материал.
 // ---------------------------------------------------------------------------
 
 // Коды FACADE_MATERIALS, жёстко зашитые в FACADE_TYPES (.material/.insert) —
@@ -1862,20 +1866,183 @@ function libFacadeReservedCodes() {
 // названием, удаляется свободно.
 const LIB_EDGE_RESERVED_NAMES = [EDGE_FRONT, EDGE_BACK, EDGE_MID];
 
-// Столешница «своего материала» (mod.countertop.decorCode) может ссылаться
-// на код из ЛЮБОГО из четырёх массивов — DECORS/BACK_MATERIALS/
-// FACADE_MATERIALS/COUNTERTOP_MATERIALS (см. findAnyMaterialByCode/
-// countertopMat в engine.js) — при удалении позиции из любого из них
-// проверяем ВСЕ модули проекта (не только активный, как делает более старая
-// deleteMaterialPick — здесь это дёшево, поле одно и то же для всех четырёх
-// категорий) и переключаем совпавшие на первый оставшийся код той же
-// категории.
-function libResetCountertopRefs(removedCode, fallbackCode) {
-  state.modules.forEach((mod) => {
-    if (mod.countertop && mod.countertop.decorCode === removedCode) {
-      mod.countertop.decorCode = fallbackCode;
+// ---------------------------------------------------------------------------
+// Блокировка удаления материала/фурнитуры, если он назначен хоть где-то в
+// текущем проекте (изменено 2026-09-12 по просьбе пользователя — раньше
+// libResetCountertopRefs здесь же молча переключала все найденные ссылки на
+// первый оставшийся материал каталога, без предупреждения; теперь вместо
+// тихой замены удаление ПОЛНОСТЬЮ блокируется, и модальное окно
+// showLibUsageModal() показывает список мест использования — пользователь
+// должен сам поменять материал в этих местах, прежде чем удалить позицию).
+// ---------------------------------------------------------------------------
+
+// Единая точка поиска «где используется код X» для декора/фасада/задней
+// стенки/столешницы — используется и deleteMaterialPick (кнопка «Удалить
+// материал» в «Параметрах проекта»), и libDeleteSelectedRow (кнопка «−
+// Удалить материал» в «Библиотеке»), чтобы не дублировать проверку для
+// каждой роли отдельно. group — ИСТИННОЕ происхождение удаляемой позиции
+// (то же значение, что у entry.group в libTopEntries / sel.group в
+// libDeleteSelectedRow, либо LIB_PICK_ROLE_GROUP[role] у deleteMaterialPick):
+// 'decors' | 'back' | 'facade' | 'countertop'. Кромка ('edge') сюда
+// сознательно не входит — по требованию пользователя edgeCode при удалении
+// не проверяется. Возвращает массив { moduleName, part } — по одной записи
+// на каждое найденное место использования (весь state.modules, а не только
+// активный/выделенный модуль).
+function libFindMaterialUsages(group, code) {
+  const usages = [];
+  if (!code) return usages;
+  // decor/facadeDecor/back — ОБЩИЕ на весь проект поля (state.decorCode/
+  // state.facadeDecorCode/state.backCode, см. materialsBlock) — decorCode
+  // корпуса и фасада применяется разом ко ВСЕМ модулям проекта, поэтому
+  // здесь одна запись «Проект целиком», а не по записи на каждый модуль.
+  if (group === 'decors') {
+    if (state.decorCode === code) usages.push({ moduleName: 'Проект целиком', part: 'материал корпуса (общий на весь проект)' });
+    if (state.facadeDecorCode === code) usages.push({ moduleName: 'Проект целиком', part: 'материал фасада (общий на весь проект)' });
+  } else if (group === 'back') {
+    if (state.backCode === code) usages.push({ moduleName: 'Проект целиком', part: 'задняя стенка (общая на весь проект)' });
+  }
+  state.modules.forEach((mod, i) => {
+    const name = mod.name || `Модуль ${i + 1}`;
+    // mod.carcassDecor — индивидуальное переопределение декора корпуса
+    // конкретного модуля (см. engine.js: `decor: m.carcassDecor || proj.decor`
+    // в сборке проекта из нескольких модулей) — своего UI-поля в app.js под
+    // него сейчас нет, но engine.js его читает, если оно задано (например,
+    // проектом, сохранённым другим инструментом), поэтому проверяем на
+    // всякий случай.
+    if (group === 'decors' && mod.carcassDecor === code) {
+      usages.push({ moduleName: name, part: 'материал корпуса (индивидуальный для модуля)' });
+    }
+    // sec.drawerDecorCode — материал ящиков конкретной секции (переопределяет
+    // проектный drawerDecorCode, см. drawersPanelBlock/newSection).
+    if (group === 'decors') {
+      (mod.sections || []).forEach((sec, si) => {
+        if (sec.drawerDecorCode === code) {
+          usages.push({ moduleName: name, part: `материал ящиков — секция ${si + 1}` });
+        }
+      });
+    }
+    // mod.countertop.decorCode («свой материал» столешницы) может ссылаться
+    // на код из ЛЮБОГО из четырёх массивов — DECORS/BACK_MATERIALS/
+    // FACADE_MATERIALS/COUNTERTOP_MATERIALS (см. findAnyMaterialByCode/
+    // countertopMat в engine.js) — проверяем при удалении из любого из них,
+    // независимо от group.
+    if (mod.countertop && mod.countertop.decorCode === code) {
+      usages.push({ moduleName: name, part: 'столешница' });
+    }
+    // mod.partOverrides[key].materialOverride — ручное переопределение
+    // материала конкретной детали с экрана «Деталь» (#partMaterial, см.
+    // ensureOverride().materialOverride ниже по файлу). key — это
+    // `[kind, section, side, index].join('|')` (applyPartOverrides в
+    // engine.js), поэтому kind = key.split('|')[0] всегда один из
+    // OVERRIDABLE_KINDS ('side'/'bottom'/'top'/'back'/'plinth'). Каталог,
+    // из которого выбирается код, зависит от kind: 'back' → BACK_MATERIALS
+    // (группа 'back'), любой другой overridable kind → DECORS (группа
+    // 'decors') — см. `const decorList = kind === 'back' ? BACK_MATERIALS
+    // : DECORS;` в partEditorBlock. Сравниваем только с той группой,
+    // которая реально соответствует kind, иначе переопределение задней
+    // стенки ложно всплывёт при удалении из «decors» и наоборот.
+    if (group === 'decors' || group === 'back') {
+      Object.keys(mod.partOverrides || {}).forEach((key) => {
+        const ov = mod.partOverrides[key];
+        if (!ov || ov.materialOverride !== code) return;
+        const kind = key.split('|')[0];
+        const ovGroup = kind === 'back' ? 'back' : 'decors';
+        if (ovGroup !== group) return;
+        const title = PART_KIND_TITLES[kind] || kind;
+        usages.push({ moduleName: name, part: `деталь «${title}» — ручное переопределение материала` });
+      });
     }
   });
+  return usages;
+}
+
+// Тот же поиск для фурнитуры, выбираемой per-секционно — sec.handle (ручка,
+// см. HANDLES/HANDLE_ORDER в catalog.js) и sec.lift (подъёмный механизм,
+// см. LIFTS/LIFT_ORDER) — единственные два источника фурнитуры каталога,
+// которые пользователь выбирает САМ по коду позиции (renderSectionsList:
+// селекты «Ручка»/«Подъёмный механизм» у секции). Остальные позиции
+// фурнитуры (HARDWARE_PRICES/FASTENER_PRICES — петли, направляющие, опоры,
+// крепёж и т.п.) считаются в specification.js по фиксированным литеральным
+// ключам ('hinge', 'leg', 'confirmat' и т.п.), а не по per-модульному выбору
+// пользователя, и панель «Библиотека» пока не даёт их удалить вообще (вкладка
+// «Фурнитура» — только «+ Добавить позицию», без выделения строки и без
+// кнопки «Удалить», см. libraryHardwareBlock) — проверять их использование
+// пока не для чего, добавить сюда будет несложно, если появится кнопка
+// удаления и для них. src — тот же ключ, что и в group 'hw:*' у libFindItem:
+// 'handles' | 'lifts'.
+function libFindHardwareUsages(src, key) {
+  const usages = [];
+  if (!key) return usages;
+  state.modules.forEach((mod, i) => {
+    const name = mod.name || `Модуль ${i + 1}`;
+    (mod.sections || []).forEach((sec, si) => {
+      if (src === 'handles' && sec.handle === key) {
+        usages.push({ moduleName: name, part: `ручка — секция ${si + 1}` });
+      }
+      if (src === 'lifts' && sec.lift === key) {
+        usages.push({ moduleName: name, part: `подъёмный механизм — секция ${si + 1}` });
+      }
+    });
+  });
+  return usages;
+}
+
+// Показывает модальное окно «используется в проекте» (см. index.html:
+// #libUsageModal) со списком мест использования — единственное действие
+// внутри окна «Понятно» (закрыть), обхода блокировки нет: пользователь сам
+// меняет материал в перечисленных местах и повторяет удаление. name —
+// название удаляемой позиции для заголовка сообщения.
+function showLibUsageModal(name, usages) {
+  const overlay = document.getElementById('libUsageModal');
+  const body = document.getElementById('libUsageModalBody');
+  if (!overlay || !body) {
+    // Разметка почему-то не нашлась (не должно случаться в норме) — не
+    // оставляем пользователя вообще без объяснения, но это НЕ обход
+    // блокировки (сама функция вызывается только вместо удаления, см.
+    // вызовы ниже), просто запасной путь сообщить то же самое.
+    window.alert(`«${name}» используется в проекте и не может быть удалена. Сначала замените её вручную в перечисленных местах.`);
+    return;
+  }
+  const itemsHtml = usages.map((u) => `<li><b>${esc(u.moduleName)}</b> — ${esc(u.part)}</li>`).join('');
+  // Если среди мест использования есть запись «Проект целиком» — материал
+  // сейчас активен как state.decorCode/facadeDecorCode/backCode. Кнопка
+  // «Удалить материал» (deleteMaterialPick) всегда удаляет ТЕКУЩЕЕ значение
+  // этого поля, а не тот код, который был активен в момент открытия этого
+  // окна — значит переключение соседнего селекта на другой материал и
+  // повторное нажатие той же кнопки удалит уже НОВЫЙ материал, а не «${name}».
+  // Подсказываем явный путь через «Библиотека → Листовые материалы»
+  // (libDeleteSelectedRow), где выбор строки не привязан к активному
+  // значению проекта.
+  const isActiveProjectMaterial = usages.some((u) => u.moduleName === 'Проект целиком');
+  const hintHtml = isActiveProjectMaterial
+    ? `<p class="hint">Этот материал сейчас выбран как активный (материал корпуса / фасада / задней стенки проекта) — кнопка «Удалить материал» всегда удаляет ТЕКУЩЕЕ выбранное значение, поэтому переключение соседнего селекта и повторное нажатие этой же кнопки удалит уже другой, новый материал, а не «${esc(name)}». Чтобы удалить именно «${esc(name)}»: сначала выберите в соседнем селекте параметров проекта любой ДРУГОЙ материал, а затем удалите «${esc(name)}» через «Библиотека → Листовые материалы» — там выбор строки не привязан к активному значению проекта.</p>`
+    : `<p class="hint">Сначала замените материал в перечисленных местах вручную (в «Параметрах проекта» или на нужном модуле), затем повторите удаление.</p>`;
+  body.innerHTML = `
+    <p>«<b>${esc(name)}</b>» нельзя удалить — она используется в проекте:</p>
+    <ul class="lib-usage-list">${itemsHtml}</ul>
+    ${hintHtml}`;
+  overlay.classList.add('open');
+  overlay.setAttribute('aria-hidden', 'false');
+}
+
+function closeLibUsageModal() {
+  const overlay = document.getElementById('libUsageModal');
+  if (!overlay) return;
+  overlay.classList.remove('open');
+  overlay.setAttribute('aria-hidden', 'true');
+}
+
+// Вешается один раз при старте (см. запуск в конце файла, рядом с
+// initPartEditorOverlay) — сама разметка статична в index.html, не
+// пересоздаётся при рендере.
+function initLibUsageModal() {
+  const overlay = document.getElementById('libUsageModal');
+  if (!overlay) return;
+  const closeBtn = document.getElementById('libUsageModalClose');
+  const okBtn = document.getElementById('libUsageModalOk');
+  if (closeBtn) closeBtn.addEventListener('click', closeLibUsageModal);
+  if (okBtn) okBtn.addEventListener('click', closeLibUsageModal);
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) closeLibUsageModal(); });
 }
 
 function libDeleteSelectedRow() {
@@ -1887,23 +2054,18 @@ function libDeleteSelectedRow() {
     if (DECORS.length <= 1) { lastAlert(); return; }
     const idx = DECORS.findIndex((x) => x.code === sel.key);
     if (idx < 0) return;
+    const usages = libFindMaterialUsages('decors', sel.key);
+    if (usages.length) { showLibUsageModal(DECORS[idx].name, usages); return; }
     if (!window.confirm(`Удалить материал «${DECORS[idx].name}» из каталога?`)) return;
-    const removedCode = DECORS[idx].code;
     DECORS.splice(idx, 1);
-    const firstCode = DECORS[0].code;
-    if (state.decorCode === removedCode) state.decorCode = firstCode;
-    if (state.facadeDecorCode === removedCode) state.facadeDecorCode = firstCode;
-    libResetCountertopRefs(removedCode, firstCode);
   } else if (sel.group === 'back') {
     if (BACK_MATERIALS.length <= 1) { lastAlert(); return; }
     const idx = BACK_MATERIALS.findIndex((x) => x.code === sel.key);
     if (idx < 0) return;
+    const usages = libFindMaterialUsages('back', sel.key);
+    if (usages.length) { showLibUsageModal(BACK_MATERIALS[idx].name, usages); return; }
     if (!window.confirm(`Удалить материал «${BACK_MATERIALS[idx].name}» из каталога?`)) return;
-    const removedCode = BACK_MATERIALS[idx].code;
     BACK_MATERIALS.splice(idx, 1);
-    const first = BACK_MATERIALS[0];
-    if (state.backCode === removedCode) { state.backCode = first.code; state.backThickness = first.thickness; }
-    libResetCountertopRefs(removedCode, first.code);
   } else if (sel.group === 'facade') {
     if (libFacadeReservedCodes()[sel.key]) {
       window.alert('Этот материал фасада используется системными типами фасадов (см. «Тип фасада» у секции) и не может быть удалён.');
@@ -1913,10 +2075,10 @@ function libDeleteSelectedRow() {
     if (keys.length <= 1) { lastAlert(); return; }
     const it = cat.FACADE_MATERIALS[sel.key];
     if (!it) return;
+    const usages = libFindMaterialUsages('facade', sel.key);
+    if (usages.length) { showLibUsageModal(it.name, usages); return; }
     if (!window.confirm(`Удалить материал «${it.name}» из каталога?`)) return;
     delete cat.FACADE_MATERIALS[sel.key];
-    const firstCode = Object.keys(cat.FACADE_MATERIALS)[0];
-    libResetCountertopRefs(sel.key, firstCode);
   } else if (sel.group === 'edge') {
     if (LIB_EDGE_RESERVED_NAMES.indexOf(sel.key) >= 0) {
       window.alert('Эта кромка используется расчётом присадки по умолчанию и не может быть удалена.');
@@ -1930,15 +2092,17 @@ function libDeleteSelectedRow() {
     // Кромка хранится по имени-ключу, а не по стабильному коду — кроме трёх
     // защищённых констант выше (EDGE_FRONT/EDGE_BACK/EDGE_MID), других мест
     // в коде, которые бы ссылались на конкретное имя кромки, не нашлось.
+    // edgeCode сознательно не проверяется на использование в проекте (см.
+    // libFindMaterialUsages) — по требованию пользователя.
   } else if (sel.group === 'countertop') {
     const arr = cat.COUNTERTOP_MATERIALS || [];
     if (arr.length <= 1) { lastAlert(); return; }
     const idx = arr.findIndex((x) => x.code === sel.key);
     if (idx < 0) return;
+    const usages = libFindMaterialUsages('countertop', sel.key);
+    if (usages.length) { showLibUsageModal(arr[idx].name, usages); return; }
     if (!window.confirm(`Удалить столешницу «${arr[idx].name}» из каталога?`)) return;
-    const removedCode = arr[idx].code;
     arr.splice(idx, 1);
-    libResetCountertopRefs(removedCode, arr[0].code);
   } else {
     return;
   }
@@ -3268,15 +3432,23 @@ function openMaterialPicker(role) {
 }
 
 // «Удалить материал» (см. materialPickActionsHtml) — убирает ТЕКУЩИЙ
-// выбранный код из своего массива каталога. decor/facadeDecor читают ОДИН и
-// тот же массив DECORS — если удаляемый материал сейчас выбран и для второй
-// роли тоже (одинаковый декор корпуса и фасада), переключаем обе, иначе одно
-// из полей осталось бы ссылкой на уже удалённую позицию. Столешница (у
-// АКТИВНОЙ тумбы, не у группы — см. activeCountertopModule) тоже могла
-// ссылаться на удалённый код — сбрасываем её при любой роли удаления ниже
-// (см. конец функции). Роли 'countertopDecor' здесь больше нет: «Изменить» у
-// столешницы (см. countertopPanelBlock) вызывает только openMaterialPicker,
-// без варианта удаления — убрано по просьбе пользователя 2026-09-06.
+// выбранный в этом же селекте код из своего массива каталога (decor/
+// facadeDecor читают ОДИН и тот же массив DECORS). Изменено 2026-09-12: перед
+// удалением проверяем через libFindMaterialUsages, не используется ли этот
+// код хоть где-то в проекте — если да, удаление блокируется целиком и
+// показывается showLibUsageModal() со списком мест использования (никакой
+// молчаливой замены на другой материал, как раньше). ВАЖНО: curCode здесь —
+// это ВСЕГДА текущее значение state.decorCode/facadeDecorCode/backCode самого
+// проекта, то есть по определению «используется» как материал корпуса/
+// фасада/задней стенки — значит эта кнопка теперь блокируется практически
+// всегда, пока пользователь сам не выберет в соседнем селекте ДРУГОЙ материал
+// (тогда curCode станет этим новым кодом, а старый перестанет быть активным
+// значением проекта и, если не используется больше нигде, будет доступен для
+// удаления через «Библиотеку» — см. libDeleteSelectedRow, у которой выбор
+// строки не привязан к активному значению проекта). Роли 'countertopDecor'
+// здесь больше нет: «Изменить» у столешницы (см. countertopPanelBlock)
+// вызывает только openMaterialPicker, без варианта удаления — убрано по
+// просьбе пользователя 2026-09-06.
 function deleteMaterialPick(role) {
   const targetGroup = LIB_PICK_ROLE_GROUP[role];
   if (!targetGroup) return;
@@ -3288,6 +3460,8 @@ function deleteMaterialPick(role) {
   }
   const idx = arr.findIndex((x) => x.code === curCode);
   if (idx < 0) return;
+  const usages = libFindMaterialUsages(targetGroup, curCode);
+  if (usages.length) { showLibUsageModal(arr[idx].name, usages); return; }
   if (!window.confirm(`Удалить материал «${arr[idx].name}» из каталога?`)) return;
   arr.splice(idx, 1);
   const firstCode = arr[0].code;
@@ -3297,13 +3471,6 @@ function deleteMaterialPick(role) {
   } else {
     if (state.decorCode === curCode) state.decorCode = firstCode;
     if (state.facadeDecorCode === curCode) state.facadeDecorCode = firstCode;
-  }
-  // «Свой материал» столешницы АКТИВНОЙ тумбы — та же удалённая позиция
-  // могла быть выбрана и для неё, независимо от роли, с которой удаление
-  // вызвали (как decor/facadeDecor сбрасывают друг друга выше).
-  const activeMod = activeCountertopModule();
-  if (activeMod && activeMod.countertop && activeMod.countertop.decorCode === curCode) {
-    delete activeMod.countertop.decorCode;
   }
   recompute();
   renderParamsPanel();
@@ -6902,6 +7069,7 @@ try {
   initSketchPanel();
   initHeaderControls();
   initPartEditorOverlay();
+  initLibUsageModal();
   // Контекстное меню модуля закрывается кликом мимо и по Esc. Контекстное
   // меню фокуса (см. showFocusMenu) закрывается по Esc так же — само своим
   // клик-мимо-слушателем оно уже закрывается (см. showFocusMenu).
@@ -6916,6 +7084,7 @@ try {
     closeModuleMenu();
     closeFocusMenu();
     closeDetailFilterMenu();
+    closeLibUsageModal();
   });
 
   // Отмена и возврат. Ctrl+X перехватываем только вне полей ввода — внутри

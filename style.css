@@ -712,6 +712,89 @@ body.has-modal-drawer .scrim { opacity: 1; pointer-events: auto; }
 }
 .part-editor-canvas .hint { max-width: 420px; text-align: center; }
 
+/* ---------- 7.2 МОДАЛЬНОЕ ОКНО «ИСПОЛЬЗУЕТСЯ В ПРОЕКТЕ» ------------------- */
+/* Блокирующее окно удаления материала/фурнитуры из «Библиотеки» (см.
+   src/app.js: showLibUsageModal/libFindMaterialUsages) — единственное
+   действие внутри окна — «Понятно» (закрыть), обхода блокировки нет. Стиль
+   — центрированная карточка поверх затемнения, те же токены (--surface/
+   --border/--shadow-3/--r-lg), что и остальной интерфейс, а не браузерный
+   alert()/confirm(). */
+.confirm-modal-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 90;             /* выше полноэкранного part-editor-overlay (70) */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--sp-4);
+  background: rgba(8, 12, 20, .45);
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity var(--dur) var(--ease), visibility 0s linear var(--dur);
+}
+.confirm-modal-scrim.open {
+  opacity: 1;
+  visibility: visible;
+  transition-delay: 0s;
+}
+.confirm-modal {
+  width: min(440px, 100%);
+  max-height: min(560px, 86vh);
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  -webkit-backdrop-filter: var(--blur);
+  backdrop-filter: var(--blur);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-3);
+}
+.confirm-modal-head {
+  flex: none;
+  display: flex; align-items: center; gap: var(--sp-2);
+  padding: var(--sp-4) var(--sp-5);
+  border-bottom: 1px solid var(--border);
+}
+.confirm-modal-title {
+  margin: 0; flex: 1;
+  font-size: var(--fs-lg); font-weight: 700;
+  color: var(--text);
+}
+.confirm-modal-close { width: 30px; height: 30px; flex: none; }
+.confirm-modal-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  padding: var(--sp-4) var(--sp-5);
+  font-size: var(--fs-sm);
+  color: var(--text);
+  line-height: 1.5;
+}
+.confirm-modal-body p { margin: 0 0 var(--sp-3); }
+.confirm-modal-body p:last-child { margin-bottom: 0; }
+.lib-usage-list {
+  margin: 0 0 var(--sp-3);
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.lib-usage-list li {
+  padding: 8px 10px;
+  background: var(--surface-solid);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  font-size: var(--fs-sm);
+}
+.confirm-modal-actions {
+  flex: none;
+  display: flex; justify-content: flex-end;
+  gap: var(--sp-2);
+  padding: var(--sp-3) var(--sp-5);
+  border-top: 1px solid var(--border);
+}
+
 /* ---------- 8. СОДЕРЖИМОЕ ПАНЕЛИ ПАРАМЕТРОВ ------------------------------ */
 
 .panel h3 {
@@ -1556,7 +1639,7 @@ body.is-focus .scrim { opacity: 0 !important; }
 }
 
 @media print {
-  .topbar, .rail, .stage-dock, .drawer-head, .tabs, .scrim, .mobile-sheet-bar, .hud, .part-editor-overlay { display: none !important; }
+  .topbar, .rail, .stage-dock, .drawer-head, .tabs, .scrim, .mobile-sheet-bar, .hud, .part-editor-overlay, .confirm-modal-scrim { display: none !important; }
   .stage { overflow: visible; }
   body { overflow: visible; }
 }
