@@ -43,6 +43,8 @@
     font-weight: 700;
   }
   header h1 b { color: var(--accent); }
+  .logo-link { color: inherit; text-decoration: none; }
+  .logo-link:hover { color: var(--accent); }
   main {
     max-width: 880px;
     margin: 0 auto;
@@ -202,7 +204,7 @@
 
 <div id="app-screen">
   <header>
-    <h1>Modul3D — <b>модерация</b> отзывов</h1>
+    <h1><a class="logo-link" href="https://ai.modul3d.app/">Modul3D</a> — <b>модерация</b> отзывов</h1>
     <button class="btn-ghost" id="logout-btn">Сменить токен</button>
   </header>
   <main>
