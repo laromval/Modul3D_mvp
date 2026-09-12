@@ -14,7 +14,7 @@
 (function () {
 // Версия сборки — показывается во вкладке браузера и в шапке.
 // При выпуске новой версии меняется только эта строка.
-const APP_VERSION = 'v254';
+const APP_VERSION = 'v255';
 
 // Номер версии выводим ПЕРВЫМ делом: если дальше что-то упадёт, по нему сразу
 // видно, какая сборка открыта.
@@ -1177,27 +1177,36 @@ function libPriceValueForUnit(kind, it, unit) {
 function libPriceEffectiveUnit(kind, unit) {
   return unit === 'native' ? libNativeUnitsOf(kind)[0] : unit;
 }
+// Цена в ячейке округляется до целого (без копеек) и получает валюту
+// (curSym()) СПРАВА от числа — сама валюта раньше жила в заголовке столбца
+// (см. libPriceUnitHeaderHtml), теперь только в каждой строке. Округление и
+// валюта — только в displayText (см. opts.displayText у libEditCell): клик
+// по ячейке для редактирования по-прежнему открывает точное нецелое
+// сохранённое значение из data-raw, реальное it[field] не трогаем.
 function libPriceCellHtml(group, key, kind, it, unit) {
   const effUnit = libPriceEffectiveUnit(kind, unit);
   if (libNativeUnitsOf(kind).indexOf(effUnit) >= 0) {
     const field = libPriceFieldOf(kind);
-    return libEditCell(group, key, field, 'number', it[field]);
+    const priceVal = it[field];
+    const display = priceVal != null ? `${Math.round(priceVal)} ${curSym()}` : undefined;
+    return libEditCell(group, key, field, 'number', priceVal, { displayText: display });
   }
   const val = libPriceValueForUnit(kind, it, effUnit);
-  return `<td>${val != null ? esc(String(val)) : '—'}</td>`;
+  return `<td>${val != null ? esc(`${Math.round(val)} ${curSym()}`) : '—'}</td>`;
 }
 // То же значение, что рисует libPriceCellHtml, но простой строкой — читает
 // поповер сортировки/фильтра колонки «Цена» (см. openColumnFilterMenu/
 // libFilterRowsCache): единственный источник правды для «что показано в
-// ячейке» один и тот же для обеих функций (libPriceEffectiveUnit).
+// ячейке» один и тот же для обеих функций (libPriceEffectiveUnit), включая
+// округление и валюту.
 function libPriceDisplayValue(kind, it, unit) {
   const effUnit = libPriceEffectiveUnit(kind, unit);
   if (libNativeUnitsOf(kind).indexOf(effUnit) >= 0) {
     const v = it[libPriceFieldOf(kind)];
-    return v != null ? String(v) : '';
+    return v != null ? `${Math.round(v)} ${curSym()}` : '';
   }
   const val = libPriceValueForUnit(kind, it, effUnit);
-  return val != null ? String(val) : '—';
+  return val != null ? `${Math.round(val)} ${curSym()}` : '—';
 }
 
 // Единицы измерения цены — общий переключатель на ВСЮ «Библиотеку» (см.
@@ -1213,9 +1222,8 @@ const LIB_PRICE_UNITS = [
   { id: 'perSheet', label: 'лист' },
 ];
 function libPriceUnitHeaderHtml() {
-  const sym = curSym();
   const opts = LIB_PRICE_UNITS.map((u) => {
-    const label = u.id === 'native' ? `Цена, ${esc(sym)} (${esc(u.label)})` : `Цена, ${esc(sym)}/${esc(u.label)}`;
+    const label = u.id === 'native' ? `Цена (${esc(u.label)})` : `Цена/${esc(u.label)}`;
     return `<option value="${esc(u.id)}" ${u.id === state.libPriceUnit ? 'selected' : ''}>${label}</option>`;
   }).join('');
   return `<select class="lib-price-unit-select">${opts}</select>`;
@@ -1233,6 +1241,52 @@ function libCountertopShortName(it) {
   s = s.replace(/^Столешница.*?глубина\s*\d+,\s*/, '');
   if (it && it.brand) s = s.split(`(${it.brand} `).join('(');
   return s;
+}
+
+// Тип листового материала в name не всегда совпадает по написанию с
+// categoryPath[0] дерева (напр. «ЛДСП» в имени vs «ДСП» в дереве,
+// «Алюминиевый» vs «Алюминий») — таблица ниже даёт варианты написания типа,
+// встречающиеся в catalog.js, для каждого верхнего сегмента пути.
+const SHEET_TYPE_NAME_ALIASES = {
+  'ДСП': ['лдсп', 'дсп'],
+  'МДФ-плита': ['мдф'],
+  'Шпонированные плиты': ['мдф шпонированный', 'шпонированные плиты', 'шпон'],
+  'ХДФ/ДВП': ['хдф', 'двп'],
+  'Массив': ['массив'],
+  'Алюминий': ['алюминиевый', 'алюминий'],
+  'Стекло': ['стекло'],
+};
+
+// Короткое название для колонки «Наименование» (decors/back/facade/glass) —
+// убирает из начала name тип материала и бренд, если они там буквально
+// повторяют путь дерева categoryPath (уже виден в хлебных крошках над
+// таблицей, см. libBreadcrumbHtml) — «ЛДСП Egger H1180 ST37 Дуб Халифакс
+// натуральный» → «H1180 ST37 Дуб Халифакс натуральный». Само item.name НЕ
+// трогаем — нужно как есть для спецификации/экспорта, это только
+// отображение (тот же принцип, что у libCountertopShortName выше). Если имя
+// не начинается с типа/бренда (как у части позиций ARAMA — «Фасад из
+// массива с филёнкой» вообще без «Массив»/ARAMA в начале) — ничего не
+// убираем, отдаём name как есть.
+function libSheetShortName(it) {
+  const name = String(it.name || '');
+  const path = it.categoryPath;
+  if (!path || !path.length) return name;
+  let words = name.split(' ');
+  const lower = words.map((w) => w.toLowerCase());
+  const aliases = SHEET_TYPE_NAME_ALIASES[path[0]] || [];
+  let matched = null;
+  aliases.forEach((alias) => {
+    if (matched != null) return;
+    const aliasWords = alias.split(' ');
+    if (aliasWords.length > lower.length) return;
+    if (aliasWords.every((w, i) => lower[i] === w)) matched = aliasWords.length;
+  });
+  if (matched == null) return name;
+  words = words.slice(matched);
+  if (path[1] && words[0] && words[0].toLowerCase() === path[1].toLowerCase()) words = words.slice(1);
+  const rest = words.join(' ').trim();
+  if (!rest) return name;
+  return rest.charAt(0).toUpperCase() + rest.slice(1);
 }
 
 // Ширины колонок фиксированы через <colgroup> (table-layout:fixed — инлайн
@@ -1331,12 +1385,10 @@ function libRowHtml(entry, opts) {
   // его на месте рискованно (specification.js читает EDGE_PRICES[type] по
   // значению из секции) — поэтому название НЕредактируемо, новая кромка
   // добавляется вводом уникального названия (см. libAddRow).
-  const nameDisplay = group === 'edge' ? String(it.key || '') : group === 'countertop' ? libCountertopShortName(it) : String(it.name || '');
+  const nameDisplay = group === 'edge' ? String(it.key || '') : group === 'countertop' ? libCountertopShortName(it) : libSheetShortName(it);
   const nameCell = group === 'edge'
     ? `<td>${esc(nameDisplay)}</td>`
-    : group === 'countertop'
-      ? libEditCell(group, key, 'name', 'text', it.name, { displayText: nameDisplay })
-      : libEditCell(group, key, 'name', 'text', it.name);
+    : libEditCell(group, key, 'name', 'text', it.name, { displayText: nameDisplay });
   const lenField = libLengthFieldOf(kind);
   const widField = libWidthFieldOf(kind);
   const lengthCell = collapsed ? '' : (lenField ? libDashEditCell(group, key, lenField, dims.length, 'lib-char-col') : '<td class="lib-char-col">—</td>');
