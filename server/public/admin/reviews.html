@@ -97,6 +97,26 @@
     border: 1px solid var(--border);
   }
   .btn-ghost:hover { color: var(--text); border-color: var(--accent); }
+  a.btn-ghost {
+    display: inline-flex;
+    align-items: center;
+    cursor: pointer;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 16px;
+    font-size: 14px;
+    font-weight: 600;
+    text-decoration: none;
+    background: transparent;
+    color: var(--text-2);
+  }
+  a.btn-ghost:hover { color: var(--text); border-color: var(--accent); }
+  .header-actions {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
   .btn-approve {
     background: var(--ok);
     color: #06231a;
@@ -205,7 +225,10 @@
 <div id="app-screen">
   <header>
     <h1><a class="logo-link" href="https://modul3d.app/">Modul3D</a> — <b>модерация</b> отзывов</h1>
-    <button class="btn-ghost" id="logout-btn">Сменить токен</button>
+    <div class="header-actions">
+      <a class="btn-ghost" href="https://laromval.github.io/Modul3D_mvp/workflow.html" target="_blank" rel="noopener">Workflow</a>
+      <button class="btn-ghost" id="logout-btn">Сменить токен</button>
+    </div>
   </header>
   <main>
     <div id="toolbar">
