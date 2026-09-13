@@ -1191,10 +1191,10 @@ function libPriceCellHtml(group, key, kind, it, unit) {
     const field = libPriceFieldOf(kind);
     const priceVal = it[field];
     const display = priceVal != null ? `${Math.round(priceVal)} ${curSym()}` : undefined;
-    return libEditCell(group, key, field, 'number', priceVal, { displayText: display });
+    return libEditCell(group, key, field, 'number', priceVal, { displayText: display, extraClass: 'lib-price-cell' });
   }
   const val = libPriceValueForUnit(kind, it, effUnit);
-  return `<td>${val != null ? esc(`${Math.round(val)} ${curSym()}`) : '—'}</td>`;
+  return `<td class="lib-price-cell">${val != null ? esc(`${Math.round(val)} ${curSym()}`) : '—'}</td>`;
 }
 // То же значение, что рисует libPriceCellHtml, но простой строкой — читает
 // поповер сортировки/фильтра колонки «Цена» (см. openColumnFilterMenu/
@@ -1306,16 +1306,27 @@ function libSheetShortName(it) {
 // (см. libLeafTableHtml — теперь это отдельная кнопка-ссылка НАД таблицей,
 // как «+ Добавить материал» под ней), чтобы <thead> ни в одном состоянии не
 // нуждался в colspan/rowspan — тогда физическое число колонок в шапке и
-// теле совпадает тривиально, само собой. Ширина 84px у каждой из трёх
-// колонок (а не 76px, как было рассчитано под одну-единственную
-// «Толщина, мм») — три подписи в шапке (см. libTableHead) уместились без
-// наезда друг на друга в самой широкой из них, «ТОЛЩИНА» (заголовки —
-// capslock, .lib-table th).
+// теле совпадает тривиально, само собой. Ширины 76px (Длина/Ширина/Толщина)
+// и 82px (Цена) — раньше были 84/84/84/118px, рассчитаны под ЗАГЛАВНЫЕ
+// (capslock, вес 600) подписи; после того как заголовки Длина/Ширина/
+// Толщина визуально приравняли к «Цене» — вес 400, без капслока (см.
+// .lib-table th.lib-char-col .dth-label в style.css, задача 2026-09-12) —
+// подписи стали заметно уже (самая длинная, «Толщина», в браузере ≈45px), и
+// колонки сузили следом: 76px = текст + отступ слева 5px + резерв под
+// кнопку-треугольник 22px (.lib-th-filter) с небольшим запасом. «Цена»
+// сужена до 82px — полный текст текущей опции select («Цена (как на
+// сайте)») в неё уже не помещается и обрезается многоточием (см. overflow/
+// text-overflow у .lib-price-unit-select) — так и задумано; более узкие
+// значения (60-74px) заставляли нативную стрелку select налезать на текст
+// без видимого «…», 82px — минимум, при котором ещё читается «Цен…».
+// Освободившееся место уходит колонке «Наименование» (у неё нет явной
+// ширины, см. выше) — так длинные названия decors умещаются в 2 строки, а
+// не в 3+ (пример «H1180 ST37 Дуб Халифакс натуральный», см. catalog.js).
 function libColgroup(pickMode, collapsed) {
-  const charCols = collapsed ? '' : `<col class="lib-char-col" style="width:84px"><col class="lib-char-col" style="width:84px"><col class="lib-char-col" style="width:84px">`;
+  const charCols = collapsed ? '' : `<col class="lib-char-col" style="width:76px"><col class="lib-char-col" style="width:76px"><col class="lib-char-col" style="width:76px">`;
   return `<colgroup><col><col style="width:26px"><col style="width:72px">`
     + charCols
-    + `<col style="width:118px">`
+    + `<col style="width:82px">`
     + `${pickMode ? '<col style="width:76px">' : ''}</colgroup>`;
 }
 // Заголовок — ОДНА строка <thead> (никаких rowspan/colspan, см. коммент у

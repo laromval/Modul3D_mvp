@@ -1399,12 +1399,32 @@ h4.spec-title { margin: var(--sp-5) 0 var(--sp-2); font-size: var(--fs-md); font
   width: 100%; border: 1px solid var(--border); border-radius: var(--r-sm);
   padding: 3px 18px 3px 5px; font-family: inherit; font-size: var(--fs-xs);
   font-weight: 400; background-color: var(--surface-solid); color: var(--text);
+  /* колонка «Цена» узкая (см. libColgroup) — текущая опция может быть длиннее
+     колонки («Цена (как на сайте)»), обрезаем многоточием, а не расширяем
+     колонку под самый длинный вариант; сам список опций при открытии не
+     затронут — это только вид select в закрытом состоянии. */
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 /* Заголовки-столбцы с кнопкой-треугольником сортировки/фильтра (app.js:
    libTableHead, .dth-filter-btn — тот же поповер, что и в «Деталировке»,
    см. раздел 18 ниже) — резервируем место под кнопку в правом крае ячейки,
    чтобы она не наезжала на текст/select заголовка. */
 .lib-table th.lib-th-filter { position: relative; padding-right: 22px; }
+/* Длина/Ширина/Толщина (app.js: libTableHead) визуально приравнены к
+   заголовку «Цена» рядом (select.lib-price-unit-select выше) — тот же вес и
+   без капслока: при одинаковом fs-xs капслочные подписи выглядели заметно
+   крупнее некапслочного select (задача 2026-09-12). */
+.lib-table th.lib-char-col .dth-label {
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: normal;
+}
+/* Значения Длина/Ширина/Толщина и «Цена» — по центру ячейки, а не по левому
+   краю (общий td), так короткие числа не липнут к границе узкой колонки. */
+.lib-table td.lib-char-col,
+.lib-table td.lib-price-cell {
+  text-align: center;
+}
 
 /* Компактная ссылка-иконка на карточку товара у поставщика (item.sourceUrl,
    см. catalog.js) — отдельная узкая колонка рядом с «Наименование», не
