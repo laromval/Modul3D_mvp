@@ -115,6 +115,12 @@ function initCurrency() {
   var collapseToggle = document.getElementById('currencyCollapseToggle');
   var collapseBody = document.getElementById('currencyCollapseBody');
   var collapseArrow = collapseToggle ? collapseToggle.querySelector('.currency-collapse-arrow') : null;
+  // Строка «Горячие клавиши» — сворачиваемый блок по образцу валюты выше:
+  // клик по кнопке #focusHintBtn или по всей строке разворачивает список
+  // под ней (см. #hotkeysCollapseBody в index.html).
+  var hotkeysRow = document.getElementById('hotkeysToggleRow');
+  var hotkeysBody = document.getElementById('hotkeysCollapseBody');
+  var hotkeysBtn = document.getElementById('focusHintBtn');
   if (!toggle || !pop) return;
   renderCurrencyOptions();
 
@@ -128,14 +134,22 @@ function initCurrency() {
     if (collapseToggle) collapseToggle.setAttribute('aria-expanded', 'true');
     if (collapseArrow) collapseArrow.textContent = '▴';
   }
+  function collapseHotkeys() {
+    if (hotkeysBody) hotkeysBody.style.display = 'none';
+    if (hotkeysBtn) hotkeysBtn.setAttribute('aria-expanded', 'false');
+  }
+  function expandHotkeys() {
+    if (hotkeysBody) hotkeysBody.style.display = 'block';
+    if (hotkeysBtn) hotkeysBtn.setAttribute('aria-expanded', 'true');
+  }
 
   toggle.addEventListener('click', function (e) {
     e.stopPropagation();
     var willOpen = pop.style.display === 'none';
     pop.style.display = willOpen ? 'block' : 'none';
-    // Панель настроек всегда открывается со свёрнутым списком валют —
-    // сама валюта видна и так, в заголовке блока.
-    if (willOpen) collapseCurrency();
+    // Панель настроек всегда открывается со свёрнутыми списком валют и
+    // горячими клавишами — сама валюта видна и так, в заголовке блока.
+    if (willOpen) { collapseCurrency(); collapseHotkeys(); }
   });
   pop.addEventListener('click', function (e) { e.stopPropagation(); });
   document.addEventListener('click', function (e) {
@@ -150,6 +164,13 @@ function initCurrency() {
   if (collapseToggle) collapseToggle.addEventListener('click', function () {
     if (collapseToggle.getAttribute('aria-expanded') === 'true') collapseCurrency();
     else expandCurrency();
+  });
+
+  // Клик по кнопке #focusHintBtn всплывает до строки — один обработчик
+  // на всю строку покрывает оба способа клика (по кнопке и рядом с ней).
+  if (hotkeysRow) hotkeysRow.addEventListener('click', function () {
+    if (hotkeysBtn && hotkeysBtn.getAttribute('aria-expanded') === 'true') collapseHotkeys();
+    else expandHotkeys();
   });
 
   if (options) options.addEventListener('change', function (e) {

@@ -7,7 +7,7 @@
 <title>Modul3D — параметрический конструктор корпусной мебели</title>
 
 <link rel="icon" type="image/svg+xml" href="favicon.svg" />
-<link rel="stylesheet" href="style.css?v260" />
+<link rel="stylesheet" href="style.css?v261" />
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <!-- Paddle.js — оверлей оплаты подписки (см. app.js: requestCheckout/initPaddle).
@@ -70,6 +70,7 @@
             <span class="currency-collapse-arrow" aria-hidden="true">▾</span>
           </button>
           <div class="currency-collapse-body" id="currencyCollapseBody" style="display:none">
+            <div class="settings-row-label currency-section-label">Валюта проекта</div>
             <div class="currency-options" id="currencyOptions"><!-- заполняется ui-shell.js --></div>
             <div class="field">
               <label for="currencyCustomInput">Свой вариант (символ/название)</label>
@@ -79,7 +80,6 @@
         </div>
 
         <div class="settings-row">
-          <span class="settings-row-label">Тема</span>
           <button id="themeToggle" class="icon-btn tip tip-down" type="button" data-tip="Светлая / тёмная тема" aria-label="Сменить тему">
             <svg class="ic-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
               <circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>
@@ -88,24 +88,31 @@
               <path d="M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5z"/>
             </svg>
           </button>
+          <span class="settings-row-label">Тема</span>
         </div>
 
-        <div class="settings-row">
-          <span class="settings-row-label">Горячие клавиши</span>
-          <button id="focusHintBtn" class="icon-btn tip tip-down tip-lines" type="button"
-                  data-tip="Ctrl+S — Сохранить
-Ctrl+O — Открыть
-Ctrl+Z — Отменить
-1–4 — Виды
-D — Документы
-P — Параметры
-F — Студия
-T — Тема"
-                  aria-label="Подсказки">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-              <circle cx="12" cy="12" r="9"/><path d="M9.5 9.2a2.6 2.6 0 1 1 3.3 2.5c-.7.2-1 .8-1 1.5v.4"/><circle cx="12" cy="17" r=".6" fill="currentColor"/>
-            </svg>
-          </button>
+        <div class="settings-block">
+          <div class="settings-row settings-row-toggle" id="hotkeysToggleRow">
+            <button id="focusHintBtn" class="icon-btn" type="button"
+                    aria-expanded="false" aria-controls="hotkeysCollapseBody" aria-label="Горячие клавиши">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="12" r="9"/><path d="M9.5 9.2a2.6 2.6 0 1 1 3.3 2.5c-.7.2-1 .8-1 1.5v.4"/><circle cx="12" cy="17" r=".6" fill="currentColor"/>
+              </svg>
+            </button>
+            <span class="settings-row-label">Горячие клавиши</span>
+          </div>
+          <div class="hotkeys-collapse-body" id="hotkeysCollapseBody" style="display:none">
+            <div class="hotkeys-list">
+              <div class="hotkeys-item"><span class="hotkeys-key">Ctrl+S</span><span class="hotkeys-desc">Сохранить</span></div>
+              <div class="hotkeys-item"><span class="hotkeys-key">Ctrl+O</span><span class="hotkeys-desc">Открыть</span></div>
+              <div class="hotkeys-item"><span class="hotkeys-key">Ctrl+Z</span><span class="hotkeys-desc">Отменить</span></div>
+              <div class="hotkeys-item"><span class="hotkeys-key">1–4</span><span class="hotkeys-desc">Виды</span></div>
+              <div class="hotkeys-item"><span class="hotkeys-key">D</span><span class="hotkeys-desc">Документы</span></div>
+              <div class="hotkeys-item"><span class="hotkeys-key">P</span><span class="hotkeys-desc">Параметры</span></div>
+              <div class="hotkeys-item"><span class="hotkeys-key">F</span><span class="hotkeys-desc">Студия</span></div>
+              <div class="hotkeys-item"><span class="hotkeys-key">T</span><span class="hotkeys-desc">Тема</span></div>
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -494,19 +501,19 @@ T — Тема"
 
 </main>
 
-<script src="src/catalog.js?v260"></script>
-<script src="src/presets.js?v260"></script>
-<script src="src/engine.js?v260"></script>
-<script src="src/specification.js?v260"></script>
-<script src="src/legMeshes.js?v260"></script>
-<script src="src/csg.js?v260"></script>
-<script src="src/viewer.js?v260"></script>
-<script src="src/ui-shell.js?v260"></script>
-<script src="src/drawings.js?v260"></script>
-<script src="src/export.js?v260"></script>
-<script src="src/cnc.js?v260"></script>
-<script src="src/sketchAI.js?v260"></script>
-<script src="src/app.js?v260"></script>
+<script src="src/catalog.js?v261"></script>
+<script src="src/presets.js?v261"></script>
+<script src="src/engine.js?v261"></script>
+<script src="src/specification.js?v261"></script>
+<script src="src/legMeshes.js?v261"></script>
+<script src="src/csg.js?v261"></script>
+<script src="src/viewer.js?v261"></script>
+<script src="src/ui-shell.js?v261"></script>
+<script src="src/drawings.js?v261"></script>
+<script src="src/export.js?v261"></script>
+<script src="src/cnc.js?v261"></script>
+<script src="src/sketchAI.js?v261"></script>
+<script src="src/app.js?v261"></script>
 <script>if (window.Modul3D && window.Modul3D.uiShell) window.Modul3D.uiShell.start();</script>
 </body>
 </html>

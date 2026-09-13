@@ -539,21 +539,6 @@ select:focus-visible {
 .tip.tip-down::after { left: 50%; top: calc(100% + 8px); transform: translateX(-50%) scale(.96); }
 .tip.tip-down:hover::after { transform: translateX(-50%) scale(1); }
 
-/* подсказка из нескольких пар «клавиша — действие» (например, кнопка
-   горячих клавиш) — каждая пара на своей строке по литеральному переносу
-   в data-tip, без обрезания и без разрыва пары посередине. Модификатор
-   отдельный от .tip::after, чтобы не задеть остальные (однострочные)
-   подсказки в проекте.
-   width: max-content нужен из-за того, что containing block у ::after —
-   сама кнопка (узкая, ~36px): без явного width браузер считает
-   shrink-to-fit от доступного места СПРАВА от кнопки внутри неё же, а не
-   от текста, и сжимает подсказку до ширины одного слова, разрывая пары
-   "клавиша — действие" на две строки. */
-.tip.tip-lines::after {
-  white-space: pre-line; width: max-content; max-width: 260px;
-  font-size: 12px; line-height: 1.5;
-}
-
 /* нижняя плавающая панель видов */
 .stage-dock {
   position: absolute; left: 50%; bottom: var(--sp-4); transform: translateX(-50%);
@@ -1500,7 +1485,8 @@ h4.spec-title { margin: var(--sp-5) 0 var(--sp-2); font-size: var(--fs-md); font
 .currency-wrap .popover { position: absolute; right: 0; top: calc(100% + 8px); width: 230px; z-index: 55; }
 .settings-popover { display: flex; flex-direction: column; }
 .settings-block + .settings-row,
-.settings-row + .settings-row {
+.settings-row + .settings-row,
+.settings-row + .settings-block {
   margin-top: var(--sp-3);
   padding-top: var(--sp-3);
   border-top: 1px solid var(--border);
@@ -1521,10 +1507,26 @@ h4.spec-title { margin: var(--sp-5) 0 var(--sp-2); font-size: var(--fs-md); font
 .currency-collapse-toggle:hover { background: var(--surface-2); border-color: var(--accent); }
 .currency-collapse-arrow { color: var(--muted); font-size: var(--fs-sm); }
 .currency-collapse-body { margin-top: var(--sp-3); }
+.currency-section-label { display: block; margin-bottom: var(--sp-2); }
 
 .currency-options { display: flex; flex-direction: column; gap: 5px; margin-bottom: var(--sp-3); }
 .currency-opt { display: flex; align-items: center; gap: 8px; font-size: var(--fs-sm); color: var(--text); cursor: pointer; }
 .currency-opt input { width: auto; }
+
+/* строка «Горячие клавиши» — сворачиваемый блок по образцу валюты, весь
+   ряд (иконка + подпись) кликабелен (см. ui-shell.js: initCurrency) */
+.settings-row-toggle { cursor: pointer; }
+.hotkeys-collapse-body { margin-top: var(--sp-3); }
+.hotkeys-list { display: flex; flex-direction: column; gap: 5px; }
+.hotkeys-item {
+  display: flex; align-items: baseline; justify-content: space-between; gap: var(--sp-2);
+  padding: 4px 8px;
+  border-radius: var(--r-sm);
+  background: var(--surface-solid);
+  font-size: var(--fs-sm);
+}
+.hotkeys-key { color: var(--text); font-weight: 600; white-space: nowrap; }
+.hotkeys-desc { color: var(--text-2); text-align: right; }
 
 /* ---------- 15б. АККАУНТ (вход/регистрация, токены, подписка) ------------ */
 
