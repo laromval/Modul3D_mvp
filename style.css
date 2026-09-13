@@ -73,6 +73,9 @@
   --shadow-2: 0 8px 24px -8px rgba(15, 23, 42, .16), 0 2px 6px rgba(15, 23, 42, .05);
   --shadow-3: 0 24px 60px -20px rgba(15, 23, 42, .28), 0 4px 12px rgba(15, 23, 42, .06);
   --blur: blur(16px) saturate(140%);
+  /* тонкая светлая окантовка сверху для «стеклянных» панелей/попапов —
+     inset-полоска в 1px, добавляется в box-shadow панели отдельным слоем */
+  --glass-hl: rgba(255, 255, 255, .65);
 }
 
 /* --- Pro Dark --- */
@@ -109,6 +112,9 @@
   --shadow-2: 0 10px 30px rgba(0, 0, 0, .45);
   --shadow-3: 0 28px 70px rgba(0, 0, 0, .6);
   --blur: blur(18px) saturate(130%);
+  /* на тёмном стекле светлая окантовка должна быть намного слабее, иначе
+     читается как жёсткая белая линия, а не мягкий блик */
+  --glass-hl: rgba(255, 255, 255, .08);
 }
 
 /* ---------- 2. БАЗА ------------------------------------------------------ */
@@ -234,6 +240,10 @@ body {
   color: var(--text);
   border-color: var(--border-strong);
   background: var(--surface-2);
+  /* лёгкий подъём + нейтральное свечение под кнопкой — ощущение объёма без
+     привязки акцентного цвета к серым кнопкам, где ему не место */
+  box-shadow: var(--shadow-2);
+  transform: translateY(-1px);
 }
 .materials-link-btn {
   display: flex; align-items: center; justify-content: space-between;
@@ -241,7 +251,7 @@ body {
   font-weight: 600; color: var(--accent);
   background: var(--accent-soft); border-color: var(--accent);
 }
-.materials-link-btn:hover { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
+.materials-link-btn:hover { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); box-shadow: 0 4px 12px -6px var(--accent-glow); }
 .materials-link-btn .arrow { font-weight: 700; }
 /* Кнопка/select рядом со СВОИМ полем-счётчиком в .field-row (карточка секции,
    renderSectionsList): «Ящики, шт» + «Редактировать →», «Полки, шт» + режим
@@ -254,7 +264,19 @@ body {
    стрелка+текст должны идти одной группой у левого края, а не разъезжаться
    по краям, как у кнопки «вперёд» (space-between в базовом классе). */
 .back-link-btn { justify-content: flex-start; gap: 8px; margin-bottom: var(--sp-3); }
-.btn:active, .btn-header:active, .add-section-btn:active { transform: translateY(1px); }
+.btn:active,
+.btn-header:active,
+.add-section-btn:active,
+.lib-cat:active,
+.mod-tab:active,
+.mod-add:active,
+.sec-tab:active,
+.sec-add:active,
+.view-btn:active {
+  /* «вжимание»: кнопка чуть опускается, свечение тускнеет и сжимается */
+  transform: translateY(1px);
+  box-shadow: var(--shadow-1);
+}
 
 .btn:focus-visible,
 .btn-header:focus-visible,
@@ -283,6 +305,14 @@ select:focus-visible {
   color: var(--accent-ink);
   border-color: transparent;
   box-shadow: 0 4px 14px -4px var(--accent-glow);
+  transform: translateY(-1px);
+}
+.btn-primary:active,
+.btn.primary:active,
+.add-section-btn:active {
+  /* на самой яркой кнопке свечение при нажатии тускнеет и жмётся ближе,
+     а не просто гаснет до нейтральной var(--shadow-1) */
+  box-shadow: 0 2px 8px -4px var(--accent-glow);
 }
 
 /* состояние «включено» */
@@ -298,9 +328,9 @@ select:focus-visible {
 }
 
 .mod-add { padding: 7px 11px; font-weight: 700; color: var(--accent); border-style: dashed; border-color: var(--border-strong); flex: 0 0 auto; }
-.mod-add:hover { border-color: var(--accent); color: var(--accent); }
+.mod-add:hover { border-color: var(--accent); color: var(--accent); box-shadow: 0 4px 12px -6px var(--accent-glow); }
 .sec-add { padding: 6px 10px; font-weight: 700; color: var(--accent); border-style: dashed; border-color: var(--border-strong); flex: 0 0 auto; }
-.sec-add:hover { border-color: var(--accent); color: var(--accent); }
+.sec-add:hover { border-color: var(--accent); color: var(--accent); box-shadow: 0 4px 12px -6px var(--accent-glow); }
 
 .link-btn {
   border: none; background: none; padding: 0;
@@ -321,11 +351,20 @@ select:focus-visible {
   color: var(--text-2);
   border-radius: var(--r-sm);
   cursor: pointer;
-  transition: all var(--dur) var(--ease);
+  transition: background var(--dur) var(--ease), border-color var(--dur) var(--ease),
+              color var(--dur) var(--ease), box-shadow var(--dur) var(--ease), transform .12s var(--ease);
 }
-.icon-btn:hover { background: var(--surface-2); color: var(--text); border-color: var(--border-strong); }
+.icon-btn:hover {
+  background: var(--surface-2);
+  color: var(--text);
+  border-color: var(--border-strong);
+  box-shadow: var(--shadow-2);
+  transform: translateY(-1px);
+}
+.icon-btn:active { transform: translateY(0) scale(.96); box-shadow: var(--shadow-1); }
 .icon-btn svg { width: 17px; height: 17px; }
 .icon-btn.active { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
+.icon-btn.active:hover { box-shadow: 0 4px 12px -4px var(--accent-glow); }
 
 /* сегментированный переключатель видов */
 .view-btns {
@@ -551,7 +590,9 @@ body.has-modal-drawer .scrim { opacity: 1; pointer-events: auto; }
   -webkit-backdrop-filter: var(--blur);
   backdrop-filter: var(--blur);
   border: 1px solid var(--border);
-  box-shadow: var(--shadow-3);
+  /* объём + стекло: обычная двухслойная тень (--shadow-3) плюс тонкий
+     светлый блик по верхнему краю изнутри */
+  box-shadow: var(--shadow-3), inset 0 1px 0 var(--glass-hl);
   opacity: 0;
   visibility: hidden;
   transition: transform var(--dur) var(--ease), opacity var(--dur) var(--ease),
@@ -622,7 +663,8 @@ body.has-modal-drawer .scrim { opacity: 1; pointer-events: auto; }
   background: transparent; color: var(--muted); cursor: pointer;
   transition: all var(--dur) var(--ease);
 }
-.drawer-close:hover { background: var(--surface-2); color: var(--text); }
+.drawer-close:hover { background: var(--surface-2); color: var(--text); box-shadow: var(--shadow-1); transform: translateY(-1px); }
+.drawer-close:active { transform: translateY(0) scale(.94); box-shadow: none; }
 .drawer-close svg { width: 15px; height: 15px; }
 
 .drawer-body { flex: 1 1 auto; min-height: 0; overflow: auto; padding: var(--sp-4); }
@@ -747,7 +789,7 @@ body.has-modal-drawer .scrim { opacity: 1; pointer-events: auto; }
   backdrop-filter: var(--blur);
   border: 1px solid var(--border);
   border-radius: var(--r-lg);
-  box-shadow: var(--shadow-3);
+  box-shadow: var(--shadow-3), inset 0 1px 0 var(--glass-hl);
 }
 .confirm-modal-head {
   flex: none;
@@ -1170,9 +1212,11 @@ h4.spec-title { margin: var(--sp-5) 0 var(--sp-2); font-size: var(--fs-md); font
 
 .ctx-menu {
   position: fixed; z-index: 60; min-width: 214px; padding: 6px;
-  background: var(--surface-solid);
+  background: var(--surface);
+  -webkit-backdrop-filter: var(--blur);
+  backdrop-filter: var(--blur);
   border: 1px solid var(--border); border-radius: var(--r-md);
-  box-shadow: var(--shadow-3);
+  box-shadow: var(--shadow-3), inset 0 1px 0 var(--glass-hl);
 }
 .ctx-title { font-size: var(--fs-sm); font-weight: 700; padding: 5px 9px 7px; color: var(--text); }
 .ctx-title-input {
@@ -1209,10 +1253,12 @@ h4.spec-title { margin: var(--sp-5) 0 var(--sp-2); font-size: var(--fs-md); font
 /* ---------- 12. ПОПОВЕРЫ (эскиз ИИ, API-ключ) ----------------------------- */
 
 .popover {
-  background: var(--surface-solid);
+  background: var(--surface);
+  -webkit-backdrop-filter: var(--blur);
+  backdrop-filter: var(--blur);
   border: 1px solid var(--border);
   border-radius: var(--r-md);
-  box-shadow: var(--shadow-2);
+  box-shadow: var(--shadow-2), inset 0 1px 0 var(--glass-hl);
   padding: var(--sp-3);
 }
 /* внутри выдвижной панели поповер встроен в поток, а не висит абсолютно */
