@@ -101,6 +101,10 @@ function renderCurrencyOptions() {
   box.innerHTML = html;
   var customInput = document.getElementById('currencyCustomInput');
   if (customInput && document.activeElement !== customInput) customInput.value = cur.custom ? cur.symbol : '';
+  // Заголовок сворачиваемого блока (см. #currencyCollapseToggle) — всегда
+  // показывает текущую валюту, а не название последнего выбранного пункта.
+  var collapseLabel = document.getElementById('currencyCollapseLabel');
+  if (collapseLabel) collapseLabel.textContent = cur.symbol || '—';
 }
 
 function initCurrency() {
@@ -108,12 +112,30 @@ function initCurrency() {
   var pop = document.getElementById('currencyPopover');
   var options = document.getElementById('currencyOptions');
   var customInput = document.getElementById('currencyCustomInput');
+  var collapseToggle = document.getElementById('currencyCollapseToggle');
+  var collapseBody = document.getElementById('currencyCollapseBody');
+  var collapseArrow = collapseToggle ? collapseToggle.querySelector('.currency-collapse-arrow') : null;
   if (!toggle || !pop) return;
   renderCurrencyOptions();
 
+  function collapseCurrency() {
+    if (collapseBody) collapseBody.style.display = 'none';
+    if (collapseToggle) collapseToggle.setAttribute('aria-expanded', 'false');
+    if (collapseArrow) collapseArrow.textContent = '▾';
+  }
+  function expandCurrency() {
+    if (collapseBody) collapseBody.style.display = 'block';
+    if (collapseToggle) collapseToggle.setAttribute('aria-expanded', 'true');
+    if (collapseArrow) collapseArrow.textContent = '▴';
+  }
+
   toggle.addEventListener('click', function (e) {
     e.stopPropagation();
-    pop.style.display = pop.style.display === 'none' ? 'block' : 'none';
+    var willOpen = pop.style.display === 'none';
+    pop.style.display = willOpen ? 'block' : 'none';
+    // Панель настроек всегда открывается со свёрнутым списком валют —
+    // сама валюта видна и так, в заголовке блока.
+    if (willOpen) collapseCurrency();
   });
   pop.addEventListener('click', function (e) { e.stopPropagation(); });
   document.addEventListener('click', function (e) {
@@ -123,6 +145,11 @@ function initCurrency() {
   });
   document.addEventListener('keydown', function (e) {
     if (e.key === 'Escape') pop.style.display = 'none';
+  });
+
+  if (collapseToggle) collapseToggle.addEventListener('click', function () {
+    if (collapseToggle.getAttribute('aria-expanded') === 'true') collapseCurrency();
+    else expandCurrency();
   });
 
   if (options) options.addEventListener('change', function (e) {

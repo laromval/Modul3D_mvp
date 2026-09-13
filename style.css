@@ -1494,10 +1494,34 @@ h4.spec-title { margin: var(--sp-5) 0 var(--sp-2); font-size: var(--fs-md); font
 .lib-swatch.empty { display: flex; align-items: center; justify-content: center; color: var(--muted); font-size: 15px; }
 .lib-swatch.empty::after { content: '+'; }
 
-/* ---------- 15. ВАЛЮТА ПРОЕКТА -------------------------------------------- */
+/* ---------- 15. НАСТРОЙКИ (валюта проекта, тема, горячие клавиши) -------- */
 
 .currency-wrap { position: relative; display: inline-flex; }
 .currency-wrap .popover { position: absolute; right: 0; top: calc(100% + 8px); width: 230px; z-index: 55; }
+.settings-popover { display: flex; flex-direction: column; }
+.settings-block + .settings-row,
+.settings-row + .settings-row {
+  margin-top: var(--sp-3);
+  padding-top: var(--sp-3);
+  border-top: 1px solid var(--border);
+}
+.settings-row { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-2); }
+.settings-row-label { font-size: var(--fs-sm); color: var(--text-2); font-weight: 500; }
+
+/* заголовок «Валюта проекта» — свёрнут по умолчанию, разворачивается по клику */
+.currency-collapse-toggle {
+  display: flex; align-items: center; justify-content: space-between;
+  width: 100%; padding: 7px 10px;
+  border: 1px solid var(--border-strong); border-radius: var(--r-sm);
+  background: var(--surface-solid); color: var(--text);
+  font-family: inherit; font-size: var(--fs-md); font-weight: 500;
+  cursor: pointer;
+  transition: background var(--dur) var(--ease), border-color var(--dur) var(--ease);
+}
+.currency-collapse-toggle:hover { background: var(--surface-2); border-color: var(--accent); }
+.currency-collapse-arrow { color: var(--muted); font-size: var(--fs-sm); }
+.currency-collapse-body { margin-top: var(--sp-3); }
+
 .currency-options { display: flex; flex-direction: column; gap: 5px; margin-bottom: var(--sp-3); }
 .currency-opt { display: flex; align-items: center; gap: 8px; font-size: var(--fs-sm); color: var(--text); cursor: pointer; }
 .currency-opt input { width: auto; }
