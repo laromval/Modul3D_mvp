@@ -194,6 +194,7 @@
     overflow: hidden;
     display: flex;
     flex-direction: column;
+    max-height: calc(100vh - 170px);
   }
   .column-head {
     padding: 14px 16px 10px;
@@ -261,8 +262,19 @@
     display: flex;
     flex-direction: column;
     gap: 10px;
-    min-height: 40px;
+    min-height: 0;
+    flex: 1 1 auto;
+    overflow-y: auto;
+    scrollbar-width: thin;
+    scrollbar-color: var(--muted) transparent;
   }
+  .cards::-webkit-scrollbar { width: 7px; }
+  .cards::-webkit-scrollbar-track { background: transparent; }
+  .cards::-webkit-scrollbar-thumb {
+    background: var(--border);
+    border-radius: 999px;
+  }
+  .cards::-webkit-scrollbar-thumb:hover { background: var(--muted); }
   .card {
     border: 1px solid var(--border);
     border-radius: 10px;
@@ -271,7 +283,8 @@
     line-height: 1.5;
     background: var(--bg);
     position: relative;
-    transition: opacity .2s ease, border-color .2s ease;
+    min-height: 68px;
+    transition: opacity .2s ease, border-color .2s ease, box-shadow .2s ease;
   }
   .card:hover { border-color: var(--accent); }
   .card.done {
@@ -279,6 +292,10 @@
     background: var(--done-bg);
   }
   .card.done .card-text { text-decoration: line-through; }
+  .card.in-progress {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 2px var(--accent-glow);
+  }
   .card-text {
     white-space: pre-wrap;
     cursor: pointer;
@@ -303,6 +320,30 @@
   }
   .checkbox svg { display: none; width: 12px; height: 12px; color: white; }
   .card.done .checkbox svg { display: block; }
+  .progress-btn {
+    position: absolute;
+    left: 12px;
+    top: 38px;
+    width: 18px;
+    height: 18px;
+    border-radius: 6px;
+    border: 1.5px solid var(--muted);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    cursor: pointer;
+    color: var(--muted);
+    font-size: 9px;
+    line-height: 1;
+  }
+  .progress-btn:hover { border-color: var(--accent); color: var(--accent); }
+  .card.in-progress .progress-btn {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: var(--accent-ink);
+  }
+  .card.done .progress-btn { display: none; }
   .icon-mini {
     position: absolute;
     top: 10px;
@@ -523,7 +564,8 @@
         tasks: col.tasks.map((text, taskIndex) => ({
           id: uid(),
           text: text,
-          done: !!oldDone[colIndex + '-' + taskIndex]
+          done: !!oldDone[colIndex + '-' + taskIndex],
+          inProgress: false
         }))
       })),
       notes: []
@@ -561,7 +603,7 @@
   saveState();
 
   // transient UI state (not persisted)
-  const filters = {};    // colIndex -> 'all' | 'active' | 'done'
+  const filters = {};    // colIndex -> 'all' | 'pending' | 'in-progress' | 'done'
   const adding = {};     // colIndex -> true while add-task form is open
   let editing = null;    // { colIndex, taskId } while a task card is in edit mode
   let addingNote = false;
@@ -627,8 +669,9 @@
       const colEl = document.createElement('div');
       colEl.className = 'column';
 
-      const activeCount = col.tasks.filter(t => !t.done).length;
       const doneCount = col.tasks.filter(t => t.done).length;
+      const inProgressCount = col.tasks.filter(t => !t.done && !!t.inProgress).length;
+      const pendingCount = col.tasks.filter(t => !t.done && !t.inProgress).length;
 
       const head = document.createElement('div');
       head.className = 'column-head';
@@ -643,7 +686,8 @@
       const currentFilter = filters[colIndex] || 'all';
       const filterDefs = [
         { key: 'all', label: 'Все', n: col.tasks.length },
-        { key: 'active', label: 'В работе', n: activeCount },
+        { key: 'pending', label: 'В ожидании', n: pendingCount },
+        { key: 'in-progress', label: 'В работе', n: inProgressCount },
         { key: 'done', label: 'Готово', n: doneCount }
       ];
       filterDefs.forEach(f => {
@@ -662,7 +706,8 @@
       cardsEl.className = 'cards';
 
       const visibleTasks = col.tasks.filter(t => {
-        if (currentFilter === 'active') return !t.done;
+        if (currentFilter === 'pending') return !t.done && !t.inProgress;
+        if (currentFilter === 'in-progress') return !t.done && !!t.inProgress;
         if (currentFilter === 'done') return t.done;
         return true;
       });
@@ -676,7 +721,7 @@
         visibleTasks.forEach(task => {
           const isEditing = editing && editing.colIndex === colIndex && editing.taskId === task.id;
           const card = document.createElement('div');
-          card.className = 'card' + (task.done ? ' done' : '') + (isEditing ? ' editing' : '');
+          card.className = 'card' + (task.done ? ' done' : '') + (!task.done && task.inProgress ? ' in-progress' : '') + (isEditing ? ' editing' : '');
 
           if (isEditing) {
             card.innerHTML = `
@@ -715,6 +760,7 @@
           } else {
             card.innerHTML = `
               <span class="checkbox"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M5 13l4 4L19 7"/></svg></span>
+              <span class="progress-btn" title="${task.inProgress ? 'Снять пометку «в работе»' : 'Отметить как «в работе»'}">▶</span>
               <span class="card-text">${escapeHtml(task.text)}</span>
               <button class="icon-mini copy-icon" title="Копировать текст">⧉</button>
               <button class="icon-mini edit-icon" title="Редактировать">✎</button>
@@ -722,6 +768,14 @@
             card.querySelector('.checkbox').addEventListener('click', (e) => {
               e.stopPropagation();
               task.done = !task.done;
+              if (task.done) task.inProgress = false;
+              saveState();
+              renderBoard();
+            });
+            card.querySelector('.progress-btn').addEventListener('click', (e) => {
+              e.stopPropagation();
+              if (task.done) return;
+              task.inProgress = !task.inProgress;
               saveState();
               renderBoard();
             });
@@ -760,7 +814,7 @@
         addRow.querySelector('[data-action="add-save"]').addEventListener('click', () => {
           const val = textarea.value.trim();
           if (val) {
-            col.tasks.push({ id: uid(), text: val, done: false });
+            col.tasks.push({ id: uid(), text: val, done: false, inProgress: false });
             saveState();
           }
           adding[colIndex] = false;
