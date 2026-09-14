@@ -165,25 +165,22 @@
   }
   .icon-btn:hover { border-color: var(--accent); }
   main {
-    padding: 24px;
-    max-width: 1600px;
-    margin: 0 auto;
+    padding: 24px 16px;
   }
   .board {
     display: grid;
-    grid-template-columns: repeat(6, minmax(260px, 1fr));
+    grid-template-columns: repeat(6, minmax(0, 1fr));
     gap: 16px;
     align-items: stretch;
   }
-  @media (max-width: 1400px) {
-    .board { grid-template-columns: repeat(3, minmax(260px, 1fr)); }
+  @media (max-width: 1700px) {
+    .board { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   }
   @media (max-width: 860px) {
-    .board { grid-template-columns: repeat(2, minmax(240px, 1fr)); }
+    .board { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   }
   @media (max-width: 560px) {
-    .board { grid-template-columns: 1fr; }
-    main { padding: 16px; }
+    .board { grid-template-columns: minmax(0, 1fr); }
     header { padding: 14px 16px; }
   }
   .column {
@@ -873,10 +870,12 @@
     if (header) {
       document.documentElement.style.setProperty('--header-h', header.getBoundingClientRect().height + 'px');
     }
-    const colHead = document.querySelector('.column-head');
-    if (colHead) {
-      document.documentElement.style.setProperty('--col-head-h', colHead.getBoundingClientRect().height + 'px');
-    }
+    document.querySelectorAll('.column').forEach(col => {
+      const colHead = col.querySelector('.column-head');
+      if (colHead) {
+        col.style.setProperty('--col-head-h', colHead.getBoundingClientRect().height + 'px');
+      }
+    });
   }
   window.addEventListener('resize', updateStickyOffsets);
 
