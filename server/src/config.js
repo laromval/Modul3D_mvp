@@ -104,4 +104,12 @@ module.exports = {
   // `app.set('trust proxy', 1)` в index.js, иначе req.ip будет адресом
   // прокси хостинга, а не клиента, и лимит станет бессмысленным.
   registrationIpDailyLimit: parseInt(process.env.REGISTRATION_IP_DAILY_LIMIT || '3', 10),
+
+  // --- Добавление материалов/фурнитуры по ссылке (routes/catalogLinks.js,
+  // services/catalogLinkFetch.js, ТЗ-ПАРСЕР-МАТЕРИАЛОВ.md) ---
+  // Сколько позиций можно передать за один вызов POST /catalog-link-refresh
+  // (кнопка «Обновить цены с сайта») — верхняя граница, чтобы этот
+  // эндпоинт нельзя было использовать как инструмент для нагрузки чужого
+  // сайта чужими руками.
+  catalogLinkMaxRefreshItems: parseInt(process.env.CATALOG_LINK_MAX_REFRESH_ITEMS || '60', 10),
 };

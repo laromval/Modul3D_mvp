@@ -14,7 +14,7 @@
 (function () {
 // Версия сборки — показывается во вкладке браузера и в шапке.
 // При выпуске новой версии меняется только эта строка.
-const APP_VERSION = 'v262';
+const APP_VERSION = 'v266';
 
 // Номер версии выводим ПЕРВЫМ делом: если дальше что-то упадёт, по нему сразу
 // видно, какая сборка открыта.
@@ -159,7 +159,7 @@ const state = {
   // историю отмены/файл проекта не попадает.
   libCollapsed: {},
   // Показаны ли дочерние узлы ПЕРВОГО уровня верхнеуровневой категории
-  // («Листовые материалы»/«Материалы фасадов»/«Кромка»/«Стекло», см.
+  // («Листовые материалы»/«Виды фасадов»/«Кромка»/«Стекло», см.
   // libTopCategoryHtml) — { sheet: false, facade: false, edge: false, glass:
   // false }. Отдельно от libCollapsed выше по той же причине (см. коммент
   // там): сама категория не сворачивается как единое целое, только кликом
@@ -223,14 +223,16 @@ const state = {
   // пог.метр), эта колонка их не подменяет. Чисто UI-состояние, как
   // libraryTab выше: в историю отмены/файл проекта не попадает.
   libPriceUnit: 'native',
-  // Свёрнутость колонок Длина/Ширина/Толщина («± характеристики», см.
-  // libTableHead/libLeafTableHtml) — ОБЩАЯ на всю Библиотеку (как
-  // libPriceUnit выше), а не своя у каждой открытой таблицы: одна и та же
-  // кнопка в любой из одновременно открытых таблиц сворачивает/разворачивает
-  // их все разом — цель именно в этом (высвободить место под 3D-сцену, а не
-  // сравнивать таблицы между собой в разных режимах). Чисто UI-состояние,
-  // сессионное.
-  libCharsCollapsed: false,
+  // Свёрнутость колонок Длина/Ширина/Толщина (кнопка «Характеристики
+  // листа», см. libTableHead/libLeafTableHtml) — ОБЩАЯ на всю Библиотеку
+  // (как libPriceUnit выше), а не своя у каждой открытой таблицы: одна и та
+  // же кнопка в любой из одновременно открытых таблиц сворачивает/
+  // разворачивает их все разом — цель именно в этом (высвободить место под
+  // 3D-сцену, а не сравнивать таблицы между собой в разных режимах).
+  // Дефолт true (свёрнуто) — при первом входе в Библиотеку панель уже и
+  // компактна (см. .lib-wide.lib-chars-collapsed в style.css). Чисто
+  // UI-состояние, сессионное.
+  libCharsCollapsed: true,
   // Строка таблицы материалов, выделенная кликом (см. libRowHtml/
   // initLibraryPanel) — { group, key } или null. group/key — то же, что
   // читает libFindItem (group — истинное происхождение позиции: decors/
@@ -241,6 +243,34 @@ const state = {
   // Библиотеки и при фокусе на другом листе дерева (см. initLibraryPanel).
   // Чисто UI-состояние, в историю/файл проекта не попадает.
   libSelectedRow: null,
+  // Форма «Добавить по ссылке» (панель «Библиотека → Материалы»/«Фурнитура»,
+  // см. openLibLinkForm/libLinkFormHtml) — null, пока форма закрыта, иначе
+  // { kind: 'materials'|'hardware', top, group, path (у 'materials') |
+  // hwCategory (у 'hardware'), step: 'input'|'loading'|'confirm', siteId,
+  // url, error, draft } — draft приходит из POST /catalog-link-parse.
+  // Значения полей самого экрана подтверждения (название/цена/категория/
+  // инженерные поля фурнитуры) в state НЕ дублируются — читаются напрямую из
+  // DOM формы в момент сохранения (см. libLinkReadFormValues/
+  // libLinkSaveSubmit), чтобы не перерисовывать всю форму на каждое нажатие
+  // клавиши. Чисто UI-состояние, в историю отмены/файл проекта не попадает.
+  libLinkForm: null,
+  // Список поддерживаемых сайтов для формы «Добавить по ссылке» (см.
+  // loadLibLinkSites) — null, пока не загружен ни разу, [] — загружен (пуст
+  // или запрос не удался, см. libLinkSitesError). Кэшируется на всю сессию.
+  libLinkSites: null,
+  libLinkSitesLoading: false,
+  libLinkSitesError: null,
+  // Промис текущей/последней загрузки списка сайтов (см. loadLibLinkSites) —
+  // нужен, чтобы «Обновить цены с сайта» (refreshCatalogLinkedPrices) могла
+  // ДОЖДАТЬСЯ список, если он ещё не подгружен (раньше грузился только при
+  // открытии формы «Добавить по ссылке»), не запуская второй параллельный
+  // запрос, если загрузка уже идёт.
+  libLinkSitesPromise: null,
+  // Статус кнопки «Обновить цены с сайта» (см. refreshCatalogLinkedPrices) —
+  // libLinkRefreshBusy: запрос выполняется прямо сейчас; libLinkRefreshResult:
+  // null, пока не запускали, иначе { updated, failed } или { error }.
+  libLinkRefreshBusy: false,
+  libLinkRefreshResult: null,
   // Текст в строке поиска по вкладкам модулей проекта (moduleTabsBlock,
   // поле видно только когда модулей больше 8 — см. там же). Чисто
   // UI-состояние, как libraryTab выше: в историю отмены/файл проекта не
@@ -278,16 +308,28 @@ const state = {
 };
 
 // ---------------------------------------------------------------------------
-// Правки каталога материалов (панель «Библиотека → Материалы»): заводской
-// снимок + восстановление — общий механизм и для отката к заводским
-// настройкам (см. logoutBtn ниже), и для подгрузки правок, сохранённых на
-// сервере (см. fetchAccount() и scheduleCatalogSave() в разделе «Аккаунт»
-// ниже). ВАЖНО: DECORS/BACK_MATERIALS и window.Modul3D.catalog.* — это
-// ссылки на массивы/объекты, захваченные ОДИН РАЗ при загрузке скрипта (см.
-// деструктуризацию выше) — восстановление обязано мутировать их НА МЕСТЕ
-// (как и libSaveEdit/libAddRow), а не переприсваивать, иначе весь остальной
-// код, читающий голые идентификаторы DECORS/BACK_MATERIALS, не увидит
-// изменений.
+// Правки каталога материалов И фурнитуры (панель «Библиотека → Материалы» /
+// «Фурнитура»): заводской снимок + восстановление — общий механизм и для
+// отката к заводским настройкам (см. logoutBtn ниже), и для подгрузки правок,
+// сохранённых на сервере (см. fetchAccount() и scheduleCatalogSave() в
+// разделе «Аккаунт» ниже). Четыре источника фурнитуры (HARDWARE_PRICES/
+// HANDLES/LIFTS/FASTENER_PRICES) добавлены сюда вместе с фичей «Добавить по
+// ссылке» (см. libLinkSaveHardware/refreshCatalogLinkedPrices) — раньше
+// правки фурнитуры вообще не попадали в снимок (см. историю libSaveEdit/
+// libAddRow: их специально пропускали для group.indexOf('hw:')==0/'hwadd:'),
+// то есть жили только в памяти вкладки и терялись при перезагрузке; для
+// позиций, добавленных по ссылке (sourceUrl/sourceSiteId должны переживать
+// перезагрузку — иначе «Обновить цены с сайта» после неё было бы нечего
+// обновлять), это уже не подходит, поэтому фурнитура теперь тоже часть
+// снимка/восстановления наравне с материалами. Встроенные позиции (HANDLES.
+// none, HANDLE_ORDER/LIFT_ORDER и т.п.) это не ломает — панель «Библиотека»
+// не даёт их удалить (см. комментарий у libFindHardwareUsages), они всегда
+// присутствуют в снимке. ВАЖНО: DECORS/BACK_MATERIALS и
+// window.Modul3D.catalog.* — это ссылки на массивы/объекты, захваченные
+// ОДИН РАЗ при загрузке скрипта (см. деструктуризацию выше) — восстановление
+// обязано мутировать их НА МЕСТЕ (как и libSaveEdit/libAddRow), а не
+// переприсваивать, иначе весь остальной код, читающий голые идентификаторы
+// DECORS/BACK_MATERIALS/HANDLES/LIFTS, не увидит изменений.
 // ---------------------------------------------------------------------------
 function snapshotCatalogCollections() {
   const cat = window.Modul3D.catalog;
@@ -298,40 +340,130 @@ function snapshotCatalogCollections() {
     edge: JSON.parse(JSON.stringify(cat.EDGE_PRICES)),
     glass: JSON.parse(JSON.stringify(cat.GLASS)),
     countertop: JSON.parse(JSON.stringify(cat.COUNTERTOP_MATERIALS || [])),
+    hardware: JSON.parse(JSON.stringify(cat.HARDWARE_PRICES)),
+    handles: JSON.parse(JSON.stringify(cat.HANDLES)),
+    lifts: JSON.parse(JSON.stringify(cat.LIFTS)),
+    fasteners: JSON.parse(JSON.stringify(cat.FASTENER_PRICES)),
     libExtraNodes: JSON.parse(JSON.stringify(state.libExtraNodes)),
   };
 }
 
 // Заводской снимок каталога — снимается ОДИН раз при загрузке скрипта, до
 // того как пользователь успеет что-либо отредактировать в «Библиотеке» и до
-// первой попытки подгрузить сохранённые на сервере правки.
+// первой попытки подгрузить сохранённые на сервере правки. Заодно служит
+// «эталоном» для мержа при восстановлении сохранённого снимка — см.
+// mergeCatalogItem/restoreCatalogFrom ниже.
 const CATALOG_DEFAULTS = snapshotCatalogCollections();
 
-// Мутирует все шесть коллекций каталога + state.libExtraNodes из blob (той
+// Поля, которые ВСЕГДА берём из свежего catalog.js (CATALOG_DEFAULTS), а не
+// из сохранённого на сервере снимка, — для позиции, которая уже существует в
+// заводском каталоге (сверяем по code/ключу), пользователь не может
+// отредактировать их через UI (нет такой ячейки в libEditCell), это чисто
+// метаданные разработчика. Без этого старый снимок, сохранённый ДО правки
+// catalog.js, навсегда прятал бы любое будущее обновление (новое фото, новую
+// ссылку, новую категорию) для каждого залогиненного пользователя — ровно то,
+// что случилось с фото/русскими ссылками mobilier.md 2026-09-15.
+const CATALOG_REFRESH_FIELDS = ['sourceUrl', 'categoryPath', 'subcategory', 'brand'];
+
+// image — особый случай: в одном поле лежит и заводское фото (обычная
+// http(s)-ссылка из catalog.js), и свой образец, загруженный пользователем
+// (data:-URL, см. openLibImagePicker/FileReader.readAsDataURL). Различить их
+// можно по формату значения. Если в снимке лежит http(s)-ссылка — это просто
+// копия старого заводского фото на момент сохранения, а не то, что
+// пользователь сам загрузил, поэтому её тоже обновляем на свежую; сам
+// загруженный файл (data:) — всегда сохраняем как есть.
+function mergeCatalogItem(savedItem, freshItem) {
+  const merged = Object.assign({}, savedItem);
+  CATALOG_REFRESH_FIELDS.forEach((f) => {
+    if (freshItem[f] !== undefined) merged[f] = freshItem[f]; else delete merged[f];
+  });
+  const savedIsUpload = typeof savedItem.image === 'string' && savedItem.image.indexOf('data:') === 0;
+  merged.image = savedIsUpload ? savedItem.image : freshItem.image;
+  return merged;
+}
+
+// Мержит сохранённый снимок МАССИВА (decors/back/countertop, позиции
+// сверяются по item.code) со свежим заводским: позиции, которых нет в
+// заводском наборе (пользователь добавил свои через «+ Добавить материал»),
+// проходят как есть; общие позиции — через mergeCatalogItem; заводские
+// позиции, которых нет в сохранённом снимке (появились в catalog.js уже
+// после того, как пользователь последний раз сохранял правки), остаются
+// заводскими, а не пропадают.
+function mergeCatalogArray(savedArr, freshArr) {
+  const freshByCode = {};
+  (freshArr || []).forEach((it) => { freshByCode[it.code] = it; });
+  const seen = {};
+  const merged = (savedArr || []).map((it) => {
+    seen[it.code] = true;
+    const fresh = freshByCode[it.code];
+    return fresh ? mergeCatalogItem(it, fresh) : it;
+  });
+  (freshArr || []).forEach((it) => { if (!seen[it.code]) merged.push(it); });
+  return merged;
+}
+
+// То же самое для коллекций-СЛОВАРЕЙ (facade/edge/hardware/handles/lifts/
+// fasteners — позиция сверяется по ключу объекта, не по code).
+function mergeCatalogObject(savedObj, freshObj) {
+  const merged = {};
+  Object.keys(savedObj || {}).forEach((k) => {
+    const fresh = (freshObj || {})[k];
+    merged[k] = fresh ? mergeCatalogItem(savedObj[k], fresh) : savedObj[k];
+  });
+  Object.keys(freshObj || {}).forEach((k) => { if (!(k in merged)) merged[k] = freshObj[k]; });
+  return merged;
+}
+
+// Мутирует все десять коллекций каталога + state.libExtraNodes из blob (той
 // же формы, что CATALOG_DEFAULTS/snapshotCatalogCollections()) — источник
-// blob может быть CATALOG_DEFAULTS (откат к заводским настройкам) или ответ
-// сервера GET /catalog-overrides (подгрузка сохранённых правок).
+// blob может быть CATALOG_DEFAULTS (откат к заводским настройкам — тогда
+// merge — это no-op, blob и «свежее» совпадают) или ответ сервера GET
+// /catalog-overrides (подгрузка сохранённых правок, тогда merge реально
+// подмешивает актуальные sourceUrl/image/categoryPath, см. mergeCatalogItem).
+// Старые сохранённые blob'ы (до фичи «Добавить по ссылке») просто не
+// содержат hardware/handles/lifts/fasteners — эти четыре ветки тогда
+// остаются как в коде по умолчанию, без ошибок. cat.GLASS — единственная
+// коллекция без ключей-позиций (один фиксированный материал, не
+// массив/словарь, см. комментарий у canDelete в libLeafTableHtml), поэтому
+// мержится напрямую через mergeCatalogItem, а не mergeCatalogObject.
 function restoreCatalogFrom(blob) {
   if (!blob) return;
   const cat = window.Modul3D.catalog;
-  if (blob.decors) { DECORS.length = 0; DECORS.push.apply(DECORS, blob.decors); }
-  if (blob.back) { BACK_MATERIALS.length = 0; BACK_MATERIALS.push.apply(BACK_MATERIALS, blob.back); }
+  const fresh = CATALOG_DEFAULTS;
+  if (blob.decors) { DECORS.length = 0; DECORS.push.apply(DECORS, mergeCatalogArray(blob.decors, fresh.decors)); }
+  if (blob.back) { BACK_MATERIALS.length = 0; BACK_MATERIALS.push.apply(BACK_MATERIALS, mergeCatalogArray(blob.back, fresh.back)); }
   if (blob.facade) {
     Object.keys(cat.FACADE_MATERIALS).forEach((k) => { delete cat.FACADE_MATERIALS[k]; });
-    Object.assign(cat.FACADE_MATERIALS, blob.facade);
+    Object.assign(cat.FACADE_MATERIALS, mergeCatalogObject(blob.facade, fresh.facade));
   }
   if (blob.edge) {
     Object.keys(cat.EDGE_PRICES).forEach((k) => { delete cat.EDGE_PRICES[k]; });
-    Object.assign(cat.EDGE_PRICES, blob.edge);
+    Object.assign(cat.EDGE_PRICES, mergeCatalogObject(blob.edge, fresh.edge));
   }
   if (blob.glass) {
     Object.keys(cat.GLASS).forEach((k) => { delete cat.GLASS[k]; });
-    Object.assign(cat.GLASS, blob.glass);
+    Object.assign(cat.GLASS, mergeCatalogItem(blob.glass, fresh.glass));
   }
   if (blob.countertop) {
     if (!cat.COUNTERTOP_MATERIALS) cat.COUNTERTOP_MATERIALS = [];
     cat.COUNTERTOP_MATERIALS.length = 0;
-    cat.COUNTERTOP_MATERIALS.push.apply(cat.COUNTERTOP_MATERIALS, blob.countertop);
+    cat.COUNTERTOP_MATERIALS.push.apply(cat.COUNTERTOP_MATERIALS, mergeCatalogArray(blob.countertop, fresh.countertop));
+  }
+  if (blob.hardware) {
+    Object.keys(cat.HARDWARE_PRICES).forEach((k) => { delete cat.HARDWARE_PRICES[k]; });
+    Object.assign(cat.HARDWARE_PRICES, mergeCatalogObject(blob.hardware, fresh.hardware));
+  }
+  if (blob.handles) {
+    Object.keys(cat.HANDLES).forEach((k) => { delete cat.HANDLES[k]; });
+    Object.assign(cat.HANDLES, mergeCatalogObject(blob.handles, fresh.handles));
+  }
+  if (blob.lifts) {
+    Object.keys(cat.LIFTS).forEach((k) => { delete cat.LIFTS[k]; });
+    Object.assign(cat.LIFTS, mergeCatalogObject(blob.lifts, fresh.lifts));
+  }
+  if (blob.fasteners) {
+    Object.keys(cat.FASTENER_PRICES).forEach((k) => { delete cat.FASTENER_PRICES[k]; });
+    Object.assign(cat.FASTENER_PRICES, mergeCatalogObject(blob.fasteners, fresh.fasteners));
   }
   if (blob.libExtraNodes) state.libExtraNodes = JSON.parse(JSON.stringify(blob.libExtraNodes));
 }
@@ -783,7 +915,7 @@ function curSym() {
 // равно берётся из data-raw (см. startCellEdit), поэтому клик по такой ячейке
 // открывает инпут с полным/настоящим значением, а не с тем, что нарисовано.
 // opts.extraClass — доп. класс на <td> (см. .lib-char-col — тумблер
-// «± характеристики», libIsCharsCollapsed).
+// «Характеристики листа», libIsCharsCollapsed).
 function libEditCell(group, key, field, type, value, opts) {
   opts = opts || {};
   const raw = value == null ? '' : String(value);
@@ -815,26 +947,24 @@ function libSourceHint() {
   return `<p class="hint">Цены сверены с сайтом <a href="https://${esc(src.site)}" target="_blank" rel="noopener">${esc(src.site)}</a> · обновлено ${esc(formatDateRu(src.lastSync))}</p>`;
 }
 
-// Компактная ссылка-иконка на карточку товара у поставщика (item.sourceUrl,
-// см. catalog.js) — только когда она есть в каталоге (не у всех позиций
-// нашлось соответствие на сайте). Отдельная маленькая <td>, НЕ часть
-// .lib-edit-cell: клик по ней должен открыть sourceUrl в новой вкладке, а не
-// провалиться в делегированный обработчик инлайн-редактирования (см.
-// initLibraryPanel → panel.addEventListener('click', ...) → startCellEdit) —
-// closest('.lib-edit-cell') на этой ячейке не сработает, конфликта нет.
-function libSourceLinkCell(item) {
-  if (!item || !item.sourceUrl) return '<td class="lib-source-cell"></td>';
-  return `<td class="lib-source-cell"><a class="lib-source-link" href="${esc(item.sourceUrl)}" target="_blank" rel="noopener" title="Открыть карточку товара на сайте поставщика">↗</a></td>`;
-}
-
-// Карточка цвета/образца — превью из поля image (dataURL) или заглушка «+»,
-// клик открывает системный выбор файла (см. openLibImagePicker).
-function libSwatchHtml(group, key, image) {
+// Карточка цвета/образца — превью из поля image (URL или dataURL) или
+// заглушка «+». Клик (см. initLibraryPanel → .lib-swatch): если у позиции
+// есть sourceUrl (см. catalog.js) — открывает карточку товара на сайте
+// поставщика в новой вкладке (это заменяет собой прежнюю отдельную колонку-
+// стрелку «↗», см. удалённую libSourceLinkCell — она стала избыточной, раз
+// кликабелен сам образец); sourceUrl передаётся через data-swatch-url, чтобы
+// обработчик клика не искал item повторно. Если sourceUrl нет — по-прежнему
+// открывает системный выбор файла (см. openLibImagePicker) — так и остаётся
+// для позиций без соответствия на сайте.
+function libSwatchHtml(group, key, image, sourceUrl) {
   // dataURL (base64) не содержит одинарных кавычек — безопасно подставлять
   // внутрь url('...') без экранирования; esc() экранирует внешний HTML-атрибут
-  // (двойные кавычки), а не саму CSS-строку.
+  // (двойные кавычки), а не саму CSS-строку. Обычный https-URL (см. поле
+  // image у большинства позиций catalog.js) по той же причине безопасен.
   const style = image ? ` style="background-image:url('${esc(image)}')"` : '';
-  return `<span class="lib-swatch${image ? '' : ' empty'}" data-swatch-group="${esc(group)}" data-swatch-key="${esc(key)}"${style} title="Загрузить образец"></span>`;
+  const urlAttr = sourceUrl ? ` data-swatch-url="${esc(sourceUrl)}"` : '';
+  const title = sourceUrl ? 'Открыть карточку товара на сайте' : 'Загрузить образец';
+  return `<span class="lib-swatch${image ? '' : ' empty'}" data-swatch-group="${esc(group)}" data-swatch-key="${esc(key)}"${style}${urlAttr} title="${esc(title)}"></span>`;
 }
 
 // ---------------------------------------------------------------------------
@@ -849,7 +979,7 @@ function libSwatchHtml(group, key, image) {
 // категории (кроме её заголовка) и показывает таблицу позиций, чей
 // categoryPath точно равен пути листа (см. state.libActiveLeaf/
 // libLeafTableHtml). Верхнеуровневый узел (сама категория — «Листовые
-// материалы»/«Материалы фасадов»/«Кромка»/«Стекло») не сворачивается сам,
+// материалы»/«Виды фасадов»/«Кромка»/«Стекло») не сворачивается сам,
 // только раскрывает/прячет своих детей (см. state.libCatOpen). Реальные
 // каталожные item могут иметь путь РАВНЫЙ пути ветки (не только листа) —
 // например позиция без бренда (categoryPath ['ДСП']), оказавшаяся в одной
@@ -905,7 +1035,54 @@ function libTopEntries(topCode) {
       item: Object.assign({}, it, { categoryPath: [COUNTERTOP_MATERIAL_LABEL[it.materialId] || it.materialId, it.brand || 'Без бренда'] }),
     }));
   }
+  // 'hw:<categoryKey>' — составной topCode вкладки «Фурнитура» (см. большой
+  // комментарий над libHardwareTopEntries ниже): каждая категория (Петли/
+  // Ручки/...) — своё НЕЗАВИСИМОЕ дерево верхнего уровня, как и у пяти веток
+  // «Материалов» выше, без общей обёртки «Фурнитура» (убрана 2026-09-15).
+  if (topCode.indexOf('hw:') === 0) return libHardwareTopEntries(cat, topCode.slice(3));
   return [];
+}
+
+// Записи ОДНОЙ категории вкладки «Фурнитура» (topCode 'hw:<categoryKey>',
+// categoryKey — ключ из HARDWARE_CATEGORY_ORDER, например 'hinge'/'handle') —
+// тот же приём, что и у 'edge'/'countertop' выше: позиции четырёх источников
+// каталога (HARDWARE_PRICES/HANDLES/LIFTS/FASTENER_PRICES, HANDLES.none —
+// служебная UI-заглушка «без ручки», в дерево не попадает) фильтруются по
+// item.category === categoryKey и собираются в дерево ЭТОЙ ОДНОЙ категории —
+// потому что у фурнитуры нет собственного поля categoryPath (как и у
+// 'countertop'), его вычисляем на лету из item.subcategory (реальный бренд/
+// линейка с сайта, см. catalog.js) либо item.brand (у LIFTS) — «фирма» в
+// терминах пользователя. До 2026-09-15 категория (item.category →
+// HARDWARE_CATEGORY_LABEL) была ПЕРВЫМ сегментом этого же categoryPath под
+// единой обёрткой topCode 'hardware' — теперь она вынесена в сам topCode/
+// заголовок (см. libraryHardwareBlock), поэтому categoryPath позиции — это
+// уже ТОЛЬКО подкатегория/бренд, если он есть: [sub] либо [] (позиции без
+// subcategory/brand, например hinge/hingeGlass, остаются с пустым путём и
+// показываются как «свои» позиции корня дерева этой категории — см.
+// libTopCategoryHtml, либо как обычный лист-заголовок, если во всей
+// категории брендов вообще нет, например 'plinth'). group записи —
+// 'hw:<src>', то же значение, что читают libFindItem/libSaveEdit ниже;
+// item.key — ключ соответствующего объекта каталога (сам объект своего
+// ключа не знает, тот же приём, что и у 'edge').
+function libHardwareTopEntries(cat, categoryKey) {
+  const sources = [
+    ['hw', cat.HARDWARE_PRICES, null],
+    ['handles', cat.HANDLES, ['none']],
+    ['lifts', cat.LIFTS, null],
+    ['fasteners', cat.FASTENER_PRICES, null],
+  ];
+  const out = [];
+  sources.forEach(([src, obj, skipKeys]) => {
+    Object.keys(obj || {}).forEach((key) => {
+      if (skipKeys && skipKeys.indexOf(key) >= 0) return;
+      const it = obj[key];
+      if (it.category !== categoryKey) return;
+      const sub = it.subcategory || it.brand || null;
+      const categoryPath = sub ? [sub] : [];
+      out.push({ group: 'hw:' + src, item: Object.assign({ key }, it, { categoryPath }) });
+    });
+  });
+  return out;
 }
 
 // Все известные пути узлов категории — из реальных позиций каталога
@@ -1040,7 +1217,10 @@ function libDeleteNode(topCode, path) {
 // таблицей подкатегории, а не в каждой строке (см. item.priceNote в
 // catalog.js: GLASS, GLASS-4, FAC-WOOD-FILON, FAC-WOOD-FRAME). Внутри одной
 // подкатегории у customOrder-позиций формулировка совпадает — берём первую
-// найденную.
+// найденную. Тот же item.priceNote заполняют и позиции материалов/фурнитуры,
+// сохранённые через «Добавить по ссылке» у вариативных товаров (см.
+// libLinkSaveMaterial/libLinkSaveHardware) — вызывается и из
+// libLeafTableHtml (материалы), и из libHardwareLeafTableHtml (фурнитура).
 function libPriceNoteHtml(items) {
   const withNote = items.find((it) => it && it.priceNote);
   if (!withNote) return '';
@@ -1062,10 +1242,19 @@ function libPriceNoteHtml(items) {
 // под заказ — customOrder, цена уже за м², без фиксированного листа),
 // 'edge' (EDGE_PRICES — width/thickness/price за пог.м), 'countertop'
 // (COUNTERTOP_MATERIALS — maxLength/depth/pricePerMeter).
+// Признак 'area' — ТОЛЬКО it.customOrder (ровно то же поле, на которое
+// делится specification.js, см. sheetArea/customOrder там) — раньше сюда
+// же подмешивался it.unit === 'м²' как «более дешёвая» замена, но это
+// ложный сигнал: сайт-источник может показывать цену листового материала
+// «за м²» ради удобства (см. FAC-MDF/mobilier.md), при этом физический
+// лист фиксированного размера у него есть и sheetW/sheetH обязаны быть
+// заполнены — такая позиция обязана остаться 'sheet', иначе колонки
+// «Длина»/«Ширина» пропадают из таблицы и становятся нередактируемыми,
+// хотя сами данные на месте.
 function libItemKind(group, it) {
   if (group === 'edge') return 'edge';
   if (group === 'countertop') return 'countertop';
-  if (it && (it.customOrder || it.unit === 'м²')) return 'area';
+  if (it && it.customOrder) return 'area';
   return 'sheet';
 }
 // Поле каталога, отвечающее за колонку «Длина» / «Ширина» — null, если у
@@ -1303,8 +1492,8 @@ function libSheetShortName(it) {
 // сжимался вместе с ними, из-за чего шапка и тело расходились по ширине
 // (баг, найден 2026-09-11). Исправление — не только НЕ рисовать сами
 // колонки в разметке при collapsed, но и вынести тумблер ИЗ <thead> вообще
-// (см. libLeafTableHtml — теперь это отдельная кнопка-ссылка НАД таблицей,
-// как «+ Добавить материал» под ней), чтобы <thead> ни в одном состоянии не
+// (см. libLeafTableHtml — теперь это отдельная кнопка НАД таблицей, как
+// «+ Добавить материал» под ней), чтобы <thead> ни в одном состоянии не
 // нуждался в colspan/rowspan — тогда физическое число колонок в шапке и
 // теле совпадает тривиально, само собой. Ширины 76px (Длина/Ширина/Толщина)
 // и 82px (Цена) — раньше были 84/84/84/118px, рассчитаны под ЗАГЛАВНЫЕ
@@ -1324,13 +1513,13 @@ function libSheetShortName(it) {
 // не в 3+ (пример «H1180 ST37 Дуб Халифакс натуральный», см. catalog.js).
 function libColgroup(pickMode, collapsed) {
   const charCols = collapsed ? '' : `<col class="lib-char-col" style="width:76px"><col class="lib-char-col" style="width:76px"><col class="lib-char-col" style="width:76px">`;
-  return `<colgroup><col><col style="width:26px"><col style="width:72px">`
+  return `<colgroup><col><col style="width:72px">`
     + charCols
     + `<col style="width:82px">`
     + `${pickMode ? '<col style="width:76px">' : ''}</colgroup>`;
 }
 // Заголовок — ОДНА строка <thead> (никаких rowspan/colspan, см. коммент у
-// libColgroup выше — тумблер «± характеристики» больше не здесь), Длина/
+// libColgroup выше — кнопка «Характеристики листа» больше не здесь), Длина/
 // Ширина/Толщина рисуются, только когда !collapsed — раз колонок в теле нет
 // (см. libColgroup/libRowHtml), то и заголовков под ними быть не должно.
 // Подписи Длина/Ширина/Толщина — БЕЗ «, мм»: при трёх колонках по 84px
@@ -1350,7 +1539,6 @@ function libTableHead(pickMode, collapsed, tableKey) {
   return `<thead>
     <tr>
       <th class="lib-th-filter"><span class="dth-label">Наименование</span>${filterBtn(0)}</th>
-      <th></th>
       <th>Образец</th>
       ${charsHeadCells}
       <th class="lib-th-filter"><span class="dth-label">${libPriceUnitHeaderHtml()}</span>${filterBtn(4)}</th>
@@ -1376,7 +1564,7 @@ const libFilterRowsCache = {};
 // libraryMaterialsBlock) строки одной таблицы приходят из decors/back/facade
 // одновременно, и каждая правится через libEditCell(entry.group, ...), а не
 // через код категории. opts.pickMode — доп. кнопка «Выбрать» (см.
-// libColgroup). opts.collapsed — «± характеристики» (см. libLeafTableHtml):
+// libColgroup). opts.collapsed — «Характеристики листа» (см. libLeafTableHtml):
 // при true ячейки Длина/Ширина/Толщина вообще не выводятся (не просто
 // прячутся CSS — см. коммент у libColgroup, почему). data-row-group/
 // data-row-key — клик по строке выделяет её (см. state.libSelectedRow/
@@ -1430,8 +1618,7 @@ function libRowHtml(entry, opts) {
         data-row-idx="${opts.rowIdx != null ? opts.rowIdx : ''}"
         class="${isSelected ? 'lib-row-selected' : ''}">
       ${nameCell}
-      ${libSourceLinkCell(it)}
-      <td>${libSwatchHtml(group, key, it.image)}</td>
+      <td>${libSwatchHtml(group, key, it.image, it.sourceUrl)}</td>
       ${lengthCell}
       ${widthCell}
       ${thicknessCell}
@@ -1471,16 +1658,26 @@ function libLeafTableHtml(topCode, path, entries, opts) {
   libFilterRowsCache[charsKey] = [];
   const rowsHtml = entries.map((e, i) => libRowHtml(e, { pickMode, collapsed, tableKey: charsKey, rowIdx: i })).join('');
   const items = entries.map((e) => e.item);
-  const colCount = (collapsed ? 4 : 7) + (pickMode ? 1 : 0);
+  const colCount = (collapsed ? 3 : 6) + (pickMode ? 1 : 0);
   const emptyRow = entries.length ? '' : `<tr><td colspan="${colCount}" class="hint">Пока нет позиций</td></tr>`;
   const addGroup = topCode === 'edge' ? 'edge' : ((opts.addGroupMap && opts.addGroupMap[path[0]]) || opts.addDefaultGroup || topCode);
   const addHtml = opts.addLabel
     ? `<button type="button" class="link-btn lib-add" data-add="${esc(addGroup)}" data-add-path="${esc(path.join('::'))}">${esc(opts.addLabel)}</button>`
     : '';
+  // «+ Добавить по ссылке» (см. openLibLinkForm/libLinkFormHtml) — рядом с
+  // обычным «+ Добавить материал», тот же контекст (topCode/addGroup/path)
+  // определяет, в какой массив каталога попадёт позиция и какая ветка
+  // дерева предложена по умолчанию. Сама форма рисуется один раз вверху
+  // вкладки «Материалы» (см. libraryMaterialsBlock), а не здесь — проще,
+  // чем целиться конкретно в место клика среди произвольно раскрытых ветвей
+  // дерева.
+  const linkAddHtml = opts.addLabel
+    ? `<button type="button" class="link-btn lib-add-by-link" data-link-kind="materials" data-link-top="${esc(topCode)}" data-link-group="${esc(addGroup)}" data-link-path="${esc(path.join('::'))}">+ Добавить по ссылке</button>`
+    : '';
   // «− Удалить материал» — только там, где вообще есть массив/объект
   // каталога, из которого можно удалить строку. «Стекло» (topCode 'glass') —
   // единственное исключение: cat.GLASS не массив, а один фиксированный
-  // объект, удалять там нечего (у GLASS-4 внутри «Материалов фасадов» такое
+  // объект, удалять там нечего (у GLASS-4 внутри «Видов фасадов» такое
   // ограничение уже не действует — FACADE_MATERIALS обычный объект-каталог).
   const canDelete = topCode !== 'glass';
   const sel = state.libSelectedRow;
@@ -1491,20 +1688,95 @@ function libLeafTableHtml(topCode, path, entries, opts) {
   const delHtml = canDelete
     ? `<button type="button" class="link-btn lib-row-del" ${selectedHere ? '' : 'disabled'}${selectedHere ? '' : ` title="${esc(LIB_ROW_DEL_HINT)}"`}>− Удалить материал</button>`
     : '';
-  const actionsHtml = (addHtml || delHtml) ? `<div class="lib-leaf-actions">${addHtml}${delHtml}</div>` : '';
-  // «± характеристики» — ссылка НАД таблицей, а не заголовок внутри <thead>
-  // (см. коммент у libColgroup/libTableHead, почему): общий на всю
+  const actionsHtml = (addHtml || linkAddHtml || delHtml) ? `<div class="lib-leaf-actions">${addHtml}${linkAddHtml}${delHtml}</div>` : '';
+  // Кнопка «Характеристики листа» — НАД таблицей, а не заголовок внутри
+  // <thead> (см. коммент у libColgroup/libTableHead, почему): общий на всю
   // Библиотеку тумблер (state.libCharsCollapsed), клик в любой из открытых
   // таблиц сворачивает/разворачивает колонки Длина/Ширина/Толщина везде
   // разом (обработчик — делегированный click на .lib-chars-toggle, см.
   // initLibraryPanel, ему всё равно, внутри таблицы кнопка или снаружи).
-  const charsToggleLabel = (collapsed ? '+' : '−') + ' характеристики';
-  const charsToggleHtml = `<button type="button" class="link-btn lib-chars-toggle" data-chars-toggle="1" title="Показать/скрыть длину, ширину, толщину">${esc(charsToggleLabel)}</button>`;
+  // Подпись статична («Характеристики листа», без +/− префикса) — текущее
+  // состояние (характеристики показаны/скрыты) отражает класс .active на
+  // самой кнопке, не текст (см. .lib-chars-btn в style.css).
+  const charsToggleHtml = `<button type="button" class="lib-chars-btn lib-chars-toggle${collapsed ? '' : ' active'}" data-chars-toggle="1" title="Показать/скрыть длину, ширину, толщину">Характеристики листа</button>`;
   return `
     <div class="lib-leaf-body">
       ${charsToggleHtml}
       ${libPriceNoteHtml(items)}
       <table class="lib-table${collapsed ? ' chars-collapsed' : ''}" style="table-layout:fixed" data-chars-key="${esc(charsKey)}">${libColgroup(pickMode, collapsed)}${libTableHead(pickMode, collapsed, charsKey)}<tbody>${rowsHtml}${emptyRow}</tbody></table>
+      ${actionsHtml}
+    </div>`;
+}
+
+// Диспетчер таблицы листа/ветки по topCode — единственное место, где дерево
+// категорий (libNodeHtml/libTopCategoryHtml, общее для «Материалов» и
+// «Фурнитуры») решает, КАКОЙ рендерер таблицы вызвать: у материалов колонки
+// заточены под лист/декор (Длина/Ширина/Толщина, переключатель единицы
+// цены — см. libLeafTableHtml), у фурнитуры их нет вовсе, зато есть Ед.
+// изм./Цена как есть в позиции (см. libHardwareLeafTableHtml ниже) — сами
+// узлы дерева, раскрытие/свёртывание, хлебные крошки и фокус на листе общие
+// и НЕ дублируются, различается только содержимое таблицы конкретного листа.
+function libLeafTableHtmlAny(topCode, path, entries, opts) {
+  return topCode.indexOf('hw:') === 0 ? libHardwareLeafTableHtml(path, entries, opts) : libLeafTableHtml(topCode, path, entries, opts);
+}
+
+// Таблица позиций одного листа/ветки вкладки «Фурнитура» — тот же
+// каркас, что у libLeafTableHtml (.lib-leaf-body/.lib-table/.lib-leaf-actions,
+// тот же libSwatchHtml для образца), но со своим набором колонок:
+// Наименование / Образец / Ед. изм. / Цена — у фурнитуры нет ни фиксированного
+// листа (Длина/Ширина), ни переключателя единицы цены материалов, цена и
+// единица измерения хранятся прямо в позиции и редактируются как есть.
+// entries — { group: 'hw:<src>', item } (см. libHardwareTopEntries) — все
+// позиции одного листа/ветки гарантированно одной и той же исходной
+// категории (topCode 'hw:<categoryKey>' сам её и задаёт, item.category
+// только подтверждает), поэтому raw-ключ категории для кнопок добавления
+// безопасно берём из первой записи; opts.hwCategory — тот же самый ключ,
+// передаётся явно из libraryHardwareBlock и подстраховывает пустой лист
+// (когда entries вообще нет).
+function libHardwareLeafTableHtml(path, entries, opts) {
+  opts = opts || {};
+  const category = (entries[0] && entries[0].item && entries[0].item.category) || opts.hwCategory || '';
+  const items = entries.map((e) => e.item);
+  const rowsHtml = entries.map((e) => {
+    const group = e.group;
+    const it = e.item;
+    const key = it.key;
+    const searchText = String(it.name || '').toLowerCase();
+    return `
+      <tr data-search="${esc(searchText)}">
+        ${libEditCell(group, key, 'name', 'text', it.name)}
+        <td>${libSwatchHtml(group, key, it.image, it.sourceUrl)}</td>
+        ${libEditCell(group, key, 'unit', 'text', it.unit || 'шт')}
+        ${libEditCell(group, key, 'price', 'number', it.price)}
+      </tr>`;
+  }).join('');
+  const emptyRow = entries.length ? '' : '<tr><td colspan="4" class="hint">Пока нет позиций</td></tr>';
+  // data-add-path — тот же путь листа/ветки, что и у материалов (см.
+  // libLeafTableHtml/libAddRow): позволяет новой позиции сразу попасть в ту
+  // же подкатегорию/фирму (path[0] — категория вынесена в topCode, см.
+  // libHardwareTopEntries), под которой нажали кнопку, а не всегда в
+  // «безбрендовый» уровень категории (см. libAddHardwareRow).
+  const addHtml = category
+    ? `<button type="button" class="link-btn lib-add" data-add="hwadd:${esc(category)}" data-add-path="${esc(path.join('::'))}">+ Добавить позицию</button>`
+    : '';
+  // data-link-path — тот же путь ветки (path[0] — подкатегория/бренд), что и
+  // у data-add-path кнопки «+ Добавить позицию» выше: без него позиция «по
+  // ссылке» попадала бы в категорию БЕЗ бренда, даже если кнопку нажали
+  // прямо под конкретной фирмой (см. libLinkSaveHardware).
+  const linkAddHtml = category
+    ? `<button type="button" class="link-btn lib-add-by-link" data-link-kind="hardware" data-link-hwcat="${esc(category)}" data-link-path="${esc(path.join('::'))}">+ Добавить по ссылке</button>`
+    : '';
+  const actionsHtml = (addHtml || linkAddHtml) ? `<div class="lib-leaf-actions">${addHtml}${linkAddHtml}</div>` : '';
+  return `
+    <div class="lib-leaf-body">
+      ${libPriceNoteHtml(items)}
+      <table class="lib-table" style="table-layout:fixed">
+        <colgroup><col><col style="width:72px"><col style="width:90px"><col style="width:110px"></colgroup>
+        <thead><tr>
+          <th>Наименование</th><th>Образец</th><th>Ед. изм.</th><th>Цена, ${esc(curSym())}</th>
+        </tr></thead>
+        <tbody>${rowsHtml}${emptyRow}</tbody>
+      </table>
       ${actionsHtml}
     </div>`;
 }
@@ -1523,16 +1795,22 @@ function libLeafTableHtml(topCode, path, entries, opts) {
 // бы после перерисовки — правильнее не показывать эти значки вовсе, чем
 // давать нерабочую кнопку. × оставлен — на реальных листьях он и так всегда
 // блокируется алертом (см. libNodeHasItems), а плейсхолдеры здесь взяться
-// неоткуда без +.
+// неоткуда без +. 'hw:<categoryKey>' (фурнитура, см. libraryHardwareBlock) —
+// та же ситуация, что и у 'countertop' (categoryPath вычисляется на лету из
+// item.subcategory/brand, см. libHardwareTopEntries), но × тоже убран: без
+// addIc плейсхолдеры (state.libExtraNodes['hw:...']) никогда не появляются,
+// поэтому кнопка на реальной ветке/листе всегда бы только показывала
+// бесполезный алерт «в категории есть товары» — не показываем её вовсе.
 function libTreeRowHtml(topCode, path, name, kind, collapsed) {
   const depth = path.length;
   const isTop = kind === 'top';
   const isLeaf = kind === 'leaf';
   const isCountertop = topCode === 'countertop';
+  const isHardware = topCode.indexOf('hw:') === 0;
   const arrowHtml = isLeaf ? '<span class="lib-tree-arrow"></span>' : `<span class="lib-tree-arrow">${collapsed ? '▸' : '▾'}</span>`;
-  const renameIc = (isTop || isCountertop) ? '' : '<span class="lib-tree-ic" data-tree-rename="1" title="Переименовать">✎</span>';
-  const addIc = (isLeaf || isCountertop) ? '' : '<span class="lib-tree-ic" data-tree-add="1" title="Добавить категорию">+</span>';
-  const delIc = isTop ? '' : '<span class="lib-tree-ic" data-tree-del="1" title="Удалить">×</span>';
+  const renameIc = (isTop || isCountertop || isHardware) ? '' : '<span class="lib-tree-ic" data-tree-rename="1" title="Переименовать">✎</span>';
+  const addIc = (isLeaf || isCountertop || isHardware) ? '' : '<span class="lib-tree-ic" data-tree-add="1" title="Добавить категорию">+</span>';
+  const delIc = (isTop || isHardware) ? '' : '<span class="lib-tree-ic" data-tree-del="1" title="Удалить">×</span>';
   return `<div class="lib-tree-row${isTop ? ' lib-tree-top' : ''}" style="padding-left:${depth * 16}px"
       data-tree-node="1" data-kind="${kind}" data-top="${esc(topCode)}" data-path="${esc(path.join('::'))}">
     ${arrowHtml}<span class="lib-tree-name" data-tree-label="1">${esc(name)}</span><span class="lib-tree-actions">${renameIc}${addIc}${delIc}</span>
@@ -1553,7 +1831,7 @@ function libNodeHtml(topCode, path, opts) {
   if (!children.length) return libTreeRowHtml(topCode, path, name, 'leaf', false);
   const collapsed = libIsNodeCollapsed(topCode, path);
   const ownEntries = libEntriesAtPath(topCode, path);
-  const ownTableHtml = ownEntries.length ? libLeafTableHtml(topCode, path, ownEntries, opts) : '';
+  const ownTableHtml = ownEntries.length ? libLeafTableHtmlAny(topCode, path, ownEntries, opts) : '';
   const childrenHtml = children.map((seg) => libNodeHtml(topCode, path.concat([seg]), opts)).join('');
   return libTreeRowHtml(topCode, path, name, 'branch', collapsed)
     + `<div class="lib-tree-children${collapsed ? ' lib-collapsed' : ''}">${ownTableHtml}${childrenHtml}</div>`;
@@ -1584,23 +1862,41 @@ function libBreadcrumbHtml(topCode, path) {
 }
 
 // Верхнеуровневая категория целиком («Листовые материалы»/«Материалы
-// фасадов»/«Кромка»/«Стекло») — заголовок (сам никогда не прячется, кликом
-// раскрывает/прячет прямых детей, см. state.libCatOpen) → либо ПОЛНОЕ дерево
-// (обычная навигация), либо, если на этой категории сфокусирован лист (см.
-// state.libActiveLeaf), ТОЛЬКО хлебные крошки его пути + таблица — вся
-// остальная структура дерева этой категории скрыта.
+// фасадов»/«Кромка»/«Стекло», либо, начиная с 2026-09-15, каждая отдельная
+// категория фурнитуры «Петли»/«Ручки»/... — см. libraryHardwareBlock) —
+// заголовок (сам никогда не прячется, кликом раскрывает/прячет прямых детей,
+// см. state.libCatOpen) → либо ПОЛНОЕ дерево (обычная навигация), либо, если
+// на этой категории сфокусирован лист (см. state.libActiveLeaf), ТОЛЬКО
+// хлебные крошки его пути + таблица — вся остальная структура дерева этой
+// категории скрыта.
+//
+// ownEntries/noBranches ниже — позиции, чей categoryPath пуст (нет
+// подкатегории/бренда), лежащие ПРЯМО на корне дерева, а не в одной из его
+// ветвей: у пяти категорий «Материалов» такого не бывает (categoryPath
+// всегда непустой, см. libTopEntries), поэтому там ownTableHtml всегда
+// пустая строка — безопасный no-op. У «Фурнитуры» это ровно тот случай,
+// когда категория (например 'plinth' — «Крепление цоколя») не делится на
+// бренды вовсе: раньше (до выноса категории в topCode) такая категория была
+// обычным листом дерева на 1-м уровне общей обёртки 'hardware'; теперь она
+// САМА стала корнем дерева — noBranches форсирует показ её таблицы прямо
+// под заголовком, даже если ownEntries пуст (например категория ещё не
+// содержит ни одной позиции), иначе для неё не было бы вообще места
+// добавить первую позицию.
 function libTopCategoryHtml(topCode, title, opts) {
   const activeKey = state.libActiveLeaf[topCode] || null;
   let bodyHtml;
   if (activeKey) {
     const path = activeKey.split('::');
     bodyHtml = libBreadcrumbHtml(topCode, path)
-      + libLeafTableHtml(topCode, path, libEntriesAtPath(topCode, path), opts);
+      + libLeafTableHtmlAny(topCode, path, libEntriesAtPath(topCode, path), opts);
   } else {
     const open = !!state.libCatOpen[topCode];
     const topSegments = libChildSegments(topCode, []);
+    const ownEntries = libEntriesAtPath(topCode, []);
+    const noBranches = !topSegments.length;
+    const ownTableHtml = (ownEntries.length || noBranches) ? libLeafTableHtmlAny(topCode, [], ownEntries, opts) : '';
     const childrenHtml = topSegments.map((seg) => libNodeHtml(topCode, [seg], opts)).join('');
-    bodyHtml = `<div class="lib-tree-children${open ? '' : ' lib-collapsed'}">${childrenHtml}</div>`;
+    bodyHtml = `<div class="lib-tree-children${open ? '' : ' lib-collapsed'}">${ownTableHtml}${childrenHtml}</div>`;
   }
   return `
     <div class="lib-category" data-top-code="${esc(topCode)}">
@@ -1631,7 +1927,7 @@ Object.keys(COUNTERTOP_MATERIAL_LABEL).forEach((id) => { COUNTERTOP_MATERIAL_LAB
 // часть FACADE_MATERIALS, которая переезжает в объединённую категорию
 // «Листовые материалы» вместе с decors/back (см. libTopEntries выше);
 // «Массив»/«Алюминий»/«Стекло» — не плитные материалы, остаются в
-// «Материалы фасадов».
+// «Виды фасадов» (вкладка «Двери», см. libraryFacadesBlock).
 const SHEET_FACADE_SUBCATS = ['ДСП', 'МДФ-плита', 'Шпонированные плиты'];
 
 // Новая позиция листа объединённой категории «Листовые материалы» кладётся
@@ -1642,66 +1938,931 @@ const SHEET_FACADE_SUBCATS = ['ДСП', 'МДФ-плита', 'Шпонирова
 // BACK_MATERIALS. Для СОВСЕМ нового (заведённого кнопкой «+», ещё не
 // встречавшегося) первого сегмента используем addDefaultGroup (см.
 // libLeafTableHtml) — decors, тот же самый частый случай. Категорию
-// «Материалы фасадов» это не касается — там addGroupMap не передаётся,
-// всегда FACADE_MATERIALS (см. libAddRow: group === 'facade').
+// «Виды фасадов» это не касается — там addGroupMap не передаётся, всегда
+// FACADE_MATERIALS (см. libAddRow: group === 'facade').
 const SHEET_ADD_GROUP_MAP = { 'ДСП': 'decors', 'МДФ-плита': 'facade', 'Шпонированные плиты': 'facade', 'ХДФ/ДВП': 'back' };
 
 function libraryMaterialsBlock() {
   return `
     <h3>Материалы</h3>
+    ${libLinkTopBarHtml('materials')}
     ${libSourceHint()}
+    ${state.libLinkForm && state.libLinkForm.kind === 'materials' ? libLinkFormHtml(state.libLinkForm) : ''}
     ${libTopCategoryHtml('sheet', 'Листовые материалы', {
       pickable: true,
       addLabel: '+ Добавить материал', addGroupMap: SHEET_ADD_GROUP_MAP, addDefaultGroup: 'decors',
     })}
-    ${libTopCategoryHtml('facade', 'Материалы фасадов', { addLabel: '+ Добавить материал' })}
     ${libTopCategoryHtml('edge', 'Кромка', { addLabel: '+ Добавить кромку' })}
     ${libTopCategoryHtml('glass', 'Стекло', {})}
     ${libTopCategoryHtml('countertop', 'Столешницы', { addLabel: '+ Добавить столешницу', pickable: true })}`;
 }
 
-// Фурнитура собрана из ЧЕТЫРЁХ источников каталога (HARDWARE_PRICES,
-// HANDLES, LIFTS, FASTENER_PRICES) и сгруппирована по полю category —
-// порядок разделов и подписи берём из справочника каталога, чтобы не
-// разойтись с ним. HANDLES.none — служебная UI-заглушка «без ручки»
-// с ценой 0, а не закупочная позиция, поэтому в таблицу не попадает.
+// Фурнитура — та же архитектура дерева, что и «Материалы» (см. большой
+// комментарий над libTopEntries/libHardwareTopEntries): категория (Петли/
+// Ручки/...) → подкатегория/фирма (если есть) → таблица позиций. Раньше
+// здесь был плоский список h4-секций по HARDWARE_CATEGORY_ORDER, каждая —
+// одна таблица со всеми позициями категории разом; затем один общий
+// libTopCategoryHtml('hardware', 'Фурнитура', ...), под которым категории
+// открывались вторым уровнем — из-за этого над ними был лишний узел дерева
+// «Фурнитура», дублирующий заголовок <h3>Фурнитура</h3> над ним, и увидеть
+// сами категории (Петли/Направляющие/Ручки/...) можно было только раскрыв
+// его. С 2026-09-15 (по просьбе пользователя, полное соответствие
+// архитектуре «Материалов») каждая категория HARDWARE_CATEGORY_ORDER — СВОЁ
+// НЕЗАВИСИМОЕ дерево верхнего уровня со своим составным topCode
+// 'hw:<categoryKey>' (см. libTopEntries/libHardwareTopEntries), точно как
+// пять веток libraryMaterialsBlock — общей обёртки нет, категории видно
+// сразу без лишнего клика. Каждая категория держит свои НЕЗАВИСИМЫЕ
+// state.libCatOpen/state.libActiveLeaf/state.libCollapsed (ключ включает её
+// topCode) — не делят состояние открытости друг с другом, как было раньше.
 function libraryHardwareBlock() {
   const cat = window.Modul3D.catalog;
-  const order = cat.HARDWARE_CATEGORY_ORDER;
-  const label = cat.HARDWARE_CATEGORY_LABEL;
-  const grouped = {};
-  order.forEach((c) => { grouped[c] = []; });
-  const pushSrc = (srcObj, srcName, skipKeys) => {
-    Object.keys(srcObj || {}).forEach((k) => {
-      if (skipKeys && skipKeys.indexOf(k) >= 0) return;
-      const it = srcObj[k];
-      if (!grouped[it.category]) grouped[it.category] = [];
-      grouped[it.category].push({ src: srcName, key: k, item: it });
+  const order = cat.HARDWARE_CATEGORY_ORDER || [];
+  const label = cat.HARDWARE_CATEGORY_LABEL || {};
+  const categoriesHtml = order
+    .map((c) => libTopCategoryHtml('hw:' + c, label[c] || c, { hwCategory: c }))
+    .join('');
+  return `
+    <h3>Фурнитура</h3>
+    ${libLinkTopBarHtml('hardware')}
+    ${libSourceHint()}
+    ${state.libLinkForm && state.libLinkForm.kind === 'hardware' ? libLinkFormHtml(state.libLinkForm) : ''}
+    ${categoriesHtml}`;
+}
+
+// ---------------------------------------------------------------------------
+// «Добавить по ссылке» — материалы и фурнитура берутся прямо с сайта
+// поставщика (сервер парсит страницу и присылает черновик, см.
+// server/src/routes/catalogLinks.js: GET /catalog-link-sources, POST
+// /catalog-link-parse, POST /catalog-link-refresh), а не вводятся вручную
+// «на глаз», как в libAddRow/libAddHardwareRow. Позиция всё равно требует
+// подтверждения пользователем (экран с редактируемыми полями) — парсинг
+// может ошибиться, а инженерные поля сложной фурнитуры (holes/cc/
+// hardwareModelSlot/minH/maxH/maxW) сайт вообще не публикует.
+//
+// Форма — ОДНА на вкладку («Материалы» или «Фурнитура»), рисуется вверху
+// (см. libraryMaterialsBlock/libraryHardwareBlock), а не под каждой кнопкой
+// «+ Добавить по ссылке»: дерево категорий/список разделов фурнитуры может
+// показывать сразу несколько раскрытых веток, и целиться конкретно в место
+// клика было бы отдельной задачей ради минимального выигрыша в UX. Кнопка
+// лишь передаёт КОНТЕКСТ (topCode/addGroup/path у материалов, категория у
+// фурнитуры, см. data-link-* атрибуты в libLeafTableHtml/libraryHardwareBlock).
+//
+// Пока форма открыта (state.libLinkForm), значения полей экрана
+// подтверждения читаются НАПРЯМУЮ из DOM в момент сохранения (см.
+// libLinkReadFormValues/libLinkSaveSubmit) — состояние не дублирует их на
+// каждое нажатие клавиши, полная перерисовка панели нужна только при смене
+// шага (input → loading → confirm) и при открытии/закрытии формы.
+// ---------------------------------------------------------------------------
+
+// Список сайтов для выпадающего списка — ЕДИНСТВЕННЫЙ источник правды
+// сервер (см. п.1.2 ТЗ): список парсеров может расшириться позже без правок
+// клиента. Кэшируется на сессию, перезапрашивать незачем (список не меняется
+// на лету) — грузится один раз при первом открытии формы «Добавить по ссылке».
+// Возвращает промис со списком сайтов — уже загруженным (state.libLinkSites),
+// уже идущим в фоне (state.libLinkSitesPromise, повторный вызов не дублирует
+// запрос) или свежезапущенным. Раньше функция была fire-and-forget (сама
+// перерисовывала форму по готовности и ничего не возвращала) — теперь этого
+// недостаточно: «Обновить цены с сайта» (см. refreshCatalogLinkedPrices)
+// должна ДОЖДАТЬСЯ список, чтобы определить sourceSiteId встроенных позиций
+// каталога по домену (см. libLinkResolveSiteId), а не только показать его в
+// уже открытой форме «Добавить по ссылке».
+function loadLibLinkSites() {
+  if (state.libLinkSites) return Promise.resolve(state.libLinkSites);
+  if (state.libLinkSitesLoading) return state.libLinkSitesPromise || Promise.resolve([]);
+  const token = getAuthToken();
+  if (!token) return Promise.resolve([]);
+  state.libLinkSitesLoading = true;
+  state.libLinkSitesPromise = fetch(`${AUTH_API_BASE}/catalog-link-sources`, { headers: { authorization: 'Bearer ' + token } })
+    .then((res) => res.json().catch(() => ({})).then((data) => ({ ok: res.ok, data })))
+    .then(({ ok, data }) => {
+      state.libLinkSites = ok && Array.isArray(data.sites) ? data.sites : [];
+      state.libLinkSitesError = ok ? null : ((data && data.error) || 'Не удалось получить список сайтов.');
+    })
+    .catch((err) => {
+      state.libLinkSites = [];
+      state.libLinkSitesError = err.message;
+    })
+    .finally(() => {
+      state.libLinkSitesLoading = false;
+      if (state.libLinkForm) renderLibraryPanel();
+    })
+    .then(() => state.libLinkSites || []);
+  return state.libLinkSitesPromise;
+}
+
+function libLinkSitesOptionsHtml(selectedId) {
+  if (state.libLinkSitesLoading || state.libLinkSites == null) {
+    return '<option value="">Загрузка списка сайтов…</option>';
+  }
+  if (!state.libLinkSites.length) {
+    return `<option value="">${esc(state.libLinkSitesError || 'Нет доступных сайтов')}</option>`;
+  }
+  const placeholder = '<option value="">— выберите сайт —</option>';
+  const opts = state.libLinkSites.map((s) => `<option value="${esc(s.id)}" ${s.id === selectedId ? 'selected' : ''}>${esc(s.name)} (${esc(s.domain)})</option>`).join('');
+  return placeholder + opts;
+}
+
+// Проверка домена ДО отправки на сервер (п.5 ТЗ) — чисто клиентская подсказка,
+// сервер всё равно перепроверяет сам (защита от SSRF), это не замена той
+// проверки, а более быстрая обратная связь пользователю.
+function libLinkDomainMatches(url, domain) {
+  if (!url || !domain) return false;
+  let host;
+  try { host = new URL(String(url).trim()).hostname.toLowerCase(); } catch (err) { return false; }
+  host = host.replace(/^www\./, '');
+  const dom = String(domain).toLowerCase().replace(/^www\./, '');
+  return host === dom || host.endsWith('.' + dom);
+}
+
+// Определяет id сайта (см. state.libLinkSites) по домену sourceUrl позиции —
+// переиспользует ТУ ЖЕ проверку домена, что и libLinkDomainMatches выше, не
+// вторую отдельную. Нужна для «Обновить цены с сайта» (см. libLinkedItemsList
+// ниже): позиции, добавленные через форму «Добавить по ссылке», уже несут
+// sourceSiteId явно, но 72 встроенные позиции каталога (DECORS/BACK_MATERIALS/
+// FACADE_MATERIALS/HARDWARE_PRICES/HANDLES/LIFTS и т.д. из catalog.js, цены
+// сверены с mobilier.md ещё до появления формы) — только sourceUrl без
+// sourceSiteId, id сайта для них нужно вычислить на лету. Ни с одним
+// известным сайтом домен не совпал (например, сайт для этого магазина пока
+// не подключён/не поддерживается парсером) — возвращает null, вызывающий код
+// такую позицию просто пропускает.
+function libLinkResolveSiteId(url) {
+  const sites = state.libLinkSites || [];
+  const site = sites.find((s) => libLinkDomainMatches(url, s.domain));
+  return site ? site.id : null;
+}
+
+// Открывает форму — kind: 'materials' (opts: top/group/path — тот же
+// контекст, что у «+ Добавить материал», см. libLeafTableHtml) или
+// 'hardware' (opts: hwCategory — раздел фурнитуры, см. libraryHardwareBlock).
+function openLibLinkForm(kind, opts) {
+  if (!requireLibraryEditAuth()) return;
+  state.libLinkForm = Object.assign({ kind, step: 'input', siteId: '', url: '', error: '', draft: null }, opts || {});
+  loadLibLinkSites();
+  renderLibraryPanel();
+  const panel = document.getElementById('libraryPanel');
+  if (panel) panel.scrollTop = 0;   // форма рисуется вверху вкладки — прокручиваем к ней
+}
+function closeLibLinkForm() {
+  state.libLinkForm = null;
+  renderLibraryPanel();
+}
+
+// «Проверить» (step: 'input' → 'loading' → 'confirm'/обратно на 'input' при
+// ошибке) — siteId/url к этому моменту уже актуальны в state.libLinkForm
+// (см. libLinkRevalidate, обновляет их на каждое изменение поля).
+async function libLinkCheckSubmit(panel) {
+  const form = state.libLinkForm;
+  if (!form) return;
+  const site = (state.libLinkSites || []).find((s) => s.id === form.siteId);
+  if (!site || !libLinkDomainMatches(form.url, site.domain)) return;
+  const token = getAuthToken();
+  if (!token) { form.error = 'Войдите в аккаунт, чтобы проверить ссылку.'; renderLibraryPanel(); return; }
+  form.error = '';
+  form.step = 'loading';
+  renderLibraryPanel();
+  try {
+    const res = await fetch(`${AUTH_API_BASE}/catalog-link-parse`, {
+      method: 'POST',
+      headers: { authorization: 'Bearer ' + token, 'content-type': 'application/json' },
+      body: JSON.stringify({ siteId: form.siteId, url: form.url }),
     });
-  };
-  pushSrc(cat.HARDWARE_PRICES, 'hw');
-  pushSrc(cat.HANDLES, 'handles', ['none']);
-  pushSrc(cat.LIFTS, 'lifts');
-  pushSrc(cat.FASTENER_PRICES, 'fasteners');
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || 'Не удалось получить данные с сайта.');
+    form.draft = data.draft || {};
+    form.step = 'confirm';
+  } catch (err) {
+    form.error = err.message;
+    form.step = 'input';
+  }
+  // Пользователь мог закрыть форму, пока шёл запрос (closeLibLinkForm
+  // обнуляет state.libLinkForm целиком) — не воскрешаем её после ответа.
+  if (state.libLinkForm === form) renderLibraryPanel();
+}
 
-  const sections = order.map((c) => {
-    const items = grouped[c] || [];
-    const rows = items.map(({ src, key, item }) => `
-      <tr data-search="${esc(String(item.name || '').toLowerCase())}">
-        ${libEditCell('hw:' + src, key, 'name', 'text', item.name)}
-        ${libSourceLinkCell(item)}
-        ${libEditCell('hw:' + src, key, 'unit', 'text', item.unit || 'шт')}
-        ${libEditCell('hw:' + src, key, 'price', 'number', item.price)}
-      </tr>`).join('');
-    return `
-      <h4 class="mat-sub">${esc(label[c] || c)}</h4>
-      <table class="lib-table"><thead><tr>
-        <th>Наименование</th><th></th><th>Ед. изм.</th><th>Цена, ${esc(curSym())}</th>
-      </tr></thead><tbody>${rows || '<tr><td colspan="4" class="hint">Пока нет позиций</td></tr>'}</tbody></table>
-      <button type="button" class="link-btn lib-add" data-add="hwadd:${c}">+ Добавить позицию</button>`;
+// Известные пути дерева категории topCode (см. libAllPaths) как готовый
+// список <option> «Раздел каталога» экрана подтверждения — переиспользует
+// ТУ ЖЕ структуру дерева, что и вся остальная «Библиотека» (libAddChildNode/
+// libChildSegments), без параллельного механизма выбора категории (п.5 ТЗ).
+function libLinkParentOptionsHtml(topCode, selectedJoined) {
+  const seen = new Set();
+  const uniq = [];
+  (topCode ? libAllPaths(topCode) : []).forEach((p) => {
+    const j = p.join('::');
+    if (!seen.has(j)) { seen.add(j); uniq.push(p); }
+  });
+  uniq.sort((a, b) => a.join('/').localeCompare(b.join('/'), 'ru', { sensitivity: 'base' }));
+  const rootSelected = selectedJoined === '' ? 'selected' : '';
+  const rootOpt = `<option value="" ${rootSelected}>— без раздела (верхний уровень) —</option>`;
+  const restOpt = uniq.map((p) => {
+    const j = p.join('::');
+    return `<option value="${esc(j)}" ${selectedJoined === j ? 'selected' : ''}>${esc(p.join(' › '))}</option>`;
   }).join('');
+  return rootOpt + restOpt;
+}
 
-  return `<h3>Фурнитура</h3>${libSourceHint()}${sections}`;
+// Раздел (существующий путь дерева) + новая подкатегория по умолчанию (п.3.3
+// ТЗ).
+//
+// Если форма открыта ИЗНУТРИ конкретной ветки дерева (form.path непустой —
+// его подставляет openLibLinkForm из opts.path, которым нажали «+ Добавить
+// по ссылке» в libLeafTableHtml, т.е. это заведомо существующий путь: чтобы
+// нажать кнопку, пользователь уже должен был туда дойти) — по умолчанию
+// предлагаем ИМЕННО её, а не пытаемся сматчить draft.categoryPath (хлебные
+// крошки сайта-источника) против дерева: у mobilier.md они почти всегда на
+// румынском/английском и практически никогда не совпадут по строке с
+// русским деревом каталога — раньше это заканчивалось предложением
+// создать нелепую категорию верхнего уровня из иностранных слов почти при
+// каждом добавлении. Хлебные крошки/бренд с сайта используются только как
+// подсказка для НОВОЙ подкатегории (обычно бренд) ПОД этой же веткой — и
+// только если есть основания думать, что это ДРУГОЙ бренд, чем уже открыт
+// (последний сегмент открытой ветки не совпадает без учёта регистра с
+// последним сегментом хлебных крошек/draft.brand); если бренд тот же —
+// предлагаем ветку как есть, без домысливания новой подкатегории.
+//
+// Если контекста нет (form.path пуст — форма открыта не из конкретной
+// ветки) — ищем в дереве этой же вкладки самый длинный УЖЕ существующий
+// префикс хлебных крошек сайта; он становится разделом, а остаток (обычно
+// бренд) — новой подкатегорией. Ничего не нашли вовсе — раздел не
+// предлагается, категория верхнего уровня из иностранных слов не создаётся.
+function libLinkDefaultCategorySplit(form) {
+  const draft = form.draft || {};
+  const formPath = Array.isArray(form.path) ? form.path.map((s) => String(s || '').trim()).filter(Boolean) : [];
+  const draftPath = Array.isArray(draft.categoryPath)
+    ? draft.categoryPath.map((s) => String(s || '').trim()).filter(Boolean) : [];
+  if (formPath.length) {
+    const canGuessBrand = form.group !== 'edge' && form.group !== 'countertop';
+    const openBrand = formPath[formPath.length - 1].toLowerCase();
+    const draftBrandGuess = draftPath.length ? draftPath[draftPath.length - 1]
+      : (!isBlankValue(draft.brand) ? String(draft.brand).trim() : '');
+    const isDifferentBrand = canGuessBrand && draftBrandGuess && draftBrandGuess.toLowerCase() !== openBrand;
+    return { parent: formPath.join('::'), newSegment: isDifferentBrand ? draftBrandGuess : '' };
+  }
+  const known = (form.top ? libAllPaths(form.top) : []).map((p) => p.join('::'));
+  if (draftPath.length) {
+    for (let cut = draftPath.length; cut >= 0; cut -= 1) {
+      const prefix = draftPath.slice(0, cut).join('::');
+      if (cut === 0 || known.indexOf(prefix) >= 0) {
+        return { parent: prefix, newSegment: draftPath.slice(cut).join(' / ') };
+      }
+    }
+  }
+  return { parent: '', newSegment: '' };
+}
+function libLinkCategoryPreviewLabel(split) {
+  const parentSegs = split.parent ? split.parent.split('::').filter(Boolean) : [];
+  const full = split.newSegment ? parentSegs.concat([split.newSegment]) : parentSegs;
+  return full.length ? full.join(' › ') : '(без раздела)';
+}
+
+// Раздел фурнитуры (Петли/Ручки/Механизмы/...) — те же HARDWARE_CATEGORY_ORDER/
+// HARDWARE_CATEGORY_LABEL, что и группировка таблиц в libraryHardwareBlock,
+// как список <option> для экрана подтверждения. Нужен, ТОЛЬКО когда форма
+// открыта без контекста конкретного раздела (см. libLinkTopBarHtml — точка
+// входа сверху вкладки «Фурнитура», hwCategory там не проставлен): из
+// конкретного раздела (кнопка «+ Добавить по ссылке» под его таблицей)
+// категория уже известна заранее и этот выбор не показывается.
+function libLinkHwCategoryOptionsHtml(selected) {
+  const cat = window.Modul3D.catalog;
+  const placeholder = `<option value="" ${selected ? '' : 'selected'}>— выберите раздел —</option>`;
+  const opts = (cat.HARDWARE_CATEGORY_ORDER || [])
+    .map((c) => `<option value="${esc(c)}" ${c === selected ? 'selected' : ''}>${esc(cat.HARDWARE_CATEGORY_LABEL[c] || c)}</option>`).join('');
+  return placeholder + opts;
+}
+
+// Значения по умолчанию, с которыми РЕАЛЬНО рендерится <select>/<input> в
+// libLinkHardwareExtraFieldsHtml ниже (например, «holes» у ручки открывается
+// уже с выбранным «2») — используются ТОЛЬКО чтобы посчитать первоначальное
+// disabled кнопки «Сохранить» ДО первого взаимодействия пользователя (см.
+// initialMissing в libLinkConfirmHtml), не расходясь с тем, что видно на
+// экране: без этого хинт «Заполните: количество отверстий» показывался бы
+// даже когда select уже показывает «2».
+function libLinkHardwareExtraDefaults(category) {
+  if (category === 'handle') return { holes: '2', cc: '' };
+  if (category === 'hinge') return { hardwareModelSlot: '' };
+  if (category === 'mechanism') return { minH: '', maxH: '', maxW: '' };
+  return {};
+}
+// Инженерные поля, которых нет на странице магазина (п.3.2 ТЗ) — набор полей
+// зависит от категории и совпадает с тем, что у этой категории уже реально
+// хранится в catalog.js (см. HANDLES/LIFTS/HARDWARE_PRICES.hinge выше по
+// файлу), а не выдуман заново.
+function libLinkHardwareExtraFieldsHtml(category) {
+  if (category === 'handle') {
+    return `
+      <div class="field"><label>Количество отверстий</label>
+        <select class="lib-link-extra" data-ef="holes">
+          <option value="1">1 (например, кнопка)</option>
+          <option value="2" selected>2 (скоба)</option>
+        </select>
+      </div>
+      <div class="field"><label>Межосевое расстояние (cc), мм</label>
+        <input type="number" class="lib-link-extra" data-ef="cc" placeholder="например, 128">
+      </div>`;
+  }
+  if (category === 'hinge') {
+    return `
+      <div class="field"><label>Тип присадки (модель в 3D)</label>
+        <select class="lib-link-extra" data-ef="hardwareModelSlot">
+          <option value="">— выберите —</option>
+          <option value="hingeCup">Стандартная — чашка Ø35</option>
+          <option value="hingeGlass">Для стеклянного фасада — Ø26</option>
+        </select>
+      </div>`;
+  }
+  if (category === 'mechanism') {
+    return `
+      <div class="field-row3">
+        <div class="field"><label>Мин. высота фасада, мм</label><input type="number" class="lib-link-extra" data-ef="minH"></div>
+        <div class="field"><label>Макс. высота фасада, мм</label><input type="number" class="lib-link-extra" data-ef="maxH"></div>
+        <div class="field"><label>Макс. ширина корпуса, мм</label><input type="number" class="lib-link-extra" data-ef="maxW"></div>
+      </div>`;
+  }
+  return '';
+}
+// Каких инженерных полей не хватает, чтобы разрешить сохранение (п.3.2 ТЗ —
+// без них позиция не сохраняется). isBlank отдельно от «не число ≥ 0»:
+// 0 — законное значение minH (у обычного подъёмника «от пола проёма»),
+// поэтому пустое поле и поле со значением 0 нужно различать явно.
+function libLinkHardwareMissing(category, extra) {
+  const missing = [];
+  const isBlank = (v) => v === undefined || v === null || String(v).trim() === '';
+  if (category === 'handle') {
+    const holes = Number(extra.holes);
+    if (isBlank(extra.holes) || (holes !== 1 && holes !== 2)) missing.push('количество отверстий');
+    if (holes === 2 && (isBlank(extra.cc) || !(Number(extra.cc) > 0))) missing.push('межосевое расстояние (cc)');
+  } else if (category === 'hinge') {
+    if (extra.hardwareModelSlot !== 'hingeCup' && extra.hardwareModelSlot !== 'hingeGlass') missing.push('тип присадки петли (модель в 3D)');
+  } else if (category === 'mechanism') {
+    if (isBlank(extra.minH) || !(Number(extra.minH) >= 0)) missing.push('мин. высота фасада');
+    if (isBlank(extra.maxH) || !(Number(extra.maxH) > 0)) missing.push('макс. высота фасада');
+    if (isBlank(extra.maxW) || !(Number(extra.maxW) > 0)) missing.push('макс. ширина корпуса');
+    if (!isBlank(extra.minH) && !isBlank(extra.maxH) && Number(extra.minH) >= Number(extra.maxH)) missing.push('мин. высота должна быть меньше макс.');
+  }
+  return missing;
+}
+// Базовая проверка, общая для материалов и простой фурнитуры — название и
+// корректная цена. priceRaw === '' проверяется ОТДЕЛЬНО от Number(...): пустая
+// строка приводится к 0, что иначе молча прошло бы как «цена указана».
+function libLinkMissingBasic(values) {
+  const missing = [];
+  if (!values.name || !String(values.name).trim()) missing.push('наименование');
+  const priceRaw = values.price;
+  const price = Number(priceRaw);
+  if (isBlankValue(priceRaw) || !Number.isFinite(price) || price < 0) missing.push('цена');
+  return missing;
+}
+function isBlankValue(v) { return v === undefined || v === null || String(v).trim() === ''; }
+
+// Группы материалов, для которых sheetW/sheetH — не просто колонка таблицы
+// для справки, а обязательные данные движку: specification.js считает
+// sheetArea = info.sheetW * info.sheetH / 1e6 БЕЗ проверки на undefined
+// (см. ~строка 63) для любой позиции без customOrder — без этих полей
+// вся смета проекта, где использован такой материал, молча превращается в
+// NaN. Кромка (EDGE_PRICES.width) и столешница (COUNTERTOP_MATERIALS.
+// maxLength/depth) в engine.js читаются только под явной truthy-проверкой —
+// без них лишь отключаются вторичные подсказки (предупреждение о нецельном
+// куске, автосвес), смета не ломается, поэтому там поля остаются
+// необязательными.
+function libLinkSheetDimsGroup(group) {
+  return group === 'decors' || group === 'back' || group === 'facade';
+}
+// «Длина»/«Ширина» обязательны только у групп из libLinkSheetDimsGroup —
+// проверяется и на первом рендере экрана подтверждения (initialMissing), и
+// на каждое изменение поля (libLinkRevalidate), и ещё раз перед самим
+// сохранением (libLinkSaveSubmit) — по той же трёхточечной схеме, что уже
+// работает для инженерных полей сложной фурнитуры (libLinkHardwareMissing).
+function libLinkMaterialDimsMissing(form, values) {
+  if (!form || form.kind !== 'materials' || !libLinkSheetDimsGroup(form.group)) return [];
+  const missing = [];
+  const w = Number(values.sheetW);
+  if (isBlankValue(values.sheetW) || !(w > 0)) missing.push('длина листа');
+  const h = Number(values.sheetH);
+  if (isBlankValue(values.sheetH) || !(h > 0)) missing.push('ширина листа');
+  return missing;
+}
+
+function libLinkReadFormValues(box) {
+  const vals = {};
+  box.querySelectorAll('[data-f]').forEach((el) => { vals[el.dataset.f] = el.value; });
+  return vals;
+}
+function libLinkReadExtraValues(box) {
+  const vals = {};
+  box.querySelectorAll('[data-ef]').forEach((el) => { vals[el.dataset.ef] = el.value; });
+  return vals;
+}
+
+// Экран подтверждения (step: 'confirm') — все распознанные поля редактируемы
+// (парсинг мог ошибиться, п.1.5 ТЗ). Толщина/Длина/Ширина показываются, только
+// если у этого вида позиций такое поле вообще существует (см. libLengthFieldOf/
+// libWidthFieldOf — те же helpers, что и у таблиц «Библиотеки»).
+function libLinkConfirmHtml(form) {
+  const draft = form.draft || {};
+  const isHw = form.kind === 'hardware';
+  // ВАЖНО: kind здесь НЕ должен зависеть от draft.unit. Сайт-источник может
+  // показывать цену «за м²» (как у листового МДФ на mobilier.md) для
+  // ОБЫЧНОГО листа фиксированного размера — это способ показать цену, а не
+  // признак customOrder-позиции без фиксированного листа (тот считается по
+  // area_m2, см. specification.js). decors/back/facade — всегда 'sheet'
+  // (нужны sheetW/sheetH), иначе поля «Длина»/«Ширина» молча пропадали бы с
+  // экрана подтверждения именно для позиций, которых это касается сильнее
+  // всего.
+  const kind = isHw ? null : (form.group === 'edge' ? 'edge' : form.group === 'countertop' ? 'countertop' : 'sheet');
+  const showLen = !isHw && libLengthFieldOf(kind) != null;
+  const showWid = !isHw && libWidthFieldOf(kind) != null;
+  const photoHtml = draft.imageUrl ? `<img class="lib-link-photo" src="${esc(draft.imageUrl)}" alt="Фото с сайта">` : '';
+  const priceHintHtml = draft.currency
+    ? `<p class="hint">На сайте цена указана как: ${esc(draft.price != null ? String(draft.price) : '—')} ${esc(String(draft.currency))}. Валюта проекта здесь не пересчитывается — при необходимости поправьте число сами.</p>`
+    : '';
+  // draft.priceNote — предупреждение парсера про диапазон цен у вариативных
+  // товаров (см. sebasMd.js: buildPriceRangeNote), показанная цена — нижняя
+  // граница, не точная цена. Тот же текстовый шаблон, что и у
+  // libPriceNoteHtml (item.priceNote из catalog.js) — ниже это же значение
+  // копируется в сохраняемую позицию, чтобы предупреждение не терялось и
+  // после сохранения (см. libLinkSaveMaterial/libLinkSaveHardware).
+  const priceNoteHtml = draft.priceNote
+    ? `<p class="hint">Цена ${esc(draft.priceNote)}.</p>`
+    : '';
+  const stockHtml = draft.inStock === true ? '<p class="hint">На странице: товар в наличии.</p>'
+    : draft.inStock === false ? '<p class="hint lib-link-warning">На странице указано: товара нет в наличии — уточните перед сохранением.</p>' : '';
+  const unitDefault = draft.unit || (isHw ? 'шт' : 'лист');
+  const unitOptions = LIB_UNIT_OPTIONS.map((o) => `<option value="${esc(o)}" ${o === unitDefault ? 'selected' : ''}>${esc(o)}</option>`).join('');
+  const thicknessFieldHtml = !isHw
+    ? `<div class="field"><label>Толщина, мм</label><input type="number" class="lib-link-f" data-f="thickness" value="${esc(draft.thickness != null ? draft.thickness : '')}"></div>` : '';
+  const dimsFieldsHtml = (showLen || showWid)
+    ? `<div class="field-row3">
+        ${showLen ? `<div class="field"><label>Длина, мм</label><input type="number" class="lib-link-f" data-f="sheetW" value="${esc(draft.sheetW != null ? draft.sheetW : '')}"></div>` : '<div></div>'}
+        ${showWid ? `<div class="field"><label>Ширина, мм</label><input type="number" class="lib-link-f" data-f="sheetH" value="${esc(draft.sheetH != null ? draft.sheetH : '')}"></div>` : '<div></div>'}
+        <div>${thicknessFieldHtml}</div>
+      </div>`
+    : thicknessFieldHtml;
+  const catSplit = !isHw ? libLinkDefaultCategorySplit(form) : null;
+  const catHtml = !isHw ? `
+    <div class="field"><label>Раздел каталога</label>
+      <select class="lib-link-cat-parent">${libLinkParentOptionsHtml(form.top, catSplit.parent)}</select>
+    </div>
+    <div class="field"><label>Новая подкатегория (например, бренд) — необязательно</label>
+      <input type="text" class="lib-link-cat-new" value="${esc(catSplit.newSegment)}" placeholder="например, GTV">
+    </div>
+    <p class="hint">Категория: <b class="lib-link-cat-preview">${esc(libLinkCategoryPreviewLabel(catSplit))}</b></p>` : '';
+  // «Раздел фурнитуры» — только когда форма открыта без контекста (см.
+  // libLinkTopBarHtml/hwCatHtml, form.hwCategory ещё не известен): из
+  // конкретного раздела (кнопка под его же таблицей в libraryHardwareBlock)
+  // категория всегда уже задана, этот выбор там не нужен и не показывается.
+  // Инженерные поля (extraHtml) до выбора раздела тоже не показываем — они
+  // зависят от категории (у «Крепежа»/«Полкодержателей» и т.п. их вообще
+  // нет, см. libLinkHardwareExtraFieldsHtml).
+  const hwCatHtml = isHw && !form.hwCategory
+    ? `<div class="field"><label>Раздел фурнитуры</label>
+        <select class="lib-link-hw-cat-select">${libLinkHwCategoryOptionsHtml(form.hwCategory)}</select>
+      </div>`
+    : '';
+  const extraHtml = isHw && form.hwCategory
+    ? `<div class="lib-link-hw-extra"><b>Инженерные параметры — на сайте их нет, заполните вручную</b>${libLinkHardwareExtraFieldsHtml(form.hwCategory)}</div>`
+    : '';
+  const initialMissing = libLinkMissingBasic({ name: draft.name || '', price: draft.price != null ? draft.price : '' })
+    .concat(isHw && !form.hwCategory ? ['раздел фурнитуры'] : [])
+    .concat(isHw ? libLinkHardwareMissing(form.hwCategory, libLinkHardwareExtraDefaults(form.hwCategory)) : [])
+    .concat(libLinkMaterialDimsMissing(form, { sheetW: draft.sheetW, sheetH: draft.sheetH }));
+  return `
+    <div class="lib-link-confirm">
+      ${photoHtml}
+      <div class="field"><label>Наименование</label><input type="text" class="lib-link-f" data-f="name" value="${esc(draft.name || '')}"></div>
+      <div class="field"><label>Артикул</label><input type="text" class="lib-link-f" data-f="article" value="${esc(draft.article || '')}"></div>
+      <div class="field"><label>Цена, ${esc(curSym())}</label><input type="number" step="any" class="lib-link-f" data-f="price" value="${esc(draft.price != null ? draft.price : '')}"></div>
+      ${priceHintHtml}
+      ${priceNoteHtml}
+      <div class="field"><label>Ед. изм.</label><select class="lib-link-f" data-f="unit">${unitOptions}</select></div>
+      ${dimsFieldsHtml}
+      ${stockHtml}
+      ${catHtml}
+      ${hwCatHtml}
+      ${extraHtml}
+      <p class="hint lib-link-missing-hint">${initialMissing.length ? 'Заполните: ' + esc(initialMissing.join(', ')) + '.' : ''}</p>
+      ${form.error ? `<p class="hint lib-link-error">${esc(form.error)}</p>` : ''}
+      <div class="lib-leaf-actions">
+        <button type="button" class="link-btn lib-link-save" ${initialMissing.length ? 'disabled' : ''}>Сохранить</button>
+        <button type="button" class="link-btn lib-link-cancel">Отмена</button>
+      </div>
+    </div>`;
+}
+
+function libLinkInputStepHtml(form) {
+  const site = (state.libLinkSites || []).find((s) => s.id === form.siteId);
+  const domainOk = !!site && libLinkDomainMatches(form.url, site.domain);
+  const warning = form.url.trim() && site && !domainOk ? `Похоже, это не сайт ${site.domain} — проверьте ссылку.`
+    : form.url.trim() && !site ? 'Сначала выберите сайт из списка.' : '';
+  return `
+    <div class="field"><label>Сайт-источник</label>
+      <select class="lib-link-site-select">${libLinkSitesOptionsHtml(form.siteId)}</select>
+    </div>
+    <div class="field"><label>Ссылка на товар</label>
+      <input type="url" class="lib-link-url-input" placeholder="https://..." value="${esc(form.url)}">
+    </div>
+    <p class="hint lib-link-warning">${esc(warning)}</p>
+    ${form.error ? `<p class="hint lib-link-error">${esc(form.error)}</p>` : ''}
+    <div class="lib-leaf-actions">
+      <button type="button" class="link-btn lib-link-check" ${domainOk && form.url.trim() ? '' : 'disabled'}>Проверить</button>
+      <button type="button" class="link-btn lib-link-cancel">Отмена</button>
+    </div>`;
+}
+
+function libLinkFormHtml(form) {
+  const stepHtml = form.step === 'confirm' ? libLinkConfirmHtml(form)
+    : form.step === 'loading' ? '<p class="hint">Получаем данные с сайта…</p>'
+    : libLinkInputStepHtml(form);
+  return `<div class="lib-link-form">
+    <div class="lib-link-form-head"><b>Добавить по ссылке</b>
+      <button type="button" class="link-btn lib-link-close" title="Закрыть">Закрыть ×</button>
+    </div>
+    ${stepHtml}
+  </div>`;
+}
+
+// Реактивная разблокировка «Проверить»/«Сохранить» (п.5/3.2 ТЗ — кнопка
+// сохранения должна быть заблокирована, пока не заполнены обязательные
+// поля) — читает значения ПРЯМО из DOM формы при каждом input/change внутри
+// неё, точечно правит disabled/текст подсказки, БЕЗ renderLibraryPanel():
+// полная перерисовка на каждое нажатие клавиши стирала бы фокус/курсор в
+// текстовом поле (тот же принцип, что и у startCellEdit/libApplyRowSelectionDom
+// в других местах этого файла).
+function libLinkRevalidate(panel) {
+  const form = state.libLinkForm;
+  if (!form) return;
+  const box = panel.querySelector('.lib-link-form');
+  if (!box) return;
+  if (form.step === 'input') {
+    const siteSel = box.querySelector('.lib-link-site-select');
+    const urlInput = box.querySelector('.lib-link-url-input');
+    if (siteSel) form.siteId = siteSel.value;
+    if (urlInput) form.url = urlInput.value;
+    const site = (state.libLinkSites || []).find((s) => s.id === form.siteId);
+    const domainOk = !!site && libLinkDomainMatches(form.url, site.domain);
+    const warnEl = box.querySelector('.lib-link-warning');
+    if (warnEl) {
+      warnEl.textContent = form.url.trim() && site && !domainOk ? `Похоже, это не сайт ${site.domain} — проверьте ссылку.`
+        : form.url.trim() && !site ? 'Сначала выберите сайт из списка.' : '';
+    }
+    const checkBtn = box.querySelector('.lib-link-check');
+    if (checkBtn) checkBtn.disabled = !(domainOk && form.url.trim());
+    return;
+  }
+  if (form.step === 'confirm') {
+    const values = libLinkReadFormValues(box);
+    const extra = libLinkReadExtraValues(box);
+    const missing = libLinkMissingBasic(values);
+    if (form.kind === 'hardware' && !form.hwCategory) missing.push('раздел фурнитуры');
+    if (form.kind === 'hardware') missing.push(...libLinkHardwareMissing(form.hwCategory, extra));
+    missing.push(...libLinkMaterialDimsMissing(form, values));
+    if (form.kind === 'materials' && form.group === 'edge') {
+      const cat = window.Modul3D.catalog;
+      const nm = (values.name || '').trim();
+      if (nm && cat.EDGE_PRICES[nm]) missing.push('кромка с таким названием уже есть');
+    }
+    const saveBtn = box.querySelector('.lib-link-save');
+    if (saveBtn) saveBtn.disabled = missing.length > 0;
+    const hintEl = box.querySelector('.lib-link-missing-hint');
+    if (hintEl) hintEl.textContent = missing.length ? `Заполните: ${missing.join(', ')}.` : '';
+    if (form.kind === 'materials') {
+      const parentSel = box.querySelector('.lib-link-cat-parent');
+      const newSeg = box.querySelector('.lib-link-cat-new');
+      const previewEl = box.querySelector('.lib-link-cat-preview');
+      if (previewEl) {
+        previewEl.textContent = libLinkCategoryPreviewLabel({
+          parent: parentSel ? parentSel.value : '',
+          newSegment: newSeg ? newSeg.value.trim() : '',
+        });
+      }
+    }
+  }
+}
+
+// Сохранение материала «по ссылке» — та же ветвь по group, что и в libAddRow,
+// только значения берутся из формы (values/categoryPath), а не из дефолтов
+// «Новый материал», плюс sourceUrl/sourceSiteId/verifiedAt (п.1.7/5 ТЗ).
+function libLinkSaveMaterial(form, values, categoryPath) {
+  const cat = window.Modul3D.catalog;
+  // «Раздел каталога» на экране подтверждения предлагает ЛЮБой путь всего
+  // дерева form.top (см. libLinkParentOptionsHtml/libAllPaths), а не только
+  // детей той ветки, из которой открыли форму (или вообще без ветки — см.
+  // libLinkTopBarHtml, точка входа сверху вкладки «Материалы» всегда
+  // top:'sheet'/group:'decors'). Внутри объединённой категории «Листовые
+  // материалы» (top === 'sheet') пользователь мог выбрать/вписать совсем
+  // другую ветку — берём группу ПО ИТОГОВОМУ первому сегменту выбранного
+  // пути (та же карта SHEET_ADD_GROUP_MAP, что и у «+ Добавить материал» в
+  // libLeafTableHtml), иначе позиция ушла бы не в тот массив каталога
+  // (например, МДФ-плита осела бы в DECORS) и не находилась бы там, где её
+  // ждут роль-специфичные подборы материала (декор корпуса/фасада/задней
+  // стенки). Для facade/edge/countertop такой неоднозначности нет — там
+  // group всегда однозначно равна top.
+  const group = form.top === 'sheet' ? (SHEET_ADD_GROUP_MAP[categoryPath[0]] || form.group || 'decors') : form.group;
+  const name = values.name.trim();
+  const price = Number(values.price);
+  const unit = values.unit || 'лист';
+  const article = (values.article || '').trim();
+  const brand = (values.brand || '').trim();
+  const image = (form.draft && form.draft.imageUrl) || null;
+  // priceNote — предупреждение парсера про диапазон цен у вариативных
+  // товаров (см. libLinkConfirmHtml выше): без него после сохранения
+  // предупреждение терялось бы полностью — libPriceNoteHtml (таблица
+  // материалов) читает именно item.priceNote, тот же приём, что уже
+  // используют встроенные позиции GLASS/FAC-WOOD-FILON в catalog.js.
+  const priceNote = (form.draft && form.draft.priceNote) || null;
+  const numOr = (v, def) => { const n = Number(v); return Number.isFinite(n) && n > 0 ? n : def; };
+  const numOrNull = (v) => { const n = Number(v); return Number.isFinite(n) ? n : null; };
+  const common = { sourceUrl: form.url, sourceSiteId: form.siteId, verifiedAt: new Date().toISOString() };
+  if (priceNote) common.priceNote = priceNote;
+  // decors/back/facade: values.sheetW/sheetH к этому моменту уже проверены
+  // libLinkMaterialDimsMissing (кнопка «Сохранить» и не дала бы дойти сюда
+  // без них) — numOr(...) ниже больше не «угадывает» реальный размер листа,
+  // это лишь защита от гонки (как и проверка cat.EDGE_PRICES[name] у edge
+  // ниже), а не рабочий путь.
+  if (group === 'decors') {
+    DECORS.push(Object.assign({ code: 'LINK-' + Date.now(), name, sheetPrice: price,
+      sheetW: numOr(values.sheetW, 2750), sheetH: numOr(values.sheetH, 1830),
+      thickness: numOrNull(values.thickness), unit, image, article, categoryPath }, common));
+  } else if (group === 'back') {
+    BACK_MATERIALS.push(Object.assign({ code: 'LINK-' + Date.now(), name, sheetPrice: price,
+      sheetW: numOr(values.sheetW, 2440), sheetH: numOr(values.sheetH, 1220),
+      thickness: numOr(values.thickness, 3), unit, image, article, categoryPath }, common));
+  } else if (group === 'facade') {
+    const code = 'FAC-LINK-' + Date.now();
+    cat.FACADE_MATERIALS[code] = Object.assign({ code, name, sheetPrice: price,
+      sheetW: numOr(values.sheetW, 2750), sheetH: numOr(values.sheetH, 1830),
+      thickness: numOrNull(values.thickness), unit, image, article, categoryPath }, common);
+  } else if (group === 'edge') {
+    if (cat.EDGE_PRICES[name]) return; // защита от гонки — кнопка и так должна была быть disabled
+    cat.EDGE_PRICES[name] = Object.assign({ price, unit: 'пог.м',
+      width: numOrNull(values.sheetH), thickness: numOrNull(values.thickness),
+      image, article, categoryPath }, common);
+  } else if (group === 'countertop') {
+    if (!cat.COUNTERTOP_MATERIALS) cat.COUNTERTOP_MATERIALS = [];
+    const materialId = COUNTERTOP_MATERIAL_LABEL_TO_ID[categoryPath[0]] || 'ldsp38';
+    const ctBrand = categoryPath[1] || brand || 'Новый бренд';
+    cat.COUNTERTOP_MATERIALS.push(Object.assign({ code: 'CTOP-LINK-' + Date.now(), materialId, brand: ctBrand,
+      name, thickness: numOr(values.thickness, 38), depth: numOr(values.sheetH, 600),
+      pricePerMeter: price, maxLength: numOr(values.sheetW, 4100), unit: 'пог.м', image, article }, common));
+  } else {
+    return;
+  }
+  state.libLinkForm = null;
+  recompute();
+  scheduleCatalogSave();
+  renderLibraryPanel();
+}
+
+// Сохранение фурнитуры «по ссылке» — та же ветвь по категории, что и в
+// libAddHardwareRow, плюс инженерные поля из формы (п.3.2 ТЗ) и sourceUrl/
+// sourceSiteId/verifiedAt. Ключ 'link_<категория>_<timestamp>' — тот же
+// принцип, что у 'custom_<категория>_<timestamp>' в libAddHardwareRow, просто
+// с другим префиксом, чтобы отличать в данных, откуда взялась позиция.
+// subField — та же логика, что и в libAddHardwareRow: form.path[0] (см.
+// data-link-path в libHardwareLeafTableHtml) — подкатегория/бренд ветки, под
+// которой нажали «+ Добавить по ссылке»; у 'mechanism' (LIFTS) фирма хранится
+// в поле brand, у остальных — в subcategory (см. libHardwareTopEntries).
+function libLinkSaveHardware(form, values, extra) {
+  const cat = window.Modul3D.catalog;
+  const category = form.hwCategory;
+  const name = values.name.trim();
+  const price = Number(values.price) || 0;
+  const article = (values.article || '').trim();
+  const unit = values.unit || 'шт';
+  const key = 'link_' + category + '_' + Date.now();
+  const subcategory = Array.isArray(form.path) && form.path[0] ? form.path[0] : '';
+  const subField = subcategory ? (category === 'mechanism' ? { brand: subcategory } : { subcategory }) : {};
+  // priceNote — то же предупреждение о диапазоне цен, что и у материалов
+  // (см. libLinkSaveMaterial), без него libPriceNoteHtml не сможет показать
+  // его в таблице фурнитуры после сохранения.
+  const priceNote = (form.draft && form.draft.priceNote) || null;
+  const common = Object.assign({ name, article, price, unit, category,
+    sourceUrl: form.url, sourceSiteId: form.siteId, verifiedAt: new Date().toISOString() },
+    priceNote ? { priceNote } : {}, subField);
+  if (category === 'mechanism') {
+    cat.LIFTS[key] = Object.assign({ id: key, brand: '', minH: Number(extra.minH) || 0,
+      maxH: Number(extra.maxH) || 0, maxW: Number(extra.maxW) || 0, note: '' }, common);
+  } else if (category === 'handle') {
+    cat.HANDLES[key] = Object.assign({ id: key, holes: Number(extra.holes) || 2, cc: Number(extra.cc) || 0 }, common);
+  } else if (category === 'fastener') {
+    cat.FASTENER_PRICES[key] = common;
+  } else if (category === 'hinge') {
+    cat.HARDWARE_PRICES[key] = Object.assign({ hardwareModelSlot: extra.hardwareModelSlot }, common);
+  } else {
+    cat.HARDWARE_PRICES[key] = common;
+  }
+  state.libLinkForm = null;
+  recompute();
+  scheduleCatalogSave();
+  renderLibraryPanel();
+}
+
+// «Сохранить» экрана подтверждения — перечитывает значения из DOM (см.
+// libLinkReadFormValues/libLinkReadExtraValues), перепроверяет обязательные
+// поля (защита от гонки, кнопка и так должна быть disabled) и передаёт в
+// нужную ветку сохранения.
+function libLinkSaveSubmit(panel) {
+  const form = state.libLinkForm;
+  if (!form || form.step !== 'confirm') return;
+  const box = panel.querySelector('.lib-link-form');
+  if (!box) return;
+  const values = libLinkReadFormValues(box);
+  const extra = libLinkReadExtraValues(box);
+  const missing = libLinkMissingBasic(values)
+    .concat(form.kind === 'hardware' && !form.hwCategory ? ['раздел фурнитуры'] : [])
+    .concat(form.kind === 'hardware' ? libLinkHardwareMissing(form.hwCategory, extra) : [])
+    .concat(libLinkMaterialDimsMissing(form, values));
+  if (form.kind === 'materials' && form.group === 'edge') {
+    const cat = window.Modul3D.catalog;
+    if (cat.EDGE_PRICES[(values.name || '').trim()]) missing.push('кромка с таким названием уже есть');
+  }
+  if (missing.length) { libLinkRevalidate(panel); return; }
+  if (form.kind === 'hardware') {
+    libLinkSaveHardware(form, values, extra);
+    return;
+  }
+  const parentSel = box.querySelector('.lib-link-cat-parent');
+  const newSegInput = box.querySelector('.lib-link-cat-new');
+  const parentPath = parentSel && parentSel.value ? parentSel.value.split('::') : [];
+  const newSeg = newSegInput ? newSegInput.value.trim() : '';
+  const categoryPath = newSeg ? parentPath.concat([newSeg]) : parentPath;
+  libLinkSaveMaterial(form, values, categoryPath);
+}
+
+// Все позиции каталога (все шесть материальных массивов/объектов + четыре
+// источника фурнитуры), у которых есть непустой sourceUrl — то, что умеет
+// обновить «Обновить цены с сайта» (п.1.8/5 ТЗ). Возвращает { item, siteId }
+// — item ссылка на САМ объект каталога (мутируется на месте, как и везде в
+// этом файле), siteId — либо уже сохранённый it.sourceSiteId (позиция
+// добавлена через форму «Добавить по ссылке», см. libLinkSaveMaterial/
+// libLinkSaveHardware), либо вычисленный на лету по домену sourceUrl (см.
+// libLinkResolveSiteId) — 72 встроенные позиции каталога (DECORS/
+// BACK_MATERIALS/FACADE_MATERIALS/HARDWARE_PRICES/HANDLES/LIFTS и т.д. из
+// catalog.js, цены сверены с mobilier.md ещё до появления формы «Добавить по
+// ссылке») несут sourceUrl без sourceSiteId. Ни с одним известным сайтом
+// (state.libLinkSites — должен быть уже загружен ДО вызова, см.
+// refreshCatalogLinkedPrices) домен не совпал — позицию молча пропускаем, а
+// не считаем ошибкой (например, будущая ссылка на магазин без парсера).
+function libLinkedItemsList() {
+  const cat = window.Modul3D.catalog;
+  const list = [];
+  const add = (it) => {
+    if (!it || !it.sourceUrl) return;
+    const siteId = it.sourceSiteId || libLinkResolveSiteId(it.sourceUrl);
+    if (!siteId) return;
+    list.push({ item: it, siteId });
+  };
+  const addArr = (arr) => (arr || []).forEach(add);
+  const addObj = (obj) => Object.keys(obj || {}).forEach((k) => add(obj[k]));
+  addArr(DECORS);
+  addArr(BACK_MATERIALS);
+  addObj(cat.FACADE_MATERIALS);
+  addObj(cat.EDGE_PRICES);
+  addArr(cat.COUNTERTOP_MATERIALS);
+  addObj(cat.HARDWARE_PRICES);
+  addObj(cat.HANDLES);
+  addObj(cat.LIFTS);
+  addObj(cat.FASTENER_PRICES);
+  return list;
+}
+
+// Сервер принимает не больше ~60 позиций за один запрос (п.1.8 ТЗ, см.
+// server/src/routes/catalogLinks.js: MAX_REFRESH_ITEMS, по умолчанию 60) —
+// при большем каталоге режем на партии этого размера и шлём последовательно,
+// а не падаем целиком с «слишком много позиций». 50, а не 60 — небольшой
+// запас на случай, если сервер настроен на меньший лимит (переменная
+// окружения CATALOG_LINK_MAX_REFRESH_ITEMS), клиент не может узнать её заранее.
+const LIB_LINK_REFRESH_CHUNK = 50;
+
+// «Обновить цены с сайта» — ОДНА кнопка на весь каталог пользователя (п.1.8
+// ТЗ, не по кнопке на каждую позицию): собирает все sourceUrl-позиции разом
+// и обновляет результатом те же объекты каталога. Поле цены определяем по
+// тому, какое у позиции реально есть (sheetPrice/pricePerMeter/price) — тот
+// же набор полей, что использует вся остальная «Библиотека» (см.
+// libPriceFieldOf). Если партий несколько и одна из них упала по сети —
+// то, что успело обновиться в предыдущих партиях, всё равно пересчитывается
+// и сохраняется (см. finally), а не откатывается целиком.
+async function refreshCatalogLinkedPrices() {
+  if (!requireLibraryEditAuth()) return;
+  if (state.libLinkRefreshBusy) return;
+  state.libLinkRefreshBusy = true;
+  state.libLinkRefreshResult = null;
+  renderLibraryPanel();
+  // Список сайтов (state.libLinkSites) обычно уже загружен к этому моменту —
+  // форма «Добавить по ссылке» подгружает его при первом открытии (см.
+  // loadLibLinkSites). Но пользователь мог нажать «Обновить цены с сайта»,
+  // ни разу не открыв ту форму, — тогда libLinkedItemsList() ниже не сможет
+  // вычислить sourceSiteId встроенных позиций каталога (у них его никогда не
+  // было, см. комментарий там же) и молча пропустит вообще всё. Дожидаемся
+  // загрузки явно, прежде чем считать список позиций для обновления.
+  if (!state.libLinkSites) await loadLibLinkSites();
+  const entries = libLinkedItemsList();
+  if (!entries.length) {
+    state.libLinkRefreshBusy = false;
+    renderLibraryPanel();
+    window.alert('В каталоге нет позиций со ссылкой на известный сайт-источник — обновлять нечего.');
+    return;
+  }
+  const token = getAuthToken();
+  let updated = 0;
+  let failed = 0;
+  let requestError = null;
+  try {
+    for (let i = 0; i < entries.length; i += LIB_LINK_REFRESH_CHUNK) {
+      const chunk = entries.slice(i, i + LIB_LINK_REFRESH_CHUNK);
+      // eslint-disable-next-line no-await-in-loop
+      const res = await fetch(`${AUTH_API_BASE}/catalog-link-refresh`, {
+        method: 'POST',
+        headers: { authorization: 'Bearer ' + token, 'content-type': 'application/json' },
+        body: JSON.stringify({ items: chunk.map((e) => ({ url: e.item.sourceUrl, siteId: e.siteId })) }),
+      });
+      // eslint-disable-next-line no-await-in-loop
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'Не удалось обновить цены.');
+      const results = Array.isArray(data.results) ? data.results : [];
+      results.forEach((r) => {
+        const matches = chunk.filter((e) => e.item.sourceUrl === r.url && e.siteId === r.siteId);
+        if (r.ok && r.draft) {
+          matches.forEach((e) => {
+            const it = e.item;
+            const d = r.draft;
+            if (d.name != null) it.name = d.name;
+            if (d.article != null) it.article = d.article;
+            if (d.price != null) {
+              if (it.sheetPrice !== undefined) it.sheetPrice = d.price;
+              else if (it.pricePerMeter !== undefined) it.pricePerMeter = d.price;
+              else it.price = d.price;
+            }
+            // Позиция могла быть без sourceSiteId (встроенный каталог из
+            // mobilier.md, см. libLinkedItemsList) — теперь, когда она сама
+            // подтвердилась по домену и успешно обновилась, фиксируем id
+            // сайта явно: дальше её уже не нужно резолвить заново.
+            it.sourceSiteId = e.siteId;
+            it.verifiedAt = new Date().toISOString();
+          });
+          updated += matches.length;
+        } else {
+          failed += matches.length || 1;
+        }
+      });
+    }
+  } catch (err) {
+    requestError = err.message;
+  } finally {
+    // Хоть что-то успело обновиться (в т.ч. если упала не первая партия) —
+    // пересчитываем и сохраняем сразу, не дожидаясь следующей правки каталога.
+    if (updated > 0) { recompute(); scheduleCatalogSave(); }
+    state.libLinkRefreshResult = requestError ? { updated, failed, error: requestError } : { updated, failed };
+    state.libLinkRefreshBusy = false;
+    renderLibraryPanel();
+  }
+}
+
+// Содержимое кнопки «Обновить цены с сайта» + статус — сама «настоящая»
+// кнопка (класс .btn, тот же, что у #saveProjectBtn/#openProjectBtn в
+// шапке, см. style.css), а не мелкая текстовая ссылка .link-btn: это
+// primary-действие уровня вкладки («перепроверить цены во всём каталоге»),
+// а не построчная правка. Обёртку-контейнер рисует libLinkTopBarHtml ниже —
+// там же вторая такая кнопка, «+ Добавить по ссылке» без контекста.
+function libLinkRefreshBarHtml() {
+  const busy = state.libLinkRefreshBusy;
+  const result = state.libLinkRefreshResult;
+  let statusHtml = '';
+  if (busy) statusHtml = '<span class="hint">Обновляем цены…</span>';
+  else if (result && result.error) {
+    // Партиями по LIB_LINK_REFRESH_CHUNK (см. refreshCatalogLinkedPrices) —
+    // если упала не первая партия, часть позиций уже успела обновиться,
+    // показываем и то, и другое, а не только ошибку.
+    const partial = result.updated || result.failed ? ` (успели обновить: ${result.updated}, не найдено: ${result.failed})` : '';
+    statusHtml = `<span class="hint lib-link-error">Не удалось обновить всё: ${esc(result.error)}${esc(partial)}</span>`;
+  } else if (result) statusHtml = `<span class="hint">Обновлено: ${result.updated} · не найдено: ${result.failed}.</span>`;
+  return `<button type="button" class="btn lib-link-refresh-btn" ${busy ? 'disabled' : ''}>Обновить цены с сайта</button>${statusHtml}`;
+}
+
+// Верхняя панель вкладки «Материалы»/«Фурнитура» — ОДНА явная, заметная
+// точка входа «+ Добавить по ссылке» СРАЗУ под заголовком вкладки, рядом с
+// «Обновить цены с сайта» (см. libLinkRefreshBarHtml выше). Раньше кнопку
+// добавления по ссылке было видно, только провалившись в конкретный лист
+// дерева материалов/раздел фурнитуры (см. .lib-add-by-link в
+// libLeafTableHtml/libraryHardwareBlock, эти кнопки остаются как есть, это
+// ДОПОЛНИТЕЛЬНАЯ точка входа, не замена) — пользователь, открывший вкладку
+// впервые, не понимал, куда вставить ссылку на товар.
+//
+// У материалов — фиксированный контекст top:'sheet'/group:'decors' (самый
+// частый случай, см. addDefaultGroup в libraryMaterialsBlock): «Раздел
+// каталога» на экране подтверждения всё равно предложит выбрать/вписать
+// ЛЮБую ветку дерева «Листовые материалы» (см. libLinkParentOptionsHtml —
+// список не ограничен детьми одной ветки), а итоговый массив каталога
+// (decors/facade/back) пересчитывается по факту выбора — см.
+// libLinkSaveMaterial. У фурнитуры контекста нет вовсе (data-link-hwcat не
+// проставлен) — раздел («Петли»/«Ручки»/... ) выбирается на самом экране
+// подтверждения, см. hwCatHtml в libLinkConfirmHtml.
+function libLinkTopBarHtml(kind) {
+  const addAttrs = kind === 'hardware'
+    ? 'data-link-kind="hardware"'
+    : 'data-link-kind="materials" data-link-top="sheet" data-link-group="decors"';
+  return `<div class="lib-link-refresh-bar">
+    <button type="button" class="btn lib-add-by-link" ${addAttrs}>+ Добавить по ссылке</button>
+    ${libLinkRefreshBarHtml()}
+  </div>`;
 }
 
 // ---------------------------------------------------------------------------
@@ -1746,10 +2907,12 @@ function libSaveEdit(group, key, field, value) {
   // обязателен для пересчёта чисел, но нужен, чтобы обновить спецификацию
   // (новая цена) и деталировку (переименованный материал) на лету.
   recompute();
-  // Фурнитура (group вида 'hw:*') не входит в снимок каталога материалов
-  // (snapshotCatalogCollections/restoreCatalogFrom её не знают) — сохранять
-  // здесь нечего, а лишний PUT только грузил бы сервер бесполезным запросом.
-  if (group.indexOf('hw:') !== 0) scheduleCatalogSave();
+  // Фурнитура (group вида 'hw:*') с 2026-09-15 тоже входит в снимок каталога
+  // (см. snapshotCatalogCollections/restoreCatalogFrom — добавлено вместе с
+  // фичей «Добавить по ссылке», иначе позиции фурнитуры, добавленные по
+  // ссылке, не переживали бы перезагрузку страницы), поэтому сохраняем
+  // безусловно, как и остальные группы.
+  scheduleCatalogSave();
   renderLibraryPanel();
 }
 
@@ -1887,35 +3050,49 @@ function libPickMaterial(rowGroup, code) {
   renderParamsPanel();
 }
 
-function libAddHardwareRow(category) {
+// subcategory — значение 1-го (и единственного) уровня пути ВНУТРИ дерева
+// категории (см. libHardwareLeafTableHtml: data-add-path на кнопке «+
+// Добавить позицию», path[0] — путь здесь уже без самой категории, она с
+// 2026-09-15 вынесена в topCode 'hw:<categoryKey>', см. libraryHardwareBlock)
+// — только когда кнопку нажали под конкретной подкатегорией/фирмой
+// (например «Направляющие › GTV»), иначе позиция остаётся без бренда на
+// корне дерева категории, как и раньше. У 'mechanism' (LIFTS) фирма хранится
+// в поле brand (см. catalog.js:
+// LIFTS.aventosHK и т.п.), у остальных категорий — в subcategory (см.
+// HARDWARE_PRICES/HANDLES/FASTENER_PRICES) — libHardwareTopEntries читает
+// оба поля одинаково (item.subcategory || item.brand), при создании пишем
+// то поле, которое реально читает соответствующий исходный массив.
+function libAddHardwareRow(category, subcategory) {
   const cat = window.Modul3D.catalog;
   const key = 'custom_' + category + '_' + Date.now();
+  const subField = subcategory ? (category === 'mechanism' ? { brand: subcategory } : { subcategory }) : {};
   if (category === 'mechanism') {
-    cat.LIFTS[key] = { id: key, brand: '', name: 'Новая позиция', article: '', price: 0,
-      minH: 0, maxH: 100000, maxW: 100000, note: '', category: 'mechanism', unit: 'шт' };
+    cat.LIFTS[key] = Object.assign({ id: key, brand: '', name: 'Новая позиция', article: '', price: 0,
+      minH: 0, maxH: 100000, maxW: 100000, note: '', category: 'mechanism', unit: 'шт' }, subField);
   } else if (category === 'handle') {
-    cat.HANDLES[key] = { id: key, name: 'Новая позиция', holes: 2, cc: 0, price: 0,
-      article: '', unit: 'шт', category: 'handle' };
+    cat.HANDLES[key] = Object.assign({ id: key, name: 'Новая позиция', holes: 2, cc: 0, price: 0,
+      article: '', unit: 'шт', category: 'handle' }, subField);
   } else if (category === 'fastener') {
-    cat.FASTENER_PRICES[key] = { name: 'Новая позиция', article: '', price: 0, unit: 'шт', category: 'fastener' };
+    cat.FASTENER_PRICES[key] = Object.assign({ name: 'Новая позиция', article: '', price: 0, unit: 'шт', category: 'fastener' }, subField);
   } else {
-    cat.HARDWARE_PRICES[key] = { name: 'Новая позиция', article: '', price: 0, unit: 'шт', category };
+    cat.HARDWARE_PRICES[key] = Object.assign({ name: 'Новая позиция', article: '', price: 0, unit: 'шт', category }, subField);
   }
 }
 
 // path — путь листа дерева, в который попадёт новая позиция (кнопка «+
 // Добавить материал» листа, см. libLeafTableHtml: data-add-path на кнопке,
-// массив строк или undefined) — не используется для 'hwadd:*'/'countertop'
-// (там дерева категорий нет). Для 'decors'/'back'/'facade' пишем path целиком
-// в item.categoryPath новой позиции; 'edge' сохраняет прежний UX (имя кромки
+// массив строк или undefined) — не используется для 'countertop' (там
+// дерева категорий нет). Для 'decors'/'back'/'facade' пишем path целиком в
+// item.categoryPath новой позиции; 'edge' сохраняет прежний UX (имя кромки
 // — это ключ объекта EDGE_PRICES, вводится отдельным prompt), но тоже
-// получает categoryPath = path.
+// получает categoryPath = path. 'hwadd:*' (фурнитура) использует только
+// path[0] — см. libAddHardwareRow выше.
 function libAddRow(group, path) {
   if (!requireLibraryEditAuth()) return;
   const cat = window.Modul3D.catalog;
   path = path || [];
   if (group.indexOf('hwadd:') === 0) {
-    libAddHardwareRow(group.slice(6));
+    libAddHardwareRow(group.slice(6), path[0] || '');
   } else if (group === 'decors') {
     DECORS.push({ code: 'NEW-' + Date.now(), name: 'Новый материал', sheetPrice: 0, sheetW: 2750, sheetH: 1830, unit: 'лист', image: null, categoryPath: path.slice() });
   } else if (group === 'back') {
@@ -1951,9 +3128,9 @@ function libAddRow(group, path) {
   }
   recompute();
   // Добавление фурнитуры (group === 'hwadd:*', см. libAddHardwareRow выше) —
-  // вне снимка каталога материалов, сохранять на сервер нечего (см. тот же
-  // комментарий в libSaveEdit).
-  if (group.indexOf('hwadd:') !== 0) scheduleCatalogSave();
+  // с 2026-09-15 тоже сохраняется (см. комментарий в libSaveEdit про
+  // расширение snapshotCatalogCollections/restoreCatalogFrom).
+  scheduleCatalogSave();
   renderLibraryPanel();
 }
 
@@ -2372,8 +3549,8 @@ function renderLibraryPanel() {
   document.querySelectorAll('.lib-tab-btn').forEach((b) => {
     b.classList.toggle('active', b.dataset.libtab === state.libraryTab);
   });
-  // На «Материалах»/«Фурнитуре» таблицы шире панели «Базы модулей» —
-  // #drawer-library переключается на свою (тоже фиксированную, но большую)
+  // На «Материалах»/«Фурнитуре»/«Дверях» таблицы шире панели «Базы модулей»
+  // — #drawer-library переключается на свою (тоже фиксированную, но большую)
   // ширину (см. .lib-wide в style.css: одна и та же ширина для всех таблиц
   // раздела, а не «под самую широкую», как раньше); на «Базе модулей»
   // ширина панели остаётся стандартной. .lib-chars-collapsed — доп. сужение
@@ -2383,20 +3560,20 @@ function renderLibraryPanel() {
   // ширине панели.
   const drawer = document.getElementById('drawer-library');
   if (drawer) {
-    const wide = state.libraryTab === 'materials' || state.libraryTab === 'hardware';
+    const wide = state.libraryTab === 'materials' || state.libraryTab === 'hardware' || state.libraryTab === 'facades';
     drawer.classList.toggle('lib-wide', wide);
     drawer.classList.toggle('lib-chars-collapsed', wide && !!state.libCharsCollapsed);
   }
   if (state.libraryTab === 'materials') panel.innerHTML = libraryMaterialsBlock();
   else if (state.libraryTab === 'hardware') panel.innerHTML = libraryHardwareBlock();
-  else if (state.libraryTab === 'facades') panel.innerHTML = libraryFacadesStubBlock();
+  else if (state.libraryTab === 'facades') panel.innerHTML = libraryFacadesBlock();
   else panel.innerHTML = libraryBlock();   // 'modules' — существующая база модулей, без изменений
   bindLibraryEvents();
   applyLibrarySearch();
   // Применяет уже сохранённое состояние поповера сортировки/фильтра (см.
   // openColumnFilterMenu/columnFilterStates) к каждой заново отрисованной
-  // таблице листа отдельно (ключ — data-chars-key, тот же, что и у «±
-  // характеристики») — иначе после переключения дерева/добавления позиции
+  // таблице листа отдельно (ключ — data-chars-key, тот же, что и у кнопки
+  // «Характеристики листа») — иначе после переключения дерева/добавления позиции
   // ранее выбранный фильтр сбросился бы визуально, хотя состояние осталось.
   panel.querySelectorAll('table.lib-table[data-chars-key]').forEach((table) => {
     const tableKey = table.dataset.charsKey;
@@ -2459,14 +3636,33 @@ function libSelectRow(panel, group, key) {
   libApplyRowSelectionDom(panel, { group, key });
 }
 
-// «Двери» (вкладка data-libtab="facades", см. index.html) — заглушка: фасад
-// не материал, а отдельное изделие со своими параметрами (толщина, тип,
-// врезка стекла и т.п.), полноценная панель — отдельная задача на будущее.
-// Пока только заголовок (тот же текст, что на кнопке вкладки — раньше
-// расходился с ней: кнопка «Фасады-двери» стала «Двери», а этот заголовок
-// нет) и подпись.
-function libraryFacadesStubBlock() {
-  return `<h3>Двери</h3><p class="hint">Этот раздел скоро появится.</p>`;
+// «Двери» (вкладка data-libtab="facades", см. index.html) — с 2026-09-15
+// содержит категорию «Виды фасадов» (декоры/цвета для фасадов, topCode
+// 'facade', те же данные FACADE_MATERIALS, что раньше жили под «Материалы
+// фасадов» на вкладке «Материалы», см. libraryMaterialsBlock — оттуда
+// категорию убрали, сюда перенесли без изменения группы/данных). Фасад как
+// отдельное изделие со своими параметрами (толщина, тип, врезка стекла и
+// т.п., а не только материал) — полноценная панель под это остаётся
+// отдельной задачей на будущее.
+//
+// Форму «Добавить по ссылке» (kind: 'materials' — тот же формат парсинга,
+// что и у остальных материалов, см. openLibLinkForm/libLinkFormHtml)
+// рисуем здесь же, а не только в libraryMaterialsBlock — кнопка «+
+// Добавить по ссылке» у листа категории «Виды фасадов» (см. linkAddHtml в
+// libLeafTableHtml) открывает форму, оставаясь на вкладке «Двери»
+// (renderLibraryPanel перерисовывает тот же state.libraryTab), поэтому
+// рисовать форму нужно там, где она реально окажется видна. Тумблер
+// верхнего уровня «+ Добавить по ссылке» (libLinkTopBarHtml) сюда
+// сознательно не переносим — он для всей вкладки «Материалы» с фиксированным
+// дефолтом top:'sheet'/group:'decors' (см. коммент у libLinkTopBarHtml),
+// категории «Виды фасадов» это не подходит, а своя, правильно
+// заполненная кнопка «+ Добавить по ссылке» у неё уже есть на уровне листа.
+function libraryFacadesBlock() {
+  return `
+    <h3>Двери</h3>
+    ${libSourceHint()}
+    ${state.libLinkForm && state.libLinkForm.kind === 'materials' ? libLinkFormHtml(state.libLinkForm) : ''}
+    ${libTopCategoryHtml('facade', 'Виды фасадов', { addLabel: '+ Добавить материал' })}`;
 }
 
 // Слушатели вешаются один раз (контейнер #libraryPanel и строка вкладок
@@ -2484,6 +3680,10 @@ function initLibraryPanel() {
     // выделенная строка (см. state.libSelectedRow) больше ни к чему не
     // относится.
     state.libSelectedRow = null;
+    // Форма «Добавить по ссылке» тоже привязана к конкретной вкладке (см.
+    // state.libLinkForm.kind) — открытая форма материалов, оставленная
+    // незаполненной, не должна неожиданно всплыть при возврате на вкладку.
+    state.libLinkForm = null;
     renderLibraryPanel();
   });
   const search = document.getElementById('librarySearch');
@@ -2567,8 +3767,8 @@ function initLibraryPanel() {
       renderLibraryPanel();
       return;
     }
-    // Заголовок-тумблер «± характеристики» (см. libTableHead) — общий на всю
-    // Библиотеку (state.libCharsCollapsed — булево, не по ключу таблицы):
+    // Кнопка-тумблер «Характеристики листа» (см. libLeafTableHtml) — общий
+    // на всю Библиотеку (state.libCharsCollapsed — булево, не по ключу таблицы):
     // клик в ЛЮБОЙ из одновременно открытых таблиц сворачивает/разворачивает
     // колонки Длина/Ширина/Толщина сразу везде и сужает саму панель (см.
     // .lib-chars-collapsed в renderLibraryPanel/style.css).
@@ -2615,13 +3815,48 @@ function initLibraryPanel() {
       libAddRow(addBtn.dataset.add, pathStr ? pathStr.split('::') : []);
       return;
     }
+    // «+ Добавить по ссылке» (см. openLibLinkForm/libLinkFormHtml) — та же
+    // логика контекста, что и у «+ Добавить материал»/«+ Добавить позицию»
+    // рядом, только открывает встроенную форму вместо мгновенного добавления
+    // строки с заглушками.
+    const linkAddBtn = e.target.closest('.lib-add-by-link');
+    if (linkAddBtn) {
+      if (linkAddBtn.dataset.linkKind === 'hardware') {
+        openLibLinkForm('hardware', {
+          hwCategory: linkAddBtn.dataset.linkHwcat,
+          path: linkAddBtn.dataset.linkPath ? linkAddBtn.dataset.linkPath.split('::') : [],
+        });
+      } else {
+        openLibLinkForm('materials', {
+          top: linkAddBtn.dataset.linkTop,
+          group: linkAddBtn.dataset.linkGroup,
+          path: linkAddBtn.dataset.linkPath ? linkAddBtn.dataset.linkPath.split('::') : [],
+        });
+      }
+      return;
+    }
+    const linkCloseBtn = e.target.closest('.lib-link-close, .lib-link-cancel');
+    if (linkCloseBtn) { closeLibLinkForm(); return; }
+    const linkCheckBtn = e.target.closest('.lib-link-check');
+    if (linkCheckBtn) { if (!linkCheckBtn.disabled) libLinkCheckSubmit(panel); return; }
+    const linkSaveBtn = e.target.closest('.lib-link-save');
+    if (linkSaveBtn) { if (!linkSaveBtn.disabled) libLinkSaveSubmit(panel); return; }
+    const linkRefreshBtn = e.target.closest('.lib-link-refresh-btn');
+    if (linkRefreshBtn) { if (!linkRefreshBtn.disabled) refreshCatalogLinkedPrices(); return; }
     // «− Удалить материал» под таблицей листа (см. libLeafTableHtml) —
     // работает только с уже выделенной кликом по строке позицией (см. ветку
     // ниже), кнопка неактивна (disabled), пока ничего не выбрано.
     const delRowBtn = e.target.closest('.lib-row-del');
     if (delRowBtn) { libDeleteSelectedRow(); return; }
     const swatch = e.target.closest('.lib-swatch');
-    if (swatch) { openLibImagePicker(swatch.dataset.swatchGroup, swatch.dataset.swatchKey); return; }
+    if (swatch) {
+      // sourceUrl (data-swatch-url, см. libSwatchHtml) — открыть карточку
+      // товара на сайте поставщика вместо загрузки своего файла.
+      const swatchUrl = swatch.dataset.swatchUrl;
+      if (swatchUrl) { window.open(swatchUrl, '_blank', 'noopener'); return; }
+      openLibImagePicker(swatch.dataset.swatchGroup, swatch.dataset.swatchKey);
+      return;
+    }
     // «Выбрать» — только в режиме подбора материала из «Параметры проекта»
     // (см. state.libPickTarget/libPickMaterial): у «Листовых материалов»
     // колонка видна для любой роли подбора, у «Столешниц» — только когда
@@ -2648,9 +3883,6 @@ function initLibraryPanel() {
       startCellEdit(cell);
       return;
     }
-    // Ссылка-источник (см. libSourceLinkCell) открывается сама (обычная
-    // <a target="_blank">) — не должна ЕЩЁ и выделять строку под собой.
-    if (e.target.closest('.lib-source-link')) return;
     // Клик по остальной части строки таблицы (нередактируемые ячейки —
     // например, название кромки или «—» в отсутствующей колонке) —
     // выделение для «− Удалить материал» выше (см. libApplyRowSelection).
@@ -2672,6 +3904,43 @@ function initLibraryPanel() {
       renderLibraryPanel();
       return;
     }
+    // «Раздел фурнитуры» на экране подтверждения (см. hwCatHtml в
+    // libLinkConfirmHtml) — показывается, только когда форма открыта БЕЗ
+    // готового hwCategory (см. libLinkTopBarHtml). В отличие от остальных
+    // полей формы, выбор раздела меняет НАБОР полей ниже (инженерные поля
+    // конкретной категории — см. libLinkHardwareExtraFieldsHtml), точечной
+    // правкой не обойтись — нужна полная перерисовка панели, не просто
+    // libLinkRevalidate.
+    const hwCatSel = e.target.closest('.lib-link-hw-cat-select');
+    if (hwCatSel && state.libLinkForm) {
+      state.libLinkForm.hwCategory = hwCatSel.value;
+      renderLibraryPanel();
+      return;
+    }
+    // Форма «Добавить по ссылке» (см. libLinkRevalidate) — <select>-поля
+    // (сайт, единица измерения, категория, «Количество отверстий» и т.п.)
+    // не всегда надёжно бросают 'input' во всех браузерах, 'change' — точно.
+    if (e.target.closest('.lib-link-form')) {
+      // Выбор существующего раздела из выпадающего списка «Раздел каталога»
+      // обнуляет «Новую подкатегорию» — иначе там могло остаться название,
+      // предложенное для СОВСЕМ ДРУГОГО раздела (например, хлебные крошки
+      // сайта на румынском, см. libLinkDefaultCategorySplit) и превратить
+      // категорию в бессмыслицу вида «МДФ-плита › Egger › Materiale plăci…».
+      if (e.target.classList.contains('lib-link-cat-parent')) {
+        const box = e.target.closest('.lib-link-form');
+        const newSegInput = box && box.querySelector('.lib-link-cat-new');
+        if (newSegInput) newSegInput.value = '';
+      }
+      libLinkRevalidate(panel);
+      return;
+    }
+  });
+  // Реактивная разблокировка «Проверить»/«Сохранить» формы «Добавить по
+  // ссылке» по мере ввода (см. libLinkRevalidate) — текстовые/числовые поля
+  // бросают 'input' на каждое нажатие клавиши, без полной перерисовки панели
+  // (иначе терялся бы фокус/курсор посреди набора текста).
+  panel.addEventListener('input', (e) => {
+    if (e.target.closest('.lib-link-form')) libLinkRevalidate(panel);
   });
 
   initLibImageInput();
@@ -6440,11 +7709,15 @@ function requireLibraryEditAuth() {
 
 // Панель «Библиотека» реально ВИДНА (drawer открыт классом .open, см.
 // ui-shell.js: openDrawer/closeDrawer) и открыта именно на вкладке
-// «Материалы» — используется, чтобы решить, нужно ли перерисовывать её
-// содержимое сразу после фоновой подгрузки/отката правок каталога.
+// «Материалы» либо «Двери» — используется, чтобы решить, нужно ли
+// перерисовывать её содержимое сразу после фоновой подгрузки/отката правок
+// каталога (restoreCatalogFrom мутирует и FACADE_MATERIALS — с 2026-09-15
+// это данные категории «Виды фасадов» на вкладке «Двери», а не только
+// «Материалов», см. libraryFacadesBlock).
 function isLibraryMaterialsPanelOpen() {
   const drawer = document.getElementById('drawer-library');
-  return !!drawer && drawer.classList.contains('open') && state.libraryTab === 'materials';
+  return !!drawer && drawer.classList.contains('open')
+    && (state.libraryTab === 'materials' || state.libraryTab === 'facades');
 }
 
 // Фоновое сохранение правок каталога материалов на сервере (см.

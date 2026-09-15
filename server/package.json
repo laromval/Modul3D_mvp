@@ -12,6 +12,7 @@
   "dependencies": {
     "@paddle/paddle-node-sdk": "^3.10.0",
     "bcryptjs": "^2.4.3",
+    "cheerio": "^1.0.0",
     "cors": "^2.8.5",
     "disposable-email-domains": "^1.0.62",
     "dotenv": "^16.4.5",

@@ -1231,6 +1231,13 @@ h4.spec-title { margin: var(--sp-5) 0 var(--sp-2); font-size: var(--fs-md); font
   width: 56px; box-sizing: border-box; font-family: inherit; font-size: var(--fs-sm);
   border: 1px solid var(--border); border-radius: var(--r-sm);
   background: var(--surface-2); color: var(--text); padding: 5px 6px;
+  -moz-appearance: textfield;
+}
+/* Скрыть нативные стрелки-степпер: попап компактный, они визуально мешают */
+.ctx-numrow input[type="number"]::-webkit-inner-spin-button,
+.ctx-numrow input[type="number"]::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
 }
 .ctx-numrow .ctx-item { width: auto; flex: 1; text-align: center; background: var(--surface-2); }
 .ctx-numrow .ctx-item:hover { background: var(--accent-soft); color: var(--accent); }
@@ -1407,15 +1414,26 @@ h4.spec-title { margin: var(--sp-5) 0 var(--sp-2); font-size: var(--fs-md); font
    без явного правила disabled-кнопка унаследовала бы обычный цвет ссылки. */
 .link-btn:disabled { opacity: .45; cursor: default; text-decoration: none; }
 
-/* Тумблер «± характеристики» (app.js: libLeafTableHtml) — ссылка-кнопка НАД
-   таблицей (.link-btn, тот же стиль, что у «+ Добавить материал» под ней),
+/* Кнопка «Характеристики листа» (app.js: libLeafTableHtml) — НАД таблицей,
    а НЕ заголовок внутри <thead>: раньше это был <th colspan="3"> над
    колонками Длина/Ширина/Толщина, но при сворачивании эти колонки исчезали
    из <colgroup>/<tbody>, а сам тумблер — нет, из-за чего шапка и тело
    расходились по числу физических колонок (баг, найден 2026-09-11). Общий
    на всю Библиотеку (state.libCharsCollapsed) — клик в любой из открытых
-   таблиц сворачивает/разворачивает колонки везде разом. */
+   таблиц сворачивает/разворачивает колонки везде разом. Подпись теперь
+   статична («Характеристики листа», без +/− префикса, задача 2026-09-15) —
+   состояние (характеристики сейчас показаны) передаёт класс .active, а не
+   текст, поэтому это настоящая кнопка-переключатель (тот же визуальный
+   язык, что у .lib-tab-btn выше), а не текстовая ссылка .link-btn. */
 .lib-chars-toggle { display: inline-block; margin-bottom: var(--sp-2); }
+.lib-chars-btn {
+  border: 1px solid var(--border); background: var(--surface-2); color: var(--text-2);
+  padding: 6px 10px; border-radius: var(--r-sm);
+  font-family: inherit; font-size: var(--fs-sm); font-weight: 600; cursor: pointer;
+  transition: all var(--dur) var(--ease);
+}
+.lib-chars-btn:hover { border-color: var(--accent); color: var(--text); }
+.lib-chars-btn.active { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
 
 /* Выбранная кликом строка таблицы (app.js: state.libSelectedRow) — под
    «− Удалить материал» ниже таблицы. Инлайн-редактируемые ячейки внутри
@@ -1457,19 +1475,10 @@ h4.spec-title { margin: var(--sp-5) 0 var(--sp-2); font-size: var(--fs-md); font
   text-align: center;
 }
 
-/* Компактная ссылка-иконка на карточку товара у поставщика (item.sourceUrl,
-   см. catalog.js) — отдельная узкая колонка рядом с «Наименование», не
-   часть .lib-edit-cell (см. app.js: libSourceLinkCell) */
-.lib-source-cell { width: 1%; padding-left: 2px; padding-right: 2px; text-align: center; }
-.lib-source-link {
-  display: inline-flex; align-items: center; justify-content: center;
-  width: 20px; height: 20px; border-radius: var(--r-sm);
-  color: var(--muted); text-decoration: none; font-size: 13px; line-height: 1;
-  transition: all var(--dur) var(--ease);
-}
-.lib-source-link:hover { color: var(--accent); background: var(--accent-soft); }
-
-/* Карточка цвета/образца материала — клик открывает загрузку файла */
+/* Карточка цвета/образца материала/фурнитуры — превью (item.image), клик
+   открывает карточку товара на сайте поставщика (item.sourceUrl, если есть,
+   см. app.js: libSwatchHtml — заменяет собой прежнюю отдельную колонку-
+   стрелку) либо загрузку своего файла. */
 .lib-swatch {
   display: block; width: 36px; height: 24px; border-radius: var(--r-sm);
   border: 1px solid var(--border); background-color: var(--surface-2);
@@ -1478,6 +1487,37 @@ h4.spec-title { margin: var(--sp-5) 0 var(--sp-2); font-size: var(--fs-md); font
 .lib-swatch:hover { border-color: var(--accent); }
 .lib-swatch.empty { display: flex; align-items: center; justify-content: center; color: var(--muted); font-size: 15px; }
 .lib-swatch.empty::after { content: '+'; }
+
+/* Форма «Добавить по ссылке» (app.js: libLinkFormHtml) — вкладки «Материалы»/
+   «Фурнитура» панели «Библиотека», см. libraryMaterialsBlock/
+   libraryHardwareBlock. Поля внутри — обычные .field (см. раздел 12 ниже),
+   переиспользуются как есть, без своей отдельной вёрстки полей. */
+.lib-link-form {
+  border: 1px solid var(--border-strong); border-radius: var(--r-md);
+  background: var(--surface-2); padding: var(--sp-3); margin: 0 0 var(--sp-4);
+}
+.lib-link-form-head { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-2); margin-bottom: var(--sp-3); }
+.lib-link-photo {
+  display: block; max-width: 140px; max-height: 100px; object-fit: contain;
+  border-radius: var(--r-sm); border: 1px solid var(--border);
+  background: var(--surface-solid); margin-bottom: var(--sp-3);
+}
+.lib-link-error, .lib-link-warning { color: var(--danger); }
+.lib-link-warning:empty, .lib-link-error:empty, .lib-link-missing-hint:empty { display: none; }
+/* Инженерные поля сложной фурнитуры (ручки/петли/подъёмники — п.3.2 ТЗ), на
+   странице магазина их нет, заполняются пользователем вручную — визуально
+   отделены от полей, пришедших с сайта. */
+.lib-link-hw-extra { border-top: 1px dashed var(--border); margin-top: var(--sp-3); padding-top: var(--sp-3); }
+.lib-link-hw-extra > b { display: block; font-size: var(--fs-sm); color: var(--text-2); margin-bottom: var(--sp-2); font-weight: 600; }
+/* Верхняя панель действий вкладки «Материалы»/«Фурнитура» (app.js:
+   libLinkTopBarHtml) — «+ Добавить по ссылке» (без привязки к конкретному
+   листу дерева/разделу — явная точка входа сразу под заголовком вкладки) и
+   «Обновить цены с сайта» (одна кнопка на весь каталог, см.
+   libLinkRefreshBarHtml). Обе — настоящие кнопки (.btn, тот же стиль, что у
+   #saveProjectBtn/#openProjectBtn в шапке), а не мелкие текстовые ссылки
+   .link-btn: это primary-действия уровня вкладки, не построчная правка. */
+.lib-link-refresh-bar { display: flex; align-items: center; gap: var(--sp-3); flex-wrap: wrap; margin: 0 0 var(--sp-3); }
+.lib-link-refresh-bar .hint { margin: 0; }
 
 /* ---------- 15. НАСТРОЙКИ (валюта проекта, тема, горячие клавиши) -------- */
 
