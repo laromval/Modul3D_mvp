@@ -235,8 +235,8 @@ const PRESETS = [
           // Планки на ребро: плашмя они съедают 100 мм проёма и чаша мойки
           // в корпус не заходит. Задней стенки нет — там сифон и подводка.
           topType: 'railsEdge', noBack: true, corner: true,
-          // Заглушка 720×560 из корпусного ЛДСП + фальш-планка 717×78 из фасада
-          blindPanel: true, blindStrip: 78,
+          // Заглушка 720×560 из корпусного ЛДСП + фальш-планка 717×68 из фасада
+          blindPanel: true, blindStrip: 68,
           sections: [sec({ handle: 'bow160', facade: 'doorLeft', facadeWidth: 400, shelves: 0 })],
         }),
       },

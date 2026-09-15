@@ -3189,7 +3189,7 @@ function buildModuleParts(p) {
         // Несколько зон по высоте с заглушкой вместе не поддерживаются —
         // строим её только для нижней зоны (см. предупреждение выше).
         if (p.blindPanel && narrow && zi === 0) {
-          const STRIP_W = Number(p.blindStrip) || 78;
+          const STRIP_W = Number(p.blindStrip) || 68;
           const BRACKET_W = Number(p.blindBracket) || 100;
           const ftk = ft.thickness;
           // ФРОНТ УГЛОВОГО МОДУЛЯ собирается так:
@@ -3708,7 +3708,7 @@ function buildModel(project) {
         // фасада на tBody), поэтому вычитаем эту толщину — иначе корпус
         // соседа встаёт с зазором в одну плиту.
         lastCornerV = m.blindPanel
-          ? runDepth + (Number(m.blindStrip) || 78) - tBody
+          ? runDepth + (Number(m.blindStrip) || 68) - tBody
           : runDepth + FILLER_W + FILLER_GAP;
       }
     });
