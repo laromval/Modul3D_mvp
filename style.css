@@ -1330,13 +1330,28 @@ h4.spec-title { margin: var(--sp-5) 0 var(--sp-2); font-size: var(--fs-md); font
 .lib-tree-arrow { flex: 0 0 auto; width: 10px; font-size: 10px; color: var(--muted); }
 .lib-tree-name { flex: 1 1 auto; font-size: var(--fs-sm); color: var(--text); }
 .lib-tree-top .lib-tree-name { font-size: var(--fs-md); font-weight: 700; color: var(--accent); }
-/* ✎/+/× узла — обычный текст без рамки/фона (не кнопки), курсор pointer,
+/* ✎/+/⇄/× узла — обычный текст без рамки/фона (не кнопки), курсор pointer,
    видны по наведению на СТРОКУ (не только на сам значок), лёгкая акцентная
    подсветка при наведении на сам значок. */
 .lib-tree-actions { flex: 0 0 auto; display: flex; gap: 8px; opacity: 0; transition: opacity var(--dur) var(--ease); }
 .lib-tree-row:hover .lib-tree-actions { opacity: 1; }
 .lib-tree-ic { color: var(--muted); font-size: var(--fs-sm); line-height: 1; cursor: pointer; }
 .lib-tree-ic:hover { color: var(--accent); }
+/* Меню «Переместить» узла дерева (значок ⇄, см. openLibTreeMoveMenu в
+   app.js) — обычное .ctx-menu, отличается только тем, что список возможных
+   родителей может быть длинным: прокручиваем его внутри меню, как список
+   значений в поповере фильтра столбца (.df-values-list). */
+.lib-move-menu { max-width: 280px; }
+.lib-move-menu .lib-move-list { overflow-y: auto; max-height: 260px; }
+.lib-move-menu .ctx-item { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* Пояснение, почему часть возможных родителей в списке не показана (app.js:
+   libMoveTargets/libSubtreeHasSheetFacade — ветка с материалами фасадов
+   обязана остаться под «плитным» корневым сегментом). Без него короткий
+   список выглядел бы как сбой. */
+.lib-move-hint {
+  padding: 6px 9px; font-size: var(--fs-xs); color: var(--muted);
+  white-space: normal; line-height: 1.35; border-bottom: 1px solid var(--border);
+}
 /* Инлайн-переименование узла (см. startTreeRename в app.js) — тот же
    компактный инпут, что и у ячеек таблицы (.lib-table td.lib-edit-cell
    input ниже), но без обёртки в <td>. */
@@ -1399,12 +1414,21 @@ h4.spec-title { margin: var(--sp-5) 0 var(--sp-2); font-size: var(--fs-md); font
   padding: 3px 5px; font-family: inherit; font-size: var(--fs-sm);
   background: var(--surface-solid); color: var(--text);
 }
-/* Единица измерения (field === 'unit', см. app.js: startCellEdit) — та же
-   компактная посадка в ячейке таблицы, что и у input выше, только select. */
-.lib-table td.lib-edit-cell select {
-  width: 100%; border: 1px solid var(--accent); border-radius: var(--r-sm);
-  padding: 3px 20px 3px 5px; font-family: inherit; font-size: var(--fs-sm);
-  background-color: var(--surface-solid); color: var(--text);
+/* Список единиц измерения ПОЗИЦИИ фурнитуры при правке ячейки «Цена» (app.js:
+   startCellEdit/libHwUnitEditorHtml). Отдельной колонки «Ед. изм.» в таблице
+   нет (она распирала таблицу шире панели, убрана 2026-09-16), а сама колонка
+   «Цена» узкая — 82px (см. libColgroup), поэтому список не встроен в ячейку,
+   а висит поповером ПОД полем ввода: он может быть шире ячейки и при этом не
+   раздвигает таблицу. Точка отсчёта — сама ячейка цены (position: relative
+   ниже, только у .lib-price-cell: у остальных редактируемых ячеек такого
+   списка нет). */
+.lib-table td.lib-price-cell { position: relative; }
+.lib-table td.lib-edit-cell select.lib-hw-unit-edit {
+  position: absolute; z-index: 5; top: calc(100% - 4px); left: 50%; transform: translateX(-50%);
+  min-width: 100%; max-width: 160px;
+  border: 1px solid var(--accent); border-radius: var(--r-sm);
+  padding: 3px 5px; font-family: inherit; font-size: var(--fs-xs);
+  background: var(--surface-solid); color: var(--text); box-shadow: var(--shadow-2);
 }
 .lib-add { display: inline-block; margin: 0 0 var(--sp-4); }
 /* «+ Добавить материал»/«− Удалить материал» под таблицей листа (app.js:

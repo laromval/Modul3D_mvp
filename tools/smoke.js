@@ -105,6 +105,15 @@ class El {
     if (!this._els) this._els = parseElements(this._html);
     return queryAll(this._els, sel);
   }
+  // Делегированные обработчики приложения почти всегда начинаются с
+  // e.target.closest('...') (см. app.js: initLibraryPanel, bindLibraryEvents).
+  // Плоский regex-разбор HTML связей «родитель–потомок» не хранит, поэтому
+  // closest здесь умеет ровно одно: ответить, подходит ли САМ элемент под
+  // селектор (нулевой шаг подъёма настоящего closest). Прогону этого хватает,
+  // если диспетчеризовать событие с target = именно тот элемент, по которому
+  // «кликнули»: el.dispatch('click', { target: btn }) — см. проверки панели
+  // «Библиотека» ниже. Подъём к предку вернёт null, а не найдёт его.
+  closest(sel) { return matchesSel(this, sel) ? this : null; }
   focus() {} blur() {} scrollIntoView() {}
   remove() { if (this.id) registry.delete(this.id); }
   setAttribute(k, v) { this.attrs[k] = v; }
@@ -183,6 +192,23 @@ function queryAll(list, sel) {
     }
     return x.tag.toLowerCase() === sel.toLowerCase();
   }).map((x) => x.el);
+}
+// Подходит ли ОДИН элемент под простой селектор — та же грамматика, что и у
+// queryAll выше (.класс / #id / [атрибут] / [атрибут="значение"] / тег),
+// только для готового El, а не для разобранной записи {tag, attrs}. Нужна
+// El.closest (см. выше).
+function matchesSel(el, sel) {
+  if (!el) return false;
+  const attrs = el.attrs || {};
+  const cls = String(attrs.class || el.className || '').split(/\s+/);
+  if (sel.startsWith('.')) return cls.indexOf(sel.slice(1)) !== -1;
+  if (sel.startsWith('#')) return (attrs.id || el.id) === sel.slice(1);
+  if (sel.startsWith('[')) {
+    const m = ATTR_SEL.exec(sel);
+    if (!m || !(m[1] in attrs)) return false;
+    return m[2] === undefined ? true : attrs[m[1]] === m[2];
+  }
+  return String(el.tagName || '').toLowerCase() === sel.toLowerCase();
 }
 function $(id) {
   if (!registry.has(id)) registry.set(id, new El(id));
@@ -1127,6 +1153,83 @@ for (const el of document.querySelectorAll('.tab-btn')) {
   if (!/Источник размеров/.test(html)) fails.push('в паспорте нет источника размеров');
   if (!/passport-warn|passport-ok/.test(html)) {
     fails.push('в паспорте нет отметки о подтверждённости размеров');
+  }
+}
+
+// Панель «Библиотека» → вкладка «Фурнитура». Раньше прогон Библиотеку не
+// открывал вовсе: любая ошибка ВРЕМЕНИ ВЫПОЛНЕНИЯ при рендере её вкладок
+// (вызов удалённой функции, обращение к полю не того типа) доходила до
+// пользователя при зелёном check.sh — ровно так уехала недоделанная правка
+// «единица цены своя у каждой корневой категории» (2026-09-16).
+{
+  const tabs = document.getElementById('libTabs');
+  const hwTab = Array.from(document.querySelectorAll('.lib-tab-btn'))
+    .filter((b) => b.dataset.libtab === 'hardware')[0];
+  const lib = document.getElementById('libraryPanel');
+  // Ошибка рендера вкладки — это не «упал прогон», а обычный провал проверки
+  // с понятным текстом: иначе на месте аккуратного списка провалов оказался
+  // бы стектрейс, а остальные проверки вообще не отработали бы.
+  const step = (name, fn) => {
+    try { fn(); return true; } catch (e) { fails.push(name + ': ' + e.message); return false; }
+  };
+  if (!tabs || !hwTab || !lib) fails.push('Библиотека: не найдена вкладка «Фурнитура»');
+  // target = сама кнопка вкладки: обработчик делегированный
+  // (e.target.closest('.lib-tab-btn'), см. app.js initLibraryPanel).
+  else if (step('Фурнитура: вкладка не открывается', () => tabs.dispatch('click', { target: hwTab }))) {
+    if (!/<h3>Фурнитура<\/h3>/.test(String(lib.innerHTML || ''))) {
+      fails.push('Фурнитура: вкладка не отрисовалась');
+    }
+    // Лист дерева — клик по нему открывает таблицу позиций этой ветки
+    // (state.libActiveLeaf, см. libTopCategoryHtml).
+    const leaf = lib.querySelectorAll('[data-tree-node]')
+      .filter((r) => r.dataset.kind === 'leaf' && String(r.dataset.top || '').indexOf('hw:') === 0)[0];
+    if (!leaf) fails.push('Фурнитура: в дереве нет ни одного листа с позициями');
+    else step('Фурнитура: таблица листа не открывается', () => lib.dispatch('click', { target: leaf }));
+
+    const SEL_RE = /<select class="lib-price-unit-select lib-hw-price-unit-select"[^>]*>[\s\S]*?<\/select>/g;
+    const parseSel = (s) => ({
+      top: (/data-top="([^"]+)"/.exec(s) || [])[1],
+      picked: (/<option value="([^"]*)"\s*selected/.exec(s) || [])[1],
+      units: (s.match(/<option value="([^"]*)"/g) || []).map((x) => /value="([^"]*)"/.exec(x)[1]),
+    });
+    const html = String(lib.innerHTML || '');
+    if (!/<table class="lib-table"/.test(html)) fails.push('Фурнитура: таблица позиций не отрисовалась');
+    // Набор колонок тот же, что у «Материалов» со свёрнутыми характеристиками:
+    // Наименование / Образец / Цена — три, не больше (колонка «Ед. изм.»
+    // распирала таблицу шире панели и убрана, единица правится в ячейке цены).
+    const colgroups = html.match(/<colgroup>[\s\S]*?<\/colgroup>/g) || [];
+    if (!colgroups.length) fails.push('Фурнитура: у таблицы нет colgroup');
+    // /<col(\s|>)/ — именно сами <col>, без открывающего <colgroup>, который
+    // тоже начинается с «<col».
+    if (colgroups.some((g) => (g.match(/<col(?:\s|>)/g) || []).length !== 3)) {
+      fails.push('Фурнитура: в таблице не 3 колонки');
+    }
+    if (/Ед\. изм\./.test(html)) fails.push('Фурнитура: в таблице снова колонка «Ед. изм.»');
+    const selects = (html.match(SEL_RE) || []).map(parseSel);
+    if (!selects.length) fails.push('Фурнитура: в шапке «Цена» нет переключателя единицы');
+    if (selects.some((s) => !s.top || s.top.indexOf('hw:') !== 0)) {
+      fails.push('Фурнитура: у переключателя единицы нет data-top с корневой категорией');
+    }
+    // Выбранная единица — СВОЯ у каждой корневой категории (state.libHwPriceUnit
+    // — объект по topCode): выбор в одной таблице не должен менять соседнюю.
+    const mineSel = selects[0];
+    const otherSel = selects.filter((s) => s.top !== (mineSel || {}).top)[0];
+    const pick = mineSel ? mineSel.units.filter((u) => u !== 'native')[0] : null;
+    const selEl = mineSel && lib.querySelectorAll('.lib-hw-price-unit-select')
+      .filter((x) => x.attrs['data-top'] === mineSel.top)[0];
+    if (pick && selEl) {
+      selEl.value = pick;
+      step('Фурнитура: переключатель единицы цены', () => lib.dispatch('change', { target: selEl }));
+      const after = (String(lib.innerHTML || '').match(SEL_RE) || []).map(parseSel);
+      const mineNow = after.filter((s) => s.top === mineSel.top)[0];
+      if (!mineNow || mineNow.picked !== pick) fails.push('Фурнитура: выбранная единица цены не сохранилась');
+      if (otherSel) {
+        const otherNow = after.filter((s) => s.top === otherSel.top)[0];
+        if (otherNow && otherNow.picked !== 'native') {
+          fails.push('Фурнитура: единица цены протекла в соседнюю категорию');
+        }
+      }
+    }
   }
 }
 

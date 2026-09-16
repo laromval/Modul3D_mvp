@@ -14,7 +14,7 @@
 (function () {
 // Версия сборки — показывается во вкладке браузера и в шапке.
 // При выпуске новой версии меняется только эта строка.
-const APP_VERSION = 'v275';
+const APP_VERSION = 'v276';
 
 // Номер версии выводим ПЕРВЫМ делом: если дальше что-то упадёт, по нему сразу
 // видно, какая сборка открыта.
@@ -188,6 +188,27 @@ const state = {
   // subcategory). Чисто UI-состояние, как libCollapsed выше: в историю
   // отмены/файл проекта не попадает.
   libExtraNodes: { sheet: [], facade: [], edge: [], glass: [] },
+  // Свои ПОДПИСИ корневых категорий вкладки «Фурнитура» — { hinge: 'Петельки',
+  // 'custom-1758...': 'Уплотнители' }: ключ — тот же item.category, по которому
+  // engine.js/specification.js подбирают фурнитуру в расчёте, значение — только
+  // то, что видно на экране. Переименование встроенной категории (✎ на её
+  // строке, см. libRenameNode) МЕНЯЕТ ТОЛЬКО ПОДПИСЬ и никогда сам ключ —
+  // иначе спецификация осталась бы без петель/направляющих. Читать эту карту
+  // нужно исключительно через libHwCategoryLabel() (единственное место, где
+  // пользовательская подпись перекрывает заводскую catalog.js:
+  // HARDWARE_CATEGORY_LABEL). В отличие от libCollapsed/libCatOpen выше это
+  // не сессионное UI-состояние: подписи переживают перезагрузку вместе с
+  // остальными правками каталога (см. snapshotCatalogCollections).
+  libHwCatLabels: {},
+  // СВОИ корневые категории фурнитуры, заведённые кнопкой «+ Добавить
+  // категорию» на вкладке «Фурнитура» (см. libAddHwCategory) — массив ключей
+  // вида 'custom-<timestamp>' в порядке добавления, они дописываются к
+  // заводским HARDWARE_CATEGORY_ORDER (см. libHwCategoryKeys). Подпись такой
+  // категории лежит в libHwCatLabels выше, а её позиции — обычная фурнитура с
+  // item.category === этому ключу (HARDWARE_PRICES, см. libAddHardwareRow).
+  // Расчёт про такие ключи ничего не знает — это просто контейнер каталога.
+  // Как и libHwCatLabels, сохраняется на сервере вместе с правками каталога.
+  libHwCustomCats: [],
   // Режим подбора материала из «Параметры проекта» (кнопка «+ Добавить
   // материал» у Материал корпуса/Материал фасада/Задняя стенка, см.
   // materialPickActionsHtml/openMaterialPicker) — { role: 'decor' | 'facadeDecor'
@@ -224,6 +245,27 @@ const state = {
   // их не подменяет. Чисто UI-состояние, как libraryTab выше: в историю
   // отмены/файл проекта не попадает.
   libPriceUnit: 'perM2',
+  // То же самое, но для таблиц вкладки «Фурнитура» (см.
+  // libHwPriceUnitHeaderHtml) — ОТДЕЛЬНОЕ поле, а не общее с libPriceUnit
+  // выше: единицы у вкладок разные по смыслу (у материалов это «в чём
+  // ПОКАЗАТЬ цену» с пересчётом лист↔м²↔пог.м, у фурнитуры пересчитывать
+  // нечем — шт/пара/уп/пог.м между собой не переводятся, там это «показать
+  // только позиции, которые продаются в этой единице»), и переключение на
+  // одной вкладке не должно молча менять вид другой.
+  // Хранится ПО КОРНЕВОЙ КАТЕГОРИИ — { 'hw:hinge': 'native', 'hw:slide':
+  // 'пара' }, ключ тот же topCode, что у libCatOpen/libActiveLeaf выше.
+  // Одного значения на всю вкладку не хватало (исправлено 2026-09-16):
+  // «Цена/пара», выбранная в «Направляющих», превращала таблицу «Петель» в
+  // сплошные «—», и соседняя категория выглядела сломанной.
+  // Отсутствие ключа = 'native' — «как в позиции»: цена каждой строки как
+  // есть, без отбора по единице; любое другое значение — одна из реальных
+  // единиц фурнитуры (см. LIB_HW_UNIT_OPTIONS), тогда строки с ДРУГОЙ
+  // единицей показывают «—» (так же поступают материалы, когда пересчитать
+  // нечем, см. libPriceCellHtml). Чисто UI-состояние: в снимок каталога
+  // (snapshotCatalogCollections) НЕ входит — в отличие от соседних
+  // libHwCatLabels/libHwCustomCats — и в историю отмены/файл проекта тоже
+  // не попадает.
+  libHwPriceUnit: {},
   // Свёрнутость колонок Длина/Ширина/Толщина (кнопка «Характеристики
   // листа», см. libTableHead/libLeafTableHtml) — ОБЩАЯ на всю Библиотеку
   // (как libPriceUnit выше), а не своя у каждой открытой таблицы: одна и та
@@ -352,6 +394,15 @@ function snapshotCatalogCollections() {
     lifts: JSON.parse(JSON.stringify(cat.LIFTS)),
     fasteners: JSON.parse(JSON.stringify(cat.FASTENER_PRICES)),
     libExtraNodes: JSON.parse(JSON.stringify(state.libExtraNodes)),
+    // Дерево категорий вкладки «Фурнитура» (2026-09-16): свои подписи
+    // корневых категорий и свои корневые категории — те же правки каталога,
+    // что и всё остальное в этом снимке, поэтому едут на сервер тем же
+    // механизмом, без второго параллельного хранилища. Сами ПЕРЕНОСЫ/
+    // переименования узлов ниже корня отдельного места в снимке не требуют:
+    // они живут в item.categoryPath самих позиций (см. libSetEntryPath) и в
+    // libExtraNodes (пустые категории-заглушки) — и то, и другое здесь уже есть.
+    libHwCatLabels: JSON.parse(JSON.stringify(state.libHwCatLabels)),
+    libHwCustomCats: JSON.parse(JSON.stringify(state.libHwCustomCats)),
   };
 }
 
@@ -394,6 +445,20 @@ function mergeCatalogItem(savedItem, freshItem) {
   // каталога, пометка остаётся снятой, пока он не сбросит каталог к
   // заводским настройкам целиком (см. restoreCatalogFrom(CATALOG_DEFAULTS)).
   if (merged.priceNoteCleared) delete merged.priceNote;
+  // categoryPathEdited — пользователь САМ переименовал или перенёс категорию,
+  // в которой лежит эта позиция (✎/⇄ в дереве «Библиотеки», см.
+  // libSetEntryPath). Тот же приём и та же причина, что и у priceNoteCleared
+  // выше: categoryPath/subcategory/brand входят в CATALOG_REFRESH_FIELDS, то
+  // есть по умолчанию всегда перетираются свежим catalog.js — без этой
+  // защиты любое переименование/перенос категории откатывалось бы назад при
+  // следующей загрузке страницы (для встроенных позиций каталога — молча).
+  // Ручная правка главнее заводских данных, ровно как с ценой.
+  if (savedItem.categoryPathEdited) {
+    merged.categoryPathEdited = true;
+    ['categoryPath', 'subcategory', 'brand'].forEach((f) => {
+      if (savedItem[f] !== undefined) merged[f] = savedItem[f]; else delete merged[f];
+    });
+  }
   return merged;
 }
 
@@ -481,6 +546,11 @@ function restoreCatalogFrom(blob) {
     Object.assign(cat.FASTENER_PRICES, mergeCatalogObject(blob.fasteners, fresh.fasteners));
   }
   if (blob.libExtraNodes) state.libExtraNodes = JSON.parse(JSON.stringify(blob.libExtraNodes));
+  // Дерево категорий «Фурнитуры» — как и libExtraNodes выше: в старых
+  // сохранённых снимках (до 2026-09-16) этих двух ключей нет вовсе, тогда
+  // просто остаётся заводской набор категорий без своих подписей.
+  if (blob.libHwCatLabels) state.libHwCatLabels = JSON.parse(JSON.stringify(blob.libHwCatLabels));
+  if (blob.libHwCustomCats) state.libHwCustomCats = JSON.parse(JSON.stringify(blob.libHwCustomCats));
 }
 
 // Снимает режим изоляции модуля (двойной клик в 3D) и выбор детали внутри
@@ -931,12 +1001,17 @@ function curSym() {
 // открывает инпут с полным/настоящим значением, а не с тем, что нарисовано.
 // opts.extraClass — доп. класс на <td> (см. .lib-char-col — тумблер
 // «Характеристики листа», libIsCharsCollapsed).
+// opts.title — подсказка по наведению на ячейку: нужна там, где из самой
+// колонки уже не видно, ЧТО именно в ней написано (цена фурнитуры — за штуку
+// или за пару, см. libHwPriceCellHtml: отдельной колонки «Ед. изм.» в
+// таблице фурнитуры больше нет).
 function libEditCell(group, key, field, type, value, opts) {
   opts = opts || {};
   const raw = value == null ? '' : String(value);
   const shown = opts.displayText != null ? opts.displayText : raw;
   const cls = 'lib-edit-cell' + (opts.extraClass ? ' ' + opts.extraClass : '');
-  return `<td class="${cls}" data-group="${esc(group)}" data-key="${esc(key)}" data-field="${field}" data-type="${type}" data-raw="${esc(raw)}">${esc(shown)}</td>`;
+  const titleAttr = opts.title ? ` title="${esc(opts.title)}"` : '';
+  return `<td class="${cls}" data-group="${esc(group)}" data-key="${esc(key)}" data-field="${field}" data-type="${type}" data-raw="${esc(raw)}"${titleAttr}>${esc(shown)}</td>`;
 }
 
 // Дефолт для колонок Длина/Ширина/Толщина (см. libRowHtml) — как обычная
@@ -946,21 +1021,14 @@ function libDashEditCell(group, key, field, value, extraClass) {
   return libEditCell(group, key, field, 'number', value, { displayText: value == null ? '—' : undefined, extraClass });
 }
 
-// Дата ISO ('2026-09-03', см. catalog.js: CATALOG_SOURCE.lastSync) → русский
-// формат ДД.ММ.ГГГГ. Разбор строки вручную, а не через new Date(), — чтобы
-// не словить сдвиг на сутки из-за часового пояса браузера при дате без времени.
-function formatDateRu(iso) {
-  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(iso || ''));
-  return m ? `${m[3]}.${m[2]}.${m[1]}` : String(iso || '');
-}
-
-// Подсказка о синхронизации цен с сайтом-источником (см. CATALOG_SOURCE в
-// catalog.js) — выводится наверху вкладок «Материалы» и «Фурнитура».
-function libSourceHint() {
-  const src = window.Modul3D.catalog.CATALOG_SOURCE;
-  if (!src || !src.site) return '';
-  return `<p class="hint">Цены сверены с сайтом <a href="https://${esc(src.site)}" target="_blank" rel="noopener">${esc(src.site)}</a> · обновлено ${esc(formatDateRu(src.lastSync))}</p>`;
-}
+// Строки «Цены сверены с сайтом mobilier.md · обновлено ДД.ММ.ГГГГ» наверху
+// вкладок Библиотеки больше нет (убрана 2026-09-16 по просьбе пользователя):
+// она относилась к разовой сверке каталога целиком и быстро устаревала, а
+// свежесть КОНКРЕТНОЙ позиции теперь видна точнее — по её собственной ссылке
+// на карточку товара (клик по образцу, см. libSwatchHtml) и по кнопке
+// «Обновить цены с сайта» (refreshCatalogLinkedPrices). Вместе с ней ушли
+// рендерившие её libSourceHint() и вспомогательная formatDateRu() — сам
+// CATALOG_SOURCE в catalog.js трогать не стали (это данные каталога, не UI).
 
 // Карточка цвета/образца — превью из поля image (URL или dataURL) или
 // заглушка «+». Клик (см. initLibraryPanel → .lib-swatch): если у позиции
@@ -1092,12 +1160,57 @@ function libHardwareTopEntries(cat, categoryKey) {
       if (skipKeys && skipKeys.indexOf(key) >= 0) return;
       const it = obj[key];
       if (it.category !== categoryKey) return;
+      // С 2026-09-16 дерево категорий фурнитуры можно править так же, как у
+      // материалов (переименование/добавление/перенос узлов, см.
+      // libTreeRowHtml/libSetEntryPath), а произвольную вложенность одно
+      // плоское поле subcategory/brand уже не опишет — поэтому у позиции,
+      // которую пользователь переносил или чью категорию переименовывал,
+      // появляется НАСТОЯЩЕЕ поле item.categoryPath (как у декоров), и оно
+      // главнее. subcategory/brand остаются как были: это и исходное значение
+      // для всех непотроганных позиций каталога, и человекочитаемая «фирма» в
+      // данных (libSetEntryPath держит её в синхроне с последним сегментом).
       const sub = it.subcategory || it.brand || null;
-      const categoryPath = sub ? [sub] : [];
+      const categoryPath = Array.isArray(it.categoryPath) ? it.categoryPath.slice() : (sub ? [sub] : []);
       out.push({ group: 'hw:' + src, item: Object.assign({ key }, it, { categoryPath }) });
     });
   });
   return out;
+}
+
+// ---------------------------------------------------------------------------
+// Корневые категории вкладки «Фурнитура» — заводские (catalog.js:
+// HARDWARE_CATEGORY_ORDER/HARDWARE_CATEGORY_LABEL) ПЛЮС свои, заведённые
+// пользователем (state.libHwCustomCats), плюс свои подписи к любым из них
+// (state.libHwCatLabels). Единственный набор функций, через который весь
+// остальной код узнаёт, какие категории показывать и как они называются —
+// напрямую HARDWARE_CATEGORY_LABEL для ПОКАЗА больше нигде не читаем (для
+// логики — item.category — читаем как раньше, ключи неизменны).
+// ---------------------------------------------------------------------------
+
+// Встроенная ли это категория (есть в заводском HARDWARE_CATEGORY_ORDER).
+// Такую нельзя удалить: по её ключу item.category движок подбирает фурнитуру
+// в расчёте (engine.js/specification.js — 'hinge'/'runner'/'leg'/...), без неё
+// спецификация осталась бы без петель и направляющих. Переименовать (сменить
+// подпись) её при этом можно — ключ от этого не меняется.
+function libHwCategoryIsBuiltin(categoryKey) {
+  const order = (window.Modul3D.catalog.HARDWARE_CATEGORY_ORDER || []);
+  return order.indexOf(categoryKey) >= 0;
+}
+
+// Полный порядок категорий вкладки: сначала заводские в их обычном порядке,
+// затем свои — в порядке добавления.
+function libHwCategoryKeys() {
+  const order = (window.Modul3D.catalog.HARDWARE_CATEGORY_ORDER || []).slice();
+  (state.libHwCustomCats || []).forEach((k) => { if (order.indexOf(k) < 0) order.push(k); });
+  return order;
+}
+
+// Подпись категории на экране: своя (если пользователь переименовал или это
+// его собственная категория) → заводская → сам ключ как последний резерв.
+function libHwCategoryLabel(categoryKey) {
+  const own = (state.libHwCatLabels || {})[categoryKey];
+  if (own) return own;
+  return (window.Modul3D.catalog.HARDWARE_CATEGORY_LABEL || {})[categoryKey] || categoryKey;
 }
 
 // Все известные пути узлов категории — из реальных позиций каталога
@@ -1146,6 +1259,23 @@ function libNodeHasItems(topCode, path) {
   });
 }
 
+// Общая санация названия узла дерева — ОДНА на все места, где имя вводит
+// пользователь (libAddChildNode, libAddHwCategory и инлайн-переименование
+// startTreeRename → libRenameNode). Убирает «::» — это разделитель сегментов
+// пути (см. libNodeKey ниже и data-path в libTreeRowHtml), имя с ним
+// развалило бы адресацию узла: «А::Б» прочиталось бы как два уровня дерева.
+// Заодно схлопывает лишние пробелы. Возвращает '' (отказ), если после
+// очистки ничего не осталось; про непустой ввод, от которого ничего не
+// осталось, говорим прямо — иначе клик по ✎ выглядел бы «не сработавшим».
+function libCleanNodeName(raw) {
+  const rawName = String(raw == null ? '' : raw);
+  const name = rawName.replace(/:{2,}/g, ' ').replace(/\s+/g, ' ').trim();
+  if (!name && rawName.trim()) {
+    window.alert('Такое название использовать нельзя — знак «::» в названии категории зарезервирован.');
+  }
+  return name;
+}
+
 // Ключ узла для state.libCollapsed (см. коммент у state выше) — только для
 // depth ≥ 1, глубина 0 (сама категория) через state.libCatOpen отдельно.
 function libNodeKey(topCode, path) {
@@ -1159,25 +1289,229 @@ function libToggleNode(topCode, path) {
   state.libCollapsed[libNodeKey(topCode, path)] = !libIsNodeCollapsed(topCode, path);
 }
 
-// Переименование СЕГМЕНТА пути на глубине узла path — у ВСЕХ реальных
-// позиций каталога и плейсхолдеров, чей путь на этой глубине совпадает (тот
-// же префикс до узла + тот же сегмент), см. значок ✎ в libTreeRowHtml.
-// Мутирует item.categoryPath НА МЕСТЕ (тот же массив, что хранится в
-// каталоге) — универсально для decors/back/facade/edge/glass, без привязки
-// к конкретному массиву данных.
-function libRenameNode(topCode, path, newName) {
-  newName = (newName || '').trim();
-  if (!newName) return;
-  const depth = path.length;
-  const prefix = path.slice(0, depth - 1);
-  const oldSeg = path[depth - 1];
-  const matches = (p) => p.length >= depth && prefix.every((seg, i) => p[i] === seg) && p[depth - 1] === oldSeg;
-  libTopEntries(topCode).forEach((e) => {
-    const p = e.item && e.item.categoryPath;
-    if (p && matches(p)) p[depth - 1] = newName;
+// ---------------------------------------------------------------------------
+// Правка САМОГО ДЕРЕВА категорий (переименование узла ✎ и перенос узла ⇄) —
+// общий движок libRepathNode ниже. И то, и другое — одна и та же операция:
+// «у всех позиций и заглушек, что лежат в этом узле или глубже, поменять
+// начало пути», меняется только то, на что именно меняем начало. Поэтому
+// обход написан ОДИН раз, а libRenameNode/libMoveNode — две тонкие обёртки
+// над ним.
+// ---------------------------------------------------------------------------
+
+// Настоящий объект каталога записи дерева ({ group, item } из libTopEntries).
+// Нужен потому, что часть категорий отдаёт в дерево не сам объект каталога,
+// а его одноразовую копию (Object.assign): 'edge' (ключ — имя кромки),
+// 'hw:*' (путь вычисляется из subcategory/brand). Писать путь в копию
+// бессмысленно — после ближайшей перерисовки изменение исчезнет, поэтому
+// адресуем позицию так же, как инлайн-редактирование ячеек (libFindItem по
+// group + ключу/коду).
+function libRealItemOf(entry) {
+  const it = (entry && entry.item) || null;
+  if (!it) return null;
+  const key = it.key !== undefined ? it.key : it.code;
+  return libFindItem(entry.group, key) || null;
+}
+
+// Записывает позиции НОВЫЙ путь в дереве — единственная точка, где вообще
+// меняется item.categoryPath. Флаг categoryPathEdited защищает правку от
+// отката заводским каталогом при следующей загрузке (см. mergeCatalogItem).
+function libSetEntryPath(entry, newPath) {
+  const it = libRealItemOf(entry);
+  if (!it) return;
+  it.categoryPath = newPath.slice();
+  it.categoryPathEdited = true;
+  // У фурнитуры «фирма» исторически лежит в отдельном поле (brand у LIFTS,
+  // subcategory у остальных, см. libHardwareTopEntries/libAddHardwareRow).
+  // Само дерево теперь читает categoryPath, но поле держим в синхроне с
+  // последним сегментом пути, чтобы в данных не осталось названия старой,
+  // уже несуществующей подкатегории.
+  if (String(entry.group).indexOf('hw:') === 0) {
+    const last = newPath.length ? newPath[newPath.length - 1] : '';
+    if (it.category === 'mechanism') it.brand = last; else it.subcategory = last;
+  }
+}
+
+// Переезд ключей UI-состояния вслед за узлом: свёрнутость поддерева
+// (state.libCollapsed) и фокус на листе (state.libActiveLeaf) адресуются
+// ПУТЁМ узла — после переименования/переноса старые ключи указывали бы в
+// пустоту (перенесённая ветка схлопывалась бы, а сфокусированный лист
+// показывал бы пустую таблицу).
+function libRemapTreeStateKeys(topCode, oldPath, newPath) {
+  if (!oldPath.length) return;
+  const oldPrefix = libNodeKey(topCode, oldPath);
+  const newPrefix = libNodeKey(topCode, newPath);
+  const nextCollapsed = {};
+  Object.keys(state.libCollapsed).forEach((k) => {
+    const moved = (k === oldPrefix || k.indexOf(oldPrefix + '::') === 0);
+    nextCollapsed[moved ? newPrefix + k.slice(oldPrefix.length) : k] = state.libCollapsed[k];
   });
-  (state.libExtraNodes[topCode] || []).forEach((p) => { if (matches(p)) p[depth - 1] = newName; });
+  state.libCollapsed = nextCollapsed;
+  const oldKey = oldPath.join('::');
+  const active = state.libActiveLeaf[topCode];
+  if (active && (active === oldKey || active.indexOf(oldKey + '::') === 0)) {
+    state.libActiveLeaf[topCode] = newPath.join('::') + active.slice(oldKey.length);
+  }
+}
+
+// Меняет начало пути с oldPath на newPath у ВСЕГО, что лежит в узле или
+// глубже: у реальных позиций каталога (см. libSetEntryPath) и у пустых
+// категорий-заглушек (state.libExtraNodes — без них пустая подкатегория
+// просто исчезла бы при переносе родителя). Сохранение на сервере —
+// на вызывающей стороне (libRenameNode/libMoveNode), чтобы не слать
+// два запроса подряд.
+function libRepathNode(topCode, oldPath, newPath) {
+  const depth = oldPath.length;
+  const inside = (p) => p.length >= depth && oldPath.every((seg, i) => p[i] === seg);
+  const rebuilt = (p) => newPath.concat(p.slice(depth));
+  libTopEntries(topCode).forEach((e) => {
+    const p = (e.item && e.item.categoryPath) || [];
+    if (inside(p)) libSetEntryPath(e, rebuilt(p));
+  });
+  // Пустой массив здесь не заводим: раньше ЛЮБОЕ переименование создавало
+  // state.libExtraNodes['hw:<cat>'] = [], и эти пустые ключи уезжали в снимок
+  // каталога на сервер (см. snapshotCatalogCollections), ничего не значая.
+  const extra = state.libExtraNodes[topCode];
+  if (extra && extra.length) state.libExtraNodes[topCode] = extra.map((p) => (inside(p) ? rebuilt(p) : p));
+  libRemapTreeStateKeys(topCode, oldPath, newPath);
+}
+
+// Переименование узла (значок ✎ в libTreeRowHtml) — тот же путь, но с другим
+// последним сегментом. Особый случай — КОРЕНЬ дерева (path пуст): у разделов
+// «Материалов» переименования нет вовсе (набор разделов фиксирован, тип
+// товара завязан на группу каталога), а у категории «Фурнитуры» меняется
+// ТОЛЬКО подпись на экране (state.libHwCatLabels) — сам ключ категории
+// (item.category), по которому движок подбирает фурнитуру в расчёте,
+// остаётся прежним.
+function libRenameNode(topCode, path, newName) {
+  newName = libCleanNodeName(newName);
+  if (!newName) return;
+  if (!path.length) {
+    if (topCode.indexOf('hw:') !== 0) return;
+    const catKey = topCode.slice(3);
+    // Та же проверка на дубликат ПОДПИСИ и то же сообщение, что и при
+    // создании своей категории (см. libAddHwCategory): ключи у категорий
+    // разные всегда, а вот двух одинаково названных «Петель» в списке
+    // пользователь не различит.
+    const busy = libHwCategoryKeys()
+      .filter((k) => k !== catKey)
+      .map((k) => libHwCategoryLabel(k).toLowerCase());
+    if (busy.indexOf(newName.toLowerCase()) >= 0) {
+      window.alert('Категория с таким названием уже есть.');
+      return;
+    }
+    state.libHwCatLabels[catKey] = newName;
+    scheduleCatalogSave();
+    return;
+  }
+  libRepathNode(topCode, path, path.slice(0, -1).concat([newName]));
   scheduleCatalogSave();
+}
+
+// Перенос узла в другого родителя (значок ⇄, см. openLibTreeMoveMenu) —
+// newParentPath всегда из ТОГО ЖЕ раздела (см. libMoveTargets: между разными
+// корневыми разделами переносить нельзя, это сменило бы тип товара/ключ
+// категории, от которого зависит расчёт), пустой массив — «в корень раздела».
+// Конфликт имён решаем ОТКАЗОМ с понятным сообщением, а не молчаливым
+// слиянием двух категорий: слияние необратимо (обратно их уже не разделить
+// одним кликом), а переименовать одну из них пользователь может сам.
+function libMoveNode(topCode, path, newParentPath) {
+  const name = path[path.length - 1];
+  const busy = libChildSegments(topCode, newParentPath).map((s) => s.toLowerCase());
+  if (busy.indexOf(String(name).toLowerCase()) >= 0) {
+    const where = newParentPath.length ? `«${newParentPath.join(' › ')}»` : 'корне раздела';
+    window.alert(`В ${where} уже есть категория «${name}». Сначала переименуйте одну из них, потом переносите.`);
+    return;
+  }
+  const newPath = newParentPath.concat([name]);
+  const oldParent = path.slice(0, -1);
+  libRepathNode(topCode, path, newPath);
+  // Родитель, который существовал ТОЛЬКО за счёт этого ребёнка (своих
+  // позиций нет, в заглушках не числится), после переноса исчез бы из дерева
+  // — со стороны это выглядит как «категория пропала сама собой».
+  libKeepOrphanParent(topCode, oldParent);
+  // Показываем результат там, куда перенесли: раскрываем сам раздел и весь
+  // путь до перенесённого узла включительно, иначе он «пропал бы» внутри
+  // свёрнутого родителя и выглядело бы это как потеря категории.
+  state.libCatOpen[topCode] = true;
+  for (let i = 1; i <= newPath.length; i += 1) {
+    state.libCollapsed[libNodeKey(topCode, newPath.slice(0, i))] = false;
+  }
+  scheduleCatalogSave();
+  renderLibraryPanel();
+}
+
+// Ветка, которая держалась только на своих детях (сама позиций не имеет и в
+// state.libExtraNodes не записана), после ухода последнего ребёнка (перенос
+// ⇄ или удаление ×) пропала бы из дерева вместе с ним. Оставляем её пустой
+// заглушкой — пользователь сам решит, удалить её значком × или наполнить
+// заново. Сохранение на сервере — на вызывающей стороне (она всё равно зовёт
+// scheduleCatalogSave после своей правки).
+function libKeepOrphanParent(topCode, parentPath) {
+  if (!parentPath || !parentPath.length) return;
+  const stillThere = libAllPaths(topCode)
+    .some((p) => p.length >= parentPath.length && parentPath.every((seg, i) => p[i] === seg));
+  if (stillThere) return;
+  if (!state.libExtraNodes[topCode]) state.libExtraNodes[topCode] = [];
+  state.libExtraNodes[topCode].push(parentPath.slice());
+}
+
+// Все узлы дерева раздела (каждый путь и каждый его префикс, без повторов) —
+// нужны списку «куда перенести» (libMoveTargets ниже).
+function libTreeAllNodePaths(topCode) {
+  const seen = {};
+  const out = [];
+  libAllPaths(topCode).forEach((p) => {
+    for (let i = 1; i <= p.length; i += 1) {
+      const sub = p.slice(0, i);
+      const key = sub.join('::');
+      if (!seen[key]) { seen[key] = true; out.push(sub); }
+    }
+  });
+  return out;
+}
+
+// Возможные новые родители узла path: «в корень раздела» ([]) + все узлы
+// ЭТОГО ЖЕ раздела, кроме самого узла (перенос в себя), его потомков (цикл:
+// ветка оказалась бы внутри самой себя) и его текущего родителя (перенос в
+// никуда). Пустой результат — переносить некуда, меню так и скажет.
+function libMoveTargets(topCode, path) {
+  const selfKey = path.join('::');
+  const parentKey = path.slice(0, -1).join('::');
+  const name = path[path.length - 1];
+  // Ветка с материалами фасадов (см. libSubtreeHasSheetFacade) обязана
+  // остаться под «плитным» корневым сегментом — иначе её позиции молча
+  // уедут с «Материалов» на вкладку «Двери». Корневым сегментом результата
+  // у переноса «в корень раздела» становится имя самого узла, у переноса
+  // внутрь цели — первый сегмент цели.
+  const lockSheetFacade = libSubtreeHasSheetFacade(topCode, path);
+  const rootAllowed = (rootSeg) => !lockSheetFacade || SHEET_FACADE_SUBCATS.indexOf(rootSeg) >= 0;
+  const targets = (parentKey === '' || !rootAllowed(name)) ? [] : [[]];
+  libTreeAllNodePaths(topCode).forEach((p) => {
+    const key = p.join('::');
+    if (key === selfKey || key.indexOf(selfKey + '::') === 0) return;
+    if (key === parentKey) return;
+    if (!rootAllowed(p[0])) return;
+    targets.push(p);
+  });
+  return targets;
+}
+
+// Лежат ли под узлом позиции «Видов фасадов», попавшие в дерево «Листовых
+// материалов»? Такие позиции физически хранятся в FACADE_MATERIALS, а к
+// «Материалам» их относит ТОЛЬКО первый сегмент пути (см.
+// SHEET_FACADE_SUBCATS/libTopEntries: «ДСП»/«МДФ-плита»/«Шпонированные
+// плиты»). Перенос их ветки под чужой корневой сегмент сменил бы
+// categoryPath[0], и позиции исчезли бы из «Материалов», всплыв на вкладке
+// «Двери», — со стороны это выглядит как потеря категории. Поэтому список
+// целей переноса (libMoveTargets выше) такие цели не предлагает, а
+// openLibTreeMoveMenu объясняет, почему их там нет.
+function libSubtreeHasSheetFacade(topCode, path) {
+  if (topCode !== 'sheet') return false;
+  return libTopEntries(topCode).some((e) => {
+    if (e.group !== 'facade') return false;
+    const p = (e.item && e.item.categoryPath) || [];
+    return p.length >= path.length && path.every((seg, i) => p[i] === seg);
+  });
 }
 
 // «+» узла дерева (не у самого глубокого листа — см. libTreeRowHtml) — та
@@ -1188,7 +1522,7 @@ function libRenameNode(topCode, path, newName) {
 // не потерялся среди свёрнутых.
 function libAddChildNode(topCode, parentPath) {
   if (!requireLibraryEditAuth()) return;
-  const name = (window.prompt('Название новой категории:') || '').trim();
+  const name = libCleanNodeName(window.prompt('Название новой категории:'));
   if (!name) return;
   const existing = libChildSegments(topCode, parentPath).map((s) => s.toLowerCase());
   if (existing.indexOf(name.toLowerCase()) >= 0) {
@@ -1211,12 +1545,79 @@ function libAddChildNode(topCode, parentPath) {
 // пути из state.libExtraNodes.
 function libDeleteNode(topCode, path) {
   if (!requireLibraryEditAuth()) return;
+  // Пустой путь — это сам КОРЕНЬ раздела. Значок × там есть только у СВОЕЙ
+  // категории фурнитуры (см. libTreeRowHtml), у неё отдельная процедура
+  // удаления: убрать нужно не путь внутри дерева, а саму категорию из
+  // state.libHwCustomCats.
+  if (!path.length) { libDeleteHwCategory(topCode); return; }
   if (libNodeHasItems(topCode, path)) {
-    window.alert('Сначала удалите или перенесите материалы из этой категории — в ней есть товары.');
+    window.alert('Сначала удалите или перенесите позиции из этой категории — в ней есть товары.');
     return;
   }
   const extra = state.libExtraNodes[topCode] || [];
   state.libExtraNodes[topCode] = extra.filter((p) => !(p.length >= path.length && path.every((seg, i) => p[i] === seg)));
+  // Удалили единственного ребёнка — сам родитель остаётся на месте (см.
+  // libKeepOrphanParent): пользователь удалял подкатегорию, а не её.
+  libKeepOrphanParent(topCode, path.slice(0, -1));
+  scheduleCatalogSave();
+  renderLibraryPanel();
+}
+
+// «+ Добавить категорию» вкладки «Фурнитура» (кнопка уровня вкладки, см.
+// libLinkTopBarHtml) — СВОЯ корневая категория: обычный контейнер для
+// позиций с ключом 'custom-<timestamp>'. Расчёт про такие ключи ничего не
+// знает (см. комментарий у state.libHwCustomCats), поэтому заводить их
+// безопасно в любом количестве. Проверка на дубликат — по ПОДПИСИ (ключ
+// уникален всегда по построению): две одинаково названные категории в одном
+// списке пользователь всё равно не различит.
+function libAddHwCategory() {
+  if (!requireLibraryEditAuth()) return;
+  const name = libCleanNodeName(window.prompt('Название новой категории фурнитуры:'));
+  if (!name) return;
+  const busy = libHwCategoryKeys().map((k) => libHwCategoryLabel(k).toLowerCase());
+  if (busy.indexOf(name.toLowerCase()) >= 0) {
+    window.alert('Категория с таким названием уже есть.');
+    return;
+  }
+  const key = 'custom-' + Date.now();
+  state.libHwCustomCats.push(key);
+  state.libHwCatLabels[key] = name;
+  state.libCatOpen['hw:' + key] = true;   // новая категория сразу раскрыта — видно, куда добавлять позиции
+  scheduleCatalogSave();
+  renderLibraryPanel();
+}
+
+// Удаление СВОЕЙ корневой категории фурнитуры (× в её строке). Встроенную
+// категорию сюда не пускаем совсем — по её ключу движок подбирает фурнитуру
+// в расчёте, значка × у неё поэтому и нет (см. libTreeRowHtml), это лишь
+// страховка. Непустую категорию не удаляем по той же причине, что и любой
+// другой узел дерева с товарами (см. libDeleteNode выше): удаление
+// нескольких позиций каталога разом одним кликом слишком легко сделать
+// случайно, а отменить его нечем — сначала пусть уберёт позиции.
+function libDeleteHwCategory(topCode) {
+  if (topCode.indexOf('hw:') !== 0) return;
+  const key = topCode.slice(3);
+  if (libHwCategoryIsBuiltin(key)) {
+    window.alert('Встроенную категорию фурнитуры удалить нельзя — по ней рассчитывается спецификация. Её можно только переименовать.');
+    return;
+  }
+  if (libNodeHasItems(topCode, [])) {
+    window.alert('Сначала удалите или перенесите позиции из этой категории — в ней есть товары.');
+    return;
+  }
+  state.libHwCustomCats = (state.libHwCustomCats || []).filter((k) => k !== key);
+  delete state.libHwCatLabels[key];
+  delete state.libExtraNodes[topCode];
+  delete state.libCatOpen[topCode];
+  delete state.libActiveLeaf[topCode];
+  if (state.libHwPriceUnit) delete state.libHwPriceUnit[topCode];
+  // Свёрнутость узлов удалённой категории адресуется её же topCode (см.
+  // libNodeKey: '<topCode>::<путь>') — без уборки эти ключи копились бы в
+  // state навсегда и «оживали» бы на новой категории с тем же topCode.
+  const collapsedPrefix = topCode + '::';
+  Object.keys(state.libCollapsed).forEach((k) => {
+    if (k.indexOf(collapsedPrefix) === 0) delete state.libCollapsed[k];
+  });
   scheduleCatalogSave();
   renderLibraryPanel();
 }
@@ -1459,10 +1860,14 @@ function libPriceDisplayValue(kind, it, unit) {
 // state.libPriceUnit — 'perM2' (см. там же); 'native' остаётся доступен для
 // ручного переключения на просмотр «как на сайте»/за лист, без пересчёта
 // (см. libPriceEffectiveUnit).
+// Подписи единиц — теми же сокращениями, какими единицы записаны в самих
+// позициях каталога и на соседней вкладке «Фурнитура» (см. LIB_UNIT_OPTIONS/
+// LIB_HW_UNIT_OPTIONS): «шт» и «пог.м», без точки. Было «шт.»/«м.п.» — одна и
+// та же единица подписывалась в двух соседних таблицах по-разному.
 const LIB_PRICE_UNITS = [
   { id: 'native', label: 'как на сайте' },
-  { id: 'perMeter', label: 'м.п.' },
-  { id: 'perPiece', label: 'шт.' },
+  { id: 'perMeter', label: 'пог.м' },
+  { id: 'perPiece', label: 'шт' },
   { id: 'perM2', label: 'м²' },
   { id: 'perSheet', label: 'лист' },
 ];
@@ -1764,22 +2169,158 @@ function libLeafTableHtml(topCode, path, entries, opts) {
 
 // Диспетчер таблицы листа/ветки по topCode — единственное место, где дерево
 // категорий (libNodeHtml/libTopCategoryHtml, общее для «Материалов» и
-// «Фурнитуры») решает, КАКОЙ рендерер таблицы вызвать: у материалов колонки
-// заточены под лист/декор (Длина/Ширина/Толщина, переключатель единицы
-// цены — см. libLeafTableHtml), у фурнитуры их нет вовсе, зато есть Ед.
-// изм./Цена как есть в позиции (см. libHardwareLeafTableHtml ниже) — сами
-// узлы дерева, раскрытие/свёртывание, хлебные крошки и фокус на листе общие
-// и НЕ дублируются, различается только содержимое таблицы конкретного листа.
+// «Фурнитуры») решает, КАКОЙ рендерер таблицы вызвать: у материалов есть
+// колонки листа/декора (Длина/Ширина/Толщина под тумблером «Характеристики
+// листа», см. libLeafTableHtml), у фурнитуры их нет вовсе (см.
+// libHardwareLeafTableHtml ниже) — сами узлы дерева, раскрытие/свёртывание,
+// хлебные крошки и фокус на листе общие и НЕ дублируются, различается только
+// содержимое таблицы конкретного листа.
 function libLeafTableHtmlAny(topCode, path, entries, opts) {
-  return topCode.indexOf('hw:') === 0 ? libHardwareLeafTableHtml(path, entries, opts) : libLeafTableHtml(topCode, path, entries, opts);
+  return topCode.indexOf('hw:') === 0 ? libHardwareLeafTableHtml(topCode, path, entries, opts) : libLeafTableHtml(topCode, path, entries, opts);
 }
 
-// Таблица позиций одного листа/ветки вкладки «Фурнитура» — тот же
-// каркас, что у libLeafTableHtml (.lib-leaf-body/.lib-table/.lib-leaf-actions,
-// тот же libSwatchHtml для образца), но со своим набором колонок:
-// Наименование / Образец / Ед. изм. / Цена — у фурнитуры нет ни фиксированного
-// листа (Длина/Ширина), ни переключателя единицы цены материалов, цена и
-// единица измерения хранятся прямо в позиции и редактируются как есть.
+// Единицы измерения, в которых реально продаётся фурнитура (сверено с
+// catalog.js 2026-09-16: 'шт' у подавляющего большинства позиций и у всех
+// HANDLES/LIFTS, где поля unit нет вовсе; 'пара' у направляющих и
+// штанго-держателей; 'уп' у крепежа столешницы; 'пог.м' у самой штанги).
+// Список задан явно, а не только собирается из каталога, потому что нужен и
+// на ВЫБОР единицы новой позиции (см. libLinkConfirmHtml) — иначе единицу,
+// которой пока нет ни у одной позиции, нельзя было бы указать в принципе.
+const LIB_HW_UNIT_OPTIONS = ['шт', 'пара', 'уп', 'пог.м'];
+
+// Та же единица в винительном падеже — для подсказки «Цена за пару» на ячейке
+// цены (см. libHwPriceCellHtml). Подставлять сокращение как есть нельзя: «Цена
+// за пара» читается как опечатка. Единица, которой в таблице нет (пришла с
+// позицией «по ссылке»), выводится сокращением — это честнее, чем угадывать
+// её падеж.
+const LIB_HW_UNIT_ACCUSATIVE = {
+  'шт': 'штуку',
+  'пара': 'пару',
+  'уп': 'упаковку',
+  'пог.м': 'погонный метр',
+};
+
+// Единица одной позиции фурнитуры — 'шт' по умолчанию, ровно то же значение,
+// которое подставляют libAddHardwareRow/libLinkSaveHardware, когда единицу не
+// указали (у HANDLES/LIFTS поля unit нет исторически).
+function libHwUnitOf(it) {
+  return (it && it.unit) || 'шт';
+}
+
+// Компактный список единиц ОДНОЙ позиции фурнитуры — открывается рядом с
+// полем цены при инлайн-правке ячейки (см. startCellEdit) и сохраняется
+// вместе с ценой. Это единственное место, где единицу УЖЕ добавленной
+// позиции можно исправить: отдельной колонки «Ед. изм.» в таблице больше нет
+// (она распирала таблицу шире панели, см. libHardwareLeafTableHtml), а форма
+// «Добавить по ссылке» задаёт единицу только новой позиции — без этого
+// редактора позицию, заведённую кнопкой «+ Добавить позицию», нельзя было бы
+// перевести из «шт» в «пара»/«уп» вообще нигде.
+// Список — ПОЛНЫЙ LIB_HW_UNIT_OPTIONS (в отличие от шапки колонки, где
+// предлагаются только встречающиеся в таблице единицы, см.
+// libHwTablePriceUnits): здесь единицу ЗАДАЮТ, и перевести позицию в
+// единицу, которой в этой таблице пока нет ни у кого, — обычное дело.
+// Единица, пришедшая с позицией по ссылке и не входящая в список,
+// дописывается в конец — иначе открытие редактора молча сменило бы её.
+function libHwUnitEditorHtml(unit) {
+  const cur = unit || 'шт';
+  const list = LIB_HW_UNIT_OPTIONS.indexOf(cur) >= 0 ? LIB_HW_UNIT_OPTIONS : LIB_HW_UNIT_OPTIONS.concat([cur]);
+  const opts = list
+    .map((u) => `<option value="${esc(u)}" ${u === cur ? 'selected' : ''}>за ${esc(LIB_HW_UNIT_ACCUSATIVE[u] || u)}</option>`)
+    .join('');
+  return `<select class="lib-hw-unit-edit" title="Единица измерения позиции">${opts}</select>`;
+}
+
+// Выбранная единица колонки «Цена» ОДНОЙ корневой категории фурнитуры (см.
+// state.libHwPriceUnit) — отсутствие записи означает 'native' («как в
+// позиции»).
+function libHwPriceUnitOf(topCode) {
+  return (state.libHwPriceUnit || {})[topCode] || 'native';
+}
+
+// Единицы для выпадающего списка в шапке колонки «Цена» КОНКРЕТНОЙ таблицы:
+// только те, что реально встречаются в ЕЁ строках, плюс текущая выбранная,
+// даже если она из таблицы пропала (иначе select потерял бы показанное
+// значение и молча перескочил бы на первый пункт).
+// Общего списка «все единицы каталога» здесь больше нет (исправлено
+// 2026-09-16): в «Петлях» он предлагал «Цена/пара», после выбора которой вся
+// таблица показывала «—» — пункт, который заведомо ничего не покажет,
+// предлагать нельзя. Полный набор LIB_HW_UNIT_OPTIONS по-прежнему нужен там,
+// где единицу ЗАДАЮТ (редактор цены, см. libHwUnitEditorHtml, и форма
+// «Добавить по ссылке»), а не отбирают по ней строки.
+function libHwTablePriceUnits(items, current) {
+  const out = [];
+  (items || []).forEach((it) => {
+    const u = libHwUnitOf(it);
+    if (out.indexOf(u) < 0) out.push(u);
+  });
+  if (current && current !== 'native' && out.indexOf(current) < 0) out.push(current);
+  return out;
+}
+
+// Переключатель единицы цены в шапке таблиц «Фурнитуры» — тот же класс
+// .lib-price-unit-select, что и у материалов (см. libPriceUnitHeaderHtml):
+// общий CSS (компактный select, обрезка длинной подписи многоточием) и та же
+// ширина колонки 82px. Своё состояние — state.libHwPriceUnit, поэтому в
+// разметке есть и второй класс .lib-hw-price-unit-select: по нему
+// делегированный обработчик change (см. initLibraryPanel) отличает
+// переключатель фурнитуры от переключателя материалов.
+// 'native' («как в позиции») — значение по умолчанию: никакого отбора, цена
+// каждой строки как есть. Остальные пункты — не пересчёт (у фурнитуры
+// переводить шт↔пара↔уп↔пог.м нечем, коэффициентов для этого не существует),
+// а «покажи цены только тех позиций, что продаются в этой единице»: у строки
+// с другой единицей в колонке будет «—».
+// items/topCode — позиции ИМЕННО ЭТОЙ таблицы и её корневая категория:
+// список опций свой у каждой таблицы (см. libHwTablePriceUnits), а выбранное
+// значение — своё у каждой корневой категории (см. libHwPriceUnitOf).
+// data-top — та же корневая категория для обработчика change (см.
+// initLibraryPanel): по самому <select> иначе не понять, к какой таблице он
+// относится, и выбор «Цена/пара» в «Направляющих» переписал бы единицу всей
+// вкладке разом.
+function libHwPriceUnitHeaderHtml(items, topCode) {
+  const current = libHwPriceUnitOf(topCode);
+  const nativeOpt = `<option value="native" ${current === 'native' ? 'selected' : ''}>Цена (как в позиции)</option>`;
+  const opts = libHwTablePriceUnits(items, current)
+    .map((u) => `<option value="${esc(u)}" ${u === current ? 'selected' : ''}>Цена/${esc(u)}</option>`)
+    .join('');
+  return `<select class="lib-price-unit-select lib-hw-price-unit-select" data-top="${esc(topCode)}">${nativeOpt}${opts}</select>`;
+}
+
+// Ячейка «Цена» одной позиции фурнитуры. Цена НЕ округляется до целого (в
+// отличие от материалов, см. libPriceCellHtml): у метизов она копеечная
+// (шкант 0.2, конфирмат 0.5 — см. catalog.js), и округление показало бы «0».
+// title — единица позиции: отдельной колонки «Ед. изм.» в таблице больше нет
+// (она распирала таблицу шире панели), и без подсказки «за пару»/«за
+// упаковку» цена читалась бы неверно.
+function libHwPriceCellHtml(group, key, it, unit) {
+  const itemUnit = libHwUnitOf(it);
+  // Выбрана конкретная единица, а у позиции она другая — цену не показываем
+  // и не даём править: так же ведут себя материалы, когда пересчитать цену в
+  // выбранную единицу нечем (см. libPriceValueForUnit → null → «—»).
+  if (unit !== 'native' && unit !== itemUnit) return '<td class="lib-price-cell">—</td>';
+  const display = it.price != null ? `${it.price} ${curSym()}` : undefined;
+  return libEditCell(group, key, 'price', 'number', it.price,
+    { displayText: display, extraClass: 'lib-price-cell', title: `Цена за ${LIB_HW_UNIT_ACCUSATIVE[itemUnit] || itemUnit}` });
+}
+// То же значение простой строкой — для поповера сортировки/фильтра колонки
+// «Цена» (libFilterRowsCache): единственный источник правды «что показано в
+// ячейке» общий с libHwPriceCellHtml выше.
+function libHwPriceDisplayValue(it, unit) {
+  const itemUnit = libHwUnitOf(it);
+  if (unit !== 'native' && unit !== itemUnit) return '—';
+  return it.price != null ? `${it.price} ${curSym()}` : '';
+}
+
+// Таблица позиций одного листа/ветки вкладки «Фурнитура» — тот же каркас и
+// тот же НАБОР КОЛОНОК, что у материалов со свёрнутыми характеристиками (см.
+// libLeafTableHtml/libColgroup): Наименование / Образец / Цена, те же ширины
+// 72px и 82px, те же кнопки-треугольники сортировки/фильтра (.dth-filter-btn)
+// и тот же переключатель единицы цены в шапке. До 2026-09-16 у неё был свой
+// набор (Наименование / Образец / Ед. изм. / Цена шириной 90+110px), из-за
+// которого таблица вылезала за правый край панели, а сама панель выглядела
+// иначе, чем на соседней вкладке. Отдельная колонка «Ед. изм.» убрана:
+// редактировать единицу прямо в таблице больше нельзя, она задаётся при
+// добавлении позиции (см. libLinkConfirmHtml) и видна в подсказке ячейки
+// цены (см. libHwPriceCellHtml).
 // entries — { group: 'hw:<src>', item } (см. libHardwareTopEntries) — все
 // позиции одного листа/ветки гарантированно одной и той же исходной
 // категории (topCode 'hw:<categoryKey>' сам её и задаёт, item.category
@@ -1787,47 +2328,76 @@ function libLeafTableHtmlAny(topCode, path, entries, opts) {
 // безопасно берём из первой записи; opts.hwCategory — тот же самый ключ,
 // передаётся явно из libraryHardwareBlock и подстраховывает пустой лист
 // (когда entries вообще нет).
-function libHardwareLeafTableHtml(path, entries, opts) {
+function libHardwareLeafTableHtml(topCode, path, entries, opts) {
   opts = opts || {};
   const category = (entries[0] && entries[0].item && entries[0].item.category) || opts.hwCategory || '';
   const items = entries.map((e) => e.item);
-  const rowsHtml = entries.map((e) => {
+  const unit = libHwPriceUnitOf(topCode);
+  // tableKey — тот же libNodeKey(topCode, path), что и charsKey у материалов:
+  // одновременно открытых таблиц в Библиотеке может быть много, у каждой свой
+  // независимый фильтр. Кэш строк пересобирается с нуля на каждый рендер — по
+  // той же причине, что и у материалов (см. libLeafTableHtml).
+  const tableKey = libNodeKey(topCode, path);
+  libFilterRowsCache[tableKey] = [];
+  const rowsHtml = entries.map((e, i) => {
     const group = e.group;
     const it = e.item;
     const key = it.key;
     const searchText = String(it.name || '').toLowerCase();
+    const priceDisplay = libHwPriceDisplayValue(it, unit);
+    // vals — по одному значению на КАЖДУЮ колонку строки, в том же порядке,
+    // что и <td> ниже (0 — Наименование, 1 — Образец, 2 — Цена): поповер
+    // фильтра адресуется номером колонки (см. data-col у .dth-filter-btn),
+    // поэтому пустая строка для нефильтруемого «Образца» — не мусор, а
+    // обязательная заглушка, держащая нумерацию.
+    libFilterRowsCache[tableKey].push({
+      idx: i,
+      vals: [String(it.name || ''), '', priceDisplay],
+    });
     return `
-      <tr data-search="${esc(searchText)}">
+      <tr data-search="${esc(searchText)}" data-row-idx="${i}">
         ${libEditCell(group, key, 'name', 'text', it.name)}
         <td>${libSwatchHtml(group, key, it.image, it.sourceUrl)}</td>
-        ${libEditCell(group, key, 'unit', 'text', it.unit || 'шт')}
-        ${libEditCell(group, key, 'price', 'number', it.price)}
+        ${libHwPriceCellHtml(group, key, it, unit)}
       </tr>`;
   }).join('');
-  const emptyRow = entries.length ? '' : '<tr><td colspan="4" class="hint">Пока нет позиций</td></tr>';
+  const emptyRow = entries.length ? '' : '<tr><td colspan="3" class="hint">Пока нет позиций</td></tr>';
   // data-add-path — тот же путь листа/ветки, что и у материалов (см.
   // libLeafTableHtml/libAddRow): позволяет новой позиции сразу попасть в ту
-  // же подкатегорию/фирму (path[0] — категория вынесена в topCode, см.
+  // подкатегорию/фирму (сама категория вынесена в topCode, см.
   // libHardwareTopEntries), под которой нажали кнопку, а не всегда в
-  // «безбрендовый» уровень категории (см. libAddHardwareRow).
+  // «безбрендовый» уровень категории (см. libAddHardwareRow). Путь передаём
+  // целиком: с 2026-09-16 в дереве фурнитуры бывает больше одного уровня.
   const addHtml = category
     ? `<button type="button" class="link-btn lib-add" data-add="hwadd:${esc(category)}" data-add-path="${esc(path.join('::'))}">+ Добавить позицию</button>`
     : '';
-  // data-link-path — тот же путь ветки (path[0] — подкатегория/бренд), что и
-  // у data-add-path кнопки «+ Добавить позицию» выше: без него позиция «по
-  // ссылке» попадала бы в категорию БЕЗ бренда, даже если кнопку нажали
-  // прямо под конкретной фирмой (см. libLinkSaveHardware).
+  // data-link-path — тот же путь ветки, что и у data-add-path кнопки «+
+  // Добавить позицию» выше: без него позиция «по ссылке» попадала бы в
+  // категорию БЕЗ бренда, даже если кнопку нажали прямо под конкретной
+  // фирмой (см. libLinkSaveHardware).
   const linkAddHtml = category
     ? `<button type="button" class="link-btn lib-add-by-link" data-link-kind="hardware" data-link-hwcat="${esc(category)}" data-link-path="${esc(path.join('::'))}">+ Добавить по ссылке</button>`
     : '';
   const actionsHtml = (addHtml || linkAddHtml) ? `<div class="lib-leaf-actions">${addHtml}${linkAddHtml}</div>` : '';
+  // Кнопка-треугольник сортировки/фильтра — на тех же колонках, что и у
+  // материалов: «Наименование» и «Цена» (у «Образца» фильтровать нечего).
+  // Номер колонки обязан совпадать с позицией <td> в строке и с индексом в
+  // vals кэша (см. libFilterRowsCache выше).
+  const filterBtn = (colIndex) => `<button type="button" class="dth-filter-btn" data-filter-key="${esc(tableKey)}" data-col="${colIndex}" title="Сортировка и фильтр">▾</button>`;
+  // data-chars-key — тот же атрибут, по которому renderLibraryPanel находит
+  // таблицы и заново применяет к ним сохранённый фильтр. Название атрибута
+  // историческое (у материалов ключ заодно обслуживает тумблер
+  // «Характеристики листа»), у фурнитуры характеристик нет — это просто
+  // ключ таблицы, других значений он не несёт.
   return `
     <div class="lib-leaf-body">
       ${libPriceNoteHtml(items)}
-      <table class="lib-table" style="table-layout:fixed">
-        <colgroup><col><col style="width:72px"><col style="width:90px"><col style="width:110px"></colgroup>
+      <table class="lib-table" style="table-layout:fixed" data-chars-key="${esc(tableKey)}">
+        <colgroup><col><col style="width:72px"><col style="width:82px"></colgroup>
         <thead><tr>
-          <th>Наименование</th><th>Образец</th><th>Ед. изм.</th><th>Цена, ${esc(curSym())}</th>
+          <th class="lib-th-filter"><span class="dth-label">Наименование</span>${filterBtn(0)}</th>
+          <th>Образец</th>
+          <th class="lib-th-filter"><span class="dth-label">${libHwPriceUnitHeaderHtml(items, topCode)}</span>${filterBtn(2)}</th>
         </tr></thead>
         <tbody>${rowsHtml}${emptyRow}</tbody>
       </table>
@@ -1837,37 +2407,58 @@ function libHardwareLeafTableHtml(path, entries, opts) {
 
 // Строка одного узла дерева — общая и для верхнеуровневой категории (kind
 // 'top'), и для ветки ('branch'), и для листа ('leaf'). Отступ слева
-// пропорционален глубине пути (16px/уровень); ✎/+/× — обычный текст без
+// пропорционален глубине пути (16px/уровень); ✎/+/⇄/× — обычный текст без
 // рамки/фона, видны по наведению на строку (см. .lib-tree-actions в
-// style.css). У 'top' нет ✎/× (нельзя переименовать/удалить категорию
-// целиком), у 'leaf' нет + (единственное добавление у листа — «+ Добавить
-// материал» под его таблицей, см. libLeafTableHtml). У 'countertop' нет ни
-// ✎, ни + ни на одном уровне — его categoryPath виртуальный, выводится из
-// item.materialId (закрытый список, см. COUNTERTOP_MATERIAL_LABEL), а не
-// хранится как реальное поле каталога: libRenameNode/libAddChildNode
-// мутировали бы одноразовую копию из libTopEntries и молча ничего не meняли
-// бы после перерисовки — правильнее не показывать эти значки вовсе, чем
-// давать нерабочую кнопку. × оставлен — на реальных листьях он и так всегда
-// блокируется алертом (см. libNodeHasItems), а плейсхолдеры здесь взяться
-// неоткуда без +. 'hw:<categoryKey>' (фурнитура, см. libraryHardwareBlock) —
-// та же ситуация, что и у 'countertop' (categoryPath вычисляется на лету из
-// item.subcategory/brand, см. libHardwareTopEntries), но × тоже убран: без
-// addIc плейсхолдеры (state.libExtraNodes['hw:...']) никогда не появляются,
-// поэтому кнопка на реальной ветке/листе всегда бы только показывала
-// бесполезный алерт «в категории есть товары» — не показываем её вовсе.
+// style.css).
+//
+// Кто какие значки получает:
+// - ✎ «Переименовать» — у всех узлов, кроме разделов «Материалов» (их набор
+//   фиксирован: тип товара завязан на группу каталога) и кроме 'countertop'
+//   (см. ниже). У КОРНЯ категории фурнитуры ✎ есть: он меняет только подпись
+//   на экране, не ключ категории (см. libRenameNode).
+// - + «Добавить категорию» — у всего, кроме листа (единственное добавление у
+//   листа — «+ Добавить материал/позицию» под его таблицей, см.
+//   libLeafTableHtml/libHardwareLeafTableHtml) и кроме 'countertop'.
+// - ⇄ «Переместить» — у всего, кроме корня раздела (корню некуда переезжать:
+//   перенос между РАЗНЫМИ разделами запрещён, он сменил бы тип товара/ключ
+//   категории, от которого зависит расчёт) и кроме 'countertop'.
+// - × «Удалить» — у всех узлов ниже корня; у самого корня — только если это
+//   СВОЯ категория фурнитуры (см. libHwCategoryIsBuiltin/libDeleteHwCategory):
+//   встроенную удалять нельзя, по её ключу движок подбирает фурнитуру в
+//   расчёте, и без неё спецификация осталась бы без петель/направляющих.
+//
+// 'countertop' — единственный раздел вообще без правки дерева: его
+// categoryPath виртуальный, выводится из item.materialId (закрытый список,
+// см. COUNTERTOP_MATERIAL_LABEL), а не хранится как поле каталога — правка
+// меняла бы одноразовую копию из libTopEntries и молча пропадала бы после
+// перерисовки, правильнее не показывать значок вовсе, чем давать нерабочую
+// кнопку. × ему оставлен — на реальных листьях он и так блокируется алертом
+// (см. libNodeHasItems), а плейсхолдерам здесь взяться неоткуда без +.
+// Фурнитура ('hw:<categoryKey>') до 2026-09-16 была в том же положении, но
+// теперь её путь — настоящее поле item.categoryPath (см.
+// libHardwareTopEntries/libSetEntryPath), поэтому все четыре значка у неё
+// работают так же, как у материалов.
 function libTreeRowHtml(topCode, path, name, kind, collapsed) {
   const depth = path.length;
   const isTop = kind === 'top';
   const isLeaf = kind === 'leaf';
   const isCountertop = topCode === 'countertop';
   const isHardware = topCode.indexOf('hw:') === 0;
+  // Встроенная корневая категория фурнитуры — единственный корень, который
+  // можно переименовать, но нельзя удалить (см. комментарий выше).
+  const isBuiltinHwTop = isTop && isHardware && libHwCategoryIsBuiltin(topCode.slice(3));
   const arrowHtml = isLeaf ? '<span class="lib-tree-arrow"></span>' : `<span class="lib-tree-arrow">${collapsed ? '▸' : '▾'}</span>`;
-  const renameIc = (isTop || isCountertop || isHardware) ? '' : '<span class="lib-tree-ic" data-tree-rename="1" title="Переименовать">✎</span>';
-  const addIc = (isLeaf || isCountertop || isHardware) ? '' : '<span class="lib-tree-ic" data-tree-add="1" title="Добавить категорию">+</span>';
-  const delIc = (isTop || isHardware) ? '' : '<span class="lib-tree-ic" data-tree-del="1" title="Удалить">×</span>';
+  const canRename = !isCountertop && (!isTop || isHardware);
+  const canAdd = !isCountertop && !isLeaf;
+  const canMove = !isCountertop && !isTop;
+  const canDelete = !isTop || (isHardware && !isBuiltinHwTop);
+  const renameIc = canRename ? '<span class="lib-tree-ic" data-tree-rename="1" title="Переименовать">✎</span>' : '';
+  const addIc = canAdd ? '<span class="lib-tree-ic" data-tree-add="1" title="Добавить категорию">+</span>' : '';
+  const moveIc = canMove ? '<span class="lib-tree-ic" data-tree-move="1" title="Переместить">⇄</span>' : '';
+  const delIc = canDelete ? '<span class="lib-tree-ic" data-tree-del="1" title="Удалить">×</span>' : '';
   return `<div class="lib-tree-row${isTop ? ' lib-tree-top' : ''}" style="padding-left:${depth * 16}px"
       data-tree-node="1" data-kind="${kind}" data-top="${esc(topCode)}" data-path="${esc(path.join('::'))}">
-    ${arrowHtml}<span class="lib-tree-name" data-tree-label="1">${esc(name)}</span><span class="lib-tree-actions">${renameIc}${addIc}${delIc}</span>
+    ${arrowHtml}<span class="lib-tree-name" data-tree-label="1">${esc(name)}</span><span class="lib-tree-actions">${renameIc}${addIc}${moveIc}${delIc}</span>
   </div>`;
 }
 
@@ -2000,7 +2591,6 @@ function libraryMaterialsBlock() {
   return `
     <h3>Материалы</h3>
     ${libLinkTopBarHtml('materials')}
-    ${libSourceHint()}
     ${state.libLinkForm && state.libLinkForm.kind === 'materials' ? libLinkFormHtml(state.libLinkForm) : ''}
     ${libTopCategoryHtml('sheet', 'Листовые материалы', {
       pickable: true,
@@ -2029,16 +2619,16 @@ function libraryMaterialsBlock() {
 // state.libCatOpen/state.libActiveLeaf/state.libCollapsed (ключ включает её
 // topCode) — не делят состояние открытости друг с другом, как было раньше.
 function libraryHardwareBlock() {
-  const cat = window.Modul3D.catalog;
-  const order = cat.HARDWARE_CATEGORY_ORDER || [];
-  const label = cat.HARDWARE_CATEGORY_LABEL || {};
-  const categoriesHtml = order
-    .map((c) => libTopCategoryHtml('hw:' + c, label[c] || c, { hwCategory: c }))
+  // Набор категорий и их подписи — только через libHwCategoryKeys/
+  // libHwCategoryLabel: заводские категории идут первыми в порядке
+  // HARDWARE_CATEGORY_ORDER, за ними свои (state.libHwCustomCats), а подпись
+  // любой из них пользователь мог переименовать (state.libHwCatLabels).
+  const categoriesHtml = libHwCategoryKeys()
+    .map((c) => libTopCategoryHtml('hw:' + c, libHwCategoryLabel(c), { hwCategory: c }))
     .join('');
   return `
     <h3>Фурнитура</h3>
     ${libLinkTopBarHtml('hardware')}
-    ${libSourceHint()}
     ${state.libLinkForm && state.libLinkForm.kind === 'hardware' ? libLinkFormHtml(state.libLinkForm) : ''}
     ${categoriesHtml}`;
 }
@@ -2194,6 +2784,85 @@ function openLibLinkSiteMenu(picker) {
   }, 0);
   libLinkSiteMenuEscHandler = (e) => { if (e.key === 'Escape') closeLibLinkSiteMenu(); };
   document.addEventListener('keydown', libLinkSiteMenuEscHandler);
+}
+
+// ---------------------------------------------------------------------------
+// Меню «Переместить» узла дерева категорий (значок ⇄, см. libTreeRowHtml) —
+// тот же каркас, что у поповера сортировки/фильтра колонки
+// (openColumnFilterMenu ниже по файлу) и у меню фокуса: .ctx-menu, position:
+// fixed с клампом к вьюпорту, закрытие по клику мимо (слушатель вешаем
+// следующим тиком, иначе тот же клик, что открыл меню, его бы и закрыл) и по
+// Escape. Отдельного своего вида у меню нет специально — оно должно выглядеть
+// как остальные меню панели.
+// ---------------------------------------------------------------------------
+let libTreeMoveMenuOutsideClick = null;
+let libTreeMoveMenuEscHandler = null;
+function closeLibTreeMoveMenu() {
+  const menu = document.getElementById('libTreeMoveMenu');
+  if (menu) menu.remove();
+  if (libTreeMoveMenuOutsideClick) {
+    document.removeEventListener('click', libTreeMoveMenuOutsideClick);
+    libTreeMoveMenuOutsideClick = null;
+  }
+  if (libTreeMoveMenuEscHandler) {
+    document.removeEventListener('keydown', libTreeMoveMenuEscHandler);
+    libTreeMoveMenuEscHandler = null;
+  }
+}
+
+// btnEl — сам значок ⇄ (меню встаёт под ним). Список целей считает
+// libMoveTargets: только узлы ЭТОГО ЖЕ раздела, без самого узла, его
+// потомков и его текущего родителя. Проверку входа делаем здесь, один раз на
+// всё действие — libMoveNode её уже не повторяет, иначе пользователь увидел
+// бы одно и то же предупреждение дважды.
+function openLibTreeMoveMenu(btnEl, topCode, path) {
+  closeLibTreeMoveMenu();
+  if (!requireLibraryEditAuth()) return;
+  const targets = libMoveTargets(topCode, path);
+  const menu = document.createElement('div');
+  menu.id = 'libTreeMoveMenu';
+  menu.className = 'ctx-menu lib-move-menu';
+  const itemsHtml = targets.length
+    ? targets.map((p, i) => `<button type="button" class="ctx-item" data-move-idx="${i}">${p.length ? esc(p.join(' › ')) : 'В корень раздела'}</button>`).join('')
+    : '<div class="df-empty">Некуда переносить</div>';
+  // Часть целей в список не попала намеренно (см. libMoveTargets/
+  // libSubtreeHasSheetFacade) — без объяснения это выглядело бы как
+  // случайно короткий список.
+  const hintHtml = libSubtreeHasSheetFacade(topCode, path)
+    ? '<div class="lib-move-hint">В этой категории есть материалы фасадов — переносить её можно только внутрь «ДСП», «МДФ-плиты» или «Шпонированных плит». Иначе её позиции ушли бы на вкладку «Двери».</div>'
+    : '';
+  menu.innerHTML = `
+    <div class="ctx-title">Перенести «${esc(path[path.length - 1])}» в:</div>
+    ${hintHtml}
+    <div class="lib-move-list">${itemsHtml}</div>`;
+  document.body.appendChild(menu);
+  // Клик внутри меню не должен доходить ни до обработчика «клик мимо —
+  // закрыть» ниже, ни до обработчика клика по строке дерева в
+  // initLibraryPanel (меню лежит в body, но событие всплывает до document).
+  menu.addEventListener('click', (e) => e.stopPropagation());
+
+  const btnRect = btnEl.getBoundingClientRect();
+  const rect = menu.getBoundingClientRect();
+  const left = Math.max(4, Math.min(btnRect.left, window.innerWidth - rect.width - 4));
+  let top = btnRect.bottom + 4;
+  if (top + rect.height > window.innerHeight - 4) top = Math.max(4, btnRect.top - rect.height - 4);
+  menu.style.left = Math.round(left) + 'px';
+  menu.style.top = Math.round(top) + 'px';
+
+  menu.querySelectorAll('[data-move-idx]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const target = targets[Number(btn.dataset.moveIdx)];
+      closeLibTreeMoveMenu();
+      if (target) libMoveNode(topCode, path, target);
+    });
+  });
+
+  setTimeout(() => {
+    libTreeMoveMenuOutsideClick = (e) => { if (!menu.contains(e.target)) closeLibTreeMoveMenu(); };
+    document.addEventListener('click', libTreeMoveMenuOutsideClick);
+  }, 0);
+  libTreeMoveMenuEscHandler = (e) => { if (e.key === 'Escape') closeLibTreeMoveMenu(); };
+  document.addEventListener('keydown', libTreeMoveMenuEscHandler);
 }
 
 // Проверка домена ДО отправки на сервер (п.5 ТЗ) — чисто клиентская подсказка,
@@ -2357,18 +3026,21 @@ function libLinkCategoryPreviewLabel(split) {
   return full.length ? full.join(' › ') : '(без раздела)';
 }
 
-// Раздел фурнитуры (Петли/Ручки/Механизмы/...) — те же HARDWARE_CATEGORY_ORDER/
-// HARDWARE_CATEGORY_LABEL, что и группировка таблиц в libraryHardwareBlock,
-// как список <option> для экрана подтверждения. Нужен, ТОЛЬКО когда форма
+// Раздел фурнитуры (Петли/Ручки/Механизмы/...) — тот же набор и те же
+// подписи, что и у дерева вкладки (libHwCategoryKeys/libHwCategoryLabel,
+// см. libraryHardwareBlock), как список <option> для экрана подтверждения. Нужен, ТОЛЬКО когда форма
 // открыта без контекста конкретного раздела (см. libLinkTopBarHtml — точка
 // входа сверху вкладки «Фурнитура», hwCategory там не проставлен): из
 // конкретного раздела (кнопка «+ Добавить по ссылке» под его таблицей)
 // категория уже известна заранее и этот выбор не показывается.
 function libLinkHwCategoryOptionsHtml(selected) {
-  const cat = window.Modul3D.catalog;
   const placeholder = `<option value="" ${selected ? '' : 'selected'}>— выберите раздел —</option>`;
-  const opts = (cat.HARDWARE_CATEGORY_ORDER || [])
-    .map((c) => `<option value="${esc(c)}" ${c === selected ? 'selected' : ''}>${esc(cat.HARDWARE_CATEGORY_LABEL[c] || c)}</option>`).join('');
+  // Тот же список и те же подписи, что и в дереве вкладки (см.
+  // libHwCategoryKeys/libHwCategoryLabel) — включая СВОИ категории
+  // пользователя: иначе в собственную категорию нельзя было бы положить
+  // позицию по ссылке.
+  const opts = libHwCategoryKeys()
+    .map((c) => `<option value="${esc(c)}" ${c === selected ? 'selected' : ''}>${esc(libHwCategoryLabel(c))}</option>`).join('');
   return placeholder + opts;
 }
 
@@ -2897,7 +3569,14 @@ function libLinkConfirmHtml(form) {
   const stockHtml = draft.inStock === true ? `<p class="hint lib-link-stock" ${itemStockHidden ? 'hidden' : ''}>На странице: товар в наличии.</p>`
     : draft.inStock === false ? `<p class="hint lib-link-warning lib-link-stock" ${itemStockHidden ? 'hidden' : ''}>На странице указано: товара нет в наличии — уточните перед сохранением.</p>` : '';
   const unitDefault = fv('unit', draft.unit || (isHw ? 'шт' : 'лист'));
-  const unitOptions = LIB_UNIT_OPTIONS.map((o) => `<option value="${esc(o)}" ${o === unitDefault ? 'selected' : ''}>${esc(o)}</option>`).join('');
+  // У фурнитуры свой список единиц (LIB_HW_UNIT_OPTIONS: шт/пара/уп/пог.м) —
+  // «лист»/«м²» материалов ей не подходят, зато нужны «пара» и «уп», которых
+  // в общем списке нет. Раньше единицу можно было доправить прямо в таблице
+  // «Фурнитуры», теперь колонки «Ед. изм.» там нет (см.
+  // libHardwareLeafTableHtml), и эта форма — единственное место, где единица
+  // задаётся, поэтому список должен покрывать реальные случаи.
+  const unitList = isHw ? LIB_HW_UNIT_OPTIONS : LIB_UNIT_OPTIONS;
+  const unitOptions = unitList.map((o) => `<option value="${esc(o)}" ${o === unitDefault ? 'selected' : ''}>${esc(o)}</option>`).join('');
   const thicknessVal = fv('thickness', draft.thickness != null ? draft.thickness : '');
   const sheetWVal = fv('sheetW', draft.sheetW != null ? draft.sheetW : '');
   const sheetHVal = fv('sheetH', draft.sheetH != null ? draft.sheetH : '');
@@ -3165,10 +3844,10 @@ function libLinkSaveMaterial(form, values, categoryPath) {
 // sourceSiteId/verifiedAt. Ключ 'link_<категория>_<timestamp>' — тот же
 // принцип, что у 'custom_<категория>_<timestamp>' в libAddHardwareRow, просто
 // с другим префиксом, чтобы отличать в данных, откуда взялась позиция.
-// subField — та же логика, что и в libAddHardwareRow: form.path[0] (см.
-// data-link-path в libHardwareLeafTableHtml) — подкатегория/бренд ветки, под
-// которой нажали «+ Добавить по ссылке»; у 'mechanism' (LIFTS) фирма хранится
-// в поле brand, у остальных — в subcategory (см. libHardwareTopEntries).
+// subField — та же логика, что и в libAddHardwareRow: form.path (см.
+// data-link-path в libHardwareLeafTableHtml) — путь ветки, под которой
+// нажали «+ Добавить по ссылке»; у 'mechanism' (LIFTS) фирма хранится в поле
+// brand, у остальных — в subcategory (см. libHardwareTopEntries).
 function libLinkSaveHardware(form, values, extra) {
   const cat = window.Modul3D.catalog;
   const category = form.hwCategory;
@@ -3177,8 +3856,14 @@ function libLinkSaveHardware(form, values, extra) {
   const article = (values.article || '').trim();
   const unit = values.unit || 'шт';
   const key = 'link_' + category + '_' + Date.now();
-  const subcategory = Array.isArray(form.path) && form.path[0] ? form.path[0] : '';
-  const subField = subcategory ? (category === 'mechanism' ? { brand: subcategory } : { subcategory }) : {};
+  // Путь ветки, под которой нажали «+ Добавить по ссылке» — целиком, а не
+  // только form.path[0]: с 2026-09-16 дерево фурнитуры может быть глубже
+  // одного уровня (см. libAddHardwareRow/libHardwareTopEntries), и позиция
+  // должна попасть ровно туда, откуда её добавляли.
+  const hwPath = Array.isArray(form.path) ? form.path.slice() : [];
+  const subcategory = hwPath.length ? hwPath[hwPath.length - 1] : '';
+  const subField = Object.assign({ categoryPath: hwPath },
+    subcategory ? (category === 'mechanism' ? { brand: subcategory } : { subcategory }) : {});
   // priceNote — то же предупреждение о диапазоне цен, что и у материалов
   // (см. libLinkSaveMaterial), без него libPriceNoteHtml не сможет показать
   // его в таблице фурнитуры после сохранения. И ровно так же: когда цена
@@ -3465,12 +4150,24 @@ function libLinkRefreshBarHtml() {
 // libLinkSaveMaterial. У фурнитуры контекста нет вовсе (data-link-hwcat не
 // проставлен) — раздел («Петли»/«Ручки»/... ) выбирается на самом экране
 // подтверждения, см. hwCatHtml в libLinkConfirmHtml.
+//
+// «+ Добавить категорию» (только «Фурнитура») стоит в этом же ряду — это
+// тоже действие уровня вкладки, а не строки таблицы: заводит СВОЮ корневую
+// категорию фурнитуры (см. libAddHwCategory). На «Материалах» такой кнопки
+// нет сознательно — там набор корневых разделов фиксирован (Листовые
+// материалы / Кромка / Стекло / Столешницы), тип товара завязан на группу
+// каталога; всё, что ниже корня, там по-прежнему заводится значком «+» на
+// самой строке дерева.
 function libLinkTopBarHtml(kind) {
   const addAttrs = kind === 'hardware'
     ? 'data-link-kind="hardware"'
     : 'data-link-kind="materials" data-link-top="sheet" data-link-group="decors"';
+  const addCatHtml = kind === 'hardware'
+    ? '<button type="button" class="btn lib-add-hw-cat">+ Добавить категорию</button>'
+    : '';
   return `<div class="lib-link-refresh-bar">
     <button type="button" class="btn lib-add-by-link" ${addAttrs}>+ Добавить по ссылке</button>
+    ${addCatHtml}
     ${libLinkRefreshBarHtml()}
   </div>`;
 }
@@ -3666,32 +4363,51 @@ function libPickMaterial(rowGroup, code) {
   renderParamsPanel();
 }
 
-// subcategory — значение 1-го (и единственного) уровня пути ВНУТРИ дерева
-// категории (см. libHardwareLeafTableHtml: data-add-path на кнопке «+
-// Добавить позицию», path[0] — путь здесь уже без самой категории, она с
-// 2026-09-15 вынесена в topCode 'hw:<categoryKey>', см. libraryHardwareBlock)
-// — только когда кнопку нажали под конкретной подкатегорией/фирмой
-// (например «Направляющие › GTV»), иначе позиция остаётся без бренда на
-// корне дерева категории, как и раньше. У 'mechanism' (LIFTS) фирма хранится
-// в поле brand (см. catalog.js:
-// LIFTS.aventosHK и т.п.), у остальных категорий — в subcategory (см.
-// HARDWARE_PRICES/HANDLES/FASTENER_PRICES) — libHardwareTopEntries читает
-// оба поля одинаково (item.subcategory || item.brand), при создании пишем
-// то поле, которое реально читает соответствующий исходный массив.
-function libAddHardwareRow(category, subcategory) {
+// path — путь ВНУТРИ дерева категории (см. libHardwareLeafTableHtml:
+// data-add-path на кнопке «+ Добавить позицию»; сама категория с 2026-09-15
+// вынесена в topCode 'hw:<categoryKey>', см. libraryHardwareBlock), то есть
+// подкатегория/фирма и, если пользователь завёл вложенные, её подкатегории
+// («Направляющие › GTV › Скрытые»). Пустой путь — позиция ложится прямо на
+// корень категории, без фирмы, как и раньше. У 'mechanism' (LIFTS) фирма
+// хранится в поле brand (см. catalog.js: LIFTS.aventosHK и т.п.), у
+// остальных категорий — в subcategory (см. HARDWARE_PRICES/HANDLES/
+// FASTENER_PRICES): libHardwareTopEntries читает оба поля одинаково
+// (item.subcategory || item.brand) — при создании пишем то поле, которое
+// реально читает соответствующий исходный массив.
+function libAddHardwareRow(category, path) {
   const cat = window.Modul3D.catalog;
   const key = 'custom_' + category + '_' + Date.now();
-  const subField = subcategory ? (category === 'mechanism' ? { brand: subcategory } : { subcategory }) : {};
+  // Единица новой позиции — та, что выбрана в шапке колонки «Цена» ЭТОЙ же
+  // таблицы (см. libHwPriceUnitOf/libHwPriceUnitHeaderHtml): если таблица
+  // сейчас показывает «Цена/пара», позиция со «шт» тут же показала бы в
+  // колонке «—» и выглядела бы сломанной. «Как в позиции» (native) — отбора
+  // нет, берём самую частую единицу каталога, 'шт'. Поправить единицу потом
+  // можно в редакторе цены (см. libHwUnitEditorHtml).
+  const headUnit = libHwPriceUnitOf('hw:' + category);
+  const unit = headUnit === 'native' ? 'шт' : headUnit;
+  // path — ПОЛНЫЙ путь листа/ветки внутри дерева категории (с 2026-09-16 в
+  // нём может быть больше одного уровня: пользователь заводит подкатегории
+  // значком «+» прямо в дереве, см. libAddChildNode). Дерево читает
+  // item.categoryPath, поэтому пишем его целиком; subcategory/brand
+  // заполняем последним сегментом — так же, как их держит в синхроне
+  // libSetEntryPath при переименовании/переносе.
+  path = path || [];
+  const last = path.length ? path[path.length - 1] : '';
+  const subField = last ? (category === 'mechanism' ? { brand: last } : { subcategory: last }) : {};
+  const pathField = { categoryPath: path.slice() };
   if (category === 'mechanism') {
     cat.LIFTS[key] = Object.assign({ id: key, brand: '', name: 'Новая позиция', article: '', price: 0,
-      minH: 0, maxH: 100000, maxW: 100000, note: '', category: 'mechanism', unit: 'шт' }, subField);
+      minH: 0, maxH: 100000, maxW: 100000, note: '', category: 'mechanism', unit: unit }, subField, pathField);
   } else if (category === 'handle') {
     cat.HANDLES[key] = Object.assign({ id: key, name: 'Новая позиция', holes: 2, cc: 0, price: 0,
-      article: '', unit: 'шт', category: 'handle' }, subField);
+      article: '', unit: unit, category: 'handle' }, subField, pathField);
   } else if (category === 'fastener') {
-    cat.FASTENER_PRICES[key] = Object.assign({ name: 'Новая позиция', article: '', price: 0, unit: 'шт', category: 'fastener' }, subField);
+    cat.FASTENER_PRICES[key] = Object.assign({ name: 'Новая позиция', article: '', price: 0, unit: unit, category: 'fastener' }, subField, pathField);
   } else {
-    cat.HARDWARE_PRICES[key] = Object.assign({ name: 'Новая позиция', article: '', price: 0, unit: 'шт', category }, subField);
+    // Сюда же попадают позиции СВОИХ категорий пользователя (ключ
+    // 'custom-<timestamp>', см. libAddHwCategory) — для каталога это обычная
+    // фурнитура, просто расчёт по такому ключу ничего не ищет.
+    cat.HARDWARE_PRICES[key] = Object.assign({ name: 'Новая позиция', article: '', price: 0, unit: unit, category }, subField, pathField);
   }
 }
 
@@ -3701,14 +4417,15 @@ function libAddHardwareRow(category, subcategory) {
 // дерева категорий нет). Для 'decors'/'back'/'facade' пишем path целиком в
 // item.categoryPath новой позиции; 'edge' сохраняет прежний UX (имя кромки
 // — это ключ объекта EDGE_PRICES, вводится отдельным prompt), но тоже
-// получает categoryPath = path. 'hwadd:*' (фурнитура) использует только
-// path[0] — см. libAddHardwareRow выше.
+// получает categoryPath = path. 'hwadd:*' (фурнитура) с 2026-09-16 тоже
+// получает path целиком — её дерево категорий стало таким же полноценным,
+// как у материалов (см. libAddHardwareRow/libHardwareTopEntries).
 function libAddRow(group, path) {
   if (!requireLibraryEditAuth()) return;
   const cat = window.Modul3D.catalog;
   path = path || [];
   if (group.indexOf('hwadd:') === 0) {
-    libAddHardwareRow(group.slice(6), path[0] || '');
+    libAddHardwareRow(group.slice(6), path);
   } else if (group === 'decors') {
     DECORS.push({ code: 'NEW-' + Date.now(), name: 'Новый материал', sheetPrice: 0, sheetW: 2750, sheetH: 1830, unit: 'лист', image: null, categoryPath: path.slice() });
   } else if (group === 'back') {
@@ -4061,36 +4778,32 @@ function initLibImageInput() {
   });
 }
 
-// Единица измерения — фиксированный список, а не свободный текст: реальные
-// товары каталога измеряются только так (листы декоров/фасадов/задней стенки
-// — «лист», кромка — «пог.м», фурнитура — «шт», м² пока не занят ни одной
-// позицией, но оставлен на будущее — набор согласован с пользователем).
+// Единица измерения материала — фиксированный список, а не свободный текст:
+// реальные товары каталога измеряются только так (листы декоров/фасадов/
+// задней стенки — «лист», кромка — «пог.м», м² — стекло/массив под заказ;
+// набор согласован с пользователем). Используется формой «Добавить по
+// ссылке» (libLinkConfirmHtml); у фурнитуры свой список — LIB_HW_UNIT_OPTIONS.
 const LIB_UNIT_OPTIONS = ['лист', 'м²', 'пог.м', 'шт'];
 
-// Клик по ячейке → инлайн-инпут (или <select> для поля «unit», см.
-// LIB_UNIT_OPTIONS выше); Enter/blur — сохранить, Esc — отменить.
+// Клик по ячейке → инлайн-инпут; Enter/blur — сохранить, Esc — отменить.
+// Отдельной колонки-списка «Ед. изм.» в таблицах больше нет (была только у
+// «Фурнитуры», убрана 2026-09-16 вместе с приведением набора колонок к
+// «Материалам»), но САМА единица позиции фурнитуры редактируется здесь же:
+// у ячейки ЦЕНЫ рядом с полем ввода открывается компактный список единиц
+// (см. libHwUnitEditorHtml), сохраняются оба значения разом. У материалов
+// такого списка нет: их единица («лист»/«м²») завязана на расчёт листа и
+// задаётся при добавлении материала (см. LIB_UNIT_OPTIONS).
 function startCellEdit(cell) {
   if (!requireLibraryEditAuth()) return;
   if (cell.querySelector('input') || cell.querySelector('select')) return;
-  if (cell.dataset.field === 'unit') {
-    const cur = cell.dataset.raw != null ? cell.dataset.raw : cell.textContent.trim();
-    cell.innerHTML = `<select>${LIB_UNIT_OPTIONS.map((o) => `<option value="${esc(o)}" ${o === cur ? 'selected' : ''}>${esc(o)}</option>`).join('')}</select>`;
-    const select = cell.querySelector('select');
-    select.focus();
-    let done = false;
-    const commit = () => {
-      if (done) return;
-      done = true;
-      libSaveEdit(cell.dataset.group, cell.dataset.key, cell.dataset.field, select.value);
-    };
-    select.addEventListener('change', commit);
-    select.addEventListener('blur', commit);
-    return;
-  }
   const type = cell.dataset.type === 'number' ? 'number' : 'text';
   const cur = cell.dataset.raw != null ? cell.dataset.raw : cell.textContent;
-  cell.innerHTML = `<input type="${type}" ${type === 'number' ? 'step="any"' : ''} value="${esc(cur)}">`;
+  const withUnit = String(cell.dataset.group || '').indexOf('hw:') === 0 && cell.dataset.field === 'price';
+  const unitWas = withUnit ? libHwUnitOf(libFindItem(cell.dataset.group, cell.dataset.key)) : '';
+  cell.innerHTML = `<input type="${type}" ${type === 'number' ? 'step="any"' : ''} value="${esc(cur)}">`
+    + (withUnit ? libHwUnitEditorHtml(unitWas) : '');
   const input = cell.querySelector('input');
+  const unitSel = withUnit ? cell.querySelector('.lib-hw-unit-edit') : null;
   input.focus();
   if (input.select) input.select();
   let done = false;
@@ -4098,13 +4811,38 @@ function startCellEdit(cell) {
     if (done) return;
     done = true;
     const val = type === 'number' ? (Number(input.value) || 0) : input.value;
+    // Единицу пишем в позицию ДО libSaveEdit, а не вторым его вызовом:
+    // каждый вызов тянет за собой recompute + перерисовку панели +
+    // сохранение каталога на сервере, делать это дважды ради одной правки
+    // ячейки незачем.
+    if (unitSel && unitSel.value && unitSel.value !== unitWas) {
+      const it = libFindItem(cell.dataset.group, cell.dataset.key);
+      if (it) it.unit = unitSel.value;
+    }
     libSaveEdit(cell.dataset.group, cell.dataset.key, cell.dataset.field, val);
   };
-  input.addEventListener('blur', commit);
-  input.addEventListener('keydown', (ev) => {
-    if (ev.key === 'Enter') { ev.preventDefault(); input.blur(); }
+  // Клик по списку единиц забирает фокус у поля цены — сохранение прямо по
+  // blur закрыло бы редактор раньше, чем пользователь успел выбрать единицу.
+  // Поэтому там, где список есть, решение отложено на такт: остался фокус
+  // ВНУТРИ той же ячейки (перешёл на соседний контрол редактора) — не
+  // сохраняем. Где списка нет (все таблицы материалов), поведение прежнее —
+  // сохранение прямо на blur.
+  const commitIfFocusLeft = () => setTimeout(() => {
+    if (done) return;
+    const act = document.activeElement;
+    if (act && cell.contains && cell.contains(act)) return;
+    commit();
+  }, 0);
+  const onKey = (ev) => {
+    if (ev.key === 'Enter') { ev.preventDefault(); commit(); }
     else if (ev.key === 'Escape') { ev.preventDefault(); done = true; renderLibraryPanel(); }
-  });
+  };
+  input.addEventListener('blur', unitSel ? commitIfFocusLeft : commit);
+  input.addEventListener('keydown', onKey);
+  if (unitSel) {
+    unitSel.addEventListener('blur', commitIfFocusLeft);
+    unitSel.addEventListener('keydown', onKey);
+  }
 }
 
 // Инлайн-переименование узла дерева категорий (значок ✎, см.
@@ -4125,7 +4863,7 @@ function startTreeRename(row) {
   const commit = () => {
     if (done) return;
     done = true;
-    const val = (input.value || '').trim();
+    const val = libCleanNodeName(input.value);
     if (val && val !== cur) libRenameNode(topCode, path, val);
     renderLibraryPanel();
   };
@@ -4166,6 +4904,9 @@ function renderLibraryPanel() {
   // «Добавить по ссылке» (см. libLinkSitePickerHtml/openLibLinkSiteMenu)
   // держит ссылку на DOM-узел, который вот-вот пропадёт.
   closeLibLinkSiteMenu();
+  // И меню «Переместить» узла дерева (см. openLibTreeMoveMenu) — оно
+  // привязано к значку ⇄ конкретной строки, которая сейчас перерисуется.
+  closeLibTreeMoveMenu();
   document.querySelectorAll('.lib-tab-btn').forEach((b) => {
     b.classList.toggle('active', b.dataset.libtab === state.libraryTab);
   });
@@ -4280,7 +5021,6 @@ function libSelectRow(panel, group, key) {
 function libraryFacadesBlock() {
   return `
     <h3>Двери</h3>
-    ${libSourceHint()}
     ${state.libLinkForm && state.libLinkForm.kind === 'materials' ? libLinkFormHtml(state.libLinkForm) : ''}
     ${libTopCategoryHtml('facade', 'Виды фасадов', { addLabel: '+ Добавить материал' })}`;
 }
@@ -4314,7 +5054,7 @@ function initLibraryPanel() {
     // startTreeRename) — не должен провалиться в обработку клика по строке
     // ниже (иначе строка переключилась бы посреди редактирования).
     if (e.target.closest('.lib-tree-name input')) return;
-    // ✎/+/× узла дерева категорий (см. libTreeRowHtml) — ПЕРЕД обработкой
+    // ✎/+/⇄/× узла дерева категорий (см. libTreeRowHtml) — ПЕРЕД обработкой
     // клика по всей строке ниже, иначе клик по значку ещё и переключил бы
     // сам узел.
     const treeIcon = e.target.closest('.lib-tree-ic');
@@ -4325,9 +5065,19 @@ function initLibraryPanel() {
       const path = row.dataset.path ? row.dataset.path.split('::') : [];
       if (treeIcon.dataset.treeRename != null) startTreeRename(row);
       else if (treeIcon.dataset.treeAdd != null) libAddChildNode(topCode, path);
+      else if (treeIcon.dataset.treeMove != null) {
+        // Меню «куда перенести» открывается поверх страницы (см.
+        // openLibTreeMoveMenu) — этот же клик не должен дойти до document,
+        // иначе слушатель «клик мимо — закрыть» закрыл бы меню сразу.
+        e.stopPropagation();
+        openLibTreeMoveMenu(treeIcon, topCode, path);
+      }
       else if (treeIcon.dataset.treeDel != null) libDeleteNode(topCode, path);
       return;
     }
+    // «+ Добавить категорию» — кнопка уровня вкладки «Фурнитура» (см.
+    // libLinkTopBarHtml/libAddHwCategory), заводит СВОЮ корневую категорию.
+    if (e.target.closest('.lib-add-hw-cat')) { libAddHwCategory(); return; }
     // Хлебная крошка над таблицей сфокусированного листа (см.
     // libBreadcrumbHtml) — клик по любому сегменту, кроме текущего
     // (последнего — сам лист), снимает фокус категории и раскрывает дерево
@@ -4426,9 +5176,9 @@ function initLibraryPanel() {
       });
       return;
     }
-    // «+ Добавить материал/кромку/столешницу» под таблицей листа (см.
-    // libLeafTableHtml/libAddRow) — data-add-path несёт полный путь листа
-    // (пуст только у 'hwadd:*' — у фурнитуры дерева категорий нет).
+    // «+ Добавить материал/кромку/столешницу/позицию» под таблицей листа (см.
+    // libLeafTableHtml/libHardwareLeafTableHtml/libAddRow) — data-add-path
+    // несёт полный путь листа, одинаково у материалов и у фурнитуры.
     const addBtn = e.target.closest('.lib-add');
     if (addBtn) {
       const pathStr = addBtn.dataset.addPath || '';
@@ -4559,6 +5309,23 @@ function initLibraryPanel() {
   // поповер сортировки/фильтра (см. .dth-filter-btn выше, в делегированном
   // `click`) — старый механизм убран целиком.
   panel.addEventListener('change', (e) => {
+    // Переключатель единицы цены у ФУРНИТУРЫ (см. libHwPriceUnitHeaderHtml) —
+    // проверяется ПЕРВЫМ: у него оба класса сразу (.lib-price-unit-select
+    // нужен ради общего CSS шапки), и по общему классу его нельзя отличить от
+    // переключателя материалов. Состояние своё (state.libHwPriceUnit), чтобы
+    // вкладки не влияли друг на друга.
+    const hwPriceUnitSel = e.target.closest('.lib-hw-price-unit-select');
+    if (hwPriceUnitSel) {
+      // Пишем в КЛЮЧ корневой категории (data-top у самого select, см.
+      // libHwPriceUnitHeaderHtml), а не в поле целиком: state.libHwPriceUnit —
+      // объект { 'hw:hinge': 'шт', ... }, и присвоение строкой сбросило бы
+      // выбор на всех остальных категориях сразу.
+      if (!state.libHwPriceUnit || typeof state.libHwPriceUnit !== 'object') state.libHwPriceUnit = {};
+      const hwTop = hwPriceUnitSel.dataset.top;
+      if (hwTop) state.libHwPriceUnit[hwTop] = hwPriceUnitSel.value;
+      renderLibraryPanel();
+      return;
+    }
     const priceUnitSel = e.target.closest('.lib-price-unit-select');
     if (priceUnitSel) {
       state.libPriceUnit = priceUnitSel.value;
@@ -8386,16 +9153,18 @@ function requireLibraryEditAuth() {
 }
 
 // Панель «Библиотека» реально ВИДНА (drawer открыт классом .open, см.
-// ui-shell.js: openDrawer/closeDrawer) и открыта именно на вкладке
-// «Материалы» либо «Двери» — используется, чтобы решить, нужно ли
-// перерисовывать её содержимое сразу после фоновой подгрузки/отката правок
-// каталога (restoreCatalogFrom мутирует и FACADE_MATERIALS — с 2026-09-15
-// это данные категории «Виды фасадов» на вкладке «Двери», а не только
-// «Материалов», см. libraryFacadesBlock).
+// ui-shell.js: openDrawer/closeDrawer) и открыта на вкладке, содержимое
+// которой зависит от каталога («Материалы», «Двери», «Фурнитура») —
+// используется, чтобы решить, нужно ли перерисовывать её содержимое сразу
+// после фоновой подгрузки/отката правок каталога (restoreCatalogFrom мутирует
+// и FACADE_MATERIALS — с 2026-09-15 это данные категории «Виды фасадов» на
+// вкладке «Двери», а не только «Материалов», см. libraryFacadesBlock — и все
+// четыре источника фурнитуры вместе с деревом её категорий, см.
+// state.libHwCatLabels/libHwCustomCats).
 function isLibraryMaterialsPanelOpen() {
   const drawer = document.getElementById('drawer-library');
   return !!drawer && drawer.classList.contains('open')
-    && (state.libraryTab === 'materials' || state.libraryTab === 'facades');
+    && (state.libraryTab === 'materials' || state.libraryTab === 'facades' || state.libraryTab === 'hardware');
 }
 
 // Фоновое сохранение правок каталога материалов на сервере (см.
