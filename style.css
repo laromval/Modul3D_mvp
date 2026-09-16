@@ -1507,8 +1507,23 @@ h4.spec-title { margin: var(--sp-5) 0 var(--sp-2); font-size: var(--fs-md); font
   border-radius: var(--r-sm); border: 1px solid var(--border);
   background: var(--surface-solid); margin-bottom: var(--sp-3);
 }
+/* Фото может быть спрятано, пока не выбран вариант товара (app.js:
+   libLinkApplyVariant правит src точечно) — своё display:block выше
+   перебивает браузерное правило для [hidden], поэтому гасим явно. */
+.lib-link-photo[hidden] { display: none; }
 .lib-link-error, .lib-link-warning { color: var(--danger); }
-.lib-link-warning:empty, .lib-link-error:empty, .lib-link-missing-hint:empty { display: none; }
+.lib-link-warning:empty, .lib-link-error:empty, .lib-link-missing-hint:empty,
+.lib-link-variant-note:empty, .lib-link-variant-stock:empty { display: none; }
+/* Выбор комбинации вариативного товара (app.js: libLinkVariantsHtml) — стоит
+   НАД полем «Цена»: пока вариант не выбран, в цене лежит нижняя граница
+   диапазона, а не цена того, что нужно пользователю. Оформление — как у
+   блока инженерных полей ниже, это тоже «дозаполните руками». */
+.lib-link-variants {
+  border: 1px dashed var(--border-strong); border-radius: var(--r-sm);
+  padding: var(--sp-2) var(--sp-3); margin: 0 0 var(--sp-3);
+}
+.lib-link-variants > b { display: block; font-size: var(--fs-sm); color: var(--text-2); margin-bottom: var(--sp-2); font-weight: 600; }
+.lib-link-variants .hint { margin: var(--sp-1) 0 0; }
 /* «Сайт-источник» — кастомный выпадающий список (app.js:
    libLinkSitePickerHtml/openLibLinkSiteMenu), не нативный <select>.
    Оформлен так, чтобы визуально не отличаться от обычного .field select

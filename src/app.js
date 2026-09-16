@@ -14,7 +14,7 @@
 (function () {
 // Версия сборки — показывается во вкладке браузера и в шапке.
 // При выпуске новой версии меняется только эта строка.
-const APP_VERSION = 'v272';
+const APP_VERSION = 'v273';
 
 // Номер версии выводим ПЕРВЫМ делом: если дальше что-то упадёт, по нему сразу
 // видно, какая сборка открыта.
@@ -249,11 +249,17 @@ const state = {
   // { kind: 'materials'|'hardware', top, group, path (у 'materials') |
   // hwCategory (у 'hardware'), step: 'input'|'loading'|'confirm', siteId,
   // url, error, draft } — draft приходит из POST /catalog-link-parse.
-  // Значения полей самого экрана подтверждения (название/цена/категория/
-  // инженерные поля фурнитуры) в state НЕ дублируются — читаются напрямую из
-  // DOM формы в момент сохранения (см. libLinkReadFormValues/
-  // libLinkSaveSubmit), чтобы не перерисовывать всю форму на каждое нажатие
-  // клавиши. Чисто UI-состояние, в историю отмены/файл проекта не попадает.
+  // Значения полей самого экрана подтверждения ЗЕРКАЛЯТСЯ сюда же (values —
+  // поля data-f, extra — инженерные поля data-ef, cat — раздел/новая
+  // подкатегория, variantSel — выбранная комбинация вариативного товара,
+  // touched — какие поля пользователь правил руками): раньше они жили только
+  // в DOM, и любая перерисовка панели (выбор раздела фурнитуры, догрузка
+  // списка сайтов) молча возвращала значения парсера поверх ввода
+  // пользователя. Пишет их libLinkCaptureFormState на каждый input/change,
+  // читает libLinkConfirmHtml при перерисовке. Это НЕ означает
+  // перерисовку на каждое нажатие клавиши — DOM по-прежнему правится
+  // точечно (см. libLinkRevalidate), иначе слетал бы фокус/курсор.
+  // Чисто UI-состояние, в историю отмены/файл проекта не попадает.
   libLinkForm: null,
   // Список поддерживаемых сайтов для формы «Добавить по ссылке» (см.
   // loadLibLinkSites) — null, пока не загружен ни разу, [] — загружен (пуст
@@ -2011,10 +2017,13 @@ function libraryHardwareBlock() {
 // фурнитуры, см. data-link-* атрибуты в libLeafTableHtml/libraryHardwareBlock).
 //
 // Пока форма открыта (state.libLinkForm), значения полей экрана
-// подтверждения читаются НАПРЯМУЮ из DOM в момент сохранения (см.
-// libLinkReadFormValues/libLinkSaveSubmit) — состояние не дублирует их на
-// каждое нажатие клавиши, полная перерисовка панели нужна только при смене
-// шага (input → loading → confirm) и при открытии/закрытии формы.
+// подтверждения правятся точечно, БЕЗ полной перерисовки панели на каждое
+// нажатие клавиши (см. libLinkRevalidate — иначе слетал бы фокус/курсор).
+// Но само состояние полей при этом зеркалится в state.libLinkForm
+// (libLinkCaptureFormState) — перерисовка панели может случиться в любой
+// момент и по чужому поводу (догрузился список сайтов, сменили раздел
+// фурнитуры), и без зеркала ввод пользователя стирался бы значениями
+// парсера.
 // ---------------------------------------------------------------------------
 
 // Список сайтов для выпадающего списка — ЕДИНСТВЕННЫЙ источник правды
@@ -2176,7 +2185,10 @@ function libLinkResolveSiteId(url) {
 // 'hardware' (opts: hwCategory — раздел фурнитуры, см. libraryHardwareBlock).
 function openLibLinkForm(kind, opts) {
   if (!requireLibraryEditAuth()) return;
-  state.libLinkForm = Object.assign({ kind, step: 'input', siteId: '', url: '', error: '', draft: null }, opts || {});
+  // values/extra/cat/variantSel/touched — зеркало полей экрана подтверждения
+  // (см. libLinkCaptureFormState); у только что открытой формы его ещё нет.
+  state.libLinkForm = Object.assign({ kind, step: 'input', siteId: '', url: '', error: '', draft: null,
+    values: null, extra: null, cat: null, variantSel: null, touched: {} }, opts || {});
   loadLibLinkSites();
   renderLibraryPanel();
   const panel = document.getElementById('libraryPanel');
@@ -2210,6 +2222,11 @@ async function libLinkCheckSubmit(panel) {
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.error || 'Не удалось получить данные с сайта.');
     form.draft = data.draft || {};
+    // Зеркало полей экрана подтверждения относится к КОНКРЕТНОМУ черновику
+    // (см. libLinkCaptureFormState): пользователь мог уже один раз дойти до
+    // подтверждения, вернуться по ошибке на шаг ввода и проверить другую
+    // ссылку — старые значения тогда перекрыли бы данные нового товара.
+    libLinkResetFormValues(form);
     form.step = 'confirm';
   } catch (err) {
     form.error = err.message;
@@ -2326,36 +2343,40 @@ function libLinkHardwareExtraDefaults(category) {
 // Инженерные поля, которых нет на странице магазина (п.3.2 ТЗ) — набор полей
 // зависит от категории и совпадает с тем, что у этой категории уже реально
 // хранится в catalog.js (см. HANDLES/LIFTS/HARDWARE_PRICES.hinge выше по
-// файлу), а не выдуман заново.
-function libLinkHardwareExtraFieldsHtml(category) {
+// файлу), а не выдуман заново. extra — уже введённые пользователем значения
+// (зеркало form.extra, см. libLinkCaptureFormState): без них смена «Раздела
+// фурнитуры» или любая другая перерисовка панели стирала бы заполненные
+// инженерные поля.
+function libLinkHardwareExtraFieldsHtml(category, extra) {
+  const v = Object.assign(libLinkHardwareExtraDefaults(category), extra || {});
   if (category === 'handle') {
     return `
       <div class="field"><label>Количество отверстий</label>
         <select class="lib-link-extra" data-ef="holes">
-          <option value="1">1 (например, кнопка)</option>
-          <option value="2" selected>2 (скоба)</option>
+          <option value="1" ${String(v.holes) === '1' ? 'selected' : ''}>1 (например, кнопка)</option>
+          <option value="2" ${String(v.holes) === '1' ? '' : 'selected'}>2 (скоба)</option>
         </select>
       </div>
       <div class="field"><label>Межосевое расстояние (cc), мм</label>
-        <input type="number" class="lib-link-extra" data-ef="cc" placeholder="например, 128">
+        <input type="number" class="lib-link-extra" data-ef="cc" value="${esc(v.cc != null ? v.cc : '')}" placeholder="например, 128">
       </div>`;
   }
   if (category === 'hinge') {
     return `
       <div class="field"><label>Тип присадки (модель в 3D)</label>
         <select class="lib-link-extra" data-ef="hardwareModelSlot">
-          <option value="">— выберите —</option>
-          <option value="hingeCup">Стандартная — чашка Ø35</option>
-          <option value="hingeGlass">Для стеклянного фасада — Ø26</option>
+          <option value="" ${v.hardwareModelSlot ? '' : 'selected'}>— выберите —</option>
+          <option value="hingeCup" ${v.hardwareModelSlot === 'hingeCup' ? 'selected' : ''}>Стандартная — чашка Ø35</option>
+          <option value="hingeGlass" ${v.hardwareModelSlot === 'hingeGlass' ? 'selected' : ''}>Для стеклянного фасада — Ø26</option>
         </select>
       </div>`;
   }
   if (category === 'mechanism') {
     return `
       <div class="field-row3">
-        <div class="field"><label>Мин. высота фасада, мм</label><input type="number" class="lib-link-extra" data-ef="minH"></div>
-        <div class="field"><label>Макс. высота фасада, мм</label><input type="number" class="lib-link-extra" data-ef="maxH"></div>
-        <div class="field"><label>Макс. ширина корпуса, мм</label><input type="number" class="lib-link-extra" data-ef="maxW"></div>
+        <div class="field"><label>Мин. высота фасада, мм</label><input type="number" class="lib-link-extra" data-ef="minH" value="${esc(v.minH != null ? v.minH : '')}"></div>
+        <div class="field"><label>Макс. высота фасада, мм</label><input type="number" class="lib-link-extra" data-ef="maxH" value="${esc(v.maxH != null ? v.maxH : '')}"></div>
+        <div class="field"><label>Макс. ширина корпуса, мм</label><input type="number" class="lib-link-extra" data-ef="maxW" value="${esc(v.maxW != null ? v.maxW : '')}"></div>
       </div>`;
   }
   return '';
@@ -2432,14 +2453,360 @@ function libLinkReadExtraValues(box) {
   box.querySelectorAll('[data-ef]').forEach((el) => { vals[el.dataset.ef] = el.value; });
   return vals;
 }
+function libLinkReadVariantSelection(box) {
+  const sel = {};
+  box.querySelectorAll('.lib-link-variant-select').forEach((el) => {
+    if (el.dataset.attr) sel[el.dataset.attr] = el.value;
+  });
+  return sel;
+}
+
+// ---------------------------------------------------------------------------
+// Зеркало полей экрана подтверждения в state.libLinkForm (см. комментарий у
+// state.libLinkForm). Панель «Библиотека» перерисовывается целиком по поводам,
+// которые к вводу пользователя отношения не имеют, — догрузился список сайтов
+// (loadLibLinkSites), сменили «Раздел фурнитуры» (меняется НАБОР полей ниже,
+// точечной правкой не обойтись). Раньше значения жили только в DOM, и любая
+// такая перерисовка молча возвращала данные парсера поверх того, что человек
+// уже исправил (в каталог уходило исходное наименование и исходная цена).
+// Поэтому: на каждый input/change снимаем срез полей сюда, а libLinkConfirmHtml
+// рисует поля ИЗ ЭТОГО среза, откатываясь на form.draft только пока среза нет
+// (первый рендер экрана подтверждения).
+// ---------------------------------------------------------------------------
+function libLinkCaptureFormState(box) {
+  const form = state.libLinkForm;
+  if (!form || !box || form.step !== 'confirm') return;
+  form.values = libLinkReadFormValues(box);
+  form.extra = libLinkReadExtraValues(box);
+  form.variantSel = libLinkReadVariantSelection(box);
+  const parentSel = box.querySelector('.lib-link-cat-parent');
+  const newSeg = box.querySelector('.lib-link-cat-new');
+  // Выбор категории есть только у материалов — у фурнитуры этих полей в DOM
+  // нет, и затирать срез пустышкой не надо.
+  if (parentSel || newSeg) {
+    form.cat = { parent: parentSel ? parentSel.value : '', newSegment: newSeg ? newSeg.value : '' };
+  }
+}
+// Срез относится к КОНКРЕТНОМУ черновику — при получении нового его нужно
+// сбросить (см. libLinkCheckSubmit), иначе значения прошлого товара
+// перекроют данные нового.
+function libLinkResetFormValues(form) {
+  form.values = null;
+  form.extra = null;
+  form.cat = null;
+  form.variantSel = null;
+  form.touched = {};
+}
+// Отмечает поле как «правил пользователь» (form.touched) — вызывается из
+// делегированных input/change, то есть ТОЛЬКО на живой ввод: программная
+// подстановка значения (el.value = ... в libLinkApplyVariant) событий не
+// бросает и сюда не попадает. Нужно, чтобы выбор варианта не затирал
+// наименование/артикул, которые человек уже исправил под себя.
+function libLinkMarkFieldTouched(el) {
+  const form = state.libLinkForm;
+  if (!form || !el || !el.dataset || !el.dataset.f) return;
+  if (!form.touched) form.touched = {};
+  form.touched[el.dataset.f] = true;
+}
+
+// Значение поля для перерисовки: сначала то, что уже ввёл пользователь,
+// и только потом — то, что распознал парсер.
+function libLinkFieldValue(form, key, fallback) {
+  const vals = form.values;
+  return vals && vals[key] !== undefined ? vals[key] : fallback;
+}
+
+// ---------------------------------------------------------------------------
+// Вариативный товар (draft.variants, см. server/src/services/
+// catalogLinkParsers/sebasMd.js: extractVariants) — один URL = несколько
+// комбинаций атрибутов («H, мм» × «Цвет»), у каждой своя цена. draft.price у
+// такого товара — НИЖНЯЯ граница диапазона (это всё, что страница показывает
+// до выбора), поэтому пока комбинация не выбрана, сохранять позицию нельзя:
+// в каталог уехала бы цена самой дешёвой опоры вместо той, что нужна.
+// Значения атрибутов (values) — непрозрачные слаги сайта (кириллица в
+// percent-encoding), пользователю их не показываем, для этого есть label.
+// ---------------------------------------------------------------------------
+
+// ЕДИНСТВЕННАЯ функция сопоставления «выбранные значения → комбинация»:
+// используется и на экране подтверждения, и в «Обновить цены с сайта» (см.
+// refreshCatalogLinkedPrices) — цена варианта в обоих местах определяется по
+// одному и тому же правилу, а не двумя похожими.
+function libLinkFindVariant(variants, selected) {
+  if (!variants || !Array.isArray(variants.attributes) || !Array.isArray(variants.items)) return null;
+  const attrs = variants.attributes;
+  if (!attrs.length) return null;
+  const sel = selected || {};
+  // Не выбран хоть один атрибут — комбинация ещё не определена. Это «рано
+  // искать», а не «не нашли»: вернуть первую подходящую значило бы снова
+  // подставить случайную цену из диапазона.
+  if (attrs.some((a) => !sel[a.id])) return null;
+  let best = null;
+  let bestScore = -1;
+  variants.items.forEach((it) => {
+    const vals = (it && it.values) || {};
+    let exact = 0;
+    for (let i = 0; i < attrs.length; i += 1) {
+      const id = attrs[i].id;
+      const v = vals[id] == null ? '' : String(vals[id]);
+      if (v === '') continue;   // «любое значение этого атрибута» — подходит под любой выбор
+      // Регистр слага сравниваем нестрого: percent-encoding кириллицы сайт
+      // отдаёт то в верхнем, то в нижнем регистре (%D1 против %d1) для одного
+      // и того же значения — в селекте и в JSON комбинаций.
+      if (v.toLowerCase() !== String(sel[id]).toLowerCase()) return;
+      exact += 1;
+    }
+    // Чем меньше у комбинации «любых» значений, тем точнее совпадение —
+    // при нескольких подходящих берём самую конкретную.
+    if (exact > bestScore) { bestScore = exact; best = it; }
+  });
+  return best;
+}
+
+// Человекочитаемая подпись выбранного варианта («H, мм: 100, Цвет: Сатин») —
+// из label'ов, а не из слагов. Она же уходит в позицию каталога (item.variant.
+// label) и в суффикс наименования.
+function libLinkVariantLabel(variants, selected) {
+  if (!variants || !Array.isArray(variants.attributes)) return '';
+  const sel = selected || {};
+  const parts = [];
+  variants.attributes.forEach((a) => {
+    const val = sel[a.id];
+    if (!val) return;
+    const opt = (a.options || []).find((o) => String(o.value).toLowerCase() === String(val).toLowerCase());
+    parts.push(`${a.label || a.id}: ${opt ? opt.label : val}`);
+  });
+  return parts.join(', ');
+}
+
+// Суффикс варианта всегда достраивается к БАЗОВОМУ имени товара (draft.name),
+// а не к тому, что сейчас лежит в поле, — иначе при каждой смене варианта он
+// бы накапливался («Опора — H: 50 — H: 100»).
+function libLinkNameWithVariant(baseName, label) {
+  const base = String(baseName == null ? '' : baseName).trim();
+  if (!label) return base;
+  return base ? `${base} — ${label}` : label;
+}
+
+// Чего не хватает по варианту — ТОТ ЖЕ механизм «Заполните: …» + disabled на
+// «Сохранить», что и у остальных обязательных полей (libLinkMissingBasic/
+// libLinkHardwareMissing), отдельной второй валидации у вариантов нет.
+function libLinkVariantMissing(form) {
+  const variants = form && form.draft && form.draft.variants;
+  if (!variants || !Array.isArray(variants.attributes) || !variants.attributes.length) return [];
+  const sel = form.variantSel || {};
+  const missing = variants.attributes.filter((a) => !sel[a.id]).map((a) => a.label || a.id);
+  if (missing.length) return missing;
+  // Все атрибуты выбраны, но такого сочетания на сайте нет (сняли с продажи) —
+  // сохранять по-прежнему нельзя: в поле цены осталась бы нижняя граница.
+  return libLinkFindVariant(variants, sel) ? [] : ['вариант товара'];
+}
+
+const LIB_LINK_VARIANT_NO_STOCK = 'На странице указано: этого варианта нет в наличии — уточните перед сохранением.';
+
+// Цена ВЫБРАННОЙ комбинации реально известна. Это, а не сам факт выбора
+// варианта, решает судьбу предупреждения draft.priceNote про диапазон:
+// сайт не всегда отдаёт цену комбинации (price === null), и тогда число в
+// поле «Цена» вписывает руками пользователь — прятать «цена от …» в этом
+// случае нельзя, иначе позиция уедет в каталог с чужой ценой и без единой
+// пометки о том, откуда она взялась.
+function libLinkVariantPriceKnown(form) {
+  const draft = (form && form.draft) || {};
+  const chosen = libLinkFindVariant(draft.variants, form && form.variantSel);
+  return !!(chosen && chosen.price != null);
+}
+
+// Подсказка рядом с полем «Цена» (показывается, только если сайт сообщил
+// валюту). Пока вариант не выбран — это единственный источник числа с сайта.
+// Как только цена комбинации известна, число из неё убираем: его уже говорит
+// строка под селектами варианта (libLinkVariantNoteText), а два разных числа
+// на одном экране противоречат друг другу. Предупреждение про непересчёт
+// валюты остаётся в обоих случаях — оно не про конкретное число.
+function libLinkPriceHintText(form) {
+  const draft = (form && form.draft) || {};
+  if (!draft.currency) return '';
+  const tail = 'Валюта проекта здесь не пересчитывается — при необходимости поправьте число сами.';
+  if (libLinkVariantPriceKnown(form)) return `Цены на сайте указаны в ${draft.currency}. ${tail}`;
+  return `На сайте цена указана как: ${draft.price != null ? String(draft.price) : '—'} ${draft.currency}. ${tail}`;
+}
+
+// Наличие КОНКРЕТНОЙ комбинации: если сайт о ней что-то знает, показываем
+// именно её (см. libLinkVariantsHtml), а общетоварную строку про наличие
+// прячем — «товар в наличии» рядом с «этого варианта нет в наличии» сбивает
+// с толку, наличие варианта важнее.
+function libLinkVariantStockInfo(chosen) {
+  if (!chosen || chosen.inStock == null) return { text: '', warn: false };
+  if (chosen.inStock === false) return { text: LIB_LINK_VARIANT_NO_STOCK, warn: true };
+  return { text: 'На странице: этот вариант в наличии.', warn: false };
+}
+
+// Пояснение под селектами варианта — оно же заменяет предупреждение
+// draft.priceNote про диапазон, когда цена комбинации уже известна.
+function libLinkVariantNoteText(form, chosen) {
+  const variants = form.draft && form.draft.variants;
+  if (!variants) return '';
+  const sel = form.variantSel || {};
+  if ((variants.attributes || []).some((a) => !sel[a.id])) {
+    return 'Выберите вариант — до выбора сайт показывает цену «от», она не точная.';
+  }
+  if (!chosen) return 'Такого сочетания на сайте нет — выберите другое.';
+  const label = libLinkVariantLabel(variants, sel);
+  if (chosen.price == null) return `Цену варианта ${label} сайт не отдал — впишите её вручную.`;
+  return `Цена варианта ${label} по данным сайта: ${chosen.price} ${form.draft.currency || curSym()}.`;
+}
+
+// Блок выбора варианта — НАД полем «Цена»: пока он не заполнен, цена в поле
+// заведомо не та, которая нужна.
+function libLinkVariantsHtml(form) {
+  const variants = form.draft && form.draft.variants;
+  if (!variants || !Array.isArray(variants.attributes) || !variants.attributes.length) return '';
+  const sel = form.variantSel || {};
+  const fieldsHtml = variants.attributes.map((a) => {
+    const optsHtml = (a.options || []).map((o) => {
+      const on = String(o.value).toLowerCase() === String(sel[a.id] || '').toLowerCase() && sel[a.id];
+      return `<option value="${esc(o.value)}" ${on ? 'selected' : ''}>${esc(o.label)}</option>`;
+    }).join('');
+    return `
+      <div class="field"><label>${esc(a.label || a.id)}</label>
+        <select class="lib-link-variant-select" data-attr="${esc(a.id)}">
+          <option value="" ${sel[a.id] ? '' : 'selected'}>— выберите —</option>${optsHtml}
+        </select>
+      </div>`;
+  }).join('');
+  const chosen = libLinkFindVariant(variants, sel);
+  const stock = libLinkVariantStockInfo(chosen);
+  return `
+    <div class="lib-link-variants">
+      <b>Вариант товара</b>
+      ${fieldsHtml}
+      <p class="hint lib-link-variant-note">${esc(libLinkVariantNoteText(form, chosen))}</p>
+      <p class="hint lib-link-variant-stock${stock.warn ? ' lib-link-warning' : ''}">${esc(stock.text)}</p>
+    </div>`;
+}
+
+// Выбранный вариант в том виде, в каком он ложится в позицию каталога.
+// values — ВЫБОР ПОЛЬЗОВАТЕЛЯ, а не values самой комбинации: у неё бывают
+// пустые «любые» значения, по которым потом не найти ту же комбинацию заново
+// (см. refreshCatalogLinkedPrices).
+function libLinkSelectedVariantInfo(form) {
+  const variants = form && form.draft && form.draft.variants;
+  if (!variants) return null;
+  const sel = form.variantSel || {};
+  if (!libLinkFindVariant(variants, sel)) return null;
+  const values = {};
+  (variants.attributes || []).forEach((a) => { values[a.id] = sel[a.id]; });
+  return { values, label: libLinkVariantLabel(variants, sel) };
+}
+
+// Фото для сохранения/показа: своё фото комбинации, если сайт его отдал
+// (WooCommerce кладёт его в вариант, только когда оно отличается от
+// основного), иначе — основное фото товара.
+function libLinkSelectedImageUrl(form) {
+  const draft = (form && form.draft) || {};
+  const chosen = libLinkFindVariant(draft.variants, form && form.variantSel);
+  return (chosen && chosen.imageUrl) || draft.imageUrl || null;
+}
+
+// Значения, которые форма подставила В ПОЛЯ С САЙТА (с учётом выбранного
+// варианта) — сохраняются рядом с самой позицией каталога как sourceName/
+// sourceArticle. Это НЕ то же самое, что сохранённые name/article:
+// пользователь мог переименовать позицию прямо на экране подтверждения.
+// Нужны, чтобы «Обновить цены с сайта» позже отличило его правку от
+// сайтового значения и не затирало её (см. libLinkApplyRefreshedDraft).
+function libLinkSourceFields(form) {
+  const draft = (form && form.draft) || {};
+  const chosen = libLinkFindVariant(draft.variants, form && form.variantSel);
+  const label = chosen ? libLinkVariantLabel(draft.variants, form.variantSel) : '';
+  return {
+    sourceName: libLinkNameWithVariant(draft.name || '', label),
+    sourceArticle: (chosen && chosen.article) || draft.article || '',
+  };
+}
+
+// Обновляет поле позиции свежим значением с сайта, ТОЛЬКО если пользователь
+// это поле сам не менял (текущее значение совпадает с сохранённым сайтовым).
+// srcField у позиции нет вовсе — она сохранена до появления этого механизма,
+// и правил ли её человек, уже не узнать: значение не трогаем (безопаснее
+// оставить то, что есть), но сайтовое запоминаем — со следующего обновления
+// сравнение заработает.
+function libLinkApplyIfUntouched(it, field, srcField, freshValue) {
+  if (freshValue == null) return;
+  const norm = (v) => String(v == null ? '' : v).trim();
+  if (it[srcField] !== undefined && norm(it[field]) === norm(it[srcField])) it[field] = freshValue;
+  it[srcField] = freshValue;
+}
+
+// Смена варианта — точечная правка DOM (как в libLinkRevalidate), без
+// renderLibraryPanel(): перерисовка сбросила бы фокус с только что выбранного
+// селекта.
+function libLinkApplyVariant(panel, box) {
+  const form = state.libLinkForm;
+  if (!form || form.step !== 'confirm') return;
+  const draft = form.draft || {};
+  form.variantSel = libLinkReadVariantSelection(box);
+  const chosen = libLinkFindVariant(draft.variants, form.variantSel);
+  const label = libLinkVariantLabel(draft.variants, form.variantSel);
+  if (chosen) {
+    // Цену при ЯВНОЙ смене варианта обновляем всегда — в этом и смысл
+    // выбора. Наименование и артикул — только пока пользователь их сам не
+    // правил: его правка главнее любой автоподстановки (иначе получается тот
+    // же баг, что и с перерисовкой формы, только изнутри).
+    //
+    // Цены у комбинации нет (сайт её не отдал) — поле ОЧИЩАЕМ, а не
+    // оставляем как есть: иначе в нём осталась бы нижняя граница диапазона
+    // или цена предыдущего варианта, и она уехала бы в каталог под меткой
+    // совсем другой комбинации. Пустое поле само блокирует «Сохранить» через
+    // libLinkMissingBasic («цена»), и пользователь впишет число руками.
+    const priceEl = box.querySelector('.lib-link-f[data-f="price"]');
+    if (priceEl) priceEl.value = chosen.price != null ? chosen.price : '';
+    const nameEl = box.querySelector('.lib-link-f[data-f="name"]');
+    if (nameEl && !(form.touched && form.touched.name)) nameEl.value = libLinkNameWithVariant(draft.name, label);
+    const artEl = box.querySelector('.lib-link-f[data-f="article"]');
+    if (artEl && chosen.article && !(form.touched && form.touched.article)) artEl.value = chosen.article;
+  }
+  const photoEl = box.querySelector('.lib-link-photo');
+  if (photoEl) {
+    const src = libLinkSelectedImageUrl(form);
+    photoEl.hidden = !src;
+    if (src) photoEl.src = src;
+  }
+  // draft.priceNote («цена от …») перестаёт соответствовать действительности,
+  // только когда цена комбинации ИЗВЕСТНА — тогда вместо него говорит
+  // .lib-link-variant-note. Если сайт цену варианта не отдал, предупреждение
+  // остаётся: число в поле цены — не с сайта.
+  const priceKnown = libLinkVariantPriceKnown(form);
+  const noteEl = box.querySelector('.lib-link-price-note');
+  if (noteEl) noteEl.hidden = priceKnown;
+  const priceHintEl = box.querySelector('.lib-link-price-hint');
+  if (priceHintEl) priceHintEl.textContent = libLinkPriceHintText(form);
+  const varNoteEl = box.querySelector('.lib-link-variant-note');
+  if (varNoteEl) varNoteEl.textContent = libLinkVariantNoteText(form, chosen);
+  const stock = libLinkVariantStockInfo(chosen);
+  const stockEl = box.querySelector('.lib-link-variant-stock');
+  if (stockEl) {
+    stockEl.textContent = stock.text;
+    stockEl.classList.toggle('lib-link-warning', stock.warn);
+  }
+  // Общетоварное «товар в наличии/нет в наличии» уступает место строке про
+  // конкретную комбинацию, как только сайт что-то о ней сообщил.
+  const itemStockEl = box.querySelector('.lib-link-stock');
+  if (itemStockEl) itemStockEl.hidden = !!stock.text;
+  libLinkRevalidate(panel);
+}
 
 // Экран подтверждения (step: 'confirm') — все распознанные поля редактируемы
 // (парсинг мог ошибиться, п.1.5 ТЗ). Толщина/Длина/Ширина показываются, только
 // если у этого вида позиций такое поле вообще существует (см. libLengthFieldOf/
 // libWidthFieldOf — те же helpers, что и у таблиц «Библиотеки»).
+//
+// ВАЖНО: значения полей берутся из зеркала form.values/form.extra/form.cat
+// (см. libLinkCaptureFormState) и только при его отсутствии — из form.draft.
+// Функция вызывается при КАЖДОЙ перерисовке панели, в том числе по поводам,
+// не связанным с формой, — рисовать всегда из draft значило бы терять всё,
+// что пользователь уже исправил.
 function libLinkConfirmHtml(form) {
   const draft = form.draft || {};
   const isHw = form.kind === 'hardware';
+  const fv = (key, fallback) => libLinkFieldValue(form, key, fallback);
   // ВАЖНО: kind здесь НЕ должен зависеть от draft.unit. Сайт-источник может
   // показывать цену «за м²» (как у листового МДФ на mobilier.md) для
   // ОБЫЧНОГО листа фиксированного размера — это способ показать цену, а не
@@ -2451,33 +2818,57 @@ function libLinkConfirmHtml(form) {
   const kind = isHw ? null : (form.group === 'edge' ? 'edge' : form.group === 'countertop' ? 'countertop' : 'sheet');
   const showLen = !isHw && libLengthFieldOf(kind) != null;
   const showWid = !isHw && libWidthFieldOf(kind) != null;
-  const photoHtml = draft.imageUrl ? `<img class="lib-link-photo" src="${esc(draft.imageUrl)}" alt="Фото с сайта">` : '';
+  // Фото: у вариативного товара — фото выбранной комбинации, если у неё своё
+  // (см. libLinkSelectedImageUrl). Пустой <img hidden> нужен на случай, когда
+  // основного фото нет, а у комбинаций оно есть: libLinkApplyVariant правит
+  // src точечно и должен иметь, что править.
+  const photoSrc = libLinkSelectedImageUrl(form);
+  const anyVariantPhoto = !!(draft.variants && (draft.variants.items || []).some((it) => it && it.imageUrl));
+  const photoHtml = photoSrc ? `<img class="lib-link-photo" src="${esc(photoSrc)}" alt="Фото с сайта">`
+    : anyVariantPhoto ? '<img class="lib-link-photo" alt="Фото с сайта" hidden>' : '';
+  // Текст подсказки зависит от того, известна ли уже цена варианта (см.
+  // libLinkPriceHintText) — при смене варианта её правит точечно
+  // libLinkApplyVariant по классу .lib-link-price-hint.
   const priceHintHtml = draft.currency
-    ? `<p class="hint">На сайте цена указана как: ${esc(draft.price != null ? String(draft.price) : '—')} ${esc(String(draft.currency))}. Валюта проекта здесь не пересчитывается — при необходимости поправьте число сами.</p>`
+    ? `<p class="hint lib-link-price-hint">${esc(libLinkPriceHintText(form))}</p>`
     : '';
   // draft.priceNote — предупреждение парсера про диапазон цен у вариативных
   // товаров (см. sebasMd.js: buildPriceRangeNote), показанная цена — нижняя
   // граница, не точная цена. Тот же текстовый шаблон, что и у
   // libPriceNoteHtml (item.priceNote из catalog.js) — ниже это же значение
   // копируется в сохраняемую позицию, чтобы предупреждение не терялось и
-  // после сохранения (см. libLinkSaveMaterial/libLinkSaveHardware).
+  // после сохранения (см. libLinkSaveMaterial/libLinkSaveHardware). Когда
+  // цена выбранной комбинации ИЗВЕСТНА, она точная — предупреждение прячем (и
+  // в позицию каталога его тоже не кладём). Если сайт цену варианта не отдал,
+  // предупреждение остаётся: число в поле цены вписано руками, а не с сайта.
+  const variantChosen = libLinkFindVariant(draft.variants, form.variantSel);
   const priceNoteHtml = draft.priceNote
-    ? `<p class="hint">Цена ${esc(draft.priceNote)}.</p>`
+    ? `<p class="hint lib-link-price-note" ${libLinkVariantPriceKnown(form) ? 'hidden' : ''}>Цена ${esc(draft.priceNote)}.</p>`
     : '';
-  const stockHtml = draft.inStock === true ? '<p class="hint">На странице: товар в наличии.</p>'
-    : draft.inStock === false ? '<p class="hint lib-link-warning">На странице указано: товара нет в наличии — уточните перед сохранением.</p>' : '';
-  const unitDefault = draft.unit || (isHw ? 'шт' : 'лист');
+  // Общетоварную строку про наличие прячем, как только сайт сказал что-то про
+  // наличие ВЫБРАННОЙ комбинации (см. libLinkVariantStockInfo): два разных
+  // ответа про наличие на одном экране противоречат друг другу.
+  const itemStockHidden = !!libLinkVariantStockInfo(variantChosen).text;
+  const stockHtml = draft.inStock === true ? `<p class="hint lib-link-stock" ${itemStockHidden ? 'hidden' : ''}>На странице: товар в наличии.</p>`
+    : draft.inStock === false ? `<p class="hint lib-link-warning lib-link-stock" ${itemStockHidden ? 'hidden' : ''}>На странице указано: товара нет в наличии — уточните перед сохранением.</p>` : '';
+  const unitDefault = fv('unit', draft.unit || (isHw ? 'шт' : 'лист'));
   const unitOptions = LIB_UNIT_OPTIONS.map((o) => `<option value="${esc(o)}" ${o === unitDefault ? 'selected' : ''}>${esc(o)}</option>`).join('');
+  const thicknessVal = fv('thickness', draft.thickness != null ? draft.thickness : '');
+  const sheetWVal = fv('sheetW', draft.sheetW != null ? draft.sheetW : '');
+  const sheetHVal = fv('sheetH', draft.sheetH != null ? draft.sheetH : '');
   const thicknessFieldHtml = !isHw
-    ? `<div class="field"><label>Толщина, мм</label><input type="number" class="lib-link-f" data-f="thickness" value="${esc(draft.thickness != null ? draft.thickness : '')}"></div>` : '';
+    ? `<div class="field"><label>Толщина, мм</label><input type="number" class="lib-link-f" data-f="thickness" value="${esc(thicknessVal)}"></div>` : '';
   const dimsFieldsHtml = (showLen || showWid)
     ? `<div class="field-row3">
-        ${showLen ? `<div class="field"><label>Длина, мм</label><input type="number" class="lib-link-f" data-f="sheetW" value="${esc(draft.sheetW != null ? draft.sheetW : '')}"></div>` : '<div></div>'}
-        ${showWid ? `<div class="field"><label>Ширина, мм</label><input type="number" class="lib-link-f" data-f="sheetH" value="${esc(draft.sheetH != null ? draft.sheetH : '')}"></div>` : '<div></div>'}
+        ${showLen ? `<div class="field"><label>Длина, мм</label><input type="number" class="lib-link-f" data-f="sheetW" value="${esc(sheetWVal)}"></div>` : '<div></div>'}
+        ${showWid ? `<div class="field"><label>Ширина, мм</label><input type="number" class="lib-link-f" data-f="sheetH" value="${esc(sheetHVal)}"></div>` : '<div></div>'}
         <div>${thicknessFieldHtml}</div>
       </div>`
     : thicknessFieldHtml;
-  const catSplit = !isHw ? libLinkDefaultCategorySplit(form) : null;
+  // form.cat — уже сделанный пользователем выбор раздела (зеркало, см.
+  // libLinkCaptureFormState); libLinkDefaultCategorySplit только предлагает
+  // его в первый раз.
+  const catSplit = !isHw ? (form.cat || libLinkDefaultCategorySplit(form)) : null;
   const catHtml = !isHw ? `
     <div class="field"><label>Раздел каталога</label>
       <select class="lib-link-cat-parent">${libLinkParentOptionsHtml(form.top, catSplit.parent)}</select>
@@ -2485,7 +2876,7 @@ function libLinkConfirmHtml(form) {
     <div class="field"><label>Новая подкатегория (например, бренд) — необязательно</label>
       <input type="text" class="lib-link-cat-new" value="${esc(catSplit.newSegment)}" placeholder="например, GTV">
     </div>
-    <p class="hint">Категория: <b class="lib-link-cat-preview">${esc(libLinkCategoryPreviewLabel(catSplit))}</b></p>` : '';
+    <p class="hint">Категория: <b class="lib-link-cat-preview">${esc(libLinkCategoryPreviewLabel({ parent: catSplit.parent, newSegment: String(catSplit.newSegment || '').trim() }))}</b></p>` : '';
   // «Раздел фурнитуры» — только когда форма открыта без контекста (см.
   // libLinkTopBarHtml/hwCatHtml, form.hwCategory ещё не известен): из
   // конкретного раздела (кнопка под его же таблицей в libraryHardwareBlock)
@@ -2498,19 +2889,31 @@ function libLinkConfirmHtml(form) {
         <select class="lib-link-hw-cat-select">${libLinkHwCategoryOptionsHtml(form.hwCategory)}</select>
       </div>`
     : '';
+  // Инженерные поля рисуются из того же зеркала form.extra — иначе смена
+  // «Раздела фурнитуры» (единственная правка формы с полной перерисовкой)
+  // стирала бы уже введённые cc/минимальную высоту и т.п.
+  const extraVals = Object.assign(libLinkHardwareExtraDefaults(form.hwCategory), form.extra || {});
   const extraHtml = isHw && form.hwCategory
-    ? `<div class="lib-link-hw-extra"><b>Инженерные параметры — на сайте их нет, заполните вручную</b>${libLinkHardwareExtraFieldsHtml(form.hwCategory)}</div>`
+    ? `<div class="lib-link-hw-extra"><b>Инженерные параметры — на сайте их нет, заполните вручную</b>${libLinkHardwareExtraFieldsHtml(form.hwCategory, form.extra)}</div>`
     : '';
-  const initialMissing = libLinkMissingBasic({ name: draft.name || '', price: draft.price != null ? draft.price : '' })
+  const nameVal = fv('name', draft.name || '');
+  const articleVal = fv('article', draft.article || '');
+  const priceVal = fv('price', draft.price != null ? draft.price : '');
+  // Тот же порядок проверок, что и в libLinkRevalidate/libLinkSaveSubmit —
+  // подсказка «Заполните: …» не должна расходиться между первым рендером и
+  // последующими пересчётами.
+  const initialMissing = libLinkMissingBasic({ name: nameVal, price: priceVal })
     .concat(isHw && !form.hwCategory ? ['раздел фурнитуры'] : [])
-    .concat(isHw ? libLinkHardwareMissing(form.hwCategory, libLinkHardwareExtraDefaults(form.hwCategory)) : [])
-    .concat(libLinkMaterialDimsMissing(form, { sheetW: draft.sheetW, sheetH: draft.sheetH }));
+    .concat(isHw ? libLinkHardwareMissing(form.hwCategory, extraVals) : [])
+    .concat(libLinkMaterialDimsMissing(form, { sheetW: sheetWVal, sheetH: sheetHVal }))
+    .concat(libLinkVariantMissing(form));
   return `
     <div class="lib-link-confirm">
       ${photoHtml}
-      <div class="field"><label>Наименование</label><input type="text" class="lib-link-f" data-f="name" value="${esc(draft.name || '')}"></div>
-      <div class="field"><label>Артикул</label><input type="text" class="lib-link-f" data-f="article" value="${esc(draft.article || '')}"></div>
-      <div class="field"><label>Цена, ${esc(curSym())}</label><input type="number" step="any" class="lib-link-f" data-f="price" value="${esc(draft.price != null ? draft.price : '')}"></div>
+      <div class="field"><label>Наименование</label><input type="text" class="lib-link-f" data-f="name" value="${esc(nameVal)}"></div>
+      <div class="field"><label>Артикул</label><input type="text" class="lib-link-f" data-f="article" value="${esc(articleVal)}"></div>
+      ${libLinkVariantsHtml(form)}
+      <div class="field"><label>Цена, ${esc(curSym())}</label><input type="number" step="any" class="lib-link-f" data-f="price" value="${esc(priceVal)}"></div>
       ${priceHintHtml}
       ${priceNoteHtml}
       <div class="field"><label>Ед. изм.</label><select class="lib-link-f" data-f="unit">${unitOptions}</select></div>
@@ -2561,7 +2964,8 @@ function libLinkFormHtml(form) {
 // Реактивная разблокировка «Проверить»/«Сохранить» (п.5/3.2 ТЗ — кнопка
 // сохранения должна быть заблокирована, пока не заполнены обязательные
 // поля) — читает значения ПРЯМО из DOM формы при каждом input/change внутри
-// неё, точечно правит disabled/текст подсказки, БЕЗ renderLibraryPanel():
+// неё (и там же зеркалит их в state, см. libLinkCaptureFormState), точечно
+// правит disabled/текст подсказки, БЕЗ renderLibraryPanel():
 // полная перерисовка на каждое нажатие клавиши стирала бы фокус/курсор в
 // текстовом поле (тот же принцип, что и у startCellEdit/libApplyRowSelectionDom
 // в других местах этого файла).
@@ -2588,12 +2992,18 @@ function libLinkRevalidate(panel) {
     return;
   }
   if (form.step === 'confirm') {
-    const values = libLinkReadFormValues(box);
-    const extra = libLinkReadExtraValues(box);
+    // Сначала зеркалим то, что сейчас в полях, в state (см.
+    // libLinkCaptureFormState): revalidate вызывается на каждый input/change
+    // внутри формы, поэтому именно здесь ввод пользователя и «закрепляется»
+    // так, чтобы пережить любую последующую перерисовку панели.
+    libLinkCaptureFormState(box);
+    const values = form.values;
+    const extra = form.extra;
     const missing = libLinkMissingBasic(values);
     if (form.kind === 'hardware' && !form.hwCategory) missing.push('раздел фурнитуры');
     if (form.kind === 'hardware') missing.push(...libLinkHardwareMissing(form.hwCategory, extra));
     missing.push(...libLinkMaterialDimsMissing(form, values));
+    missing.push(...libLinkVariantMissing(form));
     if (form.kind === 'materials' && form.group === 'edge') {
       const cat = window.Modul3D.catalog;
       const nm = (values.name || '').trim();
@@ -2641,17 +3051,31 @@ function libLinkSaveMaterial(form, values, categoryPath) {
   const unit = values.unit || 'лист';
   const article = (values.article || '').trim();
   const brand = (values.brand || '').trim();
-  const image = (form.draft && form.draft.imageUrl) || null;
+  // Фото комбинации, если у выбранного варианта оно своё (см.
+  // libLinkSelectedImageUrl) — то же, что показано на экране подтверждения.
+  const image = libLinkSelectedImageUrl(form);
+  // variant — выбранная комбинация вариативного товара (см.
+  // libLinkSelectedVariantInfo): по её values «Обновить цены с сайта» позже
+  // найдёт ИМЕННО эту комбинацию, а не нижнюю границу диапазона.
+  const variant = libLinkSelectedVariantInfo(form);
   // priceNote — предупреждение парсера про диапазон цен у вариативных
   // товаров (см. libLinkConfirmHtml выше): без него после сохранения
   // предупреждение терялось бы полностью — libPriceNoteHtml (таблица
   // материалов) читает именно item.priceNote, тот же приём, что уже
-  // используют встроенные позиции GLASS/FAC-WOOD-FILON в catalog.js.
-  const priceNote = (form.draft && form.draft.priceNote) || null;
+  // используют встроенные позиции GLASS/FAC-WOOD-FILON в catalog.js. Когда
+  // цена выбранного варианта известна, она точная — «цена от …» стала бы
+  // враньём, не сохраняем. А вот если сайт цену комбинации не отдал и число
+  // вписал пользователь, предупреждение нужно оставить.
+  const priceNote = variant && libLinkVariantPriceKnown(form) ? null : ((form.draft && form.draft.priceNote) || null);
   const numOr = (v, def) => { const n = Number(v); return Number.isFinite(n) && n > 0 ? n : def; };
   const numOrNull = (v) => { const n = Number(v); return Number.isFinite(n) ? n : null; };
-  const common = { sourceUrl: form.url, sourceSiteId: form.siteId, verifiedAt: new Date().toISOString() };
+  // sourceName/sourceArticle — что именно подставилось с сайта (см.
+  // libLinkSourceFields): без них «Обновить цены с сайта» не отличит ручное
+  // переименование позиции от сайтового имени и затрёт правку пользователя.
+  const common = Object.assign({ sourceUrl: form.url, sourceSiteId: form.siteId, verifiedAt: new Date().toISOString() },
+    libLinkSourceFields(form));
   if (priceNote) common.priceNote = priceNote;
+  if (variant) common.variant = variant;
   // decors/back/facade: values.sheetW/sheetH к этому моменту уже проверены
   // libLinkMaterialDimsMissing (кнопка «Сохранить» и не дала бы дойти сюда
   // без них) — numOr(...) ниже больше не «угадывает» реальный размер листа,
@@ -2712,11 +3136,18 @@ function libLinkSaveHardware(form, values, extra) {
   const subField = subcategory ? (category === 'mechanism' ? { brand: subcategory } : { subcategory }) : {};
   // priceNote — то же предупреждение о диапазоне цен, что и у материалов
   // (см. libLinkSaveMaterial), без него libPriceNoteHtml не сможет показать
-  // его в таблице фурнитуры после сохранения.
-  const priceNote = (form.draft && form.draft.priceNote) || null;
+  // его в таблице фурнитуры после сохранения. И ровно так же: когда цена
+  // выбранной комбинации известна, она точная — предупреждение о диапазоне не
+  // сохраняем, вместо него кладём саму комбинацию (variant); если же сайт
+  // цену варианта не отдал, предупреждение остаётся.
+  const variant = libLinkSelectedVariantInfo(form);
+  const priceNote = variant && libLinkVariantPriceKnown(form) ? null : ((form.draft && form.draft.priceNote) || null);
+  // sourceName/sourceArticle — то же, что у материалов (см.
+  // libLinkSourceFields/libLinkSaveMaterial): «Обновить цены с сайта» по ним
+  // отличает ручное переименование позиции от сайтового имени.
   const common = Object.assign({ name, article, price, unit, category,
     sourceUrl: form.url, sourceSiteId: form.siteId, verifiedAt: new Date().toISOString() },
-    priceNote ? { priceNote } : {}, subField);
+    libLinkSourceFields(form), priceNote ? { priceNote } : {}, variant ? { variant } : {}, subField);
   if (category === 'mechanism') {
     cat.LIFTS[key] = Object.assign({ id: key, brand: '', minH: Number(extra.minH) || 0,
       maxH: Number(extra.maxH) || 0, maxW: Number(extra.maxW) || 0, note: '' }, common);
@@ -2735,21 +3166,26 @@ function libLinkSaveHardware(form, values, extra) {
   renderLibraryPanel();
 }
 
-// «Сохранить» экрана подтверждения — перечитывает значения из DOM (см.
-// libLinkReadFormValues/libLinkReadExtraValues), перепроверяет обязательные
-// поля (защита от гонки, кнопка и так должна быть disabled) и передаёт в
-// нужную ветку сохранения.
+// «Сохранить» экрана подтверждения — снимает последний срез полей формы в
+// state (libLinkCaptureFormState) и дальше работает уже с ним (form.values/
+// form.extra/form.variantSel), перепроверяет обязательные поля (защита от
+// гонки, кнопка и так должна быть disabled) и передаёт в нужную ветку
+// сохранения.
 function libLinkSaveSubmit(panel) {
   const form = state.libLinkForm;
   if (!form || form.step !== 'confirm') return;
   const box = panel.querySelector('.lib-link-form');
   if (!box) return;
-  const values = libLinkReadFormValues(box);
-  const extra = libLinkReadExtraValues(box);
+  // Перед самой записью ещё раз снимаем срез полей (libLinkCaptureFormState) —
+  // так сохраняется РОВНО то, что видно на экране, включая выбранный вариант.
+  libLinkCaptureFormState(box);
+  const values = form.values;
+  const extra = form.extra;
   const missing = libLinkMissingBasic(values)
     .concat(form.kind === 'hardware' && !form.hwCategory ? ['раздел фурнитуры'] : [])
     .concat(form.kind === 'hardware' ? libLinkHardwareMissing(form.hwCategory, extra) : [])
-    .concat(libLinkMaterialDimsMissing(form, values));
+    .concat(libLinkMaterialDimsMissing(form, values))
+    .concat(libLinkVariantMissing(form));
   if (form.kind === 'materials' && form.group === 'edge') {
     const cat = window.Modul3D.catalog;
     if (cat.EDGE_PRICES[(values.name || '').trim()]) missing.push('кромка с таким названием уже есть');
@@ -2812,6 +3248,57 @@ function libLinkedItemsList() {
 // окружения CATALOG_LINK_MAX_REFRESH_ITEMS), клиент не может узнать её заранее.
 const LIB_LINK_REFRESH_CHUNK = 50;
 
+// Переносит свежий черновик с сайта в позицию каталога — общий «хвост»
+// «Обновить цены с сайта» (см. ниже). Возвращает true, если позицию реально
+// удалось обновить.
+//
+// Вариативный товар (it.variant — комбинация, выбранная при добавлении, см.
+// libLinkSelectedVariantInfo): цену берём ИМЕННО у этой комбинации, а не из
+// draft.price — там нижняя граница диапазона, и «обновление» молча уронило
+// бы цену до самой дешёвой комбинации. Ищем ту же комбинацию ТОЙ ЖЕ
+// libLinkFindVariant, что и экран подтверждения, — второго правила
+// сопоставления в проекте нет. Комбинация исчезла с сайта (вариант сняли с
+// продажи) или сайт не отдал её цену — позицию не трогаем вовсе: выдумывать
+// цену нельзя, пусть попадёт в «не найдено» отчёта и пользователь решит сам.
+//
+// Наименование и артикул: ЦЕНУ пользователь просил обновлять всегда, а вот
+// СВОЁ название — не трогать (ровно с этой жалобы и началась задача: ручная
+// правка «Опора …, 100мм» затиралась сайтовой при каждом обновлении). Отличить
+// своё название от сайтового позволяет it.sourceName/it.sourceArticle — копия
+// того, что подставилось с сайта в момент сохранения (см. libLinkSourceFields):
+// совпадает с текущим значением — пользователь его не менял, подтягиваем
+// свежее; не совпадает — это его правка, оставляем как есть. Сам sourceName
+// в любом случае приводим к актуальному сайтовому, иначе после первого же
+// расхождения сравнение навсегда осталось бы ложным.
+function libLinkApplyRefreshedDraft(it, d, siteId) {
+  const variantSel = it.variant && it.variant.values;
+  let chosen = null;
+  if (variantSel) {
+    chosen = libLinkFindVariant(d.variants, variantSel);
+    if (!chosen || chosen.price == null) return false;
+  }
+  const price = chosen ? chosen.price : d.price;
+  // Имя вариативной позиции хранится с суффиксом комбинации («… — H, мм: 100,
+  // Цвет: Сатин») — достраиваем его заново из сохранённой подписи, иначе
+  // обновление схлопнуло бы названия всех вариантов товара в одно общее.
+  const freshName = d.name != null ? (variantSel ? libLinkNameWithVariant(d.name, it.variant.label) : d.name) : null;
+  const freshArticle = chosen && chosen.article ? chosen.article : d.article;
+  libLinkApplyIfUntouched(it, 'name', 'sourceName', freshName);
+  libLinkApplyIfUntouched(it, 'article', 'sourceArticle', freshArticle);
+  if (price != null) {
+    if (it.sheetPrice !== undefined) it.sheetPrice = price;
+    else if (it.pricePerMeter !== undefined) it.pricePerMeter = price;
+    else it.price = price;
+  }
+  // Позиция могла быть без sourceSiteId (встроенный каталог из mobilier.md,
+  // см. libLinkedItemsList) — теперь, когда она сама подтвердилась по домену
+  // и успешно обновилась, фиксируем id сайта явно: дальше её уже не нужно
+  // резолвить заново.
+  it.sourceSiteId = siteId;
+  it.verifiedAt = new Date().toISOString();
+  return true;
+}
+
 // «Обновить цены с сайта» — ОДНА кнопка на весь каталог пользователя (п.1.8
 // ТЗ, не по кнопке на каждую позицию): собирает все sourceUrl-позиции разом
 // и обновляет результатом те же объекты каталога. Поле цены определяем по
@@ -2862,23 +3349,13 @@ async function refreshCatalogLinkedPrices() {
         const matches = chunk.filter((e) => e.item.sourceUrl === r.url && e.siteId === r.siteId);
         if (r.ok && r.draft) {
           matches.forEach((e) => {
-            const it = e.item;
-            const d = r.draft;
-            if (d.name != null) it.name = d.name;
-            if (d.article != null) it.article = d.article;
-            if (d.price != null) {
-              if (it.sheetPrice !== undefined) it.sheetPrice = d.price;
-              else if (it.pricePerMeter !== undefined) it.pricePerMeter = d.price;
-              else it.price = d.price;
-            }
-            // Позиция могла быть без sourceSiteId (встроенный каталог из
-            // mobilier.md, см. libLinkedItemsList) — теперь, когда она сама
-            // подтвердилась по домену и успешно обновилась, фиксируем id
-            // сайта явно: дальше её уже не нужно резолвить заново.
-            it.sourceSiteId = e.siteId;
-            it.verifiedAt = new Date().toISOString();
+            // Позиция могла не обновиться и при успешном ответе — если у неё
+            // выбран вариант, а комбинация с сайта пропала (см.
+            // libLinkApplyRefreshedDraft): считаем её такой же неудачной, как
+            // и позицию, которую сервер вообще не смог прочитать.
+            if (libLinkApplyRefreshedDraft(e.item, r.draft, e.siteId)) updated += 1;
+            else failed += 1;
           });
-          updated += matches.length;
         } else {
           failed += matches.length || 1;
         }
@@ -4035,11 +4512,21 @@ function initLibraryPanel() {
     // полей формы, выбор раздела меняет НАБОР полей ниже (инженерные поля
     // конкретной категории — см. libLinkHardwareExtraFieldsHtml), точечной
     // правкой не обойтись — нужна полная перерисовка панели, не просто
-    // libLinkRevalidate.
+    // libLinkRevalidate. Поэтому ДО перерисовки снимаем срез полей: иначе
+    // уже исправленные наименование/цена вернулись бы к значениям парсера.
     const hwCatSel = e.target.closest('.lib-link-hw-cat-select');
     if (hwCatSel && state.libLinkForm) {
+      libLinkCaptureFormState(hwCatSel.closest('.lib-link-form'));
       state.libLinkForm.hwCategory = hwCatSel.value;
       renderLibraryPanel();
+      return;
+    }
+    // Выбор варианта вариативного товара (см. libLinkVariantsHtml) — своя
+    // ветка ДО общей: кроме перевалидации нужно подставить цену/артикул/
+    // название выбранной комбинации, и всё это точечно, без перерисовки.
+    const variantSel = e.target.closest('.lib-link-variant-select');
+    if (variantSel && state.libLinkForm) {
+      libLinkApplyVariant(panel, variantSel.closest('.lib-link-form'));
       return;
     }
     // Форма «Добавить по ссылке» (см. libLinkRevalidate) — <select>-поля
@@ -4059,6 +4546,7 @@ function initLibraryPanel() {
         const newSegInput = box && box.querySelector('.lib-link-cat-new');
         if (newSegInput) newSegInput.value = '';
       }
+      libLinkMarkFieldTouched(e.target);
       libLinkRevalidate(panel);
       return;
     }
@@ -4068,7 +4556,10 @@ function initLibraryPanel() {
   // бросают 'input' на каждое нажатие клавиши, без полной перерисовки панели
   // (иначе терялся бы фокус/курсор посреди набора текста).
   panel.addEventListener('input', (e) => {
-    if (e.target.closest('.lib-link-form')) libLinkRevalidate(panel);
+    if (e.target.closest('.lib-link-form')) {
+      libLinkMarkFieldTouched(e.target);
+      libLinkRevalidate(panel);
+    }
   });
 
   initLibImageInput();

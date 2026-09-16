@@ -33,6 +33,20 @@
 //     "приближённые"/"ориентировочные" цены в src/catalog.js и умеет
 //     показывать src/app.js), чтобы на экране подтверждения пользователь не
 //     принял нижнюю границу диапазона за точную цену конкретного варианта.
+//   - `<form class="variations_form cart" data-product_variations="[...]">` —
+//     у ВАРИАТИВНОГО товара на странице лежит ещё и ПОЛНЫЙ список комбинаций
+//     с их точными ценами (стандартный вывод WooCommerce; проверено на живой
+//     странице https://sebas.md/ru/shop/opora-konusoobraznaya-reguliruemaya-
+//     ozkardesler/ — 12 комбинаций H x Цвет, у которых AggregateOffer.lowPrice
+//     = 19 MDL, а реальная цена, например, H=100 + Сатин = 31.00 MDL). Это
+//     решает проблему нижней границы диапазона выше: сам draft.price
+//     по-прежнему lowPrice (и priceNote по-прежнему выставляется), но рядом
+//     кладётся draft.variants (см. extractVariants()) — клиент показывает
+//     селекты, пользователь выбирает комбинацию, и клиент подставляет её
+//     точную цену вместо нижней границы. Значение атрибута — HTML-
+//     экранированный (`&quot;`) JSON, cheerio через .attr() отдаёт его уже
+//     раскодированным, отдельный html-decode не нужен (JSON.parse всё равно
+//     в try/catch — битую разметку молча игнорируем).
 //   - Product.sku — это ВСЕГДА внутренний числовой ID товара WordPress
 //     (например у товара с явным полем "Артикул: Н/Д" на самой странице
 //     JSON-LD sku всё равно содержит число) — НЕ реальный артикул, не
@@ -269,18 +283,27 @@ function pick(map, candidates) {
   return null;
 }
 
+/** Отсев текстов-заглушек WooCommerce для незаполненного продавцом SKU:
+ * "Н/Д"/"N/A"/"-"/румынское "Nu se aplică" ("не применимо" — сайт
+ * румыноязычный, `lang="ro-RO"`, тот же стандартный вывод WooCommerce,
+ * проверено на живой странице петли Blum). Диакритику ("ă") делаем
+ * необязательной в регэкспе на случай расхождений в кодировке между
+ * страницами. Возвращает очищенную строку или null. Общий helper для
+ * артикула самого товара (extractNativeSku) и артикулов отдельных
+ * комбинаций (extractVariants) — правило отсева должно быть одно. */
+function cleanSku(raw) {
+  if (raw === null || raw === undefined) return null;
+  const clean = String(raw).replace(/\s+/g, ' ').trim();
+  if (!clean) return null;
+  if (/^(н\/?д|n\/?a|-|—|nu se aplic[ăa])$/i.test(clean)) return null;
+  return clean;
+}
+
 /** Родное поле WooCommerce "Артикул" (`.sku_wrapper .sku`). Возвращает
- * null, если элемента нет на странице ИЛИ там текст-заглушка вида "Н/Д"/
- * "N/A"/"-"/румынское "Nu se aplică" ("не применимо" — сайт румыноязычный,
- * `lang="ro-RO"`, тот же стандартный вывод WooCommerce для незаполненного
- * SKU, проверено на живой странице петли Blum) — продавец не заполнил
- * поле, см. комментарий вверху файла. Диакритику ("ă") делаем необязательной
- * в регэкспе на случай расхождений в кодировке между страницами. */
+ * null, если элемента нет на странице ИЛИ там текст-заглушка (см.
+ * cleanSku) — продавец не заполнил поле, см. комментарий вверху файла. */
 function extractNativeSku($) {
-  const raw = $('.sku_wrapper .sku').first().text().replace(/\s+/g, ' ').trim();
-  if (!raw) return null;
-  if (/^(н\/?д|n\/?a|-|—|nu se aplic[ăa])$/i.test(raw)) return null;
-  return raw;
+  return cleanSku($('.sku_wrapper .sku').first().text());
 }
 
 /** Видимая цена товара как fallback, если её нет в JSON-LD. Для товара со
@@ -298,6 +321,161 @@ function extractVisiblePrice($) {
   const plainText = scope.find('p.price .woocommerce-Price-amount').first().text();
   if (plainText) return toNumber(plainText);
   return null;
+}
+
+/** Цена комбинации из её `price_html` — запасной источник, когда в JSON нет
+ * числового `display_price`. Разметка там та же, что у видимой цены товара:
+ * у варианта со скидкой внутри лежат и старая (`<del>`), и текущая (`<ins>`)
+ * цена, поэтому при наличии `<ins>` берём ЕЁ, иначе весь текст (вариант без
+ * скидки) — иначе первым числом в строке оказалась бы старая цена. Теги
+ * вырезаем, `&nbsp;` и валюту toNumber() игнорирует сам (он выбирает первое
+ * число, корректно понимая "1,034.00" как 1034 — запятая на ЭТОМ сайте
+ * разделяет тысячи, см. комментарий у toNumber; если когда-нибудь появится
+ * страница с десятичной запятой ("42,00"), это место даст 4200 и парсер
+ * придётся учить различать оба формата — сейчас все проверенные страницы
+ * используют точку). */
+function priceFromVariationHtml(html) {
+  if (typeof html !== 'string' || !html) return null;
+  const ins = html.match(/<ins[^>]*>([\s\S]*?)<\/ins>/i);
+  const chunk = ins ? ins[1] : html;
+  return toNumber(chunk.replace(/<[^>]*>/g, ' '));
+}
+
+/**
+ * Разбирает вариативный товар WooCommerce: комбинации с их ТОЧНЫМИ ценами
+ * (`form.variations_form[data-product_variations]`) плюс человекочитаемые
+ * метки атрибутов и опций (селекты той же формы) — см. комментарий вверху
+ * файла.
+ *
+ * Возвращает `{ attributes, items }` либо null. null — это штатная ситуация,
+ * а не ошибка, во ВСЕХ следующих случаях (парсер тогда ведёт себя как
+ * раньше: draft.price = lowPrice + draft.priceNote, поля variants нет):
+ *   - товар не вариативный (формы на странице нет вовсе);
+ *   - вариантов больше порога WooCommerce (по умолчанию 30) — тогда сайт
+ *     штатно рендерит `data-product_variations="false"`, самих комбинаций в
+ *     HTML нет, они догружаются аяксом (в сеть мы не ходим);
+ *   - JSON битый/не массив/пустой — молча игнорируем, исключений наружу не
+ *     выпускаем;
+ *   - не распознались ни атрибуты, ни одна цена (нечего показывать клиенту).
+ *
+ * Структура (ключи `attributes[].id` СОВПАДАЮТ с ключами `items[].values` и
+ * со значением `name` у соответствующего селекта — на этом строится
+ * сопоставление выбора пользователя с комбинацией на клиенте):
+ *   attributes: [{ id: 'attribute_pa_h-%d0%bc%d0%bc', label: 'H, мм',
+ *                  options: [{ value: '100', label: '100' }, ...] }]
+ *   items:      [{ id, values, price, inStock, article, imageUrl? }]
+ *
+ * Нюансы, специально сохранённые «как есть»:
+ *   - значения атрибутов — percent-encoded слаги WooCommerce (кириллица:
+ *     '%d1%85%d1%80%d0%be%d0%bc' = "хром"). НЕ декодируем: это ключи, они
+ *     должны один-в-один совпадать с `<option value="...">`, по которым
+ *     клиент ищет комбинацию;
+ *   - пустая строка в значении атрибута комбинации — штатное "любой"
+ *     WooCommerce (комбинация подходит при ЛЮБОМ значении этого атрибута).
+ *     Такие комбинации НЕ выбрасываем, пустое значение сохраняем как есть —
+ *     сопоставлять с выбором пользователя (пустое = подходит всё) должен
+ *     клиент;
+ *   - пустая опция селекта ("Выбрать опцию", value="") — это плейсхолдер, а
+ *     не вариант, её в options не кладём;
+ *   - комбинации без цены (ни display_price, ни разборчивого price_html)
+ *     тоже НЕ выбрасываем: клиент покажет такой вариант в списке, но
+ *     подставить цену не сможет (price = null) — честнее, чем молча скрыть
+ *     существующий на сайте вариант.
+ *
+ * @param {import('cheerio').CheerioAPI} $
+ * @param {string|null} mainImageUrl основное фото товара — фото варианта
+ *   кладём в items[].imageUrl, только если оно ОТЛИЧАЕТСЯ от основного
+ *   (WooCommerce дублирует основное фото во всех комбинациях, где у варианта
+ *   своей картинки нет).
+ * @returns {{attributes: Array, items: Array}|null}
+ */
+function extractVariants($, mainImageUrl) {
+  const form = $('form.variations_form').first();
+  if (!form.length) return null;
+
+  const raw = form.attr('data-product_variations');
+  if (!raw || raw === 'false') return null;
+
+  let list = null;
+  try {
+    list = JSON.parse(raw);
+  } catch (_) {
+    return null; // Битый JSON — ведём себя как для обычного товара.
+  }
+  if (!Array.isArray(list) || !list.length) return null;
+
+  // Атрибуты — в том же порядке, в каком селекты идут на странице.
+  const attributes = [];
+  const seenAttr = new Set();
+  form.find('select[name^="attribute_"]').each((_, el) => {
+    const sel = $(el);
+    const id = sel.attr('name');
+    if (!id || seenAttr.has(id)) return;
+    seenAttr.add(id);
+
+    // Метка: стандартная разметка WooCommerce — `<tr><th class="label">
+    // <label for="pa_...">H, мм</label></th><td><select ...>`. Берём метку
+    // из строки таблицы, где лежит сам селект; запасной вариант — поиск
+    // <label for> по значению атрибута (без CSS-селектора: в for/name есть
+    // '%', экранировать его в селекторе неудобно и легко ошибиться). Если
+    // метки нет вообще — оставляем слаг, он хотя бы различает атрибуты.
+    const forId = id.replace(/^attribute_/, '');
+    let label = sel.closest('tr').find('th label').first().text().replace(/\s+/g, ' ').trim();
+    if (!label) {
+      label = form.find('label').filter((__, l) => $(l).attr('for') === forId)
+        .first().text().replace(/\s+/g, ' ').trim();
+    }
+    if (!label) label = forId;
+
+    const options = [];
+    sel.find('option').each((__, o) => {
+      const value = $(o).attr('value');
+      if (!value) return; // "Выбрать опцию" (value="") — плейсхолдер.
+      const optLabel = $(o).text().replace(/\s+/g, ' ').trim() || value;
+      options.push({ value, label: optLabel });
+    });
+    if (!options.length) return;
+
+    attributes.push({ id, label, options });
+  });
+
+  const items = [];
+  list.forEach((v) => {
+    if (!v || typeof v !== 'object') return;
+
+    const values = {};
+    const attrs = (v.attributes && typeof v.attributes === 'object') ? v.attributes : {};
+    Object.keys(attrs).forEach((k) => {
+      const val = attrs[k];
+      // Пустая строка = "любой" (см. описание функции), сохраняем как есть.
+      values[k] = (val === null || val === undefined) ? '' : String(val);
+    });
+    if (!Object.keys(values).length) return;
+
+    let price = v.display_price != null ? toNumber(v.display_price) : null;
+    if (price == null) price = priceFromVariationHtml(v.price_html);
+
+    const idNum = Number(v.variation_id);
+    const item = {
+      id: Number.isFinite(idNum) ? idNum : null,
+      values,
+      price,
+      inStock: typeof v.is_in_stock === 'boolean' ? v.is_in_stock : null,
+      article: cleanSku(v.sku),
+    };
+
+    const img = (v.image && typeof v.image.src === 'string' && v.image.src) ? v.image.src : null;
+    if (img && img !== mainImageUrl) item.imageUrl = img;
+
+    items.push(item);
+  });
+
+  // Показывать нечего (нет ни одного атрибута или ни одной цены) — лучше
+  // не класть поле вовсе, чем отдать клиенту пустой/бесполезный список.
+  if (!attributes.length) return null;
+  if (!items.some((it) => it.price != null)) return null;
+
+  return { attributes, items };
 }
 
 /**
@@ -365,6 +543,12 @@ function parse(html, sourceUrl) {
 
   const inStock = extractInStock(offer);
 
+  // Вариативный товар: точные цены комбинаций (см. extractVariants). Цену
+  // самого черновика при этом НЕ трогаем — она остаётся нижней границей
+  // диапазона с priceNote; заменить её на цену выбранного варианта (и убрать
+  // предупреждение) — задача клиента, когда пользователь выберет комбинацию.
+  const variants = extractVariants($, imageUrl);
+
   const draft = {
     name,
     price,
@@ -377,6 +561,7 @@ function parse(html, sourceUrl) {
   if (brand) draft.brand = brand;
   if (inStock != null) draft.inStock = inStock;
   if (priceNote) draft.priceNote = priceNote;
+  if (variants) draft.variants = variants;
   // categoryPath сознательно не заполняем — см. комментарий вверху файла.
   // sheetW/sheetH/thickness тоже не заполняем — сайт продаёт только
   // штучную фурнитуру, полей с размерами листа на странице нет.
@@ -386,4 +571,5 @@ function parse(html, sourceUrl) {
 
 module.exports = {
   parse, toNumber, normalizeUnit, extractNativeSku, offerPriceRange, buildPriceRangeNote,
+  extractVariants,
 };
