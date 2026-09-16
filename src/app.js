@@ -14,7 +14,7 @@
 (function () {
 // Версия сборки — показывается во вкладке браузера и в шапке.
 // При выпуске новой версии меняется только эта строка.
-const APP_VERSION = 'v278';
+const APP_VERSION = 'v279';
 
 // Номер версии выводим ПЕРВЫМ делом: если дальше что-то упадёт, по нему сразу
 // видно, какая сборка открыта.
@@ -1005,13 +1005,20 @@ function curSym() {
 // колонки уже не видно, ЧТО именно в ней написано (цена фурнитуры — за штуку
 // или за пару, см. libHwPriceCellHtml: отдельной колонки «Ед. изм.» в
 // таблице фурнитуры больше нет).
+// opts.afterHtml — ГОТОВАЯ разметка, дописываемая в ячейку сразу за текстом
+// (её не экранируем — это наша собственная разметка, а не данные каталога).
+// Так значок ⇄ «перенести позицию» (см. libRowMoveIcHtml) живёт ВНУТРИ
+// ячейки «Наименование» и не требует отдельной колонки, которой у таблицы
+// фиксированной ширины взяться неоткуда. На инлайн-редактирование это не
+// влияет: startCellEdit подставляет значение из data-raw, а не из текста
+// ячейки, и заменяет её содержимое целиком.
 function libEditCell(group, key, field, type, value, opts) {
   opts = opts || {};
   const raw = value == null ? '' : String(value);
   const shown = opts.displayText != null ? opts.displayText : raw;
   const cls = 'lib-edit-cell' + (opts.extraClass ? ' ' + opts.extraClass : '');
   const titleAttr = opts.title ? ` title="${esc(opts.title)}"` : '';
-  return `<td class="${cls}" data-group="${esc(group)}" data-key="${esc(key)}" data-field="${field}" data-type="${type}" data-raw="${esc(raw)}"${titleAttr}>${esc(shown)}</td>`;
+  return `<td class="${cls}" data-group="${esc(group)}" data-key="${esc(key)}" data-field="${field}" data-type="${type}" data-raw="${esc(raw)}"${titleAttr}>${esc(shown)}${opts.afterHtml || ''}</td>`;
 }
 
 // Дефолт для колонок Длина/Ширина/Толщина (см. libRowHtml) — как обычная
@@ -1063,15 +1070,25 @@ function libSwatchHtml(group, key, image, sourceUrl) {
 // categoryPath точно равен пути листа (см. state.libActiveLeaf/
 // libLeafTableHtml). Верхнеуровневый узел (сама категория — «Листовые
 // материалы»/«Виды фасадов»/«Кромка»/«Стекло») не сворачивается сам,
-// только раскрывает/прячет своих детей (см. state.libCatOpen). Реальные
-// каталожные item могут иметь путь РАВНЫЙ пути ветки (не только листа) —
-// например позиция без бренда (categoryPath ['ДСП']), оказавшаяся в одной
-// категории с брендованными декорами (categoryPath ['ДСП', 'Egger']),
-// из-за чего 'ДСП' — ветка, но у неё самой тоже есть собственная позиция;
-// такие «свои» позиции ветки показываются
-// прямо под её строкой, когда она раскрыта (см. libNodeHtml), тем же
-// рендерером таблицы, что и у листьев — умышленно без отдельного концепта.
+// только раскрывает/прячет своих детей (см. state.libCatOpen).
+//
+// ИНВАРИАНТ ДЕРЕВА: если у узла ЕСТЬ подкатегории, собственных позиций у
+// него не бывает — позиции «без фирмы» лежат в его подкатегории «Без
+// бренда» (NO_BRAND_SUBCAT ниже), обычном узле дерева. Раньше такие позиции
+// показывались прямо под строкой ветки, под подписью-псевдоузлом «Без
+// подкатегории»: она выглядела как подкатегория, но ею не была — её нельзя
+// было ни переименовать, ни перенести, ни удалить, и клик по ней ничего не
+// делал. Теперь это настоящий узел со всеми значками (✎/⇄/×), а старые
+// данные к инварианту приводит миграция libNormalizeOwnEntries.
 // ---------------------------------------------------------------------------
+
+// Имя подкатегории, в которую складываются позиции узла, у которого есть
+// другие подкатегории (см. инвариант выше). Одна константа на все места,
+// где это имя нужно: миграция (libNormalizeOwnEntries), цели переноса
+// позиции (libEntryTargetPath/libRowMoveTargets) и виртуальное дерево
+// столешниц (libTopEntries) — иначе переименование в одном месте дало бы
+// две разные «безбрендовые» подкатегории рядом.
+const NO_BRAND_SUBCAT = 'Без бренда';
 
 // Записи { group, item } одной верхнеуровневой категории дерева — group у
 // записи ИСТИННОЕ происхождение позиции (decors/back/facade/edge/glass),
@@ -1115,7 +1132,7 @@ function libTopEntries(topCode) {
     // редактирование остаётся рабочим.
     return (cat.COUNTERTOP_MATERIALS || []).map((it) => ({
       group: 'countertop',
-      item: Object.assign({}, it, { categoryPath: [COUNTERTOP_MATERIAL_LABEL[it.materialId] || it.materialId, it.brand || 'Без бренда'] }),
+      item: Object.assign({}, it, { categoryPath: [COUNTERTOP_MATERIAL_LABEL[it.materialId] || it.materialId, it.brand || NO_BRAND_SUBCAT] }),
     }));
   }
   // 'hw:<categoryKey>' — составной topCode вкладки «Фурнитура» (см. большой
@@ -1226,7 +1243,18 @@ function libAllPaths(topCode) {
 }
 
 // Прямые дочерние сегменты узла prefixPath (путь без топ-кода) — в порядке
-// первого появления. Пустой результат = узел лист (см. libNodeHtml).
+// первого появления, но «Без бренда» (NO_BRAND_SUBCAT) ВСЕГДА последний.
+// Пустой результат = узел лист (см. libNodeHtml).
+// Почему подкатегория без фирмы прибита к концу: это ведро для позиций, у
+// которых бренда нет вовсе, а не равноправная фирма. В порядке появления в
+// данных она вклинивалась между настоящими брендами («Механизмы»: перед
+// Blum/Hettich/Samet, «Крепёж»: между GTV и REJS) и читалась как ещё один
+// бренд с таким названием. Правило живёт ЗДЕСЬ, в единственной функции,
+// которая отвечает на вопрос «кто дети этого узла», поэтому одинаково
+// действует и на отрисовку дерева (libNodeHtml/libTopCategoryHtml), и на
+// списки целей переноса (libTreeAllNodePaths/libMoveTargets/
+// libRowMoveTargets), и на хлебные крошки. Это ТОЛЬКО порядок вывода —
+// categoryPath позиций не трогаем, лишних сохранений отсюда не возникает.
 function libChildSegments(topCode, prefixPath) {
   const seen = [];
   libAllPaths(topCode).forEach((p) => {
@@ -1235,7 +1263,11 @@ function libChildSegments(topCode, prefixPath) {
     const seg = p[prefixPath.length];
     if (seen.indexOf(seg) < 0) seen.push(seg);
   });
-  return seen;
+  // Сравнение без учёта регистра — как везде, где имя узла сверяется с
+  // NO_BRAND_SUBCAT (libEntryTargetPath/libMoveNode): «без бренда» и «Без
+  // бренда» для пользователя одна и та же категория.
+  const isNoBrand = (seg) => String(seg).toLowerCase() === NO_BRAND_SUBCAT.toLowerCase();
+  return seen.filter((seg) => !isNoBrand(seg)).concat(seen.filter(isNoBrand));
 }
 
 // Реальные позиции каталога, чей categoryPath ТОЧНО равен path (см.
@@ -1257,6 +1289,67 @@ function libNodeHasItems(topCode, path) {
     const p = (e.item && e.item.categoryPath) || [];
     return p.length >= path.length && path.every((seg, i) => p[i] === seg);
   });
+}
+
+// ---------------------------------------------------------------------------
+// Поддержка ИНВАРИАНТА ДЕРЕВА (см. большой комментарий над libTopEntries):
+// узел с подкатегориями своих позиций не имеет — они лежат в его «Без
+// бренда». Инвариант нужен и показу (ветка рисует только детей, см.
+// libNodeHtml), и переносу позиции (libRowMoveTargets), поэтому обе стороны
+// считают одно и то же ОДНОЙ функцией libEntryTargetPath ниже.
+// ---------------------------------------------------------------------------
+
+// Куда на самом деле ляжет ПОЗИЦИЯ, если целью выбран узел path: сам path,
+// если подкатегорий у него нет, иначе его «Без бренда». Уже существующий
+// узел с таким именем переиспользуем (сравнение без учёта регистра — как в
+// libMoveNode: «без бренда» и «Без бренда» для пользователя одна и та же
+// категория), иначе он появится сам — от записи пути позиции (libAllPaths
+// собирает форму дерева из путей позиций, отдельно заводить узел не нужно).
+function libEntryTargetPath(topCode, path) {
+  const children = libChildSegments(topCode, path);
+  if (!children.length) return path.slice();
+  const existing = children.find((seg) => String(seg).toLowerCase() === NO_BRAND_SUBCAT.toLowerCase());
+  return path.concat([existing || NO_BRAND_SUBCAT]);
+}
+
+// Разделы, дерево которых приводится к инварианту. 'countertop' сюда не
+// входит: его categoryPath виртуальный, собирается на лету из materialId/
+// brand (см. libTopEntries), записать позиции новый путь физически некуда:
+// запись ушла бы в одноразовую копию и пропала, а миграция на КАЖДОЙ
+// отрисовке считала бы, что позицию снова надо перенести, и без толку слала
+// бы снимок каталога на сервер.
+function libNormalizableTopCodes() {
+  return ['sheet', 'edge', 'glass', 'facade'].concat(libHwCategoryKeys().map((c) => 'hw:' + c));
+}
+
+// Собственно миграция: у каждого узла раздела (включая корень), у которого
+// есть И подкатегории, И свои позиции, переносит эти позиции в его «Без
+// бренда». Из коробки это задевает категории фурнитуры, где рядом с
+// брендами лежала пара позиций без фирмы («Механизмы», «Направляющие»).
+// Путь пишем единственной точкой записи categoryPath (libSetEntryPath) —
+// она же держит в синхроне subcategory/brand; расчёту это не мешает, оба
+// поля чисто UI-шные (в engine/specification/cnc/viewer не используются).
+// Возвращает true, если что-то реально переехало — вызывающая сторона по
+// этому флагу решает, нужно ли сохранять каталог. На уже нормализованном
+// дереве возвращает false и ничего не трогает: иначе каждая отрисовка
+// панели дёргала бы сохранение.
+function libNormalizeOwnEntries(topCode) {
+  let moved = false;
+  [[]].concat(libTreeAllNodePaths(topCode)).forEach((path) => {
+    if (!libChildSegments(topCode, path).length) return;
+    const own = libEntriesAtPath(topCode, path);
+    if (!own.length) return;
+    const target = libEntryTargetPath(topCode, path);
+    own.forEach((e) => {
+      // Позиция, за которой не стоит реального объекта каталога, записи пути
+      // не переживёт (см. libRealItemOf) — такую честнее оставить на месте,
+      // чем каждый раз считать её «перенесённой».
+      if (!libRealItemOf(e)) return;
+      libSetEntryPath(e, target);
+      moved = true;
+    });
+  });
+  return moved;
 }
 
 // Общая санация названия узла дерева — ОДНА на все места, где имя вводит
@@ -1456,17 +1549,22 @@ function libKeepOrphanParent(topCode, parentPath) {
 }
 
 // Все узлы дерева раздела (каждый путь и каждый его префикс, без повторов) —
-// нужны списку «куда перенести» (libMoveTargets ниже).
+// нужны списку «куда перенести» (libMoveTargets ниже). Набор тот же, что и
+// раньше, а порядок — обхода дерева сверху вниз: родитель, потом его дети.
+// Собираем именно рекурсией по libChildSegments, а не проходом по плоским
+// путям, чтобы список целей наследовал единственное правило порядка детей
+// («Без бренда» последний, см. libChildSegments) — иначе в меню «Перенести
+// … в:» ведро без фирмы снова оказалось бы в середине списка брендов.
 function libTreeAllNodePaths(topCode) {
-  const seen = {};
   const out = [];
-  libAllPaths(topCode).forEach((p) => {
-    for (let i = 1; i <= p.length; i += 1) {
-      const sub = p.slice(0, i);
-      const key = sub.join('::');
-      if (!seen[key]) { seen[key] = true; out.push(sub); }
-    }
-  });
+  const walk = (path) => {
+    libChildSegments(topCode, path).forEach((seg) => {
+      const child = path.concat([seg]);
+      out.push(child);
+      walk(child);
+    });
+  };
+  walk([]);
   return out;
 }
 
@@ -1512,6 +1610,186 @@ function libSubtreeHasSheetFacade(topCode, path) {
     const p = (e.item && e.item.categoryPath) || [];
     return p.length >= path.length && path.every((seg, i) => p[i] === seg);
   });
+}
+
+// ---------------------------------------------------------------------------
+// Перенос ОДНОЙ ПОЗИЦИИ в другой узел дерева (значок ⇄ в строке таблицы, см.
+// libRowMoveIcHtml/openLibRowMoveMenu) — младший брат переноса узла целиком
+// (libMoveNode выше). Раньше переносить умели только узлы: завести
+// подкатегорию «Blum» внутри «Петель» было можно, а перетащить в неё уже
+// существующие позиции — нет, приходилось заводить их заново руками.
+// ---------------------------------------------------------------------------
+
+// Ключ позиции в её объекте/массиве каталога — ровно то же правило, по
+// которому адресуется libRealItemOf (it.key у 'edge' и всей фурнитуры, где
+// каталог хранит позиции объектом {ключ → позиция} и сам объект своего ключа
+// не знает; it.code у остальных). Нужен потому, что значок ⇄ несёт в разметке
+// именно ключ, а не индекс строки: строки таблицы фильтруются и сортируются
+// (см. libFilterRowsCache/applyColumnFilterAndSort), да и сам item у части
+// разделов — одноразовая копия, по которой позицию потом не найти.
+function libEntryKeyOf(entry) {
+  const it = (entry && entry.item) || null;
+  if (!it) return '';
+  return it.key !== undefined ? it.key : it.code;
+}
+
+// Запись дерева { group, item } по паре group+key — обратная операция к
+// libEntryKeyOf: по данным из значка ⇄ находит позицию заново на момент
+// КЛИКА, а не на момент отрисовки таблицы.
+function libFindTreeEntry(topCode, group, key) {
+  return libTopEntries(topCode)
+    .find((e) => e.group === group && String(libEntryKeyOf(e)) === String(key)) || null;
+}
+
+// Возможные цели переноса ПОЗИЦИИ: корень категории + все узлы ЭТОГО ЖЕ
+// раздела, кроме того, где позиция лежит сейчас (перенос в никуда).
+// Потомков, в отличие от переноса узла (libMoveTargets), исключать не надо —
+// у позиции их нет. Часть целей отсекает libRowSheetFacadeLock ниже.
+// Каждая цель прогоняется через libEntryTargetPath: положить позицию НА
+// узел, у которого есть подкатегории (в том числе на корень раздела),
+// нельзя — это нарушило бы инвариант дерева, и ближайшая же миграция
+// (libNormalizeOwnEntries) молча увезла бы её в «Без бренда». Поэтому такую
+// цель сразу подменяем на её «Без бренда»: в списке видно то, что реально
+// произойдёт. Дубликаты после подмены (сам узел «Без бренда» и его родитель
+// дают один и тот же путь) убираем по ключу пути.
+// Обход — рекурсией СНИЗУ ВВЕРХ (сначала подкатегории узла, потом сам узел):
+// так подменённая цель родителя встаёт ПОСЛЕ его брендов, а не перед ними —
+// то же правило, что и у порядка детей в дереве (см. libChildSegments).
+// Ведро корня раздела по той же причине оказывается в самом низу списка.
+function libRowMoveTargets(topCode, entry) {
+  const curKey = ((entry.item && entry.item.categoryPath) || []).join('::');
+  const lock = libRowSheetFacadeLock(topCode, entry);
+  const rootAllowed = (rootSeg) => {
+    const isSheetSeg = SHEET_FACADE_SUBCATS.indexOf(rootSeg) >= 0;
+    if (lock === 'sheet') return isSheetSeg;
+    if (lock === 'facade') return !isSheetSeg;
+    return true;
+  };
+  // Пустой путь («В корень категории») запрещён только при блокировке
+  // 'sheet': первого сегмента у него нет вовсе, и позиция уехала бы на
+  // «Двери». При блокировке 'facade' он, наоборот, безопасен — «плитным» от
+  // этого не станет. Подменённый корень (['Без бренда']) проверяется как
+  // обычный путь, по своему первому сегменту, — и при блокировке 'sheet'
+  // так же не проходит.
+  const allowed = (p) => (p.length ? rootAllowed(p[0]) : lock !== 'sheet');
+  const targets = [];
+  const seen = {};
+  const add = (p) => {
+    const key = p.join('::');
+    if (key === curKey || seen[key] || !allowed(p)) return;
+    seen[key] = true;
+    targets.push(p);
+  };
+  // У листа libEntryTargetPath вернёт его самого, у ветки — её «Без бренда»;
+  // добавляем ПОСЛЕ детей, поэтому ведро всегда ниже брендов.
+  const walk = (path) => {
+    libChildSegments(topCode, path).forEach((seg) => walk(path.concat([seg])));
+    add(libEntryTargetPath(topCode, path));
+  };
+  walk([]);
+  return targets;
+}
+
+// Куда позицию переносить НЕЛЬЗЯ из-за того, что её принадлежность вкладке
+// определяется ПЕРВЫМ сегментом пути — та же связка, что описана у
+// libSubtreeHasSheetFacade, только для одной позиции и сразу с обеих сторон:
+//   'sheet'  — материал фасада, показанный в дереве «Листовых материалов»
+//              (группа 'facade' в разделе 'sheet'): его первый сегмент обязан
+//              остаться «плитным» (SHEET_FACADE_SUBCATS), иначе позиция молча
+//              уедет с «Материалов» на вкладку «Двери»;
+//   'facade' — зеркальная дыра на самой вкладке «Двери»: пользователь волен
+//              завести там корневую категорию с названием ровно «ДСП»/
+//              «МДФ-плита»/«Шпонированные плиты», и перенос в неё так же
+//              молча увёз бы позицию в обратную сторону — на «Материалы»
+//              (см. libTopEntries: раздел позиции целиком выводится из
+//              categoryPath[0], отдельного поля «вкладка» у неё нет);
+//   ''       — ограничений нет.
+function libRowSheetFacadeLock(topCode, entry) {
+  if (topCode === 'sheet' && entry.group === 'facade') return 'sheet';
+  if (topCode === 'facade') return 'facade';
+  return '';
+}
+
+// «Плитные» корневые сегменты списком для подсказок меню переноса. Собираем
+// из самой константы, а не пишем в тексте руками: подсказку показывают ДВА
+// разных меню (узел и позиция), и при правке SHEET_FACADE_SUBCATS тексты
+// разъехались бы с реальным поведением. Названия в кавычках оставлены в
+// именительном падеже — иначе их не подставить из константы механически.
+function libSheetFacadeSubcatsText() {
+  return SHEET_FACADE_SUBCATS.map((s) => `«${esc(s)}»`).join(', ');
+}
+
+// Пояснение, почему часть целей в меню переноса ПОЗИЦИИ не показана (см.
+// libRowSheetFacadeLock). Без него короткий список выглядел бы как сбой.
+function libRowMoveHintHtml(topCode, entry) {
+  const lock = libRowSheetFacadeLock(topCode, entry);
+  const list = libSheetFacadeSubcatsText();
+  if (lock === 'sheet') {
+    return `<div class="lib-move-hint">Это материал фасада — переносить его можно только внутрь разделов ${list}. Иначе позиция ушла бы с «Материалов» на вкладку «Двери».</div>`;
+  }
+  // На «Дверях» ограничение действует всегда, но сказать о нём есть смысл,
+  // только если такие категории там реально заведены: иначе подсказка висела
+  // бы в КАЖДОМ меню, объясняя отсутствие целей, которых и так нет.
+  const hasSheetNamedNode = libTreeAllNodePaths(topCode).some((p) => SHEET_FACADE_SUBCATS.indexOf(p[0]) >= 0);
+  if (lock === 'facade' && hasSheetNamedNode) {
+    return `<div class="lib-move-hint">Категории ${list} здесь недоступны: по такому названию материал относят к «Листовым материалам», и позиция ушла бы с «Дверей» туда.</div>`;
+  }
+  return '';
+}
+
+// Сам перенос позиции. Путь пишем единственной точкой записи categoryPath
+// (libSetEntryPath), как и перенос узла.
+function libMoveEntry(topCode, group, key, targetPath) {
+  const entry = libFindTreeEntry(topCode, group, key);
+  if (!entry) return;
+  const oldPath = ((entry.item && entry.item.categoryPath) || []).slice();
+  libSetEntryPath(entry, targetPath);
+  // Узел, который держался ТОЛЬКО на этой позиции, после её ухода исчез бы
+  // из дерева — со стороны это выглядит как «категория пропала сама собой»
+  // (та же причина, что и при переносе узла, см. libKeepOrphanParent).
+  libKeepOrphanParent(topCode, oldPath);
+  // Показываем, КУДА уехала позиция. Таблица конечного листа видна только в
+  // фокусе (см. state.libActiveLeaf/libNodeHtml — у листа в дереве своей
+  // таблицы нет), поэтому на лист фокусируемся. Ветка целью не бывает вовсе
+  // (libEntryTargetPath вместо неё отдаёт её «Без бренда»), так что второй
+  // случай — только корень раздела без подкатегорий: его таблица видна прямо
+  // в дереве, достаточно выйти из фокуса и раскрыть раздел.
+  const targetIsLeaf = !!targetPath.length && !libChildSegments(topCode, targetPath).length;
+  if (targetIsLeaf) {
+    state.libActiveLeaf[topCode] = targetPath.join('::');
+  } else {
+    state.libActiveLeaf[topCode] = null;
+    state.libCatOpen[topCode] = true;
+    for (let i = 1; i <= targetPath.length; i += 1) {
+      state.libCollapsed[libNodeKey(topCode, targetPath.slice(0, i))] = false;
+    }
+  }
+  scheduleCatalogSave();
+  renderLibraryPanel();
+}
+
+// Значок ⇄ «Перенести в другую категорию» в строке таблицы — тот же
+// визуальный язык, что у значков узла дерева (класс .lib-tree-ic: обычный
+// текст без рамки, проявляется по наведению на строку). Живёт ВНУТРИ ячейки
+// «Наименование», абсолютным позиционированием у её правого края (см.
+// .lib-row-move-ic в style.css): отдельная колонка под него забрала бы
+// ширину у остальных (таблицы фиксированной ширины, table-layout:fixed +
+// colgroup, см. libColgroup), а значок в потоке текста дёргал бы перенос
+// длинного названия по словам в момент наведения.
+// 'countertop' значка не получает вовсе: его categoryPath виртуальный,
+// выводится из materialId/brand (см. libTopEntries), и запись пути просто
+// не сохранилась бы — та же причина, по которой у него нет и значков дерева
+// (см. комментарий над libTreeRowHtml).
+// В режиме подбора материала для проекта (state.libPickTarget, см.
+// openMaterialPicker) значка нет ни в одной таблице: пользователь сейчас
+// ВЫБИРАЕТ материал, а не правит библиотеку, и клик по ⇄ потребовал бы от
+// него авторизации (см. requireLibraryEditAuth) прямо посреди подбора.
+function libRowMoveIcHtml(topCode, group, key) {
+  if (!topCode || topCode === 'countertop') return '';
+  if (state.libPickTarget) return '';
+  return `<span class="lib-tree-ic lib-row-move-ic" data-row-move="1"`
+    + ` data-move-top="${esc(topCode)}" data-move-group="${esc(group)}" data-move-key="${esc(key)}"`
+    + ` title="Перенести в другую категорию">⇄</span>`;
 }
 
 // «+» узла дерева (не у самого глубокого листа — см. libTreeRowHtml) — та
@@ -2046,9 +2324,16 @@ function libRowHtml(entry, opts) {
   // значению из секции) — поэтому название НЕредактируемо, новая кромка
   // добавляется вводом уникального названия (см. libAddRow).
   const nameDisplay = group === 'edge' ? String(it.key || '') : group === 'countertop' ? libCountertopShortName(it) : libSheetShortName(it);
+  // Значок ⇄ «перенести позицию» — в самой ячейке «Наименование» (см.
+  // libRowMoveIcHtml, почему не отдельной колонкой). opts.moveTop — раздел
+  // дерева, внутри которого можно переносить; его передаёт таблица
+  // (libLeafTableHtml), сама строка своего раздела не знает: у объединённых
+  // «Листовых материалов» строки одной таблицы приходят из decors/back/facade
+  // одновременно, и group строки разделу не равен.
+  const moveIc = libRowMoveIcHtml(opts.moveTop, group, libEntryKeyOf(entry));
   const nameCell = group === 'edge'
-    ? `<td>${esc(nameDisplay)}</td>`
-    : libEditCell(group, key, 'name', 'text', it.name, { displayText: nameDisplay });
+    ? `<td${moveIc ? ' class="lib-name-cell"' : ''}>${esc(nameDisplay)}${moveIc}</td>`
+    : libEditCell(group, key, 'name', 'text', it.name, { displayText: nameDisplay, afterHtml: moveIc, extraClass: moveIc ? 'lib-name-cell' : '' });
   const lenField = libLengthFieldOf(kind);
   const widField = libWidthFieldOf(kind);
   const lengthCell = collapsed ? '' : (lenField ? libDashEditCell(group, key, lenField, dims.length, 'lib-char-col') : '<td class="lib-char-col">—</td>');
@@ -2115,7 +2400,7 @@ function libLeafTableHtml(topCode, path, entries, opts) {
   // бо́льшим числом строк (безвредно для applyColumnFilterAndSort — она
   // смотрит только на реальные tr[data-row-idx] — но лишняя память и путаница).
   libFilterRowsCache[charsKey] = [];
-  const rowsHtml = entries.map((e, i) => libRowHtml(e, { pickMode, collapsed, tableKey: charsKey, rowIdx: i })).join('');
+  const rowsHtml = entries.map((e, i) => libRowHtml(e, { pickMode, collapsed, tableKey: charsKey, rowIdx: i, moveTop: topCode })).join('');
   const items = entries.map((e) => e.item);
   const colCount = (collapsed ? 3 : 6) + (pickMode ? 1 : 0);
   const emptyRow = entries.length ? '' : `<tr><td colspan="${colCount}" class="hint">Пока нет позиций</td></tr>`;
@@ -2354,9 +2639,14 @@ function libHardwareLeafTableHtml(topCode, path, entries, opts) {
       idx: i,
       vals: [String(it.name || ''), '', priceDisplay],
     });
+    // Значок ⇄ «перенести позицию» — тот же, что и у материалов (см.
+    // libRowMoveIcHtml): внутри ячейки «Наименование», без своей колонки.
+    // Ради него и заведена подкатегория «Blum» внутри «Петель» — раньше
+    // переносить умели только узлы дерева целиком.
+    const moveIc = libRowMoveIcHtml(topCode, group, libEntryKeyOf(e));
     return `
       <tr data-search="${esc(searchText)}" data-row-idx="${i}">
-        ${libEditCell(group, key, 'name', 'text', it.name)}
+        ${libEditCell(group, key, 'name', 'text', it.name, { afterHtml: moveIc, extraClass: 'lib-name-cell' })}
         <td>${libSwatchHtml(group, key, it.image, it.sourceUrl)}</td>
         ${libHwPriceCellHtml(group, key, it, unit)}
       </tr>`;
@@ -2466,20 +2756,19 @@ function libTreeRowHtml(topCode, path, name, kind, collapsed) {
 // для каждого дочернего сегмента (см. libChildSegments). Лист в обычном
 // режиме навигации показывает только свою строку — таблица открывается
 // кликом по нему (см. state.libActiveLeaf/libTopCategoryHtml), а не здесь.
-// У ветки, если под её собственным путём (а не только глубже) есть реальные
-// позиции каталога (см. HDF-8 в комментарии у libTopEntries), они показаны
-// сразу под её строкой при раскрытии — тем же рендерером таблицы, что и у
-// листа, специально без отдельного концепта («не усложняй»).
+// У ВЕТКИ — только её подкатегории и ничего больше: по инварианту дерева
+// (см. NO_BRAND_SUBCAT) собственных позиций у неё нет, они лежат в её
+// подкатегории «Без бренда» — обычном дочернем узле, который рисуется тем
+// же рекурсивным вызовом, что и остальные. Никакого отдельного блока
+// «свои позиции ветки» (и подписи «Без подкатегории» над ним) больше нет.
 function libNodeHtml(topCode, path, opts) {
   const name = path[path.length - 1];
   const children = libChildSegments(topCode, path);
   if (!children.length) return libTreeRowHtml(topCode, path, name, 'leaf', false);
   const collapsed = libIsNodeCollapsed(topCode, path);
-  const ownEntries = libEntriesAtPath(topCode, path);
-  const ownTableHtml = ownEntries.length ? libLeafTableHtmlAny(topCode, path, ownEntries, opts) : '';
   const childrenHtml = children.map((seg) => libNodeHtml(topCode, path.concat([seg]), opts)).join('');
   return libTreeRowHtml(topCode, path, name, 'branch', collapsed)
-    + `<div class="lib-tree-children${collapsed ? ' lib-collapsed' : ''}">${ownTableHtml}${childrenHtml}</div>`;
+    + `<div class="lib-tree-children${collapsed ? ' lib-collapsed' : ''}">${childrenHtml}</div>`;
 }
 
 // Хлебные крошки над таблицей сфокусированного листа (см. state.libActiveLeaf/
@@ -2515,18 +2804,13 @@ function libBreadcrumbHtml(topCode, path) {
 // хлебные крошки его пути + таблица — вся остальная структура дерева этой
 // категории скрыта.
 //
-// ownEntries/noBranches ниже — позиции, чей categoryPath пуст (нет
-// подкатегории/бренда), лежащие ПРЯМО на корне дерева, а не в одной из его
-// ветвей: у пяти категорий «Материалов» такого не бывает (categoryPath
-// всегда непустой, см. libTopEntries), поэтому там ownTableHtml всегда
-// пустая строка — безопасный no-op. У «Фурнитуры» это ровно тот случай,
-// когда категория (например 'plinth' — «Крепление цоколя») не делится на
-// бренды вовсе: раньше (до выноса категории в topCode) такая категория была
-// обычным листом дерева на 1-м уровне общей обёртки 'hardware'; теперь она
-// САМА стала корнем дерева — noBranches форсирует показ её таблицы прямо
-// под заголовком, даже если ownEntries пуст (например категория ещё не
-// содержит ни одной позиции), иначе для неё не было бы вообще места
-// добавить первую позицию.
+// Корень раздела живёт по общему инварианту дерева (см. NO_BRAND_SUBCAT):
+// ЕСТЬ подкатегории — показываем только их, своих позиций у корня не бывает
+// (позиции без бренда лежат в его подкатегории «Без бренда», куда их
+// складывает libNormalizeOwnEntries). НЕТ подкатегорий — корень сам себе
+// лист: таблица рисуется прямо под заголовком, даже если позиций пока нет,
+// иначе в такую категорию («Крепление цоколя» у «Фурнитуры» — она не
+// делится на бренды вовсе) негде было бы добавить первую позицию.
 function libTopCategoryHtml(topCode, title, opts) {
   const activeKey = state.libActiveLeaf[topCode] || null;
   let bodyHtml;
@@ -2537,11 +2821,10 @@ function libTopCategoryHtml(topCode, title, opts) {
   } else {
     const open = !!state.libCatOpen[topCode];
     const topSegments = libChildSegments(topCode, []);
-    const ownEntries = libEntriesAtPath(topCode, []);
-    const noBranches = !topSegments.length;
-    const ownTableHtml = (ownEntries.length || noBranches) ? libLeafTableHtmlAny(topCode, [], ownEntries, opts) : '';
-    const childrenHtml = topSegments.map((seg) => libNodeHtml(topCode, [seg], opts)).join('');
-    bodyHtml = `<div class="lib-tree-children${open ? '' : ' lib-collapsed'}">${ownTableHtml}${childrenHtml}</div>`;
+    const innerHtml = topSegments.length
+      ? topSegments.map((seg) => libNodeHtml(topCode, [seg], opts)).join('')
+      : libLeafTableHtmlAny(topCode, [], libEntriesAtPath(topCode, []), opts);
+    bodyHtml = `<div class="lib-tree-children${open ? '' : ' lib-collapsed'}">${innerHtml}</div>`;
   }
   return `
     <div class="lib-category" data-top-code="${esc(topCode)}">
@@ -2787,57 +3070,61 @@ function openLibLinkSiteMenu(picker) {
 }
 
 // ---------------------------------------------------------------------------
-// Меню «Переместить» узла дерева категорий (значок ⇄, см. libTreeRowHtml) —
-// тот же каркас, что у поповера сортировки/фильтра колонки
+// Меню «Перенести … в:» — ОДНО на два действия: перенос узла дерева целиком
+// (значок ⇄ в строке дерева, см. libTreeRowHtml) и перенос одной позиции
+// таблицы (значок ⇄ в строке, см. libRowMoveIcHtml). Отличаются они только
+// заголовком, списком целей и тем, что делать с выбранной целью — всё
+// остальное (вид, позиционирование, закрытие) обязано совпадать, поэтому
+// написано здесь один раз, а openLibTreeMoveMenu/openLibRowMoveMenu ниже —
+// две тонкие обёртки над ним.
+// Каркас — тот же, что у поповера сортировки/фильтра колонки
 // (openColumnFilterMenu ниже по файлу) и у меню фокуса: .ctx-menu, position:
 // fixed с клампом к вьюпорту, закрытие по клику мимо (слушатель вешаем
 // следующим тиком, иначе тот же клик, что открыл меню, его бы и закрыл) и по
 // Escape. Отдельного своего вида у меню нет специально — оно должно выглядеть
 // как остальные меню панели.
 // ---------------------------------------------------------------------------
-let libTreeMoveMenuOutsideClick = null;
-let libTreeMoveMenuEscHandler = null;
-function closeLibTreeMoveMenu() {
-  const menu = document.getElementById('libTreeMoveMenu');
+let libMoveMenuOutsideClick = null;
+let libMoveMenuEscHandler = null;
+function closeLibMoveMenu() {
+  const menu = document.getElementById('libMoveMenu');
   if (menu) menu.remove();
-  if (libTreeMoveMenuOutsideClick) {
-    document.removeEventListener('click', libTreeMoveMenuOutsideClick);
-    libTreeMoveMenuOutsideClick = null;
+  if (libMoveMenuOutsideClick) {
+    document.removeEventListener('click', libMoveMenuOutsideClick);
+    libMoveMenuOutsideClick = null;
   }
-  if (libTreeMoveMenuEscHandler) {
-    document.removeEventListener('keydown', libTreeMoveMenuEscHandler);
-    libTreeMoveMenuEscHandler = null;
+  if (libMoveMenuEscHandler) {
+    document.removeEventListener('keydown', libMoveMenuEscHandler);
+    libMoveMenuEscHandler = null;
   }
 }
 
-// btnEl — сам значок ⇄ (меню встаёт под ним). Список целей считает
-// libMoveTargets: только узлы ЭТОГО ЖЕ раздела, без самого узла, его
-// потомков и его текущего родителя. Проверку входа делаем здесь, один раз на
-// всё действие — libMoveNode её уже не повторяет, иначе пользователь увидел
+// btnEl — сам значок ⇄ (меню встаёт под ним). cfg:
+//   titleHtml — заголовок, УЖЕ экранированный вызывающей стороной;
+//   targets   — массив путей-целей (пустой путь = корень раздела);
+//   rootLabel — подпись пункта с пустым путём;
+//   hintHtml  — пояснение, почему часть целей в списке не показана (опц.);
+//   onPick(target) — что сделать с выбранной целью.
+// Проверку входа делаем ЗДЕСЬ, один раз на всё действие — сами переносы
+// (libMoveNode/libMoveEntry) её уже не повторяют, иначе пользователь увидел
 // бы одно и то же предупреждение дважды.
-function openLibTreeMoveMenu(btnEl, topCode, path) {
-  closeLibTreeMoveMenu();
+function openLibMoveMenu(btnEl, cfg) {
+  closeLibMoveMenu();
   if (!requireLibraryEditAuth()) return;
-  const targets = libMoveTargets(topCode, path);
+  const targets = cfg.targets || [];
   const menu = document.createElement('div');
-  menu.id = 'libTreeMoveMenu';
+  menu.id = 'libMoveMenu';
   menu.className = 'ctx-menu lib-move-menu';
   const itemsHtml = targets.length
-    ? targets.map((p, i) => `<button type="button" class="ctx-item" data-move-idx="${i}">${p.length ? esc(p.join(' › ')) : 'В корень раздела'}</button>`).join('')
+    ? targets.map((p, i) => `<button type="button" class="ctx-item" data-move-idx="${i}">${p.length ? esc(p.join(' › ')) : esc(cfg.rootLabel)}</button>`).join('')
     : '<div class="df-empty">Некуда переносить</div>';
-  // Часть целей в список не попала намеренно (см. libMoveTargets/
-  // libSubtreeHasSheetFacade) — без объяснения это выглядело бы как
-  // случайно короткий список.
-  const hintHtml = libSubtreeHasSheetFacade(topCode, path)
-    ? '<div class="lib-move-hint">В этой категории есть материалы фасадов — переносить её можно только внутрь «ДСП», «МДФ-плиты» или «Шпонированных плит». Иначе её позиции ушли бы на вкладку «Двери».</div>'
-    : '';
   menu.innerHTML = `
-    <div class="ctx-title">Перенести «${esc(path[path.length - 1])}» в:</div>
-    ${hintHtml}
+    <div class="ctx-title">${cfg.titleHtml}</div>
+    ${cfg.hintHtml || ''}
     <div class="lib-move-list">${itemsHtml}</div>`;
   document.body.appendChild(menu);
   // Клик внутри меню не должен доходить ни до обработчика «клик мимо —
-  // закрыть» ниже, ни до обработчика клика по строке дерева в
+  // закрыть» ниже, ни до обработчика клика по строке дерева/таблицы в
   // initLibraryPanel (меню лежит в body, но событие всплывает до document).
   menu.addEventListener('click', (e) => e.stopPropagation());
 
@@ -2852,17 +3139,56 @@ function openLibTreeMoveMenu(btnEl, topCode, path) {
   menu.querySelectorAll('[data-move-idx]').forEach((btn) => {
     btn.addEventListener('click', () => {
       const target = targets[Number(btn.dataset.moveIdx)];
-      closeLibTreeMoveMenu();
-      if (target) libMoveNode(topCode, path, target);
+      closeLibMoveMenu();
+      if (target) cfg.onPick(target);
     });
   });
 
   setTimeout(() => {
-    libTreeMoveMenuOutsideClick = (e) => { if (!menu.contains(e.target)) closeLibTreeMoveMenu(); };
-    document.addEventListener('click', libTreeMoveMenuOutsideClick);
+    libMoveMenuOutsideClick = (e) => { if (!menu.contains(e.target)) closeLibMoveMenu(); };
+    document.addEventListener('click', libMoveMenuOutsideClick);
   }, 0);
-  libTreeMoveMenuEscHandler = (e) => { if (e.key === 'Escape') closeLibTreeMoveMenu(); };
-  document.addEventListener('keydown', libTreeMoveMenuEscHandler);
+  libMoveMenuEscHandler = (e) => { if (e.key === 'Escape') closeLibMoveMenu(); };
+  document.addEventListener('keydown', libMoveMenuEscHandler);
+}
+
+// Перенос УЗЛА дерева целиком. Список целей считает libMoveTargets: только
+// узлы ЭТОГО ЖЕ раздела, без самого узла, его потомков и его текущего
+// родителя. Часть целей в список не попала намеренно (см. libMoveTargets/
+// libSubtreeHasSheetFacade) — без объяснения это выглядело бы как случайно
+// короткий список.
+function openLibTreeMoveMenu(btnEl, topCode, path) {
+  const hintHtml = libSubtreeHasSheetFacade(topCode, path)
+    ? `<div class="lib-move-hint">В этой категории есть материалы фасадов — переносить её можно только внутрь разделов ${libSheetFacadeSubcatsText()}. Иначе её позиции ушли бы на вкладку «Двери».</div>`
+    : '';
+  openLibMoveMenu(btnEl, {
+    titleHtml: `Перенести «${esc(path[path.length - 1])}» в:`,
+    targets: libMoveTargets(topCode, path),
+    rootLabel: 'В корень раздела',
+    hintHtml,
+    onPick: (target) => libMoveNode(topCode, path, target),
+  });
+}
+
+// Перенос ОДНОЙ ПОЗИЦИИ таблицы (значок ⇄ в строке, см. libRowMoveIcHtml).
+// Позицию ищем заново по group+key (см. libFindTreeEntry): между отрисовкой
+// таблицы и кликом она могла уехать из-под фильтра/сортировки, а у части
+// разделов item в дереве — вообще одноразовая копия.
+// В заголовке — ПОЛНОЕ имя позиции из каталога, а не укороченное название из
+// ячейки (см. libSheetShortName): в меню важно не перепутать, что именно
+// переносишь.
+function openLibRowMoveMenu(btnEl, topCode, group, key) {
+  const entry = libFindTreeEntry(topCode, group, key);
+  if (!entry) return;
+  const it = entry.item;
+  const name = String(it.name || it.key || it.code || '');
+  openLibMoveMenu(btnEl, {
+    titleHtml: `Перенести «${esc(name)}» в:`,
+    targets: libRowMoveTargets(topCode, entry),
+    rootLabel: 'В корень категории',
+    hintHtml: libRowMoveHintHtml(topCode, entry),
+    onPick: (target) => libMoveEntry(topCode, group, key, target),
+  });
 }
 
 // Проверка домена ДО отправки на сервер (п.5 ТЗ) — чисто клиентская подсказка,
@@ -4904,9 +5230,9 @@ function renderLibraryPanel() {
   // «Добавить по ссылке» (см. libLinkSitePickerHtml/openLibLinkSiteMenu)
   // держит ссылку на DOM-узел, который вот-вот пропадёт.
   closeLibLinkSiteMenu();
-  // И меню «Переместить» узла дерева (см. openLibTreeMoveMenu) — оно
-  // привязано к значку ⇄ конкретной строки, которая сейчас перерисуется.
-  closeLibTreeMoveMenu();
+  // И меню «Перенести … в:» (см. openLibMoveMenu) — оно привязано к значку ⇄
+  // конкретной строки дерева/таблицы, которая сейчас перерисуется.
+  closeLibMoveMenu();
   document.querySelectorAll('.lib-tab-btn').forEach((b) => {
     b.classList.toggle('active', b.dataset.libtab === state.libraryTab);
   });
@@ -4925,6 +5251,18 @@ function renderLibraryPanel() {
     drawer.classList.toggle('lib-wide', wide);
     drawer.classList.toggle('lib-chars-collapsed', wide && !!state.libCharsCollapsed);
   }
+  // Приводим дерево категорий к инварианту ДО построения разметки (см.
+  // libNormalizeOwnEntries): позиции узла, у которого есть подкатегории,
+  // переезжают в его «Без бренда». Точка одна и общая на все разделы —
+  // перерисовка панели случается и при первом открытии «Библиотеки», и после
+  // асинхронной подгрузки правок каталога с сервера, и после отката каталога
+  // к заводскому при выходе из аккаунта (см. loadCatalogOverrides/
+  // restoreCatalogFrom), так что мигрировать успевают любые данные. На уже
+  // нормализованном дереве функция ничего не делает и сохранение не дёргает,
+  // поэтому лишней перерисовки/записи на сервер по кругу не будет.
+  let libTreeNormalized = false;
+  libNormalizableTopCodes().forEach((t) => { if (libNormalizeOwnEntries(t)) libTreeNormalized = true; });
+  if (libTreeNormalized) scheduleCatalogSave();
   if (state.libraryTab === 'materials') panel.innerHTML = libraryMaterialsBlock();
   else if (state.libraryTab === 'hardware') panel.innerHTML = libraryHardwareBlock();
   else if (state.libraryTab === 'facades') panel.innerHTML = libraryFacadesBlock();
@@ -5054,6 +5392,20 @@ function initLibraryPanel() {
     // startTreeRename) — не должен провалиться в обработку клика по строке
     // ниже (иначе строка переключилась бы посреди редактирования).
     if (e.target.closest('.lib-tree-name input')) return;
+    // ⇄ ОДНОЙ ПОЗИЦИИ таблицы (см. libRowMoveIcHtml) — ПЕРВЫМ: значок носит
+    // тот же класс .lib-tree-ic ради общего вида, но лежит не в строке
+    // дерева, а в ячейке «Наименование», поэтому ветка значков дерева ниже
+    // его не опознала бы (там обязателен [data-tree-node]), а ветка клика по
+    // редактируемой ячейке вместо переноса открыла бы правку названия.
+    const rowMoveIc = e.target.closest('[data-row-move]');
+    if (rowMoveIc) {
+      // Меню открывается поверх страницы (см. openLibMoveMenu) — этот же
+      // клик не должен дойти до document, иначе слушатель «клик мимо —
+      // закрыть» закрыл бы меню сразу.
+      e.stopPropagation();
+      openLibRowMoveMenu(rowMoveIc, rowMoveIc.dataset.moveTop, rowMoveIc.dataset.moveGroup, rowMoveIc.dataset.moveKey);
+      return;
+    }
     // ✎/+/⇄/× узла дерева категорий (см. libTreeRowHtml) — ПЕРЕД обработкой
     // клика по всей строке ниже, иначе клик по значку ещё и переключил бы
     // сам узел.

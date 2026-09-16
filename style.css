@@ -1407,6 +1407,21 @@ h4.spec-title { margin: var(--sp-5) 0 var(--sp-2); font-size: var(--fs-md); font
    ~6px без пересчёта самих ширин колонок. */
 .lib-table th, .lib-table td { padding: 6px 5px; }
 .lib-table td:first-child, .lib-table th:first-child { white-space: normal; word-break: break-word; }
+/* Значок ⇄ «Перенести в другую категорию» одной позиции (app.js:
+   libRowMoveIcHtml) — внутри ячейки «Наименование», абсолютом у её правого
+   края: отдельная колонка под него забрала бы ширину у остальных (таблицы
+   фиксированной ширины, см. libColgroup), а значок в потоке текста при
+   появлении по наведению перекладывал бы длинное название по словам.
+   Место под него ячейка резервирует ВСЕГДА (padding-right), чтобы значок
+   никогда не лёг поверх текста и чтобы наведение ничего не сдвигало. Вид —
+   общий с значками дерева (.lib-tree-ic выше), видимость — по наведению на
+   всю строку, как у .lib-tree-actions. */
+.lib-table td.lib-name-cell { position: relative; padding-right: 20px; }
+.lib-row-move-ic {
+  position: absolute; right: 4px; top: 50%; transform: translateY(-50%);
+  opacity: 0; transition: opacity var(--dur) var(--ease);
+}
+.lib-table tbody tr:hover .lib-row-move-ic { opacity: 1; }
 .lib-table td.lib-edit-cell { cursor: text; }
 .lib-table td.lib-edit-cell:hover { background: var(--accent-soft); }
 .lib-table td.lib-edit-cell input {
