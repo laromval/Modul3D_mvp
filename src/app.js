@@ -1911,12 +1911,31 @@ function libDeleteHwCategory(topCode) {
 // таблицей подкатегории, а не в каждой строке (см. item.priceNote в
 // catalog.js: GLASS, GLASS-4, FAC-WOOD-FILON, FAC-WOOD-FRAME). Внутри одной
 // подкатегории у customOrder-позиций формулировка совпадает — берём первую
-// найденную. Тот же item.priceNote заполняют и позиции материалов/фурнитуры,
-// сохранённые через «Добавить по ссылке» у вариативных товаров (см.
-// libLinkSaveMaterial/libLinkSaveHardware) — вызывается и из
-// libLeafTableHtml (материалы), и из libHardwareLeafTableHtml (фурнитура).
+// найденную. Вызывается и из libLeafTableHtml (материалы), и из
+// libHardwareLeafTableHtml (фурнитура).
+// Позиции, добавленные «по ссылке», свои пометки тут больше НЕ показывают:
+// пользователь 2026-09-17 попросил убрать из таблиц длинное предупреждение
+// парсера про диапазон цен («цена показана по нижней границе диапазона…
+// вариантов: 12») — в готовой библиотеке оно только мешает. В форме
+// «Добавить по ссылке» это же предупреждение осталось (.lib-link-price-note):
+// там позиция ещё не сохранена и цену можно уточнить.
+// Признак «пришла по ссылке» — it.sourceSiteId (id сайта-парсера, его ставят
+// ТОЛЬКО libLinkSaveMaterial/libLinkSaveHardware и обновление цен), а НЕ
+// it.sourceUrl: ссылка есть и у заводских позиций catalog.js — у тех самых
+// GLASS/FAC-WOOD-FILON она ведёт на статью-источник цены, и по sourceUrl мы
+// заодно спрятали бы их «приближённая — уточняйте у поставщика», которое
+// показывать надо. Отсеиваем при ОТОБРАЖЕНИИ, а не только при сохранении,
+// чтобы сохранённые раньше позиции (у них priceNote уже лежит в данных)
+// перестали показывать эту строку сразу, без ручной чистки библиотеки.
+// ОГРАНИЧЕНИЕ признака: «Обновить цены с сайта» проставляет sourceSiteId и
+// встроенной позиции каталога (см. там же), так что заводская пометка у неё
+// после обновления тоже спрячется. Сегодня это не всплывает: заводской
+// priceNote есть только у четырёх customOrder-позиций (glassinterior.md и
+// arama.md), а парсеров для этих доменов нет — обновление цен их не берёт.
+// Если парсер такого сайта появится, хранить заводскую пометку нужно будет
+// в отдельном поле, а не в общем priceNote.
 function libPriceNoteHtml(items) {
-  const withNote = items.find((it) => it && it.priceNote);
+  const withNote = items.find((it) => it && it.priceNote && !it.sourceSiteId);
   if (!withNote) return '';
   return `<p class="hint">Цена ${esc(withNote.priceNote)}.</p>`;
 }
@@ -3878,11 +3897,12 @@ function libLinkConfirmHtml(form) {
   // draft.priceNote — предупреждение парсера про диапазон цен у вариативных
   // товаров (см. sebasMd.js: buildPriceRangeNote), показанная цена — нижняя
   // граница, не точная цена. Тот же текстовый шаблон, что и у
-  // libPriceNoteHtml (item.priceNote из catalog.js) — ниже это же значение
-  // копируется в сохраняемую позицию, чтобы предупреждение не терялось и
-  // после сохранения (см. libLinkSaveMaterial/libLinkSaveHardware). Когда
-  // цена выбранной комбинации ИЗВЕСТНА, она точная — предупреждение прячем (и
-  // в позицию каталога его тоже не кладём). Если сайт цену варианта не отдал,
+  // libPriceNoteHtml (item.priceNote из catalog.js) — но живёт оно только
+  // здесь, в форме: в сохраняемую позицию это значение больше не копируется и
+  // в таблицах «Библиотеки» не показывается (см. libLinkSaveMaterial/
+  // libLinkSaveHardware и libPriceNoteHtml) — уточнять цену имеет смысл
+  // именно сейчас, до сохранения. Когда цена выбранной комбинации ИЗВЕСТНА,
+  // она точная — предупреждение прячем. Если сайт цену варианта не отдал,
   // предупреждение остаётся: число в поле цены вписано руками, а не с сайта.
   const variantChosen = libLinkFindVariant(draft.variants, form.variantSel);
   const priceNoteHtml = draft.priceNote
@@ -4108,15 +4128,11 @@ function libLinkSaveMaterial(form, values, categoryPath) {
   // libLinkSelectedVariantInfo): по её values «Обновить цены с сайта» позже
   // найдёт ИМЕННО эту комбинацию, а не нижнюю границу диапазона.
   const variant = libLinkSelectedVariantInfo(form);
-  // priceNote — предупреждение парсера про диапазон цен у вариативных
-  // товаров (см. libLinkConfirmHtml выше): без него после сохранения
-  // предупреждение терялось бы полностью — libPriceNoteHtml (таблица
-  // материалов) читает именно item.priceNote, тот же приём, что уже
-  // используют встроенные позиции GLASS/FAC-WOOD-FILON в catalog.js. Когда
-  // цена выбранного варианта известна, она точная — «цена от …» стала бы
-  // враньём, не сохраняем. А вот если сайт цену комбинации не отдал и число
-  // вписал пользователь, предупреждение нужно оставить.
-  const priceNote = variant && libLinkVariantPriceKnown(form) ? null : ((form.draft && form.draft.priceNote) || null);
+  // Предупреждение парсера про диапазон цен (draft.priceNote) в саму позицию
+  // не кладём: с 2026-09-17 в таблицах «Библиотеки» оно не показывается
+  // (см. libPriceNoteHtml), а копить в данных поле, которого нигде не видно,
+  // незачем. В форме «Добавить по ссылке» оно осталось — там цену ещё можно
+  // уточнить до сохранения.
   const numOr = (v, def) => { const n = Number(v); return Number.isFinite(n) && n > 0 ? n : def; };
   const numOrNull = (v) => { const n = Number(v); return Number.isFinite(n) ? n : null; };
   // sourceName/sourceArticle — что именно подставилось с сайта (см.
@@ -4124,7 +4140,6 @@ function libLinkSaveMaterial(form, values, categoryPath) {
   // переименование позиции от сайтового имени и затрёт правку пользователя.
   const common = Object.assign({ sourceUrl: form.url, sourceSiteId: form.siteId, verifiedAt: new Date().toISOString() },
     libLinkSourceFields(form));
-  if (priceNote) common.priceNote = priceNote;
   if (variant) common.variant = variant;
   // decors/back/facade: values.sheetW/sheetH к этому моменту уже проверены
   // libLinkMaterialDimsMissing (кнопка «Сохранить» и не дала бы дойти сюда
@@ -4190,20 +4205,18 @@ function libLinkSaveHardware(form, values, extra) {
   const subcategory = hwPath.length ? hwPath[hwPath.length - 1] : '';
   const subField = Object.assign({ categoryPath: hwPath },
     subcategory ? (category === 'mechanism' ? { brand: subcategory } : { subcategory }) : {});
-  // priceNote — то же предупреждение о диапазоне цен, что и у материалов
-  // (см. libLinkSaveMaterial), без него libPriceNoteHtml не сможет показать
-  // его в таблице фурнитуры после сохранения. И ровно так же: когда цена
-  // выбранной комбинации известна, она точная — предупреждение о диапазоне не
-  // сохраняем, вместо него кладём саму комбинацию (variant); если же сайт
-  // цену варианта не отдал, предупреждение остаётся.
+  // variant — выбранная комбинация вариативного товара, как и у материалов
+  // (см. libLinkSaveMaterial): по ней «Обновить цены с сайта» позже найдёт
+  // ИМЕННО эту комбинацию. А предупреждение парсера про диапазон цен
+  // (draft.priceNote) не сохраняем — в таблице фурнитуры его больше не
+  // показывают (см. libPriceNoteHtml), только в форме добавления по ссылке.
   const variant = libLinkSelectedVariantInfo(form);
-  const priceNote = variant && libLinkVariantPriceKnown(form) ? null : ((form.draft && form.draft.priceNote) || null);
   // sourceName/sourceArticle — то же, что у материалов (см.
   // libLinkSourceFields/libLinkSaveMaterial): «Обновить цены с сайта» по ним
   // отличает ручное переименование позиции от сайтового имени.
   const common = Object.assign({ name, article, price, unit, category,
     sourceUrl: form.url, sourceSiteId: form.siteId, verifiedAt: new Date().toISOString() },
-    libLinkSourceFields(form), priceNote ? { priceNote } : {}, variant ? { variant } : {}, subField);
+    libLinkSourceFields(form), variant ? { variant } : {}, subField);
   if (category === 'mechanism') {
     cat.LIFTS[key] = Object.assign({ id: key, brand: '', minH: Number(extra.minH) || 0,
       maxH: Number(extra.maxH) || 0, maxW: Number(extra.maxW) || 0, note: '' }, common);
@@ -4351,8 +4364,9 @@ function libLinkApplyRefreshedDraft(it, d, siteId) {
   // снял ручной правкой цены (см. libClearPriceNote). Наоборот: если у позиции
   // выбран вариант, его цена только что пришла с сайта точной (см. проверку
   // chosen.price выше) — предупреждение про диапазон («цена от … до …») стало
-  // неправдой, снимаем, ровно как это делает сохранение по ссылке (см.
-  // libLinkSaveMaterial). Без byUser: это не ручная проверка пользователем.
+  // неправдой, снимаем. Нужно это только позициям, сохранённым ДО v279:
+  // libLinkSaveMaterial/libLinkSaveHardware такую пометку в позицию больше
+  // вообще не пишут. Без byUser: это не ручная проверка пользователем.
   if (chosen) libClearPriceNote(it);
   // Позиция могла быть без sourceSiteId (встроенный каталог из mobilier.md,
   // см. libLinkedItemsList) — теперь, когда она сама подтвердилась по домену
