@@ -386,6 +386,14 @@ function mergeCatalogItem(savedItem, freshItem) {
   });
   const savedIsUpload = typeof savedItem.image === 'string' && savedItem.image.indexOf('data:') === 0;
   merged.image = savedIsUpload ? savedItem.image : freshItem.image;
+  // priceNoteCleared — пользователь сам отредактировал цену этой позиции и
+  // тем снял пометку о неточной цене (см. libClearPriceNote). У встроенных
+  // позиций priceNote живёт в catalog.js, то есть freshItem всегда готов
+  // принести её обратно — поэтому решение пользователя защищаем явно и
+  // ПОСЛЕ цикла по CATALOG_REFRESH_FIELDS: что бы ни пришло из заводского
+  // каталога, пометка остаётся снятой, пока он не сбросит каталог к
+  // заводским настройкам целиком (см. restoreCatalogFrom(CATALOG_DEFAULTS)).
+  if (merged.priceNoteCleared) delete merged.priceNote;
   return merged;
 }
 
@@ -1232,6 +1240,36 @@ function libPriceNoteHtml(items) {
   const withNote = items.find((it) => it && it.priceNote);
   if (!withNote) return '';
   return `<p class="hint">Цена ${esc(withNote.priceNote)}.</p>`;
+}
+
+// Поля каталога, в которых реально лежит ЦЕНА позиции — ровно то, что может
+// вернуть libPriceFieldOf у материалов ('sheetPrice' у листов и
+// customOrder-позиций, 'pricePerMeter' у столешниц, 'price' у кромки), плюс
+// 'price' у фурнитуры (см. libHardwareLeafTableHtml). Нужны, чтобы libSaveEdit
+// отличала правку цены от правки названия/размеров/единицы измерения.
+const LIB_PRICE_EDIT_FIELDS = ['price', 'sheetPrice', 'pricePerMeter'];
+
+// Ручная правка цены снимает пометку о неточной цене (item.priceNote, см.
+// libPriceNoteHtml выше): пользователь сам посмотрел цену и подтвердил её —
+// даже если вписал то же самое число, это осознанное «я проверил», — значит
+// ни предупреждение парсера про диапазон вариантов («цена от 19 до 38.5 MDL,
+// вариантов: 12»), ни заводское «приближённая — уточняйте у поставщика»
+// больше не про эту позицию.
+// byUser — правка руками в таблице «Библиотеки» (см. libSaveEdit), а не
+// обновление цен с сайта: только тогда дополнительно ставим флаг
+// priceNoteCleared. Флаг нужен ВСТРОЕННЫМ позициям каталога (GLASS,
+// FAC-WOOD-FILON и т.п.): у них priceNote задан прямо в catalog.js, то есть
+// заводской «эталон» в принципе умеет принести пометку обратно при каждой
+// загрузке страницы. Сегодня mergeCatalogItem берёт значения полей из
+// сохранённого снимка (всё, кроме CATALOG_REFRESH_FIELDS), поэтому одного
+// delete хватило бы и так — но флаг делает решение пользователя явным,
+// переживает возможное расширение CATALOG_REFRESH_FIELDS и позволяет
+// mergeCatalogItem защитить снятую пометку прямо (см. там же). У позиций,
+// добавленных «по ссылке», заводского прототипа нет — им флаг безразличен.
+function libClearPriceNote(it, byUser) {
+  if (!it || !it.priceNote) return;
+  delete it.priceNote;
+  if (byUser) it.priceNoteCleared = true;
 }
 
 // ---------------------------------------------------------------------------
@@ -3290,6 +3328,14 @@ function libLinkApplyRefreshedDraft(it, d, siteId) {
     else if (it.pricePerMeter !== undefined) it.pricePerMeter = price;
     else it.price = price;
   }
+  // Пометку о неточной цене (item.priceNote) обновление НИКОГДА не ставит
+  // заново — иначе оно возвращало бы предупреждение, которое пользователь уже
+  // снял ручной правкой цены (см. libClearPriceNote). Наоборот: если у позиции
+  // выбран вариант, его цена только что пришла с сайта точной (см. проверку
+  // chosen.price выше) — предупреждение про диапазон («цена от … до …») стало
+  // неправдой, снимаем, ровно как это делает сохранение по ссылке (см.
+  // libLinkSaveMaterial). Без byUser: это не ручная проверка пользователем.
+  if (chosen) libClearPriceNote(it);
   // Позиция могла быть без sourceSiteId (встроенный каталог из mobilier.md,
   // см. libLinkedItemsList) — теперь, когда она сама подтвердилась по домену
   // и успешно обновилась, фиксируем id сайта явно: дальше её уже не нужно
@@ -3452,6 +3498,12 @@ function libSaveEdit(group, key, field, value) {
   const it = libFindItem(group, key);
   if (!it) return;
   it[field] = value;
+  // Правка ЦЕНЫ (а не названия/размеров/единицы измерения) снимает пометку о
+  // неточной цене — см. libClearPriceNote/LIB_PRICE_EDIT_FIELDS. Проверяем сам
+  // факт подтверждения ячейки, а не изменение значения: подтвердить то же
+  // число — тоже «я проверил цену». С экрана пометка уходит сразу, её рисует
+  // renderLibraryPanel() в конце этой же функции.
+  if (LIB_PRICE_EDIT_FIELDS.indexOf(field) >= 0) libClearPriceNote(it, true);
   // Толщина задней стенки кэшируется в state.backThickness в момент выбора
   // материала (см. bindPanelEvents → #p-back) — если сейчас правят толщину
   // именно того материала, что уже выбран как задняя стенка проекта, нужно
