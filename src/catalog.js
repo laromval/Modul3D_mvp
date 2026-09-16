@@ -20,20 +20,21 @@
   // с U702ST9 выше — старое название по коду ST10/ST36/ST2 было просто
   // неверным, реальный декор Egger называется иначе).
   const DECORS = [
-    // H1180ST37: число в конце slug sourceUrl ("...natur-2800x2070x186-eg-...")
-    // не парсится однозначно как толщина (соседние позиции дают чистое "x18",
-    // тут "x186") — thickness не добавлен, чтобы не гадать.
-    { code: 'H1180ST37', name: 'ЛДСП Egger H1180 ST37 Дуб Халифакс натуральный', sheetPrice: 3070, sourceUrl: 'https://mobilier.md/ru/plitnye-materialy/dsp/dsp_egger/h1180-st37-dub-galifaks-naturalnyy-2800x2070x186-eg-dsp-laminirovannyy.html', sheetW: 2750, sheetH: 1830, unit: 'лист', image: 'https://mobilier.md/image/cache/catalog/products/23949/37de281fd09df8ce907afbcf155ae164-520x350.png', categoryPath: ['ДСП', 'Egger'] },
-    { code: 'U702ST9',   name: 'ЛДСП Egger U702 ST9 Серый кашемир', sheetPrice: 1535, sourceUrl: 'https://mobilier.md/ru/plitnye-materialy/dsp/dsp_egger/u702-st9-kashemir-seryy-2800x2070x18-eg-dsp-laminirovannyy.html', sheetW: 2750, sheetH: 1830, unit: 'лист', image: 'https://mobilier.md/image/cache/catalog/products/24843/d75f1d225f2eec6b4c720a64dfb30bb6-250x250.png', categoryPath: ['ДСП', 'Egger'], thickness: 18 },
-    { code: 'H3450ST22',  name: 'ЛДСП Egger H3450 ST22 Флитвуд белый', sheetPrice: 1646, sourceUrl: 'https://mobilier.md/ru/plitnye-materialy/dsp/dsp_egger/h3450-st22-flitvud-belyy-2800x2070x18-eg-dsp-laminirovannyy.html', sheetW: 2750, sheetH: 1830, unit: 'лист', image: 'https://mobilier.md/image/cache/catalog/products/23946/c36efb9474cd6c437c97eac5c2de641c-800x800.png', categoryPath: ['ДСП', 'Egger'], thickness: 18 },
+    // Реальный размер листа и толщина (2800×2070×18,6) подтверждены прямо на
+    // карточке товара (вкладка «Характеристики» на mobilier.md, 2026-09-15) —
+    // число "186" в slug sourceUrl оказалось толщиной 18.6 мм, записанной без
+    // точки, а не опечаткой.
+    { code: 'H1180ST37', name: 'ЛДСП Egger H1180 ST37 Дуб Халифакс натуральный', sheetPrice: 3536, sourceUrl: 'https://mobilier.md/ru/plitnye-materialy/dsp/dsp_egger/h1180-st37-dub-galifaks-naturalnyy-2800x2070x186-eg-dsp-laminirovannyy.html', sheetW: 2800, sheetH: 2070, thickness: 18.6, unit: 'лист', image: 'https://mobilier.md/image/cache/catalog/products/23949/37de281fd09df8ce907afbcf155ae164-520x350.png', categoryPath: ['ДСП', 'Egger'] },
+    { code: 'U702ST9',   name: 'ЛДСП Egger U702 ST9 Серый кашемир', sheetPrice: 1768, sourceUrl: 'https://mobilier.md/ru/plitnye-materialy/dsp/dsp_egger/u702-st9-kashemir-seryy-2800x2070x18-eg-dsp-laminirovannyy.html', sheetW: 2800, sheetH: 2070, unit: 'лист', image: 'https://mobilier.md/image/cache/catalog/products/24843/d75f1d225f2eec6b4c720a64dfb30bb6-250x250.png', categoryPath: ['ДСП', 'Egger'], thickness: 18 },
+    { code: 'H3450ST22',  name: 'ЛДСП Egger H3450 ST22 Флитвуд белый', sheetPrice: 1895, sourceUrl: 'https://mobilier.md/ru/plitnye-materialy/dsp/dsp_egger/h3450-st22-flitvud-belyy-2800x2070x18-eg-dsp-laminirovannyy.html', sheetW: 2800, sheetH: 2070, unit: 'лист', image: 'https://mobilier.md/image/cache/catalog/products/23946/c36efb9474cd6c437c97eac5c2de641c-800x800.png', categoryPath: ['ДСП', 'Egger'], thickness: 18 },
     // ST19 (более выраженная текстура) на сайте тоже есть, но дороже
     // (1993 против 1490) — взята более бюджетная ST7 как более
     // сопоставимая по цене с исходной заглушкой.
-    { code: 'U999ST7',   name: 'ЛДСП Egger U999 ST7 Чёрный',       sheetPrice: 1490, sourceUrl: 'https://mobilier.md/ru/plitnye-materialy/dsp/dsp_egger/u999-st7-chiornyy-2800x2070x18-eg-dsp-laminirovannyy.html', sheetW: 2750, sheetH: 1830, unit: 'лист', image: 'https://mobilier.md/image/cache/catalog/products/24403/e693f3cec257bc4973ec56868872ea9b-768x1087.png', categoryPath: ['ДСП', 'Egger'], thickness: 18 },
+    { code: 'U999ST7',   name: 'ЛДСП Egger U999 ST7 Чёрный',       sheetPrice: 1716, sourceUrl: 'https://mobilier.md/ru/plitnye-materialy/dsp/dsp_egger/u999-st7-chiornyy-2800x2070x18-eg-dsp-laminirovannyy.html', sheetW: 2800, sheetH: 2070, unit: 'лист', image: 'https://mobilier.md/image/cache/catalog/products/24403/e693f3cec257bc4973ec56868872ea9b-768x1087.png', categoryPath: ['ДСП', 'Egger'], thickness: 18 },
   ];
 
   const BACK_MATERIALS = [
-    { code: 'HDF-3', name: 'ХДФ белый 3мм', sheetPrice: 193, sourceUrl: 'https://mobilier.md/ru/plitnye-materialy/hdf-dvp-ru/dvp-110-belyy-3-2850x2070.html', sheetW: 2440, sheetH: 1220, thickness: 3, unit: 'лист', image: 'https://mobilier.md/image/cache/catalog/products/29869/ac26853536e04c7b11f0b8e72d9f87e5-553x553.png', categoryPath: ['ХДФ/ДВП'] },
+    { code: 'HDF-3', name: 'ХДФ белый 3мм', sheetPrice: 383, sourceUrl: 'https://mobilier.md/ru/plitnye-materialy/hdf-dvp-ru/dvp-110-belyy-3-2850x2070.html', sheetW: 2850, sheetH: 2070, thickness: 3, unit: 'лист', image: 'https://mobilier.md/image/cache/catalog/products/29869/ac26853536e04c7b11f0b8e72d9f87e5-553x553.png', categoryPath: ['ХДФ/ДВП'] },
   ];
 
   // Столешницы на mobilier.md продаются ПОГОННЫМ метром — готовой полосой
@@ -129,7 +130,7 @@
   // glassInside: за таким фасадом полки делаются из стекла
   // ---------------------------------------------------------------------------
   const FACADE_MATERIALS = {
-    'FAC-LDSP': { code: 'FAC-LDSP', name: 'ЛДСП 18 мм (фасад)', sheetPrice: 1535, sourceUrl: 'https://mobilier.md/ru/plitnye-materialy/dsp/dsp_egger/w1000-st9-belyy-premium-2800x2070x18-eg-dsp-laminirovannyy.html', sheetW: 2750, sheetH: 1830, unit: 'лист', image: 'https://mobilier.md/image/cache/catalog/products/24677/59fa523e0348a50dba8422059f9fe9d6-250x250.png', categoryPath: ['ДСП', 'Egger'], thickness: 18 },
+    'FAC-LDSP': { code: 'FAC-LDSP', name: 'ЛДСП 18 мм (фасад)', sheetPrice: 1768, sourceUrl: 'https://mobilier.md/ru/plitnye-materialy/dsp/dsp_egger/w1000-st9-belyy-premium-2800x2070x18-eg-dsp-laminirovannyy.html', sheetW: 2800, sheetH: 2070, unit: 'лист', image: 'https://mobilier.md/image/cache/catalog/products/24677/59fa523e0348a50dba8422059f9fe9d6-250x250.png', categoryPath: ['ДСП', 'Egger'], thickness: 18 },
     'FAC-MDF':  { code: 'FAC-MDF',  name: 'МДФ крашеный 19 мм', sheetPrice: 5199, sourceUrl: 'https://mobilier.md/ru/plitnye-materialy/fasadnye-paneli-mdf/mdf-egger/df-u250-pmst9-bezhevaya-karamel-19-2800x2070-eg-perfectsense.html', sheetW: 2800, sheetH: 2070, unit: 'лист', image: 'https://mobilier.md/image/cache/catalog/products/33771/fa16c069b7ad4abdec263f6adff04801-768x1087.png', categoryPath: ['МДФ-плита', 'Egger'], thickness: 19 },
     // Массив дуба листами не продаётся — это не плитный материал, а
     // рамочное столярное изделие (рама + филёнка/стекло) под заказ.

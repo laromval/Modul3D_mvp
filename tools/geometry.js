@@ -3412,8 +3412,9 @@ for (const glass of [false, true]) {
 // --- столешница «свой материал» толщиной ≤18мм — крышка НЕ убирается -------
 // Тонкий «свой материал» ведёт себя как компакт-плита: клеится к крышке,
 // растикса нет (см. skipTopPanel: ctCustomThick требует >18мм). U702ST9 —
-// декор с thickness:18 в каталоге (DECORS[0] намеренно без thickness, см.
-// комментарий там — использован для другого регресса ниже).
+// декор с thickness:18 в каталоге (DECORS[0] тоже с валидной толщиной,
+// но её временно снимают в регресс-тесте ниже, чтобы проверить декор без
+// thickness).
 {
   const decCode = DECORS.find((d) => d.code === 'U702ST9').code;
   const mod1 = {
@@ -3467,21 +3468,35 @@ for (const glass of [false, true]) {
   cases += 1;
 }
 
-// --- регресс: «свой материал» с декором БЕЗ толщины в каталоге (H1180ST37) —
-// крышка должна остаться, деталь столешницы не строится. Это реальный случай
-// из каталога (см. комментарий у DECORS[0] в catalog.js), не гипотетический —
-// толщина больше не вводится вручную, поэтому «декор без thickness» стал
-// достижимым состоянием, которого раньше не было.
+// --- регресс: «свой материал» с декором БЕЗ толщины в каталоге —
+// крышка должна остаться, деталь столешницы не строится. Раньше это был
+// реальный случай из каталога (H1180ST37 без thickness — см. комментарий у
+// DECORS[0] в catalog.js), но 2026-09-15 размер и толщина H1180ST37 сверены
+// напрямую с карточкой товара на сайте-поставщике (18.6мм) и добавлены в
+// каталог — реального «декора без thickness» в DECORS больше нет. Защитный
+// код (ctMat без валидной толщины не строит столешницу) по-прежнему нужен —
+// материал без thickness всё ещё достижим через «Библиотеку» (импорт по
+// ссылке допускает пустую толщину, см. numOrNull(values.thickness) в
+// app.js), поэтому имитируем этот случай, временно снимая thickness у
+// декора, а не полагаемся на то, что в каталоге есть готовый такой декор.
 {
-  const mod1 = {
-    name: 'Тумба', width: 600, height: 850, depth: 560,
-    leftSide: 'floor', rightSide: 'floor',
-    base: { type: 'legsPlinth', legHeight: 100, plinthHeight: 100 },
-    topType: 'panel',
-    countertop: { enabled: true, decorCode: DECORS[0].code },
-    sections: [{ shelves: 1, drawers: 0, facade: 'doorLeft' }],
-  };
-  const model = buildModel(Object.assign({}, base, { modules: [mod1] }));
+  const decorUnderTest = DECORS[0];
+  const savedThickness = decorUnderTest.thickness;
+  delete decorUnderTest.thickness;
+  let model;
+  try {
+    const mod1 = {
+      name: 'Тумба', width: 600, height: 850, depth: 560,
+      leftSide: 'floor', rightSide: 'floor',
+      base: { type: 'legsPlinth', legHeight: 100, plinthHeight: 100 },
+      topType: 'panel',
+      countertop: { enabled: true, decorCode: decorUnderTest.code },
+      sections: [{ shelves: 1, drawers: 0, facade: 'doorLeft' }],
+    };
+    model = buildModel(Object.assign({}, base, { modules: [mod1] }));
+  } finally {
+    decorUnderTest.thickness = savedThickness;
+  }
   inspect(model, 'столешница: «свой материал» с декором без thickness в каталоге — крышка должна остаться');
 
   if (!model.parts.some((p) => p.kind === 'top')) {
