@@ -14,7 +14,7 @@
 (function () {
 // Версия сборки — показывается во вкладке браузера и в шапке.
 // При выпуске новой версии меняется только эта строка.
-const APP_VERSION = 'v273';
+const APP_VERSION = 'v274';
 
 // Номер версии выводим ПЕРВЫМ делом: если дальше что-то упадёт, по нему сразу
 // видно, какая сборка открыта.
@@ -9222,8 +9222,6 @@ try {
     closeLibUsageModal();
   });
 
-  // Отмена и возврат. Ctrl+X перехватываем только вне полей ввода — внутри
-  // поля это штатное «вырезать», ломать его нельзя.
   // Delete — удалить выделенный модуль. В поле ввода клавиша работает
   // штатно (удаляет символ), поэтому там её не перехватываем.
   document.addEventListener('keydown', (e) => {
@@ -9236,16 +9234,36 @@ try {
     deleteModule(state.activeModule);
   });
 
+  // Отмена, возврат, сохранение и открытие проекта.
+  // Клавишу определяем по e.code (физическая клавиша), а НЕ по e.key: e.key
+  // зависит от раскладки — при русской раскладке для Z приходит 'я', для Y —
+  // 'н', для X — 'ч', для S — 'ы', для O — 'щ', и сравнение с латинской буквой
+  // молча не срабатывает (горячие клавиши «не работают по-русски»). e.code от
+  // раскладки не зависит: 'KeyZ', 'KeyY', 'KeyX', 'KeyS', 'KeyO' — так же
+  // сделано в ui-shell.js (initHotkeys). Фолбэк на e.key оставлен на редкий
+  // случай, когда e.code не приходит (виртуальные клавиатуры, синтетические
+  // события): латинская буква из e.key приводится к тому же виду 'KeyZ'.
+  // Ctrl+X перехватываем только вне полей ввода — внутри поля это штатное
+  // «вырезать», ломать его нельзя. Ctrl+Z/Ctrl+Y/Ctrl+Shift+Z в поле ввода
+  // тоже не перехватываем: там браузер должен отменять набранный текст, а не
+  // действие над проектом. Ctrl+S и Ctrl+O, наоборот, перехватываем везде,
+  // включая поля ввода, иначе браузер сохранит/откроет саму страницу.
   document.addEventListener('keydown', (e) => {
     if (!(e.ctrlKey || e.metaKey)) return;
+    // AltGr на Windows = Ctrl+Alt: на раскладках, где AltGr+буква даёт
+    // символ, это не Ctrl-шорткат. Так же отсекается в ui-shell.js.
+    if (e.altKey) return;
     const tag = (e.target && e.target.tagName) || '';
     const inField = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT';
-    const k = String(e.key || '').toLowerCase();
-    if (k === 'z' && !e.shiftKey) { e.preventDefault(); undo(); return; }
-    if (k === 'y' || (k === 'z' && e.shiftKey)) { e.preventDefault(); redo(); return; }
-    if (k === 'x' && !inField) { e.preventDefault(); redo(); return; }
-    if (k === 's') { e.preventDefault(); saveProjectToFile(); return; }
-    if (k === 'o') { e.preventDefault(); document.getElementById('openProjectBtn').click(); }
+    const key = String(e.key || '');
+    const code = String(e.code || '') || (/^[a-zA-Z]$/.test(key) ? `Key${key.toUpperCase()}` : '');
+    if (!inField) {
+      if (code === 'KeyZ' && !e.shiftKey) { e.preventDefault(); undo(); return; }
+      if (code === 'KeyY' || (code === 'KeyZ' && e.shiftKey)) { e.preventDefault(); redo(); return; }
+      if (code === 'KeyX') { e.preventDefault(); redo(); return; }
+    }
+    if (code === 'KeyS') { e.preventDefault(); saveProjectToFile(); return; }
+    if (code === 'KeyO') { e.preventDefault(); document.getElementById('openProjectBtn').click(); }
   });
 
   // Клик/Tab в числовое поле → значение выделяется целиком, чтобы первая
