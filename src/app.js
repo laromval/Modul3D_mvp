@@ -14,7 +14,7 @@
 (function () {
 // Версия сборки — показывается во вкладке браузера и в шапке.
 // При выпуске новой версии меняется только эта строка.
-const APP_VERSION = 'v266';
+const APP_VERSION = 'v272';
 
 // Номер версии выводим ПЕРВЫМ делом: если дальше что-то упадёт, по нему сразу
 // видно, какая сборка открыта.
@@ -210,19 +210,20 @@ const state = {
   countertopChainNotice: null,
   // Единица, в которой показана колонка «Цена» ВО ВСЕХ таблицах вкладки
   // «Материалы» одновременно (общий переключатель, выбирается прямо в шапке
-  // любой из таблиц, см. libPriceUnitHeaderHtml) — 'native' (по умолчанию)
-  // или один из 'perMeter' | 'perPiece' | 'perM2' | 'perSheet' (см.
+  // любой из таблиц, см. libPriceUnitHeaderHtml) — 'perM2' (по умолчанию,
+  // так цена подаётся у поставщика mobilier.md для листовых материалов) или
+  // один из 'native' | 'perMeter' | 'perPiece' | 'perSheet' (см.
   // libPriceValueForUnit). 'native' — «как на сайте»: показывает цену в
   // РОДНОЙ единице конкретной позиции (см. libNativeUnitsOf/
   // libPriceEffectiveUnit) — ровно то число, что лежит в её catalog-поле,
   // без пересчёта; у разных позиций это может быть разная единица (лист vs
-  // пог.метр). Остальные четыре — принудительный пересчёт ВСЕХ позиций в
-  // одну и ту же единицу, ручной выбор пользователя для сравнения
-  // материалов между собой (см. libPricePerM2) — реальная стоимость проекта
-  // в спецификации всё равно считается по своим правилам (за лист/
-  // пог.метр), эта колонка их не подменяет. Чисто UI-состояние, как
-  // libraryTab выше: в историю отмены/файл проекта не попадает.
-  libPriceUnit: 'native',
+  // пог.метр). Остальные — принудительный пересчёт ВСЕХ позиций в одну и ту
+  // же единицу, ручной выбор пользователя для сравнения материалов между
+  // собой (см. libPricePerM2) — реальная стоимость проекта в спецификации
+  // всё равно считается по своим правилам (за лист/пог.метр), эта колонка
+  // их не подменяет. Чисто UI-состояние, как libraryTab выше: в историю
+  // отмены/файл проекта не попадает.
+  libPriceUnit: 'perM2',
   // Свёрнутость колонок Длина/Ширина/Толщина (кнопка «Характеристики
   // листа», см. libTableHead/libLeafTableHtml) — ОБЩАЯ на всю Библиотеку
   // (как libPriceUnit выше), а не своя у каждой открытой таблицы: одна и та
@@ -1403,8 +1404,10 @@ function libPriceDisplayValue(kind, it, unit) {
 // Единицы измерения цены — общий переключатель на ВСЮ «Библиотеку» (см.
 // state.libPriceUnit): меняешь в шапке одной таблицы, пересчитываются все
 // остальные открытые таблицы (renderLibraryPanel — полная перерисовка).
-// 'native' первым пунктом — дефолт (см. state.libPriceUnit), показывает
-// цену «как на сайте», без пересчёта (см. libPriceEffectiveUnit).
+// 'native' стоит первым пунктом списка (порядок в select), но дефолт
+// state.libPriceUnit — 'perM2' (см. там же); 'native' остаётся доступен для
+// ручного переключения на просмотр «как на сайте»/за лист, без пересчёта
+// (см. libPriceEffectiveUnit).
 const LIB_PRICE_UNITS = [
   { id: 'native', label: 'как на сайте' },
   { id: 'perMeter', label: 'м.п.' },
@@ -2050,16 +2053,93 @@ function loadLibLinkSites() {
   return state.libLinkSitesPromise;
 }
 
-function libLinkSitesOptionsHtml(selectedId) {
-  if (state.libLinkSitesLoading || state.libLinkSites == null) {
-    return '<option value="">Загрузка списка сайтов…</option>';
+// «Сайт-источник» — КАСТОМНЫЙ выпадающий список (кнопка-переключатель +
+// свой <ul>), а не нативный <select>. Каждый пункт списка — настоящая
+// ссылка <a target="_blank">: вкладку с сайтом открывает сам браузер
+// нативной навигацией. window.open здесь не используется СОЗНАТЕЛЬНО — на
+// file:// (пользователь открывает index.html двойным кликом с диска)
+// Chrome молча блокирует его и не возвращает null, так что даже alert-
+// подстраховка не срабатывает; проверено вживую трижды разными способами
+// (2026-09-15/16). У сайта без browseUrl атрибута href нет вообще — такой
+// пункт просто выбирает сайт, никуда не уводя страницу.
+// См. клик по .lib-link-site-item в делегированном click-обработчике
+// панели и openLibLinkSiteMenu/closeLibLinkSiteMenu ниже (открытие/
+// закрытие самого списка).
+function libLinkSitePickerHtml(form) {
+  const loading = state.libLinkSitesLoading || state.libLinkSites == null;
+  const sites = state.libLinkSites || [];
+  const empty = !loading && !sites.length;
+  const labelOf = (s) => (s.name === s.domain ? s.name : `${s.name} (${s.domain})`);
+  const site = sites.find((s) => s.id === form.siteId);
+  const toggleLabelRaw = loading ? 'Загрузка списка сайтов…'
+    : empty ? (state.libLinkSitesError || 'Нет доступных сайтов')
+    : site ? labelOf(site)
+    : '— выберите сайт —';
+  const itemsHtml = sites.map((s) => {
+    // Адрес, на который ведёт пункт. browseUrl приходит с сервера (там он
+    // указывает на нужную языковую версию, напр. mobilier.md/ru), но НА НЕГО
+    // НЕЛЬЗЯ РАССЧИТЫВАТЬ: задеплоенный сервер может быть старее клиента и
+    // это поле не отдавать — ровно из-за этого фича «открыть сайт по клику»
+    // трижды «не работала» (2026-09-15/16), хотя код был верный: адрес был
+    // undefined, и перехода просто не происходило. Домен в списке есть
+    // всегда, поэтому при отсутствии browseUrl собираем адрес из него.
+    // Схему проверяем явно: подставлять в документ произвольную строку из
+    // ответа API (javascript:/data:) нельзя.
+    const browseUrl = /^https?:\/\//i.test(s.browseUrl || '') ? s.browseUrl
+      : /^[a-z0-9-]+(\.[a-z0-9-]+)+$/i.test(s.domain || '') ? 'https://' + s.domain
+      : '';
+    // Без адреса пункт остаётся кнопкой выбора — тогда возвращаем ему то,
+    // что <a href> даёт даром: фокус с клавиатуры и роль кнопки.
+    const attrs = browseUrl
+      ? ` href="${esc(browseUrl)}" target="_blank" rel="noopener noreferrer"`
+      : ' tabindex="0" role="button"';
+    return `
+      <li><a class="lib-link-site-item${s.id === form.siteId ? ' active' : ''}"${attrs} data-site-id="${esc(s.id)}">${esc(labelOf(s))}</a></li>`;
+  }).join('');
+  return `
+    <div class="field lib-link-site-picker">
+      <label>Сайт-источник</label>
+      <button type="button" class="lib-link-site-toggle" ${loading || empty ? 'disabled' : ''}>
+        <span class="lib-link-site-toggle-label">${esc(toggleLabelRaw)}</span>
+        <span class="lib-link-site-toggle-caret">▾</span>
+      </button>
+      <ul class="lib-link-site-list" hidden>${itemsHtml}</ul>
+    </div>`;
+}
+
+// Открытие/закрытие самого списка (не выбора сайта — см. клик по
+// .lib-link-site-item) — по образцу openColumnFilterMenu/closeColumnFilterMenu
+// ниже по файлу (тот же приём: слушатель «клик вне — закрыть» вешаем НЕ
+// сразу, а следующим тиком через setTimeout, иначе тот же клик по кнопке-
+// переключателю, который список открыл, тут же — пока событие ещё
+// всплывает к document — его бы и закрыл). Escape тоже закрывает список.
+// Оба слушателя — на document, а не на panel: клик может случиться где
+// угодно на странице, не только внутри «Библиотеки».
+let libLinkSiteMenuOutsideClick = null;
+let libLinkSiteMenuEscHandler = null;
+function closeLibLinkSiteMenu() {
+  const list = document.querySelector('.lib-link-site-list:not([hidden])');
+  if (list) list.hidden = true;
+  if (libLinkSiteMenuOutsideClick) {
+    document.removeEventListener('click', libLinkSiteMenuOutsideClick);
+    libLinkSiteMenuOutsideClick = null;
   }
-  if (!state.libLinkSites.length) {
-    return `<option value="">${esc(state.libLinkSitesError || 'Нет доступных сайтов')}</option>`;
+  if (libLinkSiteMenuEscHandler) {
+    document.removeEventListener('keydown', libLinkSiteMenuEscHandler);
+    libLinkSiteMenuEscHandler = null;
   }
-  const placeholder = '<option value="">— выберите сайт —</option>';
-  const opts = state.libLinkSites.map((s) => `<option value="${esc(s.id)}" ${s.id === selectedId ? 'selected' : ''}>${esc(s.name)} (${esc(s.domain)})</option>`).join('');
-  return placeholder + opts;
+}
+function openLibLinkSiteMenu(picker) {
+  closeLibLinkSiteMenu();
+  const list = picker && picker.querySelector('.lib-link-site-list');
+  if (!list) return;
+  list.hidden = false;
+  setTimeout(() => {
+    libLinkSiteMenuOutsideClick = (e) => { if (!picker.contains(e.target)) closeLibLinkSiteMenu(); };
+    document.addEventListener('click', libLinkSiteMenuOutsideClick);
+  }, 0);
+  libLinkSiteMenuEscHandler = (e) => { if (e.key === 'Escape') closeLibLinkSiteMenu(); };
+  document.addEventListener('keydown', libLinkSiteMenuEscHandler);
 }
 
 // Проверка домена ДО отправки на сервер (п.5 ТЗ) — чисто клиентская подсказка,
@@ -2103,6 +2183,7 @@ function openLibLinkForm(kind, opts) {
   if (panel) panel.scrollTop = 0;   // форма рисуется вверху вкладки — прокручиваем к ней
 }
 function closeLibLinkForm() {
+  closeLibLinkSiteMenu();
   state.libLinkForm = null;
   renderLibraryPanel();
 }
@@ -2453,9 +2534,7 @@ function libLinkInputStepHtml(form) {
   const warning = form.url.trim() && site && !domainOk ? `Похоже, это не сайт ${site.domain} — проверьте ссылку.`
     : form.url.trim() && !site ? 'Сначала выберите сайт из списка.' : '';
   return `
-    <div class="field"><label>Сайт-источник</label>
-      <select class="lib-link-site-select">${libLinkSitesOptionsHtml(form.siteId)}</select>
-    </div>
+    ${libLinkSitePickerHtml(form)}
     <div class="field"><label>Ссылка на товар</label>
       <input type="url" class="lib-link-url-input" placeholder="https://..." value="${esc(form.url)}">
     </div>
@@ -2492,9 +2571,10 @@ function libLinkRevalidate(panel) {
   const box = panel.querySelector('.lib-link-form');
   if (!box) return;
   if (form.step === 'input') {
-    const siteSel = box.querySelector('.lib-link-site-select');
+    // form.siteId сюда пишет клик по .lib-link-site-item (см.
+    // libLinkSitePickerHtml/делегированный click ниже) — здесь его только
+    // читаем, DOM-поля для сайта больше нет (не <select>).
     const urlInput = box.querySelector('.lib-link-url-input');
-    if (siteSel) form.siteId = siteSel.value;
     if (urlInput) form.url = urlInput.value;
     const site = (state.libLinkSites || []).find((s) => s.id === form.siteId);
     const domainOk = !!site && libLinkDomainMatches(form.url, site.domain);
@@ -3546,6 +3626,10 @@ function renderLibraryPanel() {
   // кнопку/таблицу, которые сейчас пропадут из DOM, закрываем его заранее
   // (тот же приём, что и renderDetailingTable/closeColumnFilterMenu).
   closeColumnFilterMenu();
+  // Та же причина — открытый кастомный список «Сайт-источник» формы
+  // «Добавить по ссылке» (см. libLinkSitePickerHtml/openLibLinkSiteMenu)
+  // держит ссылку на DOM-узел, который вот-вот пропадёт.
+  closeLibLinkSiteMenu();
   document.querySelectorAll('.lib-tab-btn').forEach((b) => {
     b.classList.toggle('active', b.dataset.libtab === state.libraryTab);
   });
@@ -3835,6 +3919,47 @@ function initLibraryPanel() {
       }
       return;
     }
+    // Кастомный выпадающий список «Сайт-источник» (см. libLinkSitePickerHtml)
+    // — переключатель только открывает/закрывает список, без сайд-эффектов.
+    const siteToggle = e.target.closest('.lib-link-site-toggle');
+    if (siteToggle) {
+      if (siteToggle.disabled) return;
+      const picker = siteToggle.closest('.lib-link-site-picker');
+      if (!picker) return;
+      const list = picker.querySelector('.lib-link-site-list');
+      if (list && !list.hidden) closeLibLinkSiteMenu();
+      else openLibLinkSiteMenu(picker);
+      return;
+    }
+    // Клик по пункту списка сайтов: запоминаем выбор и закрываем список.
+    // Сайт в новой вкладке открывает САМ БРАУЗЕР — пункт списка это
+    // <a target="_blank"> (см. libLinkSitePickerHtml), нативная навигация
+    // под popup-блокировку не попадает. Поэтому здесь НЕТ ни window.open
+    // (на file:// Chrome его молча блокирует), ни e.preventDefault() —
+    // preventDefault погасил бы сам переход по ссылке. Найти товар и
+    // скопировать его URL — единственное, что остаётся сделать
+    // пользователю руками, отдельной ссылки-подсказки под списком не нужно.
+    const siteItem = e.target.closest('.lib-link-site-item');
+    if (siteItem) {
+      const form = state.libLinkForm;
+      if (!form) return;
+      form.siteId = siteItem.dataset.siteId || '';
+      closeLibLinkSiteMenu();
+      const site = (state.libLinkSites || []).find((s) => s.id === form.siteId);
+      // Точечно обновляем подпись переключателя и «active»-пункт — не
+      // renderLibraryPanel() целиком: она стёрла бы фокус/курсор в соседнем
+      // поле «Ссылка на товар», если пользователь уже там печатал.
+      const picker = siteItem.closest('.lib-link-site-picker');
+      if (picker && site) {
+        const labelEl = picker.querySelector('.lib-link-site-toggle-label');
+        if (labelEl) labelEl.textContent = site.name === site.domain ? site.name : `${site.name} (${site.domain})`;
+        picker.querySelectorAll('.lib-link-site-item').forEach((item) => {
+          item.classList.toggle('active', item.dataset.siteId === form.siteId);
+        });
+      }
+      libLinkRevalidate(panel);
+      return;
+    }
     const linkCloseBtn = e.target.closest('.lib-link-close, .lib-link-cancel');
     if (linkCloseBtn) { closeLibLinkForm(); return; }
     const linkCheckBtn = e.target.closest('.lib-link-check');
@@ -3918,8 +4043,11 @@ function initLibraryPanel() {
       return;
     }
     // Форма «Добавить по ссылке» (см. libLinkRevalidate) — <select>-поля
-    // (сайт, единица измерения, категория, «Количество отверстий» и т.п.)
-    // не всегда надёжно бросают 'input' во всех браузерах, 'change' — точно.
+    // (единица измерения, категория, «Количество отверстий» и т.п.) не
+    // всегда надёжно бросают 'input' во всех браузерах, 'change' — точно.
+    // «Сайт-источник» сюда больше не относится — это не <select>, а
+    // кастомный список (см. libLinkSitePickerHtml), выбор сайта целиком
+    // обрабатывает клик по .lib-link-site-item в делегированном click выше.
     if (e.target.closest('.lib-link-form')) {
       // Выбор существующего раздела из выпадающего списка «Раздел каталога»
       // обнуляет «Новую подкатегорию» — иначе там могло остаться название,

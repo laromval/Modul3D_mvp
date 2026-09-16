@@ -20,24 +20,30 @@ const SITES = [
     id: 'mobilierMd',
     name: 'mobilier.md',
     domain: 'mobilier.md',
+    // Русскоязычная версия сайта — открывается сразу при выборе сайта в
+    // форме «Добавить по ссылке» (см. src/app.js), чтобы найти товар и
+    // скопировать его URL. Без /ru сайт по умолчанию отдаёт другой язык.
+    browseUrl: 'https://mobilier.md/ru',
     parse: mobilierMd.parse,
   },
   {
     id: 'daskCentruMd',
     name: 'dask-centru.md',
     domain: 'dask-centru.md',
+    browseUrl: 'https://dask-centru.md/ru',
     parse: daskCentruMd.parse,
   },
   {
     id: 'sebasMd',
     name: 'sebas.md',
     domain: 'sebas.md',
+    browseUrl: 'https://sebas.md/ru/',
     parse: sebasMd.parse,
   },
 ];
 
 function listSites() {
-  return SITES.map(({ id, name, domain }) => ({ id, name, domain }));
+  return SITES.map(({ id, name, domain, browseUrl }) => ({ id, name, domain, browseUrl }));
 }
 
 function getSite(id) {

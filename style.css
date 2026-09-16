@@ -535,7 +535,12 @@ select:focus-visible {
   transition: opacity .18s var(--ease), transform .18s var(--ease);
   z-index: 60;
 }
-.tip:hover::after { opacity: 1; transform: translateY(-50%) scale(1); transition-delay: 2s; }
+.tip:hover::after { opacity: 1; transform: translateY(-50%) scale(1); transition-delay: 1s; }
+/* Карточки базы модулей в «Библиотеке»: подсказка — это описание модуля,
+   ради которого на карточку и наводят, поэтому показываем её сразу, без
+   паузы. У остальных подсказок пауза нужна, чтобы они не мельтешили при
+   проезде мышью вдоль рельсы иконок и ряда вкладок модулей. */
+.lib-item.tip:hover::after { transition-delay: 0s; }
 .tip.tip-down::after { left: 50%; top: calc(100% + 8px); transform: translateX(-50%) scale(.96); }
 .tip.tip-down:hover::after { transform: translateX(-50%) scale(1); }
 
@@ -1504,6 +1509,50 @@ h4.spec-title { margin: var(--sp-5) 0 var(--sp-2); font-size: var(--fs-md); font
 }
 .lib-link-error, .lib-link-warning { color: var(--danger); }
 .lib-link-warning:empty, .lib-link-error:empty, .lib-link-missing-hint:empty { display: none; }
+/* «Сайт-источник» — кастомный выпадающий список (app.js:
+   libLinkSitePickerHtml/openLibLinkSiteMenu), не нативный <select>.
+   Оформлен так, чтобы визуально не отличаться от обычного .field select
+   этой же формы: та же рамка/паддинги/шрифт. Пункты списка — ссылки
+   <a target="_blank"> (вкладку сайта открывает браузер сам, см. app.js),
+   поэтому им явно гасим оформление ссылки и добиваем то, что у <button>
+   было по умолчанию: width/text-align/box-sizing. */
+.lib-link-site-picker { position: relative; }
+.lib-link-site-toggle {
+  width: 100%; display: flex; align-items: center; justify-content: space-between; gap: var(--sp-2);
+  padding: 7px 10px;
+  border: 1px solid var(--border-strong); border-radius: var(--r-sm);
+  background: var(--surface-solid); color: var(--text);
+  font-family: inherit; font-size: var(--fs-md); text-align: left; cursor: pointer;
+}
+.lib-link-site-toggle:disabled { color: var(--muted); cursor: default; }
+.lib-link-site-toggle:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.lib-link-site-toggle-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lib-link-site-toggle-caret { color: var(--muted); flex: none; }
+.lib-link-site-list {
+  position: absolute; left: 0; right: 0; top: calc(100% + 4px); z-index: 20;
+  max-height: 240px; overflow-y: auto; margin: 0; padding: 6px; list-style: none;
+  background: var(--surface);
+  -webkit-backdrop-filter: var(--blur);
+  backdrop-filter: var(--blur);
+  border: 1px solid var(--border); border-radius: var(--r-md);
+  box-shadow: var(--shadow-3), inset 0 1px 0 var(--glass-hl);
+}
+.lib-link-site-list[hidden] { display: none; }
+.lib-link-site-item {
+  display: block; width: 100%; box-sizing: border-box; text-align: left;
+  border: none; background: none; text-decoration: none;
+  padding: 7px 9px; border-radius: var(--r-sm);
+  font-family: inherit; font-size: var(--fs-sm); font-weight: 400; line-height: normal;
+  color: var(--text); cursor: pointer;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.lib-link-site-item:hover,
+.lib-link-site-item:focus,
+.lib-link-site-item:visited { color: var(--text); text-decoration: none; }
+.lib-link-site-item:hover { background: var(--surface-2); }
+.lib-link-site-item.active,
+.lib-link-site-item.active:hover,
+.lib-link-site-item.active:visited { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
 /* Инженерные поля сложной фурнитуры (ручки/петли/подъёмники — п.3.2 ТЗ), на
    странице магазина их нет, заполняются пользователем вручную — визуально
    отделены от полей, пришедших с сайта. */
