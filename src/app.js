@@ -14,7 +14,7 @@
 (function () {
 // Версия сборки — показывается во вкладке браузера и в шапке.
 // При выпуске новой версии меняется только эта строка.
-const APP_VERSION = 'v279';
+const APP_VERSION = 'v280';
 
 // Номер версии выводим ПЕРВЫМ делом: если дальше что-то упадёт, по нему сразу
 // видно, какая сборка открыта.
@@ -2390,8 +2390,9 @@ function libRowHtml(entry, opts) {
     </tr>`;
 }
 
-// Подсказка на неактивной кнопке «− Удалить материал» (см. libLeafTableHtml/
-// libApplyRowSelection) — пока в таблице ничего не выделено кликом.
+// Подсказка на неактивной кнопке «− Удалить материал» / «− Удалить позицию»
+// (см. libLeafTableHtml/libHardwareLeafTableHtml/libApplyRowSelection) — пока
+// в таблице ничего не выделено кликом.
 const LIB_ROW_DEL_HINT = 'Сначала выберите строку в таблице';
 
 // Таблица позиций одного листа (или «своих» позиций ветки — см. HDF-8 в
@@ -2637,6 +2638,10 @@ function libHardwareLeafTableHtml(topCode, path, entries, opts) {
   const category = (entries[0] && entries[0].item && entries[0].item.category) || opts.hwCategory || '';
   const items = entries.map((e) => e.item);
   const unit = libHwPriceUnitOf(topCode);
+  // Выделение строки кликом (см. state.libSelectedRow/libApplyRowSelection) —
+  // тот же приём, что и у материалов (см. libRowHtml/libLeafTableHtml), нужен
+  // здесь ради кнопки «− Удалить позицию» ниже.
+  const sel = state.libSelectedRow;
   // tableKey — тот же libNodeKey(topCode, path), что и charsKey у материалов:
   // одновременно открытых таблиц в Библиотеке может быть много, у каждой свой
   // независимый фильтр. Кэш строк пересобирается с нуля на каждый рендер — по
@@ -2663,8 +2668,12 @@ function libHardwareLeafTableHtml(topCode, path, entries, opts) {
     // Ради него и заведена подкатегория «Blum» внутри «Петель» — раньше
     // переносить умели только узлы дерева целиком.
     const moveIc = libRowMoveIcHtml(topCode, group, libEntryKeyOf(e));
+    // data-row-group/data-row-key — тот же атрибут, что и у материалов (см.
+    // libRowHtml), клик по строке выделяет её для кнопки «− Удалить позицию».
+    const isSelected = !!(sel && sel.group === group && sel.key === key);
     return `
-      <tr data-search="${esc(searchText)}" data-row-idx="${i}">
+      <tr data-search="${esc(searchText)}" data-row-group="${esc(group)}" data-row-key="${esc(key)}"
+          data-row-idx="${i}" class="${isSelected ? 'lib-row-selected' : ''}">
         ${libEditCell(group, key, 'name', 'text', it.name, { afterHtml: moveIc, extraClass: 'lib-name-cell' })}
         <td>${libSwatchHtml(group, key, it.image, it.sourceUrl)}</td>
         ${libHwPriceCellHtml(group, key, it, unit)}
@@ -2687,7 +2696,18 @@ function libHardwareLeafTableHtml(topCode, path, entries, opts) {
   const linkAddHtml = category
     ? `<button type="button" class="link-btn lib-add-by-link" data-link-kind="hardware" data-link-hwcat="${esc(category)}" data-link-path="${esc(path.join('::'))}">+ Добавить по ссылке</button>`
     : '';
-  const actionsHtml = (addHtml || linkAddHtml) ? `<div class="lib-leaf-actions">${addHtml}${linkAddHtml}</div>` : '';
+  // «− Удалить позицию» — тот же паттерн, что и «− Удалить материал» у
+  // листовых материалов (см. libLeafTableHtml/LIB_ROW_DEL_HINT): активна,
+  // только если строка ИЗ ЭТОЙ таблицы выделена кликом (state.libSelectedRow,
+  // см. libApplyRowSelectionDom). Само удаление и его ограничения — в
+  // libDeleteSelectedHardwareRow (вызывается из общей libDeleteSelectedRow по
+  // клику на .lib-row-del, см. initLibraryPanel): для «родных» ключей
+  // HARDWARE_PRICES/FASTENER_PRICES удаление вообще заблокировано (их читает
+  // напрямую specification.js), для ручек/подъёмников — разрешено, если
+  // позиция сейчас нигде не используется в проекте.
+  const selectedHere = !!sel && entries.some((e) => e.group === sel.group && e.item.key === sel.key);
+  const delHtml = `<button type="button" class="link-btn lib-row-del" ${selectedHere ? '' : 'disabled'}${selectedHere ? '' : ` title="${esc(LIB_ROW_DEL_HINT)}"`}>− Удалить позицию</button>`;
+  const actionsHtml = (addHtml || linkAddHtml || delHtml) ? `<div class="lib-leaf-actions">${addHtml}${linkAddHtml}${delHtml}</div>` : '';
   // Кнопка-треугольник сортировки/фильтра — на тех же колонках, что и у
   // материалов: «Наименование» и «Цена» (у «Образца» фильтровать нечего).
   // Номер колонки обязан совпадать с позицией <td> в строке и с индексом в
@@ -4847,6 +4867,27 @@ function libFacadeReservedCodes() {
 // названием, удаляется свободно.
 const LIB_EDGE_RESERVED_NAMES = [EDGE_FRONT, EDGE_BACK, EDGE_MID];
 
+// Ключи HARDWARE_PRICES/FASTENER_PRICES, заведённые САМИМ пользователем через
+// «+ Добавить позицию» (libAddHardwareRow) или «+ Добавить по ссылке»
+// (libLinkSaveHardware) — единственные позиции этих двух объектов, которые
+// точно безопасно удалять. specification.js читает большинство ОСТАЛЬНЫХ
+// («родных») ключей напрямую по литеральному имени (hinge, hingeGlass,
+// pushToOpen, leg, legPlastic, plinthClip, shelfSupport, shelfSupportGlass,
+// rod, rodHolder, countertopGlueToCarcass, countertopSealant,
+// countertopCornerTie, countertopStraightTie — из HARDWARE_PRICES; confirmat,
+// minifixBolt, minifixCam, dowel, backPanelScrew, worktopScrew — из
+// FASTENER_PRICES, ВСЕ 6 ключей), и удаление любого из них либо уронит расчёт
+// TypeError'ом, либо молча обнулит строку стоимости. Пара ключей
+// HARDWARE_PRICES (handle, drawerRunnerPair) технически нигде в расчёте не
+// читается, но защищена наравне со всеми остальными — иначе в UI возникла бы
+// необъяснимая пользователю асимметрия «эту встроенную позицию удалить можно,
+// а вот эту нет», и это же одной строкой подстраховывает от изменений
+// расчёта в будущем. См. libDeleteSelectedHardwareRow ниже.
+function libHardwareKeyIsCustom(key) {
+  const s = String(key || '');
+  return s.indexOf('custom_') === 0 || s.indexOf('link_') === 0;
+}
+
 // ---------------------------------------------------------------------------
 // Блокировка удаления материала/фурнитуры, если он назначен хоть где-то в
 // текущем проекте (изменено 2026-09-12 по просьбе пользователя — раньше
@@ -4941,16 +4982,16 @@ function libFindMaterialUsages(group, code) {
 // см. HANDLES/HANDLE_ORDER в catalog.js) и sec.lift (подъёмный механизм,
 // см. LIFTS/LIFT_ORDER) — единственные два источника фурнитуры каталога,
 // которые пользователь выбирает САМ по коду позиции (renderSectionsList:
-// селекты «Ручка»/«Подъёмный механизм» у секции). Остальные позиции
-// фурнитуры (HARDWARE_PRICES/FASTENER_PRICES — петли, направляющие, опоры,
-// крепёж и т.п.) считаются в specification.js по фиксированным литеральным
-// ключам ('hinge', 'leg', 'confirmat' и т.п.), а не по per-модульному выбору
-// пользователя, и панель «Библиотека» пока не даёт их удалить вообще (вкладка
-// «Фурнитура» — только «+ Добавить позицию», без выделения строки и без
-// кнопки «Удалить», см. libraryHardwareBlock) — проверять их использование
-// пока не для чего, добавить сюда будет несложно, если появится кнопка
-// удаления и для них. src — тот же ключ, что и в group 'hw:*' у libFindItem:
-// 'handles' | 'lifts'.
+// селекты «Ручка»/«Подъёмный механизм» у секции). Используется
+// libDeleteSelectedHardwareRow (кнопка «− Удалить позицию» у «Ручек»/
+// «Подъёмников» в Библиотеке, см. libHardwareLeafTableHtml) — там, в отличие
+// от HARDWARE_PRICES/FASTENER_PRICES (петли, направляющие, опоры, крепёж —
+// считаются в specification.js по фиксированным литеральным ключам, а не по
+// per-модульному выбору, поэтому для них удаление вместо проверки
+// использования просто запрещено для «родных» ключей каталога, см.
+// libHardwareKeyIsCustom), удалять можно любую позицию — и родную, и
+// добавленную пользователем — если она сейчас нигде не назначена. src — тот
+// же ключ, что и в group 'hw:*' у libFindItem: 'handles' | 'lifts'.
 function libFindHardwareUsages(src, key) {
   const usages = [];
   if (!key) return usages;
@@ -4960,7 +5001,19 @@ function libFindHardwareUsages(src, key) {
       if (src === 'handles' && sec.handle === key) {
         usages.push({ moduleName: name, part: `ручка — секция ${si + 1}` });
       }
-      if (src === 'lifts' && sec.lift === key) {
+      // engine.js читает sec.lift ТОЛЬКО у секций с откидным фасадом (ветка
+      // `else if (fac === 'liftUp')`, engine.js:3322-3342) — тем же условием
+      // (secEffectiveFacades(sec).some(f => f === 'liftUp')) сам UI решает,
+      // показывать ли секции селект «Подъёмный механизм» вообще (см. ~7661).
+      // У ЛЮБОЙ другой секции (обычная дверь и т.п.) sec.lift не читается
+      // расчётом никогда, даже если там случайно осталось значение — без
+      // этой проверки почти все секции проекта (у которых lift не задан,
+      // см. newSection()) ложно засчитывались бы как «использующие»
+      // 'aventosHK', хотя реально она им не подставляется. sec.lift пуст у
+      // секций, заведённых вручную через панель — реальный дефолт подъёмника
+      // для откидного фасада подставляет engine.js (`sec.lift || 'aventosHK'`),
+      // поэтому фолбэк здесь нужен именно ВНУТРИ ветки liftUp.
+      if (src === 'lifts' && secEffectiveFacades(sec).some((f) => f === 'liftUp') && (sec.lift || 'aventosHK') === key) {
         usages.push({ moduleName: name, part: `подъёмный механизм — секция ${si + 1}` });
       }
     });
@@ -5030,6 +5083,13 @@ function libDeleteSelectedRow() {
   if (!requireLibraryEditAuth()) return;
   const sel = state.libSelectedRow;
   if (!sel) return;
+  // Фурнитура (group 'hw:*') — своя, ощутимо другая логика защиты (см.
+  // libDeleteSelectedHardwareRow ниже), вынесена отдельной функцией, а не
+  // ещё одной веткой этого if/else, потому что критерий блокировки для неё
+  // не «используется ли материал в проекте», а для двух из четырёх
+  // источников (HARDWARE_PRICES/FASTENER_PRICES) — «это не своя, а родная
+  // позиция каталога» (см. libHardwareKeyIsCustom).
+  if (sel.group.indexOf('hw:') === 0) { libDeleteSelectedHardwareRow(sel); return; }
   const cat = window.Modul3D.catalog;
   const lastAlert = () => window.alert('Нельзя удалить последнюю позицию — иначе не из чего будет выбирать.');
   if (sel.group === 'decors') {
@@ -5085,6 +5145,53 @@ function libDeleteSelectedRow() {
     if (usages.length) { showLibUsageModal(arr[idx].name, usages); return; }
     if (!window.confirm(`Удалить столешницу «${arr[idx].name}» из каталога?`)) return;
     arr.splice(idx, 1);
+  } else {
+    return;
+  }
+  state.libSelectedRow = null;
+  recompute();
+  scheduleCatalogSave();
+  renderLibraryPanel();
+}
+
+// «− Удалить позицию» под таблицей листа вкладки «Фурнитура» (см.
+// libHardwareLeafTableHtml) — вызывается из libDeleteSelectedRow для всех
+// групп 'hw:*'. sel.group — 'hw:hw' | 'hw:handles' | 'hw:lifts' |
+// 'hw:fasteners' (см. libHardwareTopEntries), sel.key — item.key
+// соответствующего объекта каталога. Два принципиально разных случая:
+// - hw:hw / hw:fasteners (HARDWARE_PRICES/FASTENER_PRICES) — большинство
+//   ключей читает specification.js напрямую по литеральному имени, поэтому
+//   удалять можно ТОЛЬКО позиции, заведённые самим пользователем (ключ
+//   'custom_'/'link_', см. libHardwareKeyIsCustom) — остальные блокируются
+//   с объяснением, без исключений для орфанных ключей (см. комментарий у
+//   libHardwareKeyIsCustom).
+// - hw:handles / hw:lifts (HANDLES/LIFTS) — выбираются пользователем
+//   поштучно на каждой секции (sec.handle/sec.lift), поэтому удалить можно
+//   любую позицию (и родную, и custom_/link_), если она сейчас нигде не
+//   используется — проверяем через libFindHardwareUsages, как и материалы
+//   через libFindMaterialUsages, и точно так же блокируем удаление целиком
+//   через showLibUsageModal(), без тихой замены.
+function libDeleteSelectedHardwareRow(sel) {
+  const cat = window.Modul3D.catalog;
+  const src = sel.group.slice(3);
+  if (src === 'hw' || src === 'fasteners') {
+    const obj = src === 'hw' ? cat.HARDWARE_PRICES : cat.FASTENER_PRICES;
+    const it = obj[sel.key];
+    if (!it) return;
+    if (!libHardwareKeyIsCustom(sel.key)) {
+      window.alert(`«${it.name}» — базовая позиция для расчёта себестоимости, её нельзя удалить.`);
+      return;
+    }
+    if (!window.confirm(`Удалить позицию «${it.name}» из каталога?`)) return;
+    delete obj[sel.key];
+  } else if (src === 'handles' || src === 'lifts') {
+    const obj = src === 'handles' ? cat.HANDLES : cat.LIFTS;
+    const it = obj[sel.key];
+    if (!it) return;
+    const usages = libFindHardwareUsages(src, sel.key);
+    if (usages.length) { showLibUsageModal(it.name, usages); return; }
+    if (!window.confirm(`Удалить позицию «${it.name}» из каталога?`)) return;
+    delete obj[sel.key];
   } else {
     return;
   }
@@ -5620,9 +5727,10 @@ function initLibraryPanel() {
     if (linkSaveBtn) { if (!linkSaveBtn.disabled) libLinkSaveSubmit(panel); return; }
     const linkRefreshBtn = e.target.closest('.lib-link-refresh-btn');
     if (linkRefreshBtn) { if (!linkRefreshBtn.disabled) refreshCatalogLinkedPrices(); return; }
-    // «− Удалить материал» под таблицей листа (см. libLeafTableHtml) —
-    // работает только с уже выделенной кликом по строке позицией (см. ветку
-    // ниже), кнопка неактивна (disabled), пока ничего не выбрано.
+    // «− Удалить материал» / «− Удалить позицию» под таблицей листа (см.
+    // libLeafTableHtml/libHardwareLeafTableHtml) — работает только с уже
+    // выделенной кликом по строке позицией (см. ветку ниже), кнопка
+    // неактивна (disabled), пока ничего не выбрано.
     const delRowBtn = e.target.closest('.lib-row-del');
     if (delRowBtn) { libDeleteSelectedRow(); return; }
     const swatch = e.target.closest('.lib-swatch');
