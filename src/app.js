@@ -14,7 +14,7 @@
 (function () {
 // Версия сборки — показывается во вкладке браузера и в шапке.
 // При выпуске новой версии меняется только эта строка.
-const APP_VERSION = 'v280';
+const APP_VERSION = 'v282';
 
 // Номер версии выводим ПЕРВЫМ делом: если дальше что-то упадёт, по нему сразу
 // видно, какая сборка открыта.
@@ -9641,6 +9641,21 @@ function isLibraryMaterialsPanelOpen() {
     && (state.libraryTab === 'materials' || state.libraryTab === 'facades' || state.libraryTab === 'hardware');
 }
 
+// Статус последней фоновой попытки сохранить правки каталога — крутится
+// рядом с вкладками панели «Библиотека» (#librarySaveStatus в index.html,
+// вне #libraryPanel — не пропадает при полной перерисовке содержимого
+// вкладки, см. renderLibraryPanel). Тот же паттерн, что setAuthStatus/
+// #authStatus, но для отдельного индикатора: пользователь правил каталог
+// ночью, выключил компьютер раньше, чем сработал debounce — правка тихо
+// потерялась и это заметили только на следующий день. Теперь у пользователя
+// есть на что посмотреть перед тем как закрыть вкладку.
+function setLibrarySaveStatus(message, kind) {
+  const el = document.getElementById('librarySaveStatus');
+  if (!el) return;
+  el.textContent = message || '';
+  el.className = 'sketch-status lib-save-status' + (kind ? ` ${kind}` : '');
+}
+
 // Фоновое сохранение правок каталога материалов на сервере (см.
 // libSaveEdit/libAddRow/libRenameNode/libAddChildNode/libDeleteNode ниже —
 // единственные точки, где реально меняются данные каталога). Задержка нужна,
@@ -9648,12 +9663,25 @@ function isLibraryMaterialsPanelOpen() {
 // а один раз после того, как пользователь остановился. Гость (без токена)
 // ничего не сохраняет — те же правки просто живут в памяти вкладки до
 // перезагрузки, как и раньше.
+//
+// Задержка снижена с 1500 до 700мс (2026-09-17) — уменьшает окно, в котором
+// правка ещё не отправлена и может потеряться при мгновенном закрытии
+// вкладки (см. flushCatalogSaveOnUnload ниже — доп. страховка при pagehide,
+// но не гарантия для больших снимков с фото, см. её комментарий). Совсем
+// убирать debounce нельзя — иначе запрос уйдёт на каждое нажатие клавиши в
+// инлайн-редактировании.
+const CATALOG_SAVE_DEBOUNCE_MS = 700;
 let catalogSaveTimer = null;
 function scheduleCatalogSave() {
   if (!getAuthToken()) return;
   clearTimeout(catalogSaveTimer);
+  setLibrarySaveStatus('Сохранение…', '');
   catalogSaveTimer = setTimeout(async () => {
-    // Перепроверяем токен прямо перед отправкой — за 1.5с ожидания
+    // Таймер сработал — дальше он не «ожидающий», это важно для
+    // flushCatalogSaveOnUnload (проверяет catalogSaveTimer, чтобы понять,
+    // есть ли несохранённая правка, которую надо досылать принудительно).
+    catalogSaveTimer = null;
+    // Перепроверяем токен прямо перед отправкой — за время ожидания
     // пользователь мог выйти (или на этой же вкладке войти другим
     // аккаунтом), и слать чужой/пустой токен с устаревшим снимком нельзя.
     const tokenNow = getAuthToken();
@@ -9665,12 +9693,65 @@ function scheduleCatalogSave() {
         headers: { authorization: 'Bearer ' + tokenNow, 'content-type': 'application/json' },
         body: JSON.stringify({ data: blob }),
       });
-      if (!res.ok) console.error('[catalogOverrides] не удалось сохранить:', await res.text().catch(() => ''));
+      if (!res.ok) {
+        console.error('[catalogOverrides] не удалось сохранить:', await res.text().catch(() => ''));
+        setLibrarySaveStatus('Не удалось сохранить — проверьте подключение', 'error');
+        return;
+      }
+      setLibrarySaveStatus('Сохранено', 'ok');
     } catch (err) {
       console.error('[catalogOverrides] сеть недоступна, правки не сохранены:', err.message);
+      setLibrarySaveStatus('Не удалось сохранить — проверьте подключение', 'error');
     }
-  }, 1500);
+  }, CATALOG_SAVE_DEBOUNCE_MS);
 }
+
+// Браузеры режут тело keepalive-запроса примерно на 64KB (Chrome) — снимок
+// каталога может быть заметно больше из-за base64 data URL фото материалов
+// (см. лимит express.json({ limit: '8mb' }) на самом роуте — он именно из-за
+// этого больше стандартного). Раз гарантии для больших снимков нет, отправку
+// в flushCatalogSaveOnUnload ниже даже не пробуем — заведомо не пройдёт.
+const CATALOG_SAVE_KEEPALIVE_LIMIT = 60000; // байт, с запасом от ~64KB лимита
+
+// Принудительная досылка ожидающей правки каталога при закрытии/уходе
+// вкладки в фон — иначе она ждёт CATALOG_SAVE_DEBOUNCE_MS и, если вкладку
+// закрыли раньше, не уходит никогда (см. комментарий у scheduleCatalogSave
+// и историю бага: правки ночью пропали без следа, узнали только утром).
+// pagehide, а не beforeunload — надёжнее для мобильных/сворачивания в фон,
+// и не показывает пользователю лишний диалог подтверждения. fetch с
+// keepalive:true, а не navigator.sendBeacon — sendBeacon не умеет
+// произвольные заголовки, а серверный роут (requireAuth, см.
+// server/src/middleware/auth.js) принимает токен ТОЛЬКО в заголовке
+// Authorization, не в теле — значит sendBeacon здесь не подходит без правок
+// сервера, а трогать сервер не в этой задаче. keepalive:true — тот же fetch,
+// но переживает выгрузку страницы и поддерживает обычные заголовки.
+//
+// Это best-effort, не гарантия: если снимок больше ~60KB (см.
+// CATALOG_SAVE_KEEPALIVE_LIMIT), браузер запрос всё равно обрежет/отклонит —
+// тогда основная защита от потери данных — видимый статус в панели
+// «Библиотека» (setLibrarySaveStatus), по которому пользователь должен
+// дождаться «Сохранено» перед закрытием вкладки, а не эта подстраховка.
+function flushCatalogSaveOnUnload() {
+  if (!catalogSaveTimer) return; // нет ожидающей правки — досылать нечего
+  clearTimeout(catalogSaveTimer);
+  catalogSaveTimer = null;
+  const token = getAuthToken();
+  if (!token) return;
+  try {
+    const blob = snapshotCatalogCollections();
+    const body = JSON.stringify({ data: blob });
+    if (new Blob([body]).size > CATALOG_SAVE_KEEPALIVE_LIMIT) return;
+    fetch(`${AUTH_API_BASE}/catalog-overrides`, {
+      method: 'PUT',
+      headers: { authorization: 'Bearer ' + token, 'content-type': 'application/json' },
+      body,
+      keepalive: true,
+    }).catch(() => {});
+  } catch (err) {
+    // Страница уже закрывается — здесь больше нечего сделать.
+  }
+}
+window.addEventListener('pagehide', flushCatalogSaveOnUnload);
 
 // Подгрузка правок каталога, сохранённых на сервере — вызывается сразу
 // после успешного fetchAccount() (пользователь точно залогинен). Сетевые
@@ -10064,6 +10145,8 @@ function initAccountPanel() {
       // сервер устаревший снимок не от того пользователя (см.
       // scheduleCatalogSave выше).
       clearTimeout(catalogSaveTimer);
+      catalogSaveTimer = null;
+      setLibrarySaveStatus('', '');
       setAuthToken(null);
       authAccount = null;
       emailInput.value = '';
