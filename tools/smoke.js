@@ -1470,6 +1470,20 @@ for (const el of document.querySelectorAll('.tab-btn')) {
         const r = topRowBy(code);
         return r ? Number(String(r.attrs.style || '').replace(/[^0-9]/g, '')) : -1;
       };
+      // Вид строки раздела: заголовочный (класс lib-tree-top — крупный жирный
+      // акцентный текст) или обычный, как у подкатегории. С 2026-09-18
+      // вложенный раздел заголовочного вида не имеет (см. libTreeRowHtml).
+      const topIsHeading = (code) => {
+        const r = topRowBy(code);
+        return !!r && String(r.attrs.class || r.className || '').split(/\s+/).indexOf('lib-tree-top') >= 0;
+      };
+      // Отступ прямой подкатегории раздела — с ним должен совпадать отступ
+      // вложенного в этот раздел другого раздела (оба стоят на одном уровне).
+      const subPad = (code) => {
+        const r = treeRows().filter((x) => (x.dataset.top || '') === code
+          && x.dataset.kind !== 'top' && (x.dataset.path || '').indexOf('::') < 0 && (x.dataset.path || ''))[0];
+        return r ? Number(String(r.attrs.style || '').replace(/[^0-9]/g, '')) : -1;
+      };
       const nestedKey = String(movedTop).indexOf('hw:') === 0 ? movedTop.slice(3) : '';
       const itemsBefore = nestedKey ? hwItemsWith(nestedKey) : 0;
       // Вкладываем в категорию, у которой ЕСТЬ листья: только на такой можно
@@ -1488,6 +1502,15 @@ for (const el of document.querySelectorAll('.tab-btn')) {
         }
         if (topPos(movedTop) < topPos(hostTop)) {
           fails.push('Библиотека: вложенный раздел рисуется не внутри родителя');
+        }
+        // Вложенный раздел стоит в одном ряду с подкатегориями родителя и
+        // читается как одна из них — значит и выглядит как они: обычный текст
+        // (без .lib-tree-top) и тот же отступ слева (2026-09-18).
+        if (topIsHeading(movedTop)) {
+          fails.push('Библиотека: вложенный раздел сохранил вид заголовка (крупный жирный текст)');
+        }
+        if (subPad(hostTop) >= 0 && topPad(movedTop) !== subPad(hostTop)) {
+          fails.push('Библиотека: вложенный раздел стоит не в один ряд с подкатегориями родителя');
         }
         if (nestedKey && hwItemsWith(nestedKey) !== itemsBefore) {
           fails.push('Библиотека: вложение раздела изменило категорию его позиций (должно менять только раскладку)');
@@ -1519,6 +1542,9 @@ for (const el of document.querySelectorAll('.tab-btn')) {
         dragTopOnto(movedTop, hostTop, 0.3, 'вынести раздел обратно наверх');
         if (topPad(movedTop) !== 0) {
           fails.push('Библиотека: раздел не вынесся обратно на верхний уровень');
+        }
+        if (!topIsHeading(movedTop)) {
+          fails.push('Библиотека: вынесенный обратно наверх раздел не вернул вид заголовка');
         }
       }
     }

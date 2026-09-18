@@ -14,7 +14,7 @@
 (function () {
 // Версия сборки — показывается во вкладке браузера и в шапке.
 // При выпуске новой версии меняется только эта строка.
-const APP_VERSION = 'v286';
+const APP_VERSION = 'v287';
 
 // Номер версии выводим ПЕРВЫМ делом: если дальше что-то упадёт, по нему сразу
 // видно, какая сборка открыта.
@@ -3114,6 +3114,16 @@ const LIB_TREE_INDENT = 16;
 function libTreeRowHtml(topCode, path, name, kind, collapsed, depthOffset) {
   const depth = path.length + (depthOffset || 0);
   const isTop = kind === 'top';
+  // Заголовочный вид (крупный жирный акцентный текст, класс .lib-tree-top) —
+  // только у раздела, который стоит НА ВЕРХНЕМ УРОВНЕ вкладки (depthOffset 0).
+  // Стоит его вложить в другой раздел — и он оказывается в одном ряду с
+  // подкатегориями родителя («GTV», «REJS»), с тем же отступом слева, и по
+  // смыслу читается как одна из них; заголовок раздела посреди списка
+  // подкатегорий выглядел бы чужеродно (пользователь попросил 2026-09-18).
+  // Меняется ТОЛЬКО оформление строки: data-kind="top" и все значки ✎/+/⇄/×
+  // остаются прежними, поэтому вынос обратно наверх (тем же жестом) вернёт
+  // и заголовочный вид.
+  const isTopHeading = isTop && !(depthOffset || 0);
   const isLeaf = kind === 'leaf';
   const isCountertop = topCode === 'countertop';
   const isHardware = topCode.indexOf('hw:') === 0;
@@ -3129,7 +3139,7 @@ function libTreeRowHtml(topCode, path, name, kind, collapsed, depthOffset) {
   const addIc = canAdd ? '<span class="lib-tree-ic" data-tree-add="1" title="Добавить категорию">+</span>' : '';
   const moveIc = canMove ? '<span class="lib-tree-ic" data-tree-move="1" title="Переместить">⇄</span>' : '';
   const delIc = canDelete ? '<span class="lib-tree-ic" data-tree-del="1" title="Удалить">×</span>' : '';
-  return `<div class="lib-tree-row${isTop ? ' lib-tree-top' : ''}" style="padding-left:${depth * LIB_TREE_INDENT}px"
+  return `<div class="lib-tree-row${isTopHeading ? ' lib-tree-top' : ''}" style="padding-left:${depth * LIB_TREE_INDENT}px"
       data-tree-node="1" data-kind="${kind}" data-top="${esc(topCode)}" data-path="${esc(path.join('::'))}">
     ${arrowHtml}<span class="lib-tree-name" data-tree-label="1">${esc(name)}</span><span class="lib-tree-actions">${renameIc}${addIc}${moveIc}${delIc}</span>
   </div>`;
@@ -6155,10 +6165,15 @@ function libTreeDragBegin() {
   // Призрак — копия строки под курсором/пальцем: «что именно я тащу».
   // Значки ✎/+/⇄/× в него не переносим — нажать их всё равно нельзя (у
   // призрака отключены события мыши), а взгляд они отвлекают.
+  // Заголовочный вид берём с самой строки-источника, а не из libDrag.isTop:
+  // раздел, вложенный в другой раздел, рисуется как обычная подкатегория (см.
+  // libTreeRowHtml), хотя kind у него по-прежнему 'top' — призрак обязан
+  // выглядеть ровно так же, как то, что подняли с экрана.
+  const ghostIsHeading = libDrag.row.classList && libDrag.row.classList.contains('lib-tree-top');
   const ghost = document.createElement('div');
   ghost.className = 'lib-drag-ghost';
   ghost.style.width = rect.width + 'px';
-  ghost.innerHTML = '<div class="lib-tree-row' + (libDrag.isTop ? ' lib-tree-top' : '') + '">'
+  ghost.innerHTML = '<div class="lib-tree-row' + (ghostIsHeading ? ' lib-tree-top' : '') + '">'
     + '<span class="lib-tree-arrow"></span>'
     + '<span class="lib-tree-name">' + esc(libDrag.label) + '</span></div>';
   document.body.appendChild(ghost);
