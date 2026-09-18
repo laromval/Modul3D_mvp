@@ -14,7 +14,7 @@
 (function () {
 // Версия сборки — показывается во вкладке браузера и в шапке.
 // При выпуске новой версии меняется только эта строка.
-const APP_VERSION = 'v282';
+const APP_VERSION = 'v283';
 
 // Номер версии выводим ПЕРВЫМ делом: если дальше что-то упадёт, по нему сразу
 // видно, какая сборка открыта.
@@ -9672,6 +9672,17 @@ function setLibrarySaveStatus(message, kind) {
 // инлайн-редактировании.
 const CATALOG_SAVE_DEBOUNCE_MS = 700;
 let catalogSaveTimer = null;
+// true между моментом, когда обычный (не keepalive) fetch запущен, и
+// моментом, когда он завершился (успешно, с ошибкой или исключением) —
+// отдельно от catalogSaveTimer, который означает только «есть правка,
+// ещё ждущая debounce». Без этого флага было узкое окно гонки: таймер
+// уже сработал и обнулил catalogSaveTimer, а fetch ещё летит к серверу —
+// если вкладку закрыть именно в этот момент, flushCatalogSaveOnUnload
+// видел catalogSaveTimer === null, считал, что досылать нечего, и правка
+// терялась вместе с оборванным без keepalive запросом (см. баг 2026-09-18:
+// создали категорию в Библиотеке → Фурнитура, тут же закрыли — категория
+// пропала).
+let catalogSaveInFlight = false;
 function scheduleCatalogSave() {
   if (!getAuthToken()) return;
   clearTimeout(catalogSaveTimer);
@@ -9686,6 +9697,7 @@ function scheduleCatalogSave() {
     // аккаунтом), и слать чужой/пустой токен с устаревшим снимком нельзя.
     const tokenNow = getAuthToken();
     if (!tokenNow) return;
+    catalogSaveInFlight = true;
     try {
       const blob = snapshotCatalogCollections();
       const res = await fetch(`${AUTH_API_BASE}/catalog-overrides`, {
@@ -9702,6 +9714,8 @@ function scheduleCatalogSave() {
     } catch (err) {
       console.error('[catalogOverrides] сеть недоступна, правки не сохранены:', err.message);
       setLibrarySaveStatus('Не удалось сохранить — проверьте подключение', 'error');
+    } finally {
+      catalogSaveInFlight = false;
     }
   }, CATALOG_SAVE_DEBOUNCE_MS);
 }
@@ -9732,7 +9746,15 @@ const CATALOG_SAVE_KEEPALIVE_LIMIT = 60000; // байт, с запасом от 
 // «Библиотека» (setLibrarySaveStatus), по которому пользователь должен
 // дождаться «Сохранено» перед закрытием вкладки, а не эта подстраховка.
 function flushCatalogSaveOnUnload() {
-  if (!catalogSaveTimer) return; // нет ожидающей правки — досылать нечего
+  // Досылаем принудительно, если ЛИБО правка ещё ждёт debounce
+  // (catalogSaveTimer), ЛИБО обычное (не keepalive) сохранение уже в
+  // процессе прямо сейчас (catalogSaveInFlight) — такой fetch браузер
+  // может оборвать при закрытии вкладки, не долетев до сервера. Снимок
+  // ниже (snapshotCatalogCollections) в любом случае берётся заново из
+  // актуального состояния каталога, так что повторная отправка поверх
+  // уже долетевшего обычного запроса не страшна — это upsert одним и тем
+  // же полным снимком, а не инкремент.
+  if (!catalogSaveTimer && !catalogSaveInFlight) return; // нет ожидающей и нет летящей правки — досылать нечего
   clearTimeout(catalogSaveTimer);
   catalogSaveTimer = null;
   const token = getAuthToken();
