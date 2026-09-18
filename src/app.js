@@ -14,7 +14,7 @@
 (function () {
 // Версия сборки — показывается во вкладке браузера и в шапке.
 // При выпуске новой версии меняется только эта строка.
-const APP_VERSION = 'v285';
+const APP_VERSION = 'v286';
 
 // Номер версии выводим ПЕРВЫМ делом: если дальше что-то упадёт, по нему сразу
 // видно, какая сборка открыта.
@@ -10864,7 +10864,22 @@ let catalogSaveTimer = null;
 // создали категорию в Библиотеке → Фурнитура, тут же закрыли — категория
 // пропала).
 let catalogSaveInFlight = false;
+// true, как только стало ясно, что больше нечего (или не получилось)
+// подгрузить с сервера: гость (нет токена) — сразу; залогиненный —
+// после того как loadCatalogOverrides() отработала, успешно или с
+// ошибкой (см. её finally). Пока false, scheduleCatalogSave() ничего не
+// делает: не ставит debounce-таймер, не трогает статус. Без этого флага
+// была гонка — первая отрисовка панели «Библиотека» сразу после загрузки
+// страницы (ДО того как успел прийти GET /catalog-overrides) видит ещё
+// заводские, не восстановленные данные, находит в них «несоответствие»
+// (см. libNormalizeOwnEntries в renderLibraryPanel) и планирует сохранение;
+// если сервер (Railway) отвечает на GET дольше 700мс (CATALOG_SAVE_
+// DEBOUNCE_MS), таймер срабатывает раньше и затирает на сервере реальные
+// правки пользователя заводским снимком — тот пропадал после обычного F5
+// (баг 2026-09-18).
+let initialCatalogLoadSettled = false;
 function scheduleCatalogSave() {
+  if (!initialCatalogLoadSettled) return;
   if (!getAuthToken()) return;
   clearTimeout(catalogSaveTimer);
   setLibrarySaveStatus('Сохранение…', '');
@@ -10970,11 +10985,27 @@ async function loadCatalogOverrides(token) {
     const payload = await res.json().catch(() => ({}));
     if (!payload || !payload.data) return;
     restoreCatalogFrom(payload.data);
+    // Реальные данные с сервера уже применены к state — с этого момента
+    // сохранение можно разрешать. Выставляем ДО повторной отрисовки панели
+    // «Библиотека» ниже: она может снова вызвать libNormalizeOwnEntries →
+    // scheduleCatalogSave() (см. её комментарий в renderLibraryPanel), и на
+    // этот раз это уже сохранение поверх настоящих восстановленных данных
+    // пользователя, а не заводских — его глотать нельзя, в отличие от
+    // самой первой (см. initialCatalogLoadSettled выше).
+    initialCatalogLoadSettled = true;
     if (isLibraryMaterialsPanelOpen()) renderLibraryPanel();
     recompute();
     renderParamsPanel();
   } catch (err) {
     console.error('[catalogOverrides] сеть недоступна, правки не загружены:', err.message);
+  } finally {
+    // Страховка для остальных выходов (!res.ok, нет payload.data, сетевая
+    // ошибка выше) — там реальных данных не было и ждать больше нечего,
+    // сохранение нужно разблокировать в любом случае, иначе одна неудачная
+    // попытка загрузки навсегда запрещает сохранять правки до перезагрузки
+    // страницы. Если флаг уже true (успешный путь выше) — повторное
+    // присваивание безвредно.
+    initialCatalogLoadSettled = true;
   }
 }
 
@@ -11096,16 +11127,21 @@ function hidePlansPanel() {
 // при загрузке страницы (если токен уже есть) и сразу после входа/регистрации.
 async function fetchAccount() {
   const token = getAuthToken();
-  if (!token) { authAccount = null; renderAccountUI(); return; }
+  // Гость — с сервера точно нечего ждать, сохранение (заблокированное
+  // initialCatalogLoadSettled, см. scheduleCatalogSave) можно разблокировать
+  // сразу же (хотя для гостя оно и так не уйдёт дальше — нет токена).
+  if (!token) { authAccount = null; initialCatalogLoadSettled = true; renderAccountUI(); return; }
   try {
     const res = await fetch(`${AUTH_API_BASE}/auth/me`, {
       headers: { authorization: `Bearer ${token}` },
     });
     if (res.status === 401) {
       // Токен истёк/невалиден — тихо разлогиниваем, без всплывающей ошибки
-      // при обычной загрузке страницы.
+      // при обычной загрузке страницы. loadCatalogOverrides ниже не
+      // вызовется, поэтому флаг нужно выставить здесь же.
       setAuthToken(null);
       authAccount = null;
+      initialCatalogLoadSettled = true;
       renderAccountUI();
       return;
     }
@@ -11113,11 +11149,17 @@ async function fetchAccount() {
     authAccount = await res.json();
     // Пользователь точно залогинен — подгружаем правки каталога материалов,
     // сохранённые с прошлого раза (см. loadCatalogOverrides выше); у неё
-    // свой try/catch, ошибка сети сюда не всплывёт.
+    // свой try/catch/finally, ошибка сети сюда не всплывёт, и именно она
+    // сама выставляет initialCatalogLoadSettled по итогу (успешному или
+    // нет) — здесь дублировать не нужно.
     await loadCatalogOverrides(token);
   } catch (err) {
     console.error('Не удалось получить статус аккаунта:', err);
     authAccount = null;
+    // /auth/me не дошёл до loadCatalogOverrides (сеть недоступна, ответ не
+    // ok, битый JSON) — она не вызвалась и не выставит флаг сама, делаем
+    // это здесь, иначе сохранение останется заблокированным навсегда.
+    initialCatalogLoadSettled = true;
   }
   renderAccountUI();
 }
