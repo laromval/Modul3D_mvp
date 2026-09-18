@@ -83,8 +83,12 @@ class El {
     return list.length;
   }
   click() { return this.dispatch('click'); }
-  appendChild(c) { this.children.push(c); if (c && c.id) registry.set(c.id, c); return c; }
-  removeChild(c) { this.children = this.children.filter((x) => x !== c); }
+  // Запоминаем родителя: без него el.remove() ниже убирал элемент только из
+  // registry, а в children родителя он оставался навсегда — проверить, что
+  // приложение убрало за собой временный элемент (например, «призрак»
+  // перетаскивания), было нечем.
+  appendChild(c) { this.children.push(c); if (c) c._parent = this; if (c && c.id) registry.set(c.id, c); return c; }
+  removeChild(c) { this.children = this.children.filter((x) => x !== c); if (c) c._parent = null; }
   contains() { return false; }
   getContext() { return null; }
   getBoundingClientRect() { return { left: 0, top: 0, width: 900, height: 600, right: 900, bottom: 600 }; }
@@ -115,7 +119,11 @@ class El {
   // «Библиотека» ниже. Подъём к предку вернёт null, а не найдёт его.
   closest(sel) { return matchesSel(this, sel) ? this : null; }
   focus() {} blur() {} scrollIntoView() {}
-  remove() { if (this.id) registry.delete(this.id); }
+  remove() {
+    if (this._parent) this._parent.children = this._parent.children.filter((x) => x !== this);
+    this._parent = null;
+    if (this.id) registry.delete(this.id);
+  }
   setAttribute(k, v) { this.attrs[k] = v; }
   getAttribute(k) { return this.attrs[k]; }
   insertAdjacentHTML(_pos, html) { this._html += html; harvest(html); }
@@ -1185,6 +1193,19 @@ for (const el of document.querySelectorAll('.tab-btn')) {
       .filter((r) => r.dataset.kind === 'leaf' && String(r.dataset.top || '').indexOf('hw:') === 0)[0];
     if (!leaf) fails.push('Фурнитура: в дереве нет ни одного листа с позициями');
     else step('Фурнитура: таблица листа не открывается', () => lib.dispatch('click', { target: leaf }));
+    // Перетаскивание узлов дерева (app.js: libTreeDragPointerDown и соседние,
+    // v281). Само перетаскивание в прогоне не воспроизвести — у стенда нет ни
+    // координат указателя, ни elementFromPoint, — но вход в него проверить
+    // надо: pointerdown на строке дерева должен лишь ЗАПОМНИТЬ кандидата
+    // (перетаскивание начинается позже — по сдвигу мыши или удержанию
+    // пальцем), а pointerup без сдвига — снять его, ничего не меняя. Ровно так
+    // выглядит обычный клик по строке, и если обработчик сломан (опечатка в
+    // имени функции, обращение к несуществующему полю), дерево перестанет
+    // открываться вообще.
+    if (leaf) {
+      step('Дерево: pointerdown на строке узла', () => lib.dispatch('pointerdown', { target: leaf }));
+      step('Дерево: pointerup после pointerdown', () => document.dispatch('pointerup', {}));
+    }
 
     const SEL_RE = /<select class="lib-price-unit-select lib-hw-price-unit-select"[^>]*>[\s\S]*?<\/select>/g;
     const parseSel = (s) => ({
@@ -1230,6 +1251,347 @@ for (const el of document.querySelectorAll('.tab-btn')) {
         }
       }
     }
+  }
+}
+
+// Перетаскивание подкатегории на новое место среди соседей (app.js v281:
+// libTreeDragPointerDown → libTreeDragBegin → libDragResolveTarget →
+// libDragApplyDrop → libPlaceChildAt/state.libNodeOrder). Проверяем самое
+// ценное и самое хрупкое — что порядок реально меняется и переживает
+// перерисовку панели.
+// Стенду для этого нужны две вещи, которых у него нет по умолчанию:
+// elementFromPoint (какая строка сейчас под указателем) и токен входа
+// (правка каталога гостям запрещена, см. requireLibraryEditAuth) — оба
+// подменяем только на время этой проверки и возвращаем как было.
+{
+  const lib = document.getElementById('libraryPanel');
+  const step = (name, fn) => {
+    try { fn(); return true; } catch (e) { fails.push(name + ': ' + e.message); return false; }
+  };
+  const treeRows = () => (lib ? lib.querySelectorAll('[data-tree-node]') : []);
+  // Ищем двух соседей одного родителя: перетаскиваем первого под второго.
+  // «Без бренда» в пару не берём — его порядок всё равно прибит к концу
+  // списка (см. libChildSegments), перетаскивание такую цель не предлагает.
+  const byParent = {};
+  treeRows().forEach((r) => {
+    const kind = r.dataset.kind;
+    if (kind !== 'leaf' && kind !== 'branch') return;
+    const pathStr = r.dataset.path || '';
+    if (!pathStr) return;
+    const segs = pathStr.split('::');
+    if (segs[segs.length - 1].toLowerCase() === 'без бренда') return;
+    const key = (r.dataset.top || '') + '|' + segs.slice(0, -1).join('::');
+    (byParent[key] = byParent[key] || []).push(r);
+  });
+  const pair = Object.keys(byParent).map((k) => byParent[k]).filter((l) => l.length >= 2)[0];
+  if (!pair) fails.push('Дерево: не нашлось двух соседних подкатегорий — порядок проверить не на чем');
+  else {
+    // Двигаем ВТОРОГО соседа относительно первого: так любой из двух бросков
+    // обязан реально поменять порядок, и проверка не проходит «сама собой».
+    const movedPath = pair[1].dataset.path;
+    const refPath = pair[0].dataset.path;
+    const savedGetItem = sandbox.localStorage.getItem;
+    sandbox.localStorage.getItem = () => 'smoke-token';   // гостю правку каталога не дают
+    // Строка стенда по умолчанию «высотой» 600 px — целиться в такую
+    // бессмысленно: зоны броска считаются от РЕАЛЬНОЙ высоты строки (см.
+    // libDragRowZone в app.js), а на экране это ~28 px. Подставляем именно
+    // её, чтобы прогон бил туда же, куда рука, и краснел, если зоны снова
+    // станут неприцеливаемыми (на четвертях от 28 px на «встать рядом»
+    // приходилось по 7 px, и мышью в них было не попасть — v281).
+    const ROW_TOP = 100;
+    const ROW_H = 28;
+    const rowRect = { left: 0, top: ROW_TOP, right: 900, bottom: ROW_TOP + ROW_H, width: 900, height: ROW_H };
+    const rowByPath = (p) => treeRows().filter((r) => (r.dataset.path || '') === p)[0];
+    // Одно перетаскивание: тянем узел fromPath на строку toPath и отпускаем
+    // на высоте ratio (доля высоты строки: 0.2 — верхняя зона «встать
+    // ПЕРЕД», 0.8 — нижняя «встать ПОСЛЕ», середина — «вложить внутрь»).
+    const dragOnto = (fromPath, toPath, ratio, label) => {
+      const from = rowByPath(fromPath);
+      const to = rowByPath(toPath);
+      if (!from || !to) { fails.push('Дерево: не найдена строка для перетаскивания (' + label + ')'); return; }
+      from.getBoundingClientRect = () => rowRect;
+      to.getBoundingClientRect = () => rowRect;
+      document.elementFromPoint = () => to;
+      const y = ROW_TOP + Math.round(ROW_H * ratio);
+      step('Дерево: pointerdown (' + label + ')', () => lib.dispatch('pointerdown', { target: from, clientX: 10, clientY: ROW_TOP + 14 }));
+      step('Дерево: pointermove (' + label + ')', () => document.dispatch('pointermove', { clientX: 40, clientY: y }));
+      step('Дерево: бросок (' + label + ')', () => document.dispatch('pointerup', { clientX: 40, clientY: y }));
+      delete document.elementFromPoint;
+    };
+    const posOf = (p) => treeRows().map((r) => r.dataset.path || '').indexOf(p);
+    // Целимся в 30 % и 70 % высоты строки — это заведомо внутри нынешних
+    // краевых зон (40 %), но заведомо ВНЕ прежних четвертей: если зоны
+    // когда-нибудь снова ужмут до 25 %, обе проверки покраснеют, а не
+    // продолжат проходить на границе. И это честная точка прицеливания: на
+    // строке 28 px это 8 px от края, попасть мышью можно.
+    dragOnto(movedPath, refPath, 0.3, 'встать перед соседом');
+    if (posOf(movedPath) < 0 || posOf(refPath) < 0) {
+      fails.push('Дерево: бросок в верхнюю зону строки увёл узел из списка (вложил внутрь вместо перестановки?)');
+    } else if (posOf(movedPath) > posOf(refPath)) {
+      fails.push('Дерево: бросок в верхнюю зону строки не поставил узел перед соседом');
+    }
+    // 70 % высоты той же строки — НИЖНЯЯ зона: тот же узел уезжает ПОСЛЕ
+    // соседа. Вместе с проверкой выше это значит, что обе краевые зоны
+    // реально достижимы на строке обычной высоты.
+    dragOnto(movedPath, refPath, 0.7, 'встать после соседа');
+    if (posOf(movedPath) < 0 || posOf(refPath) < 0) {
+      fails.push('Дерево: бросок в нижнюю зону строки увёл узел из списка (вложил внутрь вместо перестановки?)');
+    } else if (posOf(movedPath) < posOf(refPath)) {
+      fails.push('Дерево: бросок в нижнюю зону строки не поставил узел после соседа');
+    }
+    // УДЕРЖАНИЕ БЕЗ ДВИЖЕНИЯ (v281): зажал строку, подождал — и она сразу
+    // «взята»: под курсором «призрак», источник приглушён. Раньше визуал
+    // появлялся только с первым pointermove, и пользователь не понимал, когда
+    // уже можно вести. Прогон синхронный, ждать реальные 400 мс нечем —
+    // подменяем setTimeout в песочнице, ловим отложенный старт и дёргаем его
+    // сами; заодно это проверяет, что таймер вообще ставится (иначе мышью
+    // жест начинался бы только от смещения).
+    const ghostCount = () => document.body.children
+      .filter((c) => String(c.className || '').indexOf('lib-drag-ghost') >= 0).length;
+    const holdRow = rowByPath(movedPath);
+    if (!holdRow) fails.push('Дерево: нет строки для проверки удержания');
+    else {
+      // Холостой клик «в пустое место» панели: он снимает подавление клика,
+      // оставшееся от предыдущих бросков в этом же прогоне (флаг гасится
+      // первым же кликом, см. libDragClickGuard). Без него проверка ниже
+      // «клик после удержания ничего не сделал» прошла бы по чужой причине —
+      // из-за старого флага, а не из-за нового жеста.
+      lib.dispatch('click', { target: lib });
+      holdRow.getBoundingClientRect = () => rowRect;
+      document.elementFromPoint = () => holdRow;   // указатель стоит на самой взятой строке
+      const realSetTimeout = sandbox.setTimeout;
+      let heldStart = null;
+      sandbox.setTimeout = (fn, ms) => {
+        if (heldStart === null) { heldStart = fn; return 1; }
+        return realSetTimeout(fn, ms);
+      };
+      step('Дерево: pointerdown под удержание', () => lib.dispatch('pointerdown', { target: holdRow, clientX: 10, clientY: ROW_TOP + 14 }));
+      sandbox.setTimeout = realSetTimeout;
+      if (!heldStart) {
+        fails.push('Дерево: pointerdown не ставит таймер удержания — мышью жест начнётся только от движения');
+      } else {
+        step('Дерево: старт жеста по удержанию', () => heldStart());   // как будто прошло 400 мс
+        if (!ghostCount()) fails.push('Дерево: после удержания нет «призрака» — строка не выглядит взятой до первого движения');
+        if (!holdRow.classList.contains('lib-drag-src')) fails.push('Дерево: после удержания строка-источник не подсвечена');
+      }
+      // Отпускание без движения после сработавшего удержания — отмена жеста,
+      // а НЕ клик по строке: узел раскрываться/сворачиваться не должен.
+      const htmlBefore = String(lib.innerHTML || '');
+      step('Дерево: отпускание после удержания', () => document.dispatch('pointerup', { clientX: 10, clientY: ROW_TOP + 14 }));
+      if (ghostCount()) fails.push('Дерево: «призрак» остался на экране после отпускания');
+      step('Дерево: клик следом за отпусканием', () => lib.dispatch('click', { target: holdRow }));
+      if (String(lib.innerHTML || '') !== htmlBefore) {
+        fails.push('Дерево: отпускание после удержания сработало как обычный клик по узлу');
+      }
+      delete document.elementFromPoint;
+    }
+
+    // Перестановка КОРНЕВЫХ категорий вкладки (v281: строки data-kind="top"
+    // — «Петли», «Направляющие», …). Порядок разделов живёт отдельно от
+    // дерева (state.libTopOrder, см. libTabTopCodes/libPlaceTopAt), поэтому
+    // проверяется отдельным сценарием. Строка раздела размечена так же, как
+    // строка подкатегории: КРАЯ — «встать рядом» (проверяются здесь),
+    // СЕРЕДИНА — «вложить раздел в раздел» (сценарий вложения ниже).
+    const topRows = () => lib.querySelectorAll('[data-tree-node]')
+      .filter((r) => r.dataset.kind === 'top');
+    const topCodes = topRows().map((r) => r.dataset.top || '');
+    if (topCodes.length < 2) fails.push('Библиотека: на вкладке меньше двух корневых категорий — перестановку проверить не на чем');
+    else {
+      const movedTop = topCodes[1];
+      const refTop = topCodes[0];
+      const topRowBy = (code) => topRows().filter((r) => (r.dataset.top || '') === code)[0];
+      const dragTopOnto = (fromCode, toCode, ratio, label) => {
+        const from = topRowBy(fromCode);
+        const to = topRowBy(toCode);
+        if (!from || !to) { fails.push('Библиотека: не найдена строка раздела (' + label + ')'); return; }
+        from.getBoundingClientRect = () => rowRect;
+        to.getBoundingClientRect = () => rowRect;
+        document.elementFromPoint = () => to;
+        const y = ROW_TOP + Math.round(ROW_H * ratio);
+        step('Разделы: pointerdown (' + label + ')', () => lib.dispatch('pointerdown', { target: from, clientX: 10, clientY: ROW_TOP + 14 }));
+        step('Разделы: pointermove (' + label + ')', () => document.dispatch('pointermove', { clientX: 40, clientY: y }));
+        step('Разделы: бросок (' + label + ')', () => document.dispatch('pointerup', { clientX: 40, clientY: y }));
+        delete document.elementFromPoint;
+      };
+      const topPos = (code) => topRows().map((r) => r.dataset.top || '').indexOf(code);
+      // Верхняя половина строки — встать ПЕРЕД разделом.
+      dragTopOnto(movedTop, refTop, 0.25, 'раздел перед соседним');
+      if (topPos(movedTop) < 0 || topPos(refTop) < 0) {
+        fails.push('Библиотека: после перестановки раздел пропал со вкладки');
+      } else if (topPos(movedTop) > topPos(refTop)) {
+        fails.push('Библиотека: бросок в верхнюю краевую зону строки раздела не переставил его выше соседа');
+      }
+      // Нижняя краевая зона той же строки — ПОСЛЕ неё. Обе краевые зоны
+      // должны работать; середина у раздела занята вложением (см. ниже).
+      dragTopOnto(movedTop, refTop, 0.75, 'раздел после соседнего');
+      if (topPos(movedTop) < 0 || topPos(refTop) < 0) {
+        fails.push('Библиотека: после перестановки раздел пропал со вкладки');
+      } else if (topPos(movedTop) < topPos(refTop)) {
+        fails.push('Библиотека: бросок в нижнюю половину строки раздела не переставил его ниже соседа');
+      }
+      // Раздел не должен уметь становиться подкатегорией: бросок заголовка
+      // на СЕРЕДИНУ строки обычного узла дерева не делает ничего.
+      const anyNode = treeRows().filter((r) => r.dataset.kind !== 'top' && (r.dataset.path || ''))[0];
+      if (anyNode) {
+        const before = topRows().map((r) => r.dataset.top || '').join('|');
+        const movedRow = topRowBy(movedTop);
+        if (movedRow) {
+          movedRow.getBoundingClientRect = () => rowRect;
+          anyNode.getBoundingClientRect = () => rowRect;
+          document.elementFromPoint = () => anyNode;
+          step('Разделы: бросок на узел дерева', () => {
+            lib.dispatch('pointerdown', { target: movedRow, clientX: 10, clientY: ROW_TOP + 14 });
+            document.dispatch('pointermove', { clientX: 40, clientY: ROW_TOP + 14 });
+            document.dispatch('pointerup', { clientX: 40, clientY: ROW_TOP + 14 });
+          });
+          delete document.elementFromPoint;
+          if (topRows().map((r) => r.dataset.top || '').join('|') !== before) {
+            fails.push('Библиотека: бросок раздела на узел дерева изменил порядок разделов');
+          }
+          if (topPos(movedTop) < 0) fails.push('Библиотека: раздел пропал после броска на узел дерева (стал подкатегорией?)');
+        }
+      }
+
+      // ВЛОЖЕНИЕ РАЗДЕЛА В РАЗДЕЛ (2026-09-18): бросок заголовка на СЕРЕДИНУ
+      // другого заголовка делает категорию его подкатегорией — но только на
+      // экране (state.libTopParent). Позиции при этом остаются своими:
+      // item.category не меняется, иначе перенос был бы необратим.
+      const hwItemsWith = (categoryKey) => {
+        const cat = sandbox.window.Modul3D.catalog;
+        let n = 0;
+        [cat.HARDWARE_PRICES, cat.HANDLES, cat.LIFTS, cat.FASTENER_PRICES].forEach((obj) => {
+          Object.keys(obj || {}).forEach((k) => { if (obj[k] && obj[k].category === categoryKey) n += 1; });
+        });
+        return n;
+      };
+      // Отступ строки раздела: 0 у корневого, больше нуля у вложенного (см.
+      // libTreeRowHtml — padding-left по глубине).
+      const topPad = (code) => {
+        const r = topRowBy(code);
+        return r ? Number(String(r.attrs.style || '').replace(/[^0-9]/g, '')) : -1;
+      };
+      const nestedKey = String(movedTop).indexOf('hw:') === 0 ? movedTop.slice(3) : '';
+      const itemsBefore = nestedKey ? hwItemsWith(nestedKey) : 0;
+      // Вкладываем в категорию, у которой ЕСТЬ листья: только на такой можно
+      // проверить, что вложенный раздел остаётся виден, когда у родителя
+      // открыт лист в фокусе (см. ниже).
+      const withLeaf = {};
+      treeRows().forEach((r) => {
+        if (r.dataset.kind === 'leaf' && (r.dataset.top || '')) withLeaf[r.dataset.top] = true;
+      });
+      const hostTop = topRows().map((r) => r.dataset.top || '').filter((c) => c !== movedTop && withLeaf[c])[0];
+      if (!hostTop) fails.push('Библиотека: не нашлось категории с листьями — вложение проверить не на чем');
+      else {
+        dragTopOnto(movedTop, hostTop, 0.5, 'вложить раздел в раздел');
+        if (topPad(movedTop) <= 0) {
+          fails.push('Библиотека: бросок на середину заголовка не вложил раздел в раздел');
+        }
+        if (topPos(movedTop) < topPos(hostTop)) {
+          fails.push('Библиотека: вложенный раздел рисуется не внутри родителя');
+        }
+        if (nestedKey && hwItemsWith(nestedKey) !== itemsBefore) {
+          fails.push('Библиотека: вложение раздела изменило категорию его позиций (должно менять только раскладку)');
+        }
+        // Фокус на листе РОДИТЕЛЯ прячет его дерево — но не вложенный раздел:
+        // иначе в него нельзя было бы попасть, пока фокус не снят, и выглядело
+        // бы это как пропажа категории (починено 2026-09-18).
+        const hostLeaf = treeRows().filter((r) => r.dataset.kind === 'leaf' && (r.dataset.top || '') === hostTop)[0];
+        if (hostLeaf) {
+          // Холостой клик «в пустое место»: гасим подавление клика, которое
+          // осталось от только что выполненного броска (см. libDragClickGuard),
+          // иначе следующий клик по листу будет съеден и фокус не включится —
+          // проверка ниже прошла бы по чужой причине.
+          lib.dispatch('click', { target: lib });
+          step('Библиотека: фокус на листе родителя', () => lib.dispatch('click', { target: hostLeaf }));
+          const shown = topRows().filter((r) => (r.dataset.top || '') === movedTop).length;
+          if (!shown) fails.push('Библиотека: вложенная категория пропала, пока у родителя открыт лист в фокусе');
+          if (shown > 1) fails.push('Библиотека: вложенная категория нарисована дважды');
+          // Таблица самого листа при этом никуда не делась.
+          if (String(lib.innerHTML || '').indexOf('lib-breadcrumb') < 0) {
+            fails.push('Библиотека: при фокусе на листе пропали хлебные крошки');
+          }
+          // Снимаем фокус кликом по заголовку родителя — дальше проверяем
+          // обычное дерево.
+          step('Библиотека: выход из фокуса', () => lib.dispatch('click', { target: topRowBy(hostTop) }));
+        }
+        // ...и обратно наверх: бросок на КРАЙ заголовка родителя возвращает
+        // категорию на верхний уровень — вложение обязано быть обратимым.
+        dragTopOnto(movedTop, hostTop, 0.3, 'вынести раздел обратно наверх');
+        if (topPad(movedTop) !== 0) {
+          fails.push('Библиотека: раздел не вынесся обратно на верхний уровень');
+        }
+      }
+    }
+
+    // ПЕРЕНОС ПОЗИЦИИ В ЧУЖУЮ КАТЕГОРИЮ значком ⇄ (2026-09-18). На
+    // «Фурнитуре» цели — деревья всех категорий вкладки: полкодержатель
+    // должен уметь переехать в «Крепёж». У позиции при этом меняется
+    // item.category (на расчёт оно не влияет — спецификация адресует
+    // фурнитуру по ключам каталога).
+    {
+      const cat = sandbox.window.Modul3D.catalog;
+      const findHwItem = (k) => {
+        let found = null;
+        [cat.HARDWARE_PRICES, cat.HANDLES, cat.LIFTS, cat.FASTENER_PRICES].forEach((obj) => {
+          if (!found && obj && obj[k]) found = obj[k];
+        });
+        return found;
+      };
+      // Значок ⇄ есть только в строке таблицы, а таблица видна у листа в
+      // фокусе — открываем любой лист фурнитуры.
+      const anyLeaf = treeRows().filter((r) => r.dataset.kind === 'leaf' && String(r.dataset.top || '').indexOf('hw:') === 0)[0];
+      if (anyLeaf) step('Фурнитура: открытие листа под перенос позиции', () => lib.dispatch('click', { target: anyLeaf }));
+      const moveIc = lib.querySelectorAll('[data-row-move]')[0];
+      if (!moveIc) fails.push('Фурнитура: в таблице нет значка ⇄ — перенести позицию нечем');
+      else {
+        const srcTop = moveIc.dataset.moveTop || '';
+        const itemKey = moveIc.dataset.moveKey;
+        step('Фурнитура: меню переноса позиции', () => lib.dispatch('click', { target: moveIc }));
+        const menu = document.getElementById('libMoveMenu');
+        if (!menu) fails.push('Фурнитура: меню «Перенести … в:» не открылось');
+        else {
+          const btns = menu.querySelectorAll('[data-move-idx]');
+          const labels = (String(menu.innerHTML || '').match(/data-move-idx="\d+">([^<]*)</g) || [])
+            .map((s) => s.replace(/.*>/, '').replace(/<$/, ''));
+          // Ищем цель в ЧУЖОЙ категории — по её заводской подписи; берём лист
+          // («Категория › фирма»), чтобы результат был виден в таблице.
+          let picked = null;
+          (cat.HARDWARE_CATEGORY_ORDER || []).forEach((k) => {
+            if (picked || 'hw:' + k === srcTop) return;
+            const label = (cat.HARDWARE_CATEGORY_LABEL || {})[k];
+            if (!label) return;
+            const idx = labels.findIndex((l) => l.indexOf(label + ' › ') === 0);
+            if (idx >= 0) picked = { key: k, idx, label: labels[idx] };
+          });
+          if (!picked) {
+            fails.push('Фурнитура: в меню переноса позиции нет ни одной цели из другой категории');
+          } else {
+            const name = String((findHwItem(itemKey) || {}).name || '');
+            step('Фурнитура: перенос позиции в чужую категорию', () => btns[picked.idx].dispatch('click'));
+            const moved = findHwItem(itemKey) || {};
+            if (moved.category !== picked.key) {
+              fails.push('Фурнитура: у перенесённой позиции не сменилась категория (' + moved.category + ' вместо ' + picked.key + ')');
+            }
+            // Поле «фирмы» у фурнитуры одно из двух (brand у 'mechanism',
+            // subcategory у остальных) — второе после смены категории должно
+            // быть пустым, иначе в данных остаётся старая фирма.
+            const stale = picked.key === 'mechanism' ? moved.subcategory : moved.brand;
+            if (stale) fails.push('Фурнитура: после смены категории осталось старое поле фирмы (' + stale + ')');
+            // И позиция реально видна в дереве новой категории.
+            const html = String(lib.innerHTML || '');
+            const seg = html.slice(html.indexOf('data-top-code="hw:' + picked.key + '"'));
+            const end = seg.indexOf('data-top-code=', 40);
+            const block = end > 0 ? seg.slice(0, end) : seg;
+            if (name && block.indexOf(name) < 0) {
+              fails.push('Фурнитура: перенесённая позиция не показывается в новой категории');
+            }
+          }
+        }
+      }
+    }
+    // Токен снимаем ДО того, как сработает отложенное сохранение каталога
+    // (scheduleCatalogSave, 1.5 с): в прогоне сети нет, слать запрос некуда.
+    sandbox.localStorage.getItem = savedGetItem;
   }
 }
 

@@ -1327,6 +1327,11 @@ h4.spec-title { margin: var(--sp-5) 0 var(--sp-2); font-size: var(--fs-md); font
    .lib-tree-top ниже — только раскрывает/прячет своих детей); остальные
    уровни — обычный текст, без различий между собой, кроме отступа. */
 .lib-category { margin-bottom: var(--sp-3); }
+/* Раздел, вложенный в другой раздел (app.js: state.libTopParent/
+   libTopCategoryTreeHtml) — стоит в списке рядом с подкатегориями родителя,
+   поэтому отбивка снизу ему не нужна: иначе он выглядел бы оторванным от
+   соседей. Сам отступ слева задаёт строка (padding-left по глубине). */
+.lib-category-nested { margin-bottom: 0; }
 .lib-tree-row {
   display: flex; align-items: center; gap: 6px;
   padding-top: 6px; padding-bottom: 6px; padding-right: 6px;
@@ -1344,6 +1349,47 @@ h4.spec-title { margin: var(--sp-5) 0 var(--sp-2); font-size: var(--fs-md); font
 .lib-tree-row:hover .lib-tree-actions { opacity: 1; }
 .lib-tree-ic { color: var(--muted); font-size: var(--fs-sm); line-height: 1; cursor: pointer; }
 .lib-tree-ic:hover { color: var(--accent); }
+
+/* Перетаскивание узла дерева мышью/пальцем (app.js: libTreeDragPointerDown и
+   соседние) — порядок подкатегорий и вложенность меняются жестом, а не
+   только меню ⇄. Пока тащим, на <body> висит .lib-dragging:
+   - выделение текста выключено (мышь иначе «закрашивает» названия строк);
+   - touch-action: none у прокручиваемого тела панели — палец сейчас таскает
+     строку, а не листает список (сам жест дополнительно удерживается
+     preventDefault'ом в touchmove, см. libDragBlockTouchScroll: touch-action
+     браузер читает в момент касания, и одного класса уже не хватило бы). */
+body.lib-dragging { user-select: none; -webkit-user-select: none; cursor: grabbing; }
+body.lib-dragging .drawer-body { touch-action: none; }
+/* Строка-источник остаётся на месте приглушённой — видно, откуда тащим. */
+.lib-tree-row.lib-drag-src { opacity: .35; }
+/* Цель «ВЛОЖИТЬ внутрь» (указатель в середине строки) — подсвечена строка
+   целиком: узел станет её ребёнком и встанет последним среди детей. */
+.lib-tree-row.lib-drop-into {
+  background: var(--accent-soft);
+  outline: 2px solid var(--accent); outline-offset: -2px;
+}
+/* Цель «ВСТАТЬ МЕЖДУ» (указатель у верхнего/нижнего края строки) — линия на
+   границе строк, с отступом по глубине будущего места узла. position: fixed
+   и координаты из getBoundingClientRect — линия рисуется поверх панели, не
+   внутри прокручиваемого списка, поэтому не сдвигает его разметку. */
+.lib-drop-line {
+  position: fixed; z-index: 1200; height: 2px; pointer-events: none;
+  background: var(--accent); border-radius: 1px;
+}
+.lib-drop-line::before {
+  content: ''; position: absolute; left: -4px; top: -3px;
+  width: 8px; height: 8px; border-radius: 50%; background: var(--accent);
+}
+/* «Призрак» — копия перетаскиваемой строки под курсором/пальцем.
+   pointer-events: none обязателен: иначе он же и оказывался бы под
+   указателем вместо строки дерева, и цель определить было бы нечем (см.
+   document.elementFromPoint в libDragResolveTarget). */
+.lib-drag-ghost {
+  position: fixed; z-index: 1201; pointer-events: none; opacity: .9;
+  padding: 0 6px; border: 1px solid var(--accent); border-radius: var(--r-sm);
+  background: var(--surface-solid); box-shadow: var(--shadow-2);
+}
+.lib-drag-ghost .lib-tree-row { cursor: grabbing; }
 /* Меню «Переместить» узла дерева (значок ⇄, см. openLibTreeMoveMenu в
    app.js) — обычное .ctx-menu, отличается только тем, что список возможных
    родителей может быть длинным: прокручиваем его внутри меню, как список
