@@ -1301,6 +1301,13 @@ h4.spec-title { margin: var(--sp-5) 0 var(--sp-2); font-size: var(--fs-md); font
    var(--fs-sm)) ради читаемости, ужимаем только «воздух» вокруг текста.
    flex-wrap оставлен подстраховкой на случай ещё более узкого экрана/зума. */
 .lib-tabs { display: flex; gap: 3px; margin-bottom: var(--sp-3); flex-wrap: wrap; }
+/* Статус сохранения правок каталога (см. setLibrarySaveStatus/scheduleCatalogSave
+   в app.js) — живёт вне #libraryPanel, поэтому не пропадает при полной
+   перерисовке содержимого вкладки (panel.innerHTML = ...). Пустой текст —
+   элемент не занимает видимого места (min-height не задаём намеренно), чтобы
+   не расталкивать вкладки, пока правок ещё не было. */
+.lib-save-status:empty { margin: 0; }
+.lib-save-status { margin: calc(-1 * var(--sp-2)) 0 var(--sp-3); }
 .lib-tab-btn {
   border: 1px solid var(--border); background: var(--surface-2); color: var(--text-2);
   padding: 6px 6px; border-radius: var(--r-sm);
