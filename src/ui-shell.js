@@ -355,6 +355,14 @@ function setResultsOpen(on) {
   syncingDocs = true;
   box.classList.toggle('open', !!on);
   setTimeout(function () { syncingDocs = false; }, 0);
+  // Чертежи/деталировка/спецификация строятся лениво (app.js:
+  // docsTabsDirty) — пока полоса свёрнута, их разметка намеренно
+  // устаревшая. Панель «Документы» открывают и отсюда (кнопка HUD, горячая
+  // клавиша D, восстановление состояния при загрузке), мимо setDocsTab,
+  // поэтому просим приложение дособрать открывшуюся вкладку.
+  if (on && window.Modul3D.app && window.Modul3D.app.ensureVisibleDocsTabBuilt) {
+    window.Modul3D.app.ensureVisibleDocsTabBuilt();
+  }
 }
 
 function watchResults() {

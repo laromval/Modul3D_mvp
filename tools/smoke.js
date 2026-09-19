@@ -215,6 +215,18 @@ function $(id) {
   return registry.get(id);
 }
 
+// Вкладки документов (чертежи/деталировка/спецификация) приложение строит
+// ЛЕНИВО — только когда полоса документов раскрыта на этой вкладке (см.
+// app.js: docsTabsDirty/ensureTabBuilt). Прогон же читает их разметку, не
+// открывая панель, поэтому берёт вкладку через этот помощник: он сначала
+// просит приложение собрать её принудительно. Прямой $('tab-...') здесь
+// вернул бы разметку прошлого пересчёта или вовсе пустую.
+function docsTab(name) {
+  const api = typeof sandbox !== 'undefined' && sandbox.Modul3D && sandbox.Modul3D.app;
+  if (api && api.ensureTabBuilt) api.ensureTabBuilt(name);
+  return $('tab-' + name);
+}
+
 const INDEX = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
 harvest(INDEX);
 const INDEX_ELS = parseElements(INDEX);
@@ -329,7 +341,7 @@ check('стартует без модулей', () => document.querySelectorAll(
 // не в #paramsPanel — см. app.js libraryBlock/renderLibraryPanel.
 check('на старте видна база модулей', () => /База модулей/.test($('libraryPanel').innerHTML));
 check('на старте есть подсказка о пустом проекте', () => /Проект пуст/.test(panel.innerHTML));
-check('на чертежах написано, что проект пуст', () => /Проект пуст/.test($('tab-drawings').innerHTML));
+check('на чертежах написано, что проект пуст', () => /Проект пуст/.test(docsTab('drawings').innerHTML));
 check('пустой проект не даёт ошибок', () => panel.innerHTML.indexOf('Ошибка') === -1);
 check('первый модуль добавляется кнопкой «+»', () => {
   const b = document.getElementById('addModule');
@@ -339,13 +351,13 @@ check('первый модуль добавляется кнопкой «+»', (
 });
 
 check('панель отрисована', () => panel.innerHTML.length > 500);
-check('деталировка не пуста', () => $('tab-detailing').innerHTML.indexOf('<table') !== -1);
+check('деталировка не пуста', () => docsTab('detailing').innerHTML.indexOf('<table') !== -1);
 check('в деталировке напечатано название материала', () =>
-  /ЛДСП|ХДФ/.test($('tab-detailing').innerHTML));
+  /ЛДСП|ХДФ/.test(docsTab('detailing').innerHTML));
 check('в чертежах напечатан материал деталей', () =>
-  /<th>Материал<\/th>/.test($('tab-drawings').innerHTML));
-check('спецификация не пуста', () => $('tab-spec').innerHTML.indexOf('<table') !== -1);
-check('чертежи не пусты', () => $('tab-drawings').innerHTML.length > 200);
+  /<th>Материал<\/th>/.test(docsTab('drawings').innerHTML));
+check('спецификация не пуста', () => docsTab('spec').innerHTML.indexOf('<table') !== -1);
+check('чертежи не пусты', () => docsTab('drawings').innerHTML.length > 200);
 
 // Материалы (декор/толщины/соединение корпуса) — отдельный экран панели
 // (state.panelView:'materials', см. materialsBlock), открывается кнопкой
@@ -531,7 +543,7 @@ for (const id of Array.from(registry.keys())) {
 
   check('подготовка модуля', () => setTop('m-height', 800) && setTop('m-baseType', 'plinth') && setTop('m-baseHeight', 100));
   check('секция: 3 ящика без дверей', () => set('facade', 'open') && set('shelves', 0) && set('drawers', 3));
-  check('нет NaN в деталировке (авто)', () => $('tab-detailing').innerHTML.indexOf('NaN') === -1);
+  check('нет NaN в деталировке (авто)', () => docsTab('detailing').innerHTML.indexOf('NaN') === -1);
 
   // «Редактировать →» в карточке секции открывает отдельную панель
   // «Ящики» (state.panelView:'drawers', см. openDrawersPanel/drawersPanelBlock)
@@ -555,7 +567,7 @@ for (const id of Array.from(registry.keys())) {
     const el = inputs();
     return el.length === 3 && el.every((x) => Number(x.attrs.value) > 0);
   });
-  check('ручной режим не обнулил ящики', () => $('tab-detailing').innerHTML.indexOf('NaN') === -1);
+  check('ручной режим не обнулил ящики', () => docsTab('detailing').innerHTML.indexOf('NaN') === -1);
   check('стартовые высоты = автораспределение, остаток нижнему', () => {
     const v = inputs().map((x) => Number(x.attrs.value));
     // поля идут сверху вниз, неделимый остаток достаётся НИЖНЕМУ ящику
@@ -613,7 +625,7 @@ for (const id of Array.from(registry.keys())) {
     setTop('m-height', 800);
     return setTop('drawersMode', 'manual');
   });
-  check('нет NaN после правки', () => $('tab-detailing').innerHTML.indexOf('NaN') === -1);
+  check('нет NaN после правки', () => docsTab('detailing').innerHTML.indexOf('NaN') === -1);
   check('подъём ящика от дна не меньше 10 мм', () => {
     if (!setTop('drawersOffset', 0)) return false;
     return Number(document.getElementById('drawersOffset').attrs.value) >= 10;
@@ -656,7 +668,7 @@ for (const id of Array.from(registry.keys())) {
   // mergeEqualParts/mergeNameKey в engine.js) — оба варианта означают, что
   // построены планки, а не цельная крышка.
   check('кухонный модуль всё равно строится с двумя планками', () =>
-    /Планк[аи] верхн/.test($('tab-detailing').innerHTML));
+    /Планк[аи] верхн/.test(docsTab('detailing').innerHTML));
 })();
 
 // --- база готовых модулей: категория → вариант → модуль в проекте ----------
@@ -683,8 +695,8 @@ for (const id of Array.from(registry.keys())) {
     return tabsCount() === before + 1;
   });
   check('модуль из базы построился без ошибок', () =>
-    $('tab-detailing').innerHTML.indexOf('NaN') === -1 && $('tab-detailing').innerHTML.indexOf('<table') !== -1);
-  check('в деталировке появились детали шкафа', () => /Боковина|Полка/.test($('tab-detailing').innerHTML));
+    docsTab('detailing').innerHTML.indexOf('NaN') === -1 && docsTab('detailing').innerHTML.indexOf('<table') !== -1);
+  check('в деталировке появились детали шкафа', () => /Боковина|Полка/.test(docsTab('detailing').innerHTML));
   cats()[0].click();   // закрыть категорию, открытую проверками выше (клик — переключатель)
 
   // все варианты всех категорий добавляются без исключений
@@ -702,7 +714,7 @@ for (const id of Array.from(registry.keys())) {
     c.click();                                    // закрыть категорию перед следующей
   }
   check('добавились все варианты базы', () => added >= 8);
-  check('после всех вариантов деталировка цела', () => $('tab-detailing').innerHTML.indexOf('NaN') === -1);
+  check('после всех вариантов деталировка цела', () => docsTab('detailing').innerHTML.indexOf('NaN') === -1);
 })();
 
 // --- нумерация и место вставки модулей -------------------------------------
@@ -796,7 +808,7 @@ for (const id of Array.from(registry.keys())) {
   // Поворот проверяем по факту: у проекта меняется габарит в ряду, потому что
   // повёрнутый модуль занимает свою глубину, а не ширину.
   const projSize = () => {
-    const r = /Габарит проекта ([\d.]+)×([\d.]+)×([\d.]+)/.exec($('tab-drawings').innerHTML);
+    const r = /Габарит проекта ([\d.]+)×([\d.]+)×([\d.]+)/.exec(docsTab('drawings').innerHTML);
     return r ? r[1] + 'x' + r[3] : '';
   };
   // Имя активной вкладки модуля — см. тот же приём и комментарий в
@@ -910,7 +922,7 @@ for (const id of Array.from(registry.keys())) {
     return document.querySelectorAll('.mod-tab').length === 0;
   });
   check('после удаления всех снова видна подсказка', () => /Проект пуст/.test($('paramsPanel').innerHTML));
-  check('пустой проект не ломает чертежи', () => $('tab-drawings').innerHTML.indexOf('NaN') === -1);
+  check('пустой проект не ломает чертежи', () => docsTab('drawings').innerHTML.indexOf('NaN') === -1);
   check('модуль добавляется обратно', () => {
     document.getElementById('addModule').click();
     return document.querySelectorAll('.mod-tab').length === 1;
@@ -1006,7 +1018,7 @@ for (const el of document.querySelectorAll('.tab-btn')) {
     if (!item) fails.push('база модулей: нет варианта «под мойку»');
     else {
       item.click();
-      const tabs = $('tab-detailing').innerHTML;
+      const tabs = docsTab('detailing').innerHTML;
       if (/Задняя стенка/.test(tabs)) {
         fails.push('под мойку: в деталировке осталась задняя стенка');
       }
@@ -1144,10 +1156,52 @@ for (const el of document.querySelectorAll('.tab-btn')) {
   }
 }
 
+// Документы строятся ЛЕНИВО (app.js: docsTabsDirty/ensureTabBuilt): при
+// восьми модулях один SVG чертежей весит под 200 КБ, и собирать его на
+// каждое изменение параметра, пока вкладка свёрнута, — заметная задержка на
+// телефоне. Здесь намеренно читаем $('tab-drawings') НАПРЯМУЮ, а не через
+// docsTab(): помощник собрал бы вкладку сам и проверять было бы нечего.
+{
+  const box = document.querySelector('.results');
+  const h = document.getElementById('m-height');
+  const drawBtn = Array.from(document.querySelectorAll('.tab-btn'))
+    .filter((b) => b.dataset.tab === 'drawings')[0];
+  if (!box || !h || !drawBtn) fails.push('ленивые вкладки: нет поля высоты или вкладки чертежей');
+  else {
+    const restore = String(h.value);
+    const bump = (d) => {
+      const el = document.getElementById('m-height');
+      el.value = String(Number(el.value) + d);
+      el.dispatch('change', { target: el });
+    };
+    const active = Array.from(document.querySelectorAll('.tab-btn'))
+      .filter((b) => b.classList.contains('active'))[0];
+    if (box.classList.contains('open') && active) active.click();   // свернули
+    const collapsed = String($('tab-drawings').innerHTML || '');
+    bump(40);
+    if (String($('tab-drawings').innerHTML || '') !== collapsed) {
+      fails.push('свёрнутая вкладка чертежей перестраивается на каждый пересчёт');
+    }
+    drawBtn.click();                                                // раскрыли
+    const opened = String($('tab-drawings').innerHTML || '');
+    if (opened === collapsed) fails.push('вкладка чертежей не собралась при открытии');
+    bump(40);
+    if (String($('tab-drawings').innerHTML || '') === opened) {
+      fails.push('открытая вкладка чертежей не обновилась после смены габарита');
+    }
+    // Возвращаем проект в прежний вид и сворачиваем документы: дальше идут
+    // проверки, рассчитанные на исходные размеры.
+    const el = document.getElementById('m-height');
+    el.value = restore;
+    el.dispatch('change', { target: el });
+    drawBtn.click();
+  }
+}
+
 // Паспорт системы ящиков виден в спецификации и предупреждает о
 // неподтверждённых размерах.
 {
-  const spec = document.getElementById('tab-spec');
+  const spec = docsTab('spec');
   const html = spec ? String(spec.innerHTML || '') : '';
   if (!/Паспорт системы ящиков/.test(html)) fails.push('в спецификации нет паспорта системы');
   if (!/Источник размеров/.test(html)) fails.push('в паспорте нет источника размеров');
