@@ -7,7 +7,7 @@
 <title>Modul3D — параметрический конструктор корпусной мебели</title>
 
 <link rel="icon" type="image/svg+xml" href="favicon.svg" />
-<link rel="stylesheet" href="style.css?v288" />
+<link rel="stylesheet" href="style.css?v289" />
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <!-- Paddle.js — оверлей оплаты подписки (см. app.js: requestCheckout/initPaddle).
@@ -323,6 +323,14 @@
         <button class="lib-tab-btn" data-libtab="hardware" type="button">Фурнитура</button>
         <button class="lib-tab-btn" data-libtab="facades" type="button">Двери</button>
       </div>
+      <!-- Публикация каталога как базы по умолчанию — только для админа
+           (см. renderAccountUI/authAccount.isAdmin в app.js). Относится ко
+           всему каталогу разом, поэтому стоит здесь, а не внутри
+           #libraryPanel — тот перерисовывается целиком при смене вкладки. -->
+      <div class="lib-publish-bar" id="libPublishBar" style="display:none">
+        <button type="button" class="btn" id="libPublishBtn">Опубликовать как базу по умолчанию</button>
+        <span id="libPublishStatus" class="sketch-status" aria-live="polite"></span>
+      </div>
       <div id="librarySaveStatus" class="sketch-status lib-save-status" aria-live="polite"></div>
       <div class="panel" id="libraryPanel"><!-- заполняется app.js --></div>
     </div>
@@ -502,19 +510,19 @@
 
 </main>
 
-<script src="src/catalog.js?v288"></script>
-<script src="src/presets.js?v288"></script>
-<script src="src/engine.js?v288"></script>
-<script src="src/specification.js?v288"></script>
-<script src="src/legMeshes.js?v288"></script>
-<script src="src/csg.js?v288"></script>
-<script src="src/viewer.js?v288"></script>
-<script src="src/ui-shell.js?v288"></script>
-<script src="src/drawings.js?v288"></script>
-<script src="src/export.js?v288"></script>
-<script src="src/cnc.js?v288"></script>
-<script src="src/sketchAI.js?v288"></script>
-<script src="src/app.js?v288"></script>
+<script src="src/catalog.js?v289"></script>
+<script src="src/presets.js?v289"></script>
+<script src="src/engine.js?v289"></script>
+<script src="src/specification.js?v289"></script>
+<script src="src/legMeshes.js?v289"></script>
+<script src="src/csg.js?v289"></script>
+<script src="src/viewer.js?v289"></script>
+<script src="src/ui-shell.js?v289"></script>
+<script src="src/drawings.js?v289"></script>
+<script src="src/export.js?v289"></script>
+<script src="src/cnc.js?v289"></script>
+<script src="src/sketchAI.js?v289"></script>
+<script src="src/app.js?v289"></script>
 <script>if (window.Modul3D && window.Modul3D.uiShell) window.Modul3D.uiShell.start();</script>
 </body>
 </html>

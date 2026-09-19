@@ -14,7 +14,7 @@
 (function () {
 // Версия сборки — показывается во вкладке браузера и в шапке.
 // При выпуске новой версии меняется только эта строка.
-const APP_VERSION = 'v288';
+const APP_VERSION = 'v289';
 
 // Номер версии выводим ПЕРВЫМ делом: если дальше что-то упадёт, по нему сразу
 // видно, какая сборка открыта.
@@ -6692,6 +6692,8 @@ function initLibraryPanel() {
   });
   const search = document.getElementById('librarySearch');
   if (search) search.addEventListener('input', applyLibrarySearch);
+  const publishBtn = document.getElementById('libPublishBtn');
+  if (publishBtn) publishBtn.addEventListener('click', () => { if (!publishBtn.disabled) requestCatalogPublish(); });
 
   // Перетаскивание строк дерева категорий мышью/пальцем (см. большой
   // комментарий над libTreeDragPointerDown) — отдельный pointerdown на той
@@ -10929,6 +10931,56 @@ function setLibrarySaveStatus(message, kind) {
   el.className = 'sketch-status lib-save-status' + (kind ? ` ${kind}` : '');
 }
 
+// Статус кнопки «Опубликовать как базу по умолчанию» (#libPublishBar в
+// index.html) — свой индикатор, отдельный от setLibrarySaveStatus выше: та
+// строка занята автосохранением правок пользователя на сервер, публикация
+// в общий дефолт — отдельное действие со своим результатом, писать поверх
+// друг друга нельзя.
+function setLibPublishStatus(message, kind) {
+  const el = document.getElementById('libPublishStatus');
+  if (!el) return;
+  el.textContent = message || '';
+  el.className = 'sketch-status' + (kind ? ` ${kind}` : '');
+}
+
+// Публикация текущего (сохранённого на сервере) каталога пользователя как
+// нового каталога по умолчанию для всех — кнопка видна только админу (см.
+// renderAccountUI/authAccount.isAdmin), сервер сам сверяет email ещё раз.
+// Кнопка и статус живут вне #libraryPanel (не пересоздаются при смене
+// вкладки/renderLibraryPanel), поэтому disabled и текст статуса правим
+// напрямую через DOM, без отдельного поля в state.
+async function requestCatalogPublish() {
+  const btn = document.getElementById('libPublishBtn');
+  const token = getAuthToken();
+  if (!token) { setLibPublishStatus('Войдите в аккаунт заново.', 'error'); return; }
+  if (btn) btn.disabled = true;
+  setLibPublishStatus('Публикуем…', '');
+  try {
+    const res = await fetch(`${AUTH_API_BASE}/catalog-publish`, {
+      method: 'POST',
+      headers: { authorization: 'Bearer ' + token },
+    });
+    const data = await res.json().catch(() => ({}));
+    if (res.ok) {
+      const changed = Array.isArray(data.changed) ? data.changed : [];
+      if (!changed.length) setLibPublishStatus('Публиковать нечего — каталог уже совпадает с базой по умолчанию.', '');
+      else setLibPublishStatus(`Опубликовано: ${changed.join(', ')}.`, 'ok');
+    } else if (res.status === 400 || res.status === 403 || res.status === 422 || res.status === 503) {
+      // Все четыре — осмысленные сообщения от сервера (см. описание кодов в
+      // задаче): 400 «нечего публиковать», 403 «доступ закрыт», 422 «код не
+      // прошёл валидацию» (публикация не произошла, ничего не сломано), 503
+      // «не настроено на сервере». Показываем текст сервера как есть.
+      setLibPublishStatus(data.error || 'Не удалось опубликовать.', 'error');
+    } else {
+      setLibPublishStatus('Не удалось опубликовать — попробуйте позже.', 'error');
+    }
+  } catch (err) {
+    setLibPublishStatus('Не удалось опубликовать — проверьте подключение.', 'error');
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
 // Фоновое сохранение правок каталога материалов на сервере (см.
 // libSaveEdit/libAddRow/libRenameNode/libAddChildNode/libDeleteNode ниже —
 // единственные точки, где реально меняются данные каталога). Задержка нужна,
@@ -11132,6 +11184,16 @@ function renderAccountUI() {
   const plansPanel = document.getElementById('plansPanel');
   const accountToggle = document.getElementById('accountToggle');
   const sketchNote = document.getElementById('sketchAuthNote'); const workflowLink = document.getElementById('workflowLink'); if (workflowLink) workflowLink.style.display = (authAccount && authAccount.email === 'laromval@gmail.com') ? 'flex' : 'none';
+  // Кнопка «Опубликовать как базу по умолчанию» (панель «Библиотека») —
+  // сервер сам проверяет email при самом запросе, здесь только видимость.
+  const libPublishBar = document.getElementById('libPublishBar');
+  if (libPublishBar) {
+    const isAdmin = !!(authAccount && authAccount.isAdmin);
+    libPublishBar.style.display = isAdmin ? 'flex' : 'none';
+    // Кнопка скрыта — сбрасываем статус прошлой попытки, иначе при
+    // следующем входе админа мелькнёт устаревший результат.
+    if (!isAdmin) setLibPublishStatus('', '');
+  }
 
   // Панель тарифов — временный экран поверх формы входа/аккаунта (см.
   // showPlansPanel); при любой обычной перерисовке возвращаемся к обычному
