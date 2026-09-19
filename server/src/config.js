@@ -112,4 +112,22 @@ module.exports = {
   // эндпоинт нельзя было использовать как инструмент для нагрузки чужого
   // сайта чужими руками.
   catalogLinkMaxRefreshItems: parseInt(process.env.CATALOG_LINK_MAX_REFRESH_ITEMS || '60', 10),
+
+  // --- Публикация каталога как базы по умолчанию (routes/catalogPublish.js,
+  // services/catalogPublishCodegen.js, services/githubPublish.js,
+  // ТЗ-МОНЕТИЗАЦИЯ.md, раздел 6) ---
+  // Email единственного разработчика, которому видна и доступна кнопка
+  // «Опубликовать как базу по умолчанию» в панели «Библиотека». Если не
+  // задан — публикация недоступна вообще никому (POST /catalog-publish
+  // отвечает 403), сервер при этом не падает.
+  adminEmail: process.env.ADMIN_EMAIL,
+  // Personal Access Token GitHub с правом Contents:write на репозиторий
+  // ниже — сервер сам коммитит и пушит в master через GitHub Contents API
+  // (routes/catalogPublish.js). Временное решение, пока в проекте один
+  // владелец без ролей — токен нужно отозвать перед открытием монетизации
+  // для реальных клиентов (см. ТЗ-МОНЕТИЗАЦИЯ.md, раздел 6).
+  githubToken: process.env.GITHUB_TOKEN,
+  // Репозиторий и ветка, в которые публикуется каталог по умолчанию.
+  githubRepo: process.env.GITHUB_REPO || 'laromval/Modul3D_mvp',
+  githubBranch: process.env.GITHUB_BRANCH || 'master',
 };

@@ -19,6 +19,7 @@ const hardwareModelsRouter = require('./src/routes/hardwareModels');
 const reviewsRouter = require('./src/routes/reviews');
 const catalogOverridesRouter = require('./src/routes/catalogOverrides');
 const catalogLinksRouter = require('./src/routes/catalogLinks');
+const catalogPublishRouter = require('./src/routes/catalogPublish');
 
 const app = express();
 
@@ -65,6 +66,7 @@ app.use('/export', exportRouter);
 app.use('/hardware-models', hardwareModelsRouter);
 app.use('/reviews', reviewsRouter);
 app.use('/catalog-overrides', catalogOverridesRouter);
+app.use('/catalog-publish', catalogPublishRouter);
 // catalogLinksRouter монтируется БЕЗ префикса — его собственные пути уже
 // полные ("/catalog-link-sources" и т.п., см. ТЗ-ПАРСЕР-МАТЕРИАЛОВ.md).
 // express.json()/requireAuth внутри него подключены по каждому роуту
