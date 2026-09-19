@@ -14,7 +14,7 @@
 (function () {
 // Версия сборки — показывается во вкладке браузера и в шапке.
 // При выпуске новой версии меняется только эта строка.
-const APP_VERSION = 'v287';
+const APP_VERSION = 'v288';
 
 // Номер версии выводим ПЕРВЫМ делом: если дальше что-то упадёт, по нему сразу
 // видно, какая сборка открыта.
@@ -9716,9 +9716,10 @@ function recompute(isRetry) {
 
   currentSpec = buildSpecification(currentModel);
 
-  renderDrawings(currentModel);
-  renderDetailingTable(currentModel);
-  renderSpecTable(currentSpec);
+  // Чертежи, деталировка и спецификация — лениво: строится только та
+  // вкладка, что сейчас на виду, остальные помечаются устаревшими и
+  // соберутся при показе (см. invalidateDocsTabs/ensureTabBuilt).
+  invalidateDocsTabs();
   renderWarnings(currentModel.warnings);
   renderDrillLegend();
   // Панель «Столешница» (countertopPanelBlock ниже) показывает список
@@ -10457,6 +10458,72 @@ function drawerPassportHtml() {
 // ВКЛАДКИ ДОКУМЕНТОВ. Внизу лежит свёрнутая полоса: 3D занимает весь экран.
 // Клик по вкладке раскрывает её и прокручивает содержимое к началу; повторный
 // клик по активной вкладке сворачивает обратно и возвращает высоту 3D.
+
+// ЛЕНИВАЯ СБОРКА ДОКУМЕНТОВ. Чертежи/деталировка/спецификация раньше
+// строились на КАЖДЫЙ recompute(), даже когда полоса документов свёрнута.
+// При 8 модулях один только SVG чертежей весит под 200 КБ разметки: на
+// десктопе это терпимо, а на телефоне парсинг и память заметно тормозят
+// добавление модуля — и всё ради разметки, которую никто не видит. Теперь
+// recompute() только помечает вкладку устаревшей, а собирается она в момент
+// показа. ЧТО именно рисуется — не изменилось, изменилось только КОГДА.
+const DOCS_TABS = ['drawings', 'detailing', 'spec'];
+const docsTabsDirty = { drawings: true, detailing: true, spec: true };
+
+// «На виду» — это раскрытая полоса документов (класс open на .results ставит
+// и setDocsTab, и ui-shell при открытии панели «Документы») И выбранная
+// именно эта вкладка: у свёрнутой полосы класс active всё равно висит на
+// последней открытой вкладке, по нему одному судить нельзя.
+function isDocsTabVisible(name) {
+  const box = document.querySelector('.results');
+  if (!box || !box.classList.contains('open')) return false;
+  const panel = document.getElementById('tab-' + name);
+  return !!(panel && panel.classList.contains('active'));
+}
+
+// Собирает вкладку, если она устарела. Зовётся при показе вкладки и
+// принудительно — перед тем как кто-то прочитает готовый DOM вкладки
+// (печать чертежей, dev-прогон tools/smoke.js). Пока модель не построена
+// (самый первый проход, до recompute()), строить нечего: пометка
+// «устарела» сохраняется и вкладка соберётся позже.
+function ensureTabBuilt(name) {
+  if (!docsTabsDirty[name]) return;
+  if (name === 'spec') {
+    if (!currentSpec) return;
+    renderSpecTable(currentSpec);
+  } else if (name === 'drawings') {
+    if (!currentModel) return;
+    renderDrawings(currentModel);
+  } else if (name === 'detailing') {
+    if (!currentModel) return;
+    renderDetailingTable(currentModel);
+  } else {
+    return;
+  }
+  docsTabsDirty[name] = false;
+}
+
+// Досбор той вкладки, что открыта прямо сейчас. Нужен не только после
+// пересчёта, но и когда панель «Документы» открывают мимо setDocsTab —
+// кнопкой HUD, горячей клавишей или восстановлением состояния при загрузке
+// (ui-shell.js: setResultsOpen → мост window.Modul3D.app).
+function ensureVisibleDocsTabBuilt() {
+  DOCS_TABS.forEach((n) => { if (isDocsTabVisible(n)) ensureTabBuilt(n); });
+}
+
+// Помечает вкладки устаревшими и сразу пересобирает открытую: пользователь,
+// стоящий на «Деталировке» и меняющий габарит, обязан видеть свежие числа
+// немедленно, без переключения туда-обратно.
+function invalidateDocsTabs(names) {
+  const list = names || DOCS_TABS;
+  // Поповер фильтра деталировки ссылается на значения прошлого рендера, и
+  // закрывал его раньше сам renderDetailingTable на каждом пересчёте.
+  // Теперь таблица может и не перестроиться (вкладка скрыта) — закрываем
+  // здесь, чтобы поведение осталось прежним.
+  if (list.indexOf('detailing') !== -1) closeColumnFilterMenu();
+  list.forEach((n) => { docsTabsDirty[n] = true; });
+  ensureVisibleDocsTabBuilt();
+}
+
 function setDocsTab(name, toggle) {
   const box = document.querySelector('.results');
   if (!box) return;
@@ -10478,6 +10545,10 @@ function setDocsTab(name, toggle) {
   if (panel) panel.classList.add('active');
   const open = (toggle && wasOpen && wasActive) ? false : true;
   box.classList.toggle('open', open);
+  // Содержимое собираем ровно здесь, в момент показа: пока вкладка свёрнута,
+  // её разметка намеренно устаревшая (см. docsTabsDirty выше). Строим до
+  // прокрутки к началу, чтобы scrollTop попал уже на свежую разметку.
+  if (open) ensureTabBuilt(name);
   if (open && panel) {
     panel.scrollTop = 0;                       // документы всегда с начала
     if (panel.scrollIntoView) panel.scrollIntoView({ block: 'nearest' });
@@ -10568,6 +10639,10 @@ onClick('exportDrillDxf', async () => {
 });
 
 document.getElementById('printDrawings').addEventListener('click', () => {
+  // Печать читает готовую разметку вкладки, а вкладка может быть свёрнутой
+  // и потому устаревшей (см. docsTabsDirty) — собираем принудительно, иначе
+  // в печать уйдёт пустая или старая страница.
+  ensureTabBuilt('drawings');
   const html = document.getElementById('tab-drawings').innerHTML;
   const w = window.open('', '_blank');
   if (!w) { alert('Разрешите всплывающие окна, чтобы напечатать чертежи.'); return; }
@@ -10623,7 +10698,9 @@ function initHeaderControls() {
     hf.classList.toggle('active', state.hideFacades);
     hf.textContent = state.hideFacades ? 'Показать фасады' : 'Скрыть фасады';
     if (viewer && currentModel) viewer.render(currentModel, viewOpts());
-    if (currentModel) renderDrawings(currentModel);
+    // От «скрыть фасады» зависят только чертежи — помечаем устаревшей одну
+    // эту вкладку; если она открыта, перерисуется тут же, как раньше.
+    invalidateDocsTabs(['drawings']);
   });
 
   const dc = document.getElementById('drillCheckBtn');
@@ -11748,7 +11825,7 @@ function initSketchPanel() {
 // «Библиотеке»), а не весь recompute() (3D/чертежи/деталировка не зависят
 // от валюты) — укладывается в требование «не более 1-2 секунд» тривиально.
 function refreshCurrency() {
-  if (currentSpec) renderSpecTable(currentSpec);
+  invalidateDocsTabs(['spec']);
   if (document.getElementById('libraryPanel')) renderLibraryPanel();
 }
 
@@ -11777,6 +11854,14 @@ window.Modul3D.app = {
   rotateModuleStep: rotateModuleStep,
   getModuleHudState: getModuleHudState,
   setModuleDoorZoneCount: setModuleDoorZoneCount,
+  // Вкладки документов строятся лениво (см. docsTabsDirty/ensureTabBuilt).
+  // ensureVisibleDocsTabBuilt зовёт ui-shell.js, когда панель «Документы»
+  // открывают мимо setDocsTab (кнопка HUD, горячая клавиша D,
+  // восстановление состояния при загрузке). ensureTabBuilt — для тех, кому
+  // нужна готовая разметка конкретной вкладки, не показывая её
+  // (dev-прогон tools/smoke.js).
+  ensureTabBuilt: ensureTabBuilt,
+  ensureVisibleDocsTabBuilt: ensureVisibleDocsTabBuilt,
 };
 
 // ---------------------------------------------------------------------------

@@ -28,12 +28,12 @@ class Vector3 {
 class Euler extends Vector3 {}
 // Matrix4/Matrix3 — тем же приёмом, что и Vector3 выше: методы, которые бы
 // считали настоящий поворот/перенос, просто возвращают this без изменений.
-// Нужны только затем, чтобы `new THREE.Matrix4()...` в viewer.js (см.
-// csgTools — инструменты для булева вычитания, csg.js) не падал с «is not a
-// constructor»; сама резка (csg.js) реальных position/normal в этой
-// заглушке всё равно не получит (BoxGeometry/CylinderGeometry здесь —
-// геометрия-пустышка geo(), без вершин), поэтому render() и так уходит по
-// try/catch на запасной путь — заглушке достаточно не мешать этому дойти.
+// Нужны только затем, чтобы `new THREE.Matrix4()` (csg.js) не падал с «is
+// not a constructor». Сама деталь в viewer.js теперь собирается
+// аналитически (buildSlabGeometry) на обычном BufferGeometry, поэтому в
+// заглушке у неё есть НАСТОЯЩИЕ вершины — их и проверяет tools/viewer.js.
+// Внимание: rotateX/rotateY у геометрии здесь по-прежнему пустышки, так
+// что деталь остаётся в своих локальных осях, а не в мировых.
 class Matrix4 {
   constructor() { this.elements = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]; }
   makeRotationX() { return this; }
