@@ -11,6 +11,13 @@ const express = require('express');
 const cors = require('cors');
 
 const config = require('./src/config');
+// Временная диагностика (2026-09-20): isAdmin у /auth/me остаётся false для
+// владельца проекта, хотя ADMIN_EMAIL в Railway выглядит верно построчно —
+// печатаем сырое и нормализованное значение при старте, чтобы увидеть
+// скрытые символы ( , \n и т.п.), которые UI Railway не показывает.
+// Убрать после того как причина найдена — email не секрет, но лог не место
+// для постоянного мусора.
+console.log('[boot] ADMIN_EMAIL raw:', JSON.stringify(process.env.ADMIN_EMAIL), 'normalized:', JSON.stringify(config.adminEmail));
 const authRouter = require('./src/routes/auth');
 const billingRouter = require('./src/routes/billing');
 const sketchRouter = require('./src/routes/sketch');
