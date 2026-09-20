@@ -119,8 +119,13 @@ module.exports = {
   // Email единственного разработчика, которому видна и доступна кнопка
   // «Опубликовать как базу по умолчанию» в панели «Библиотека». Если не
   // задан — публикация недоступна вообще никому (POST /catalog-publish
-  // отвечает 403), сервер при этом не падает.
-  adminEmail: process.env.ADMIN_EMAIL,
+  // отвечает 403), сервер при этом не падает. trim+lowerCase — сравнивается
+  // с req.user.email из JWT, а он всегда нормализован так же при регистрации/
+  // входе (routes/auth.js: normalizedEmail); переменная окружения такому
+  // контролю не подчиняется (лишний пробел/перенос строки при вставке в
+  // Railway — реальный случай 2026-09-20, из-за него isAdmin молчаливо
+  // был false при верном на вид email).
+  adminEmail: (process.env.ADMIN_EMAIL || '').trim().toLowerCase() || undefined,
   // Personal Access Token GitHub с правом Contents:write на репозиторий
   // ниже — сервер сам коммитит и пушит в master через GitHub Contents API
   // (routes/catalogPublish.js). Временное решение, пока в проекте один
