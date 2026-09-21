@@ -14,7 +14,7 @@
 (function () {
 // Версия сборки — показывается во вкладке браузера и в шапке.
 // При выпуске новой версии меняется только эта строка.
-const APP_VERSION = 'v296';
+const APP_VERSION = 'v297';
 
 // Номер версии выводим ПЕРВЫМ делом: если дальше что-то упадёт, по нему сразу
 // видно, какая сборка открыта.
@@ -11530,17 +11530,24 @@ function requireLibraryEditAuth() {
 
 // Панель «Библиотека» реально ВИДНА (drawer открыт классом .open, см.
 // ui-shell.js: openDrawer/closeDrawer) и открыта на вкладке, содержимое
-// которой зависит от каталога («Материалы», «Двери», «Фурнитура») —
-// используется, чтобы решить, нужно ли перерисовывать её содержимое сразу
-// после фоновой подгрузки/отката правок каталога (restoreCatalogFrom мутирует
-// и FACADE_MATERIALS — с 2026-09-15 это данные категории «Виды фасадов» на
-// вкладке «Двери», а не только «Материалов», см. libraryFacadesBlock — и все
-// четыре источника фурнитуры вместе с деревом её категорий, см.
-// state.libHwCatLabels/libHwCustomCats).
+// которой зависит от каталога («Материалы», «Двери», «Фурнитура», «База
+// модулей») — используется, чтобы решить, нужно ли перерисовывать её
+// содержимое сразу после фоновой подгрузки/отката правок каталога
+// (restoreCatalogFrom мутирует и FACADE_MATERIALS — с 2026-09-15 это данные
+// категории «Виды фасадов» на вкладке «Двери», а не только «Материалов», см.
+// libraryFacadesBlock — и все четыре источника фурнитуры вместе с деревом её
+// категорий, см. state.libHwCatLabels/libHwCustomCats). «modules» добавлена
+// 2026-09-21: без неё своя категория «Базы модулей» (state.libModCustomGroups,
+// тоже приходит из restoreCatalogFrom) не появлялась на экране после F5/
+// перелогина, пока панель уже открыта на этой вкладке — «Библиотека» на
+// пустом проекте открывается сама (см. ui-shell.js: restoreUI) ДО того, как
+// успевает прийти фоновый GET /catalog-overrides, а после его прихода
+// перерисовку без «modules» в списке никто не заказывал.
 function isLibraryMaterialsPanelOpen() {
   const drawer = document.getElementById('drawer-library');
   return !!drawer && drawer.classList.contains('open')
-    && (state.libraryTab === 'materials' || state.libraryTab === 'facades' || state.libraryTab === 'hardware');
+    && (state.libraryTab === 'materials' || state.libraryTab === 'facades'
+      || state.libraryTab === 'hardware' || state.libraryTab === 'modules');
 }
 
 // Статус последней фоновой попытки сохранить правки каталога — крутится
