@@ -410,7 +410,12 @@ router.get('/me', requireAuth, async (req, res) => {
     if (!account) {
       return res.status(404).json({ error: 'Пользователь не найден.' });
     }
-    return res.json(account);
+    // isAdmin — единственному разработчику (config.adminEmail) клиент
+    // показывает кнопку «Опубликовать как базу по умолчанию» в панели
+    // «Библиотека» (см. routes/catalogPublish.js). Не роль в БД — просто
+    // сравнение с email из JWT, как и остальные эндпоинты этого проекта на
+    // один-владельца (ADMIN_TOKEN у /reviews/pending и т.п.).
+    return res.json({ ...account, isAdmin: req.user.email === config.adminEmail });
   } catch (err) {
     console.error('[auth/me] ошибка:', err);
     return res.status(500).json({ error: 'Не удалось получить данные аккаунта.' });

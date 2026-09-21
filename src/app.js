@@ -187,7 +187,22 @@ const state = {
   // state.libExtraSubcats (был только один уровень вложенности —
   // subcategory). Чисто UI-состояние, как libCollapsed выше: в историю
   // отмены/файл проекта не попадает.
-  libExtraNodes: { sheet: [], facade: [], edge: [], glass: [] },
+  libExtraNodes: {
+  "edge": [],
+  "glass": [],
+  "sheet": [],
+  "facade": [],
+  "hw:hinge": [
+    [
+      "Blum"
+    ]
+  ],
+  "hw:runner": [
+    [
+      "фаа"
+    ]
+  ]
+},
   // СВОЙ порядок подкатегорий в дереве «Библиотеки», заданный
   // перетаскиванием строки узла мышью/пальцем (см. libTreeDragStart ниже) —
   // по разделу: { sheet: { '': ['ДСП', 'ХДФ/ДВП'], 'ДСП': ['Egger',
@@ -205,7 +220,14 @@ const state = {
   // В отличие от libCollapsed/libCatOpen выше это НЕ сессионное состояние:
   // едет на сервер в общем снимке каталога (см. snapshotCatalogCollections)
   // и переживает перезагрузку, как libExtraNodes/libHwCatLabels.
-  libNodeOrder: {},
+  libNodeOrder: {
+  "hw:hinge": {
+    "": [
+      "Blum",
+      "петли для стекла"
+    ]
+  }
+},
   // То же самое, но для КОРНЕВЫХ категорий — по вкладке «Библиотеки»:
   // { materials: ['edge','sheet','glass','countertop'],
   //   hardware: ['hw:handle','hw:hinge', …], facades: ['facade'] }.
@@ -217,7 +239,20 @@ const state = {
   // Перечисленные разделы идут первыми в указанном порядке, не
   // перечисленные (новая своя категория фурнитуры) — следом, в заводском
   // порядке. Как libNodeOrder выше, едет на сервер в снимке каталога.
-  libTopOrder: {},
+  libTopOrder: {
+  "hardware": [
+    "hw:hinge",
+    "hw:runner",
+    "hw:handle",
+    "hw:leg",
+    "hw:support",
+    "hw:plinth",
+    "hw:countertop",
+    "hw:mechanism",
+    "hw:rod",
+    "hw:fastener"
+  ]
+},
   // Вложенность КОРНЕВЫХ категорий друг в друга — по вкладке:
   // { hardware: { 'hw:shelfSupport': 'hw:fastener' } }, ключ — код
   // вложенной категории, значение — код её родителя (те же коды, что в
@@ -232,7 +267,9 @@ const state = {
   // такую категорию корневой (см. там же защиту от цикла).
   // Как libTopOrder выше — не сессионное состояние, едет на сервер в снимке
   // каталога.
-  libTopParent: {},
+  libTopParent: {
+  "hardware": {}
+},
   // Свои ПОДПИСИ корневых категорий вкладки «Фурнитура» — { hinge: 'Петельки',
   // 'custom-1758...': 'Уплотнители' }: ключ — тот же item.category, по которому
   // engine.js/specification.js подбирают фурнитуру в расчёте, значение — только
@@ -7112,6 +7149,8 @@ function initLibraryPanel() {
   });
   const search = document.getElementById('librarySearch');
   if (search) search.addEventListener('input', applyLibrarySearch);
+  const publishBtn = document.getElementById('libPublishBtn');
+  if (publishBtn) publishBtn.addEventListener('click', () => { if (!publishBtn.disabled) requestCatalogPublish(); });
 
   // Перетаскивание строк дерева категорий мышью/пальцем (см. большой
   // комментарий над libTreeDragPointerDown) — отдельный pointerdown на той
@@ -11370,6 +11409,56 @@ function setLibrarySaveStatus(message, kind) {
   el.className = 'sketch-status lib-save-status' + (kind ? ` ${kind}` : '');
 }
 
+// Статус кнопки «Опубликовать как базу по умолчанию» (#libPublishBar в
+// index.html) — свой индикатор, отдельный от setLibrarySaveStatus выше: та
+// строка занята автосохранением правок пользователя на сервер, публикация
+// в общий дефолт — отдельное действие со своим результатом, писать поверх
+// друг друга нельзя.
+function setLibPublishStatus(message, kind) {
+  const el = document.getElementById('libPublishStatus');
+  if (!el) return;
+  el.textContent = message || '';
+  el.className = 'sketch-status' + (kind ? ` ${kind}` : '');
+}
+
+// Публикация текущего (сохранённого на сервере) каталога пользователя как
+// нового каталога по умолчанию для всех — кнопка видна только админу (см.
+// renderAccountUI/authAccount.isAdmin), сервер сам сверяет email ещё раз.
+// Кнопка и статус живут вне #libraryPanel (не пересоздаются при смене
+// вкладки/renderLibraryPanel), поэтому disabled и текст статуса правим
+// напрямую через DOM, без отдельного поля в state.
+async function requestCatalogPublish() {
+  const btn = document.getElementById('libPublishBtn');
+  const token = getAuthToken();
+  if (!token) { setLibPublishStatus('Войдите в аккаунт заново.', 'error'); return; }
+  if (btn) btn.disabled = true;
+  setLibPublishStatus('Публикуем…', '');
+  try {
+    const res = await fetch(`${AUTH_API_BASE}/catalog-publish`, {
+      method: 'POST',
+      headers: { authorization: 'Bearer ' + token },
+    });
+    const data = await res.json().catch(() => ({}));
+    if (res.ok) {
+      const changed = Array.isArray(data.changed) ? data.changed : [];
+      if (!changed.length) setLibPublishStatus('Публиковать нечего — каталог уже совпадает с базой по умолчанию.', '');
+      else setLibPublishStatus(`Опубликовано: ${changed.join(', ')}.`, 'ok');
+    } else if (res.status === 400 || res.status === 403 || res.status === 422 || res.status === 503) {
+      // Все четыре — осмысленные сообщения от сервера (см. описание кодов в
+      // задаче): 400 «нечего публиковать», 403 «доступ закрыт», 422 «код не
+      // прошёл валидацию» (публикация не произошла, ничего не сломано), 503
+      // «не настроено на сервере». Показываем текст сервера как есть.
+      setLibPublishStatus(data.error || 'Не удалось опубликовать.', 'error');
+    } else {
+      setLibPublishStatus('Не удалось опубликовать — попробуйте позже.', 'error');
+    }
+  } catch (err) {
+    setLibPublishStatus('Не удалось опубликовать — проверьте подключение.', 'error');
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
 // Фоновое сохранение правок каталога материалов на сервере (см.
 // libSaveEdit/libAddRow/libRenameNode/libAddChildNode/libDeleteNode ниже —
 // единственные точки, где реально меняются данные каталога). Задержка нужна,
@@ -11573,6 +11662,16 @@ function renderAccountUI() {
   const plansPanel = document.getElementById('plansPanel');
   const accountToggle = document.getElementById('accountToggle');
   const sketchNote = document.getElementById('sketchAuthNote'); const workflowLink = document.getElementById('workflowLink'); if (workflowLink) workflowLink.style.display = (authAccount && authAccount.email === 'laromval@gmail.com') ? 'flex' : 'none';
+  // Кнопка «Опубликовать как базу по умолчанию» (панель «Библиотека») —
+  // сервер сам проверяет email при самом запросе, здесь только видимость.
+  const libPublishBar = document.getElementById('libPublishBar');
+  if (libPublishBar) {
+    const isAdmin = !!(authAccount && authAccount.isAdmin);
+    libPublishBar.style.display = isAdmin ? 'flex' : 'none';
+    // Кнопка скрыта — сбрасываем статус прошлой попытки, иначе при
+    // следующем входе админа мелькнёт устаревший результат.
+    if (!isAdmin) setLibPublishStatus('', '');
+  }
 
   // Панель тарифов — временный экран поверх формы входа/аккаунта (см.
   // showPlansPanel); при любой обычной перерисовке возвращаемся к обычному

@@ -9,6 +9,7 @@
 <link rel="icon" type="image/svg+xml" href="favicon.svg" />
 <link rel="stylesheet" href="style.css?v293" />
 
+<script src="src/errorBanner.js?v293"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <!-- Paddle.js — оверлей оплаты подписки (см. app.js: requestCheckout/initPaddle).
      Обычный скрипт без defer, как остальные CDN-подключения выше. -->
@@ -322,6 +323,14 @@
         <button class="lib-tab-btn" data-libtab="materials" type="button">Материалы</button>
         <button class="lib-tab-btn" data-libtab="hardware" type="button">Фурнитура</button>
         <button class="lib-tab-btn" data-libtab="facades" type="button">Двери</button>
+      </div>
+      <!-- Публикация каталога как базы по умолчанию — только для админа
+           (см. renderAccountUI/authAccount.isAdmin в app.js). Относится ко
+           всему каталогу разом, поэтому стоит здесь, а не внутри
+           #libraryPanel — тот перерисовывается целиком при смене вкладки. -->
+      <div class="lib-publish-bar" id="libPublishBar" style="display:none">
+        <button type="button" class="btn" id="libPublishBtn">Опубликовать как базу по умолчанию</button>
+        <span id="libPublishStatus" class="sketch-status" aria-live="polite"></span>
       </div>
       <div id="librarySaveStatus" class="sketch-status lib-save-status" aria-live="polite"></div>
       <div class="panel" id="libraryPanel"><!-- заполняется app.js --></div>

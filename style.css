@@ -1327,6 +1327,12 @@ h4.spec-title { margin: var(--sp-5) 0 var(--sp-2); font-size: var(--fs-md); font
    var(--fs-sm)) ради читаемости, ужимаем только «воздух» вокруг текста.
    flex-wrap оставлен подстраховкой на случай ещё более узкого экрана/зума. */
 .lib-tabs { display: flex; gap: 3px; margin-bottom: var(--sp-3); flex-wrap: wrap; }
+/* Кнопка публикации каталога как базы по умолчанию — видна только админу
+   (см. renderAccountUI в app.js, toggle через display:none/flex). Строка
+   вне #libraryPanel по той же причине, что и .lib-save-status ниже —
+   не должна пропадать при перерисовке содержимого вкладки. */
+.lib-publish-bar { align-items: center; gap: var(--sp-3); flex-wrap: wrap; margin-bottom: var(--sp-3); }
+.lib-publish-bar .sketch-status { margin: 0; }
 /* Статус сохранения правок каталога (см. setLibrarySaveStatus/scheduleCatalogSave
    в app.js) — живёт вне #libraryPanel, поэтому не пропадает при полной
    перерисовке содержимого вкладки (panel.innerHTML = ...). Пустой текст —

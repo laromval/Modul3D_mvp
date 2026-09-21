@@ -11,6 +11,13 @@ const express = require('express');
 const cors = require('cors');
 
 const config = require('./src/config');
+// Временная диагностика (2026-09-20): isAdmin у /auth/me остаётся false для
+// владельца проекта, хотя ADMIN_EMAIL в Railway выглядит верно построчно —
+// печатаем сырое и нормализованное значение при старте, чтобы увидеть
+// скрытые символы ( , \n и т.п.), которые UI Railway не показывает.
+// Убрать после того как причина найдена — email не секрет, но лог не место
+// для постоянного мусора.
+console.log('[boot] ADMIN_EMAIL raw:', JSON.stringify(process.env.ADMIN_EMAIL), 'normalized:', JSON.stringify(config.adminEmail));
 const authRouter = require('./src/routes/auth');
 const billingRouter = require('./src/routes/billing');
 const sketchRouter = require('./src/routes/sketch');
@@ -19,6 +26,7 @@ const hardwareModelsRouter = require('./src/routes/hardwareModels');
 const reviewsRouter = require('./src/routes/reviews');
 const catalogOverridesRouter = require('./src/routes/catalogOverrides');
 const catalogLinksRouter = require('./src/routes/catalogLinks');
+const catalogPublishRouter = require('./src/routes/catalogPublish');
 
 const app = express();
 
@@ -65,6 +73,7 @@ app.use('/export', exportRouter);
 app.use('/hardware-models', hardwareModelsRouter);
 app.use('/reviews', reviewsRouter);
 app.use('/catalog-overrides', catalogOverridesRouter);
+app.use('/catalog-publish', catalogPublishRouter);
 // catalogLinksRouter монтируется БЕЗ префикса — его собственные пути уже
 // полные ("/catalog-link-sources" и т.п., см. ТЗ-ПАРСЕР-МАТЕРИАЛОВ.md).
 // express.json()/requireAuth внутри него подключены по каждому роуту

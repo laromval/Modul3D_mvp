@@ -20,22 +20,84 @@
   // с U702ST9 выше — старое название по коду ST10/ST36/ST2 было просто
   // неверным, реальный декор Egger называется иначе).
   const DECORS = [
-    // Реальный размер листа и толщина (2800×2070×18,6) подтверждены прямо на
-    // карточке товара (вкладка «Характеристики» на mobilier.md, 2026-09-15) —
-    // число "186" в slug sourceUrl оказалось толщиной 18.6 мм, записанной без
-    // точки, а не опечаткой.
-    { code: 'H1180ST37', name: 'ЛДСП Egger H1180 ST37 Дуб Халифакс натуральный', sheetPrice: 3536, sourceUrl: 'https://mobilier.md/ru/plitnye-materialy/dsp/dsp_egger/h1180-st37-dub-galifaks-naturalnyy-2800x2070x186-eg-dsp-laminirovannyy.html', sheetW: 2800, sheetH: 2070, thickness: 18.6, unit: 'лист', image: 'https://mobilier.md/image/cache/catalog/products/23949/37de281fd09df8ce907afbcf155ae164-520x350.png', categoryPath: ['ДСП', 'Egger'] },
-    { code: 'U702ST9',   name: 'ЛДСП Egger U702 ST9 Серый кашемир', sheetPrice: 1768, sourceUrl: 'https://mobilier.md/ru/plitnye-materialy/dsp/dsp_egger/u702-st9-kashemir-seryy-2800x2070x18-eg-dsp-laminirovannyy.html', sheetW: 2800, sheetH: 2070, unit: 'лист', image: 'https://mobilier.md/image/cache/catalog/products/24843/d75f1d225f2eec6b4c720a64dfb30bb6-250x250.png', categoryPath: ['ДСП', 'Egger'], thickness: 18 },
-    { code: 'H3450ST22',  name: 'ЛДСП Egger H3450 ST22 Флитвуд белый', sheetPrice: 1895, sourceUrl: 'https://mobilier.md/ru/plitnye-materialy/dsp/dsp_egger/h3450-st22-flitvud-belyy-2800x2070x18-eg-dsp-laminirovannyy.html', sheetW: 2800, sheetH: 2070, unit: 'лист', image: 'https://mobilier.md/image/cache/catalog/products/23946/c36efb9474cd6c437c97eac5c2de641c-800x800.png', categoryPath: ['ДСП', 'Egger'], thickness: 18 },
-    // ST19 (более выраженная текстура) на сайте тоже есть, но дороже
-    // (1993 против 1490) — взята более бюджетная ST7 как более
-    // сопоставимая по цене с исходной заглушкой.
-    { code: 'U999ST7',   name: 'ЛДСП Egger U999 ST7 Чёрный',       sheetPrice: 1716, sourceUrl: 'https://mobilier.md/ru/plitnye-materialy/dsp/dsp_egger/u999-st7-chiornyy-2800x2070x18-eg-dsp-laminirovannyy.html', sheetW: 2800, sheetH: 2070, unit: 'лист', image: 'https://mobilier.md/image/cache/catalog/products/24403/e693f3cec257bc4973ec56868872ea9b-768x1087.png', categoryPath: ['ДСП', 'Egger'], thickness: 18 },
-  ];
+  {
+    "code": "H1180ST37",
+    "name": "ЛДСП Egger H1180 ST37 Дуб Халифакс натуральный",
+    "unit": "лист",
+    "image": "https://mobilier.md/image/cache/catalog/products/23949/37de281fd09df8ce907afbcf155ae164-520x350.png",
+    "sheetH": 2070,
+    "sheetW": 2800,
+    "sourceUrl": "https://mobilier.md/ru/plitnye-materialy/dsp/dsp_egger/h1180-st37-dub-galifaks-naturalnyy-2800x2070x186-eg-dsp-laminirovannyy.html",
+    "thickness": 18.6,
+    "sheetPrice": 3536,
+    "categoryPath": [
+      "ДСП",
+      "Egger"
+    ]
+  },
+  {
+    "code": "U702ST9",
+    "name": "ЛДСП Egger U702 ST9 Серый кашемир",
+    "unit": "лист",
+    "image": "https://mobilier.md/image/cache/catalog/products/24843/d75f1d225f2eec6b4c720a64dfb30bb6-250x250.png",
+    "sheetH": 2070,
+    "sheetW": 2800,
+    "sourceUrl": "https://mobilier.md/ru/plitnye-materialy/dsp/dsp_egger/u702-st9-kashemir-seryy-2800x2070x18-eg-dsp-laminirovannyy.html",
+    "thickness": 18,
+    "sheetPrice": 1768,
+    "categoryPath": [
+      "ДСП",
+      "Egger"
+    ]
+  },
+  {
+    "code": "H3450ST22",
+    "name": "ЛДСП Egger H3450 ST22 Флитвуд белый",
+    "unit": "лист",
+    "image": "https://mobilier.md/image/cache/catalog/products/23946/c36efb9474cd6c437c97eac5c2de641c-800x800.png",
+    "sheetH": 2070,
+    "sheetW": 2800,
+    "sourceUrl": "https://mobilier.md/ru/plitnye-materialy/dsp/dsp_egger/h3450-st22-flitvud-belyy-2800x2070x18-eg-dsp-laminirovannyy.html",
+    "thickness": 18,
+    "sheetPrice": 1895,
+    "categoryPath": [
+      "ДСП",
+      "Egger"
+    ]
+  },
+  {
+    "code": "U999ST7",
+    "name": "ЛДСП Egger U999 ST7 Чёрный",
+    "unit": "лист",
+    "image": "https://mobilier.md/image/cache/catalog/products/24403/e693f3cec257bc4973ec56868872ea9b-768x1087.png",
+    "sheetH": 2070,
+    "sheetW": 2800,
+    "sourceUrl": "https://mobilier.md/ru/plitnye-materialy/dsp/dsp_egger/u999-st7-chiornyy-2800x2070x18-eg-dsp-laminirovannyy.html",
+    "thickness": 18,
+    "sheetPrice": 1716,
+    "categoryPath": [
+      "ДСП",
+      "Egger"
+    ]
+  }
+];
 
   const BACK_MATERIALS = [
-    { code: 'HDF-3', name: 'ХДФ белый 3мм', sheetPrice: 383, sourceUrl: 'https://mobilier.md/ru/plitnye-materialy/hdf-dvp-ru/dvp-110-belyy-3-2850x2070.html', sheetW: 2850, sheetH: 2070, thickness: 3, unit: 'лист', image: 'https://mobilier.md/image/cache/catalog/products/29869/ac26853536e04c7b11f0b8e72d9f87e5-553x553.png', categoryPath: ['ХДФ/ДВП'] },
-  ];
+  {
+    "code": "HDF-3",
+    "name": "ХДФ белый 3мм",
+    "unit": "лист",
+    "image": "https://mobilier.md/image/cache/catalog/products/29869/ac26853536e04c7b11f0b8e72d9f87e5-553x553.png",
+    "sheetH": 2070,
+    "sheetW": 2850,
+    "sourceUrl": "https://mobilier.md/ru/plitnye-materialy/hdf-dvp-ru/dvp-110-belyy-3-2850x2070.html",
+    "thickness": 3,
+    "sheetPrice": 383,
+    "categoryPath": [
+      "ХДФ/ДВП"
+    ]
+  }
+];
 
   // Столешницы на mobilier.md продаются ПОГОННЫМ метром — готовой полосой
   // фиксированной глубины и толщины, а не листом произвольного размера, как
@@ -56,54 +118,138 @@
   // в глубине 920, отдельно докупать позицию 600 не стали, просто уточнили
   // ей цену (было null).
   const COUNTERTOP_MATERIALS = [
-    // --- Постформинг ЛДСП 38мм (5): 2 тёмных, 2 светлых/мрамор, 1 дерево ---
-    { code: 'CTOP-LDSP38-600', materialId: 'ldsp38', brand: 'Kronospan',
-      name: 'Столешница ЛДСП 38мм постформинг, глубина 600, мрамор белый (Kronospan K552SU White Iceberg)',
-      thickness: 38, depth: 600, pricePerMeter: 567, maxLength: 4100, unit: 'пог.м',
-      sourceUrl: 'https://mobilier.md/ru/stoleshnicy-i-sten-paneli/stoleshnicy-postforming/kronospan-1/kuhonnaya-stoleshnitsa-k552-su-belyy-aysberg-ramornyy-38-4100x600-ku.html', image: 'https://mobilier.md/image/cache/catalog/products/25046/edc850ca56663b9662b2d5ee1b34d7f1-800x800.png' },
-    { code: 'CTOP-LDSP38-1063SQ', materialId: 'ldsp38', brand: 'SwissKrono',
-      name: 'Столешница ЛДСП 38мм постформинг, глубина 600, мрамор Bianco Bello (SwissKrono 1063 SQ)',
-      thickness: 38, depth: 600, pricePerMeter: 898, maxLength: 4100, unit: 'пог.м',
-      sourceUrl: 'https://mobilier.md/ru/stoleshnicy-i-sten-paneli/stoleshnicy-postforming/swisskrono/kuhonnaya-stoleshnitsa-1063-sq-ramor-byanko-bello-38-4100x600-su.html', image: 'https://mobilier.md/image/cache/catalog/products/25053/f0499007a6a03b7858946f3d630d39c7-590x1200.png' },
-    { code: 'CTOP-LDSP38-H1145ST10', materialId: 'ldsp38', brand: 'Egger',
-      name: 'Столешница ЛДСП 38мм постформинг, глубина 600, дуб Бардолино натуральный (Egger H1145 ST10)',
-      thickness: 38, depth: 600, pricePerMeter: 641, maxLength: 4100, unit: 'пог.м',
-      sourceUrl: 'https://mobilier.md/ru/stoleshnicy-i-sten-paneli/stoleshnicy-postforming/egger-1/kuhonnaya-stoleshnitsa-h1145-st10-dub-bardolino-naturalnyy-38-4100x600-eg.html', image: 'https://mobilier.md/image/cache/catalog/products/25489/6390e2cc89e9a4392f1f31ffd03bb28a-768x1089.png' },
-    { code: 'CTOP-LDSP38-2061RA', materialId: 'ldsp38', brand: 'SwissKrono',
-      name: 'Столешница ЛДСП 38мм постформинг, глубина 600, чёрная (SwissKrono 2061 RA Negru)',
-      thickness: 38, depth: 600, pricePerMeter: 664, maxLength: 4100, unit: 'пог.м',
-      sourceUrl: 'https://mobilier.md/ru/stoleshnicy-i-sten-paneli/stoleshnicy-postforming/swisskrono/kuhonnaya-stoleshnitsa-2061-ra-chernyy-38-4100x600-su.html', image: 'https://mobilier.md/image/cache/catalog/products/33880/3e45fc23634b374571cca05ecc5707d4-1400x1773.png' },
-    // Цена была не подтверждена (null) — уточнена (1227 MDL/пог.м). На
-    // сайте у карточки товара стоит отметка «outstock» (нет в наличии на
-    // складе) — перед заказом уточнять у поставщика срок поставки.
-    { code: 'CTOP-LDSP38-920', materialId: 'ldsp38', brand: 'Egger',
-      name: 'Столешница ЛДСП 38мм постформинг, глубина 920, тёмный сланец (Egger F235 ST76 Ardezie Scivaro)',
-      thickness: 38, depth: 920, pricePerMeter: 1227, maxLength: 4100, unit: 'пог.м',
-      note: 'На сайте отмечена как «нет в наличии» — уточнять срок поставки у mobilier.md.',
-      sourceUrl: 'https://mobilier.md/ru/stoleshnicy-i-sten-paneli/stoleshnicy-postforming/egger-1/kuhonnaya-stoleshnitsa-f235-st76-slanets-scivaro-38-4100x920-eg.html', image: 'https://mobilier.md/image/cache/catalog/products/32284/4ef827b2524b36b22ac2dddb62d5b523-768x1087.png' },
-
-    // --- Компакт-плита HPL 12мм (5): 2 светлых, 2 тёмных, 1 нейтральный ---
-    { code: 'CTOP-COMPACT12-650', materialId: 'compact12', brand: 'Egger',
-      name: 'Столешница компакт-плита HPL 12мм, глубина 650, дуб Санта-Фе винтаж (Egger H1330 ST10, нейтральный)',
-      thickness: 12, depth: 650, pricePerMeter: 2248, maxLength: 4100, unit: 'пог.м',
-      sourceUrl: 'https://mobilier.md/ru/stoleshnicy-i-sten-paneli/stoleshnicy-iz-kompakt-plity/stoleshnica-kompakt-h1330-st10-dub-santa-fe-vintazh-12-4100x650-eg.html', image: 'https://mobilier.md/image/cache/catalog/products/24132/4a61df401f36faf0a6b765640443a328-768x1087.png' },
-    { code: 'CTOP-COMPACT12-F221ST87', materialId: 'compact12', brand: 'Egger',
-      name: 'Столешница компакт-плита HPL 12мм, глубина 650, керамика крем (Egger F221 ST87 Tessina)',
-      thickness: 12, depth: 650, pricePerMeter: 2248, maxLength: 4100, unit: 'пог.м',
-      sourceUrl: 'https://mobilier.md/ru/stoleshnicy-i-sten-paneli/stoleshnicy-iz-kompakt-plity/stoleshnitsa-hpl-kompakt-f221-st87-tessina-keramicheskiy-kremovyy-12-4100x650.html', image: 'https://mobilier.md/image/cache/catalog/products/34232/dcdac2e673992a71d037326ad93ba34f-768x1091.png' },
-    { code: 'CTOP-COMPACT12-F8001ST9', materialId: 'compact12', brand: 'Egger',
-      name: 'Столешница компакт-плита HPL 12мм, глубина 650, мрамор светлый (Egger F8001 ST9 Marmură Crystal)',
-      thickness: 12, depth: 650, pricePerMeter: 3375, maxLength: 4100, unit: 'пог.м',
-      sourceUrl: 'https://mobilier.md/ru/stoleshnicy-i-sten-paneli/stoleshnicy-iz-kompakt-plity/stoleshnitsa-hpl-kompakt-f8001-st9-kristallicheskiy-mramor-12-4100x650-eg.html', image: 'https://mobilier.md/image/cache/catalog/products/33959/e1e91a7f54701d4f077461feac6608ac-768x1087.png' },
-    { code: 'CTOP-COMPACT12-F206ST9', materialId: 'compact12', brand: 'Egger',
-      name: 'Столешница компакт-плита HPL 12мм, глубина 650, камень чёрный (Egger F206 ST9 Pietra Grigia negru)',
-      thickness: 12, depth: 650, pricePerMeter: 2248, maxLength: 4100, unit: 'пог.м',
-      sourceUrl: 'https://mobilier.md/ru/stoleshnicy-i-sten-paneli/stoleshnicy-iz-kompakt-plity/stoleshnitsa-hpl-kompakt-f206-st9-petra-gridzhia-chernyy-12-4100x650-eg.html', image: 'https://mobilier.md/image/cache/catalog/products/33966/a7f38e75dad98898267ccfb0d189a275-768x1087.png' },
-    { code: 'CTOP-COMPACT12-U999ST76', materialId: 'compact12', brand: 'Egger',
-      name: 'Столешница компакт-плита HPL 12мм, глубина 650, антрацит (Egger U999 ST76)',
-      thickness: 12, depth: 650, pricePerMeter: 2248, maxLength: 4100, unit: 'пог.м',
-      sourceUrl: 'https://mobilier.md/ru/stoleshnicy-i-sten-paneli/stoleshnicy-iz-kompakt-plity/stoleshnitsa-hpl-kompakt-u999-st76-chernyy-12-4100x650-eg.html', image: 'https://mobilier.md/image/cache/catalog/products/24226/e693f3cec257bc4973ec56868872ea9b-768x1087.png' },
-  ];
+  {
+    "code": "CTOP-LDSP38-600",
+    "name": "Столешница ЛДСП 38мм постформинг, глубина 600, мрамор белый (Kronospan K552SU White Iceberg)",
+    "unit": "пог.м",
+    "brand": "Kronospan",
+    "depth": 600,
+    "image": "https://mobilier.md/image/cache/catalog/products/25046/edc850ca56663b9662b2d5ee1b34d7f1-800x800.png",
+    "maxLength": 4100,
+    "sourceUrl": "https://mobilier.md/ru/stoleshnicy-i-sten-paneli/stoleshnicy-postforming/kronospan-1/kuhonnaya-stoleshnitsa-k552-su-belyy-aysberg-ramornyy-38-4100x600-ku.html",
+    "thickness": 38,
+    "materialId": "ldsp38",
+    "pricePerMeter": 567
+  },
+  {
+    "code": "CTOP-LDSP38-1063SQ",
+    "name": "Столешница ЛДСП 38мм постформинг, глубина 600, мрамор Bianco Bello (SwissKrono 1063 SQ)",
+    "unit": "пог.м",
+    "brand": "SwissKrono",
+    "depth": 600,
+    "image": "https://mobilier.md/image/cache/catalog/products/25053/f0499007a6a03b7858946f3d630d39c7-590x1200.png",
+    "maxLength": 4100,
+    "sourceUrl": "https://mobilier.md/ru/stoleshnicy-i-sten-paneli/stoleshnicy-postforming/swisskrono/kuhonnaya-stoleshnitsa-1063-sq-ramor-byanko-bello-38-4100x600-su.html",
+    "thickness": 38,
+    "materialId": "ldsp38",
+    "pricePerMeter": 898
+  },
+  {
+    "code": "CTOP-LDSP38-H1145ST10",
+    "name": "Столешница ЛДСП 38мм постформинг, глубина 600, дуб Бардолино натуральный (Egger H1145 ST10)",
+    "unit": "пог.м",
+    "brand": "Egger",
+    "depth": 600,
+    "image": "https://mobilier.md/image/cache/catalog/products/25489/6390e2cc89e9a4392f1f31ffd03bb28a-768x1089.png",
+    "maxLength": 4100,
+    "sourceUrl": "https://mobilier.md/ru/stoleshnicy-i-sten-paneli/stoleshnicy-postforming/egger-1/kuhonnaya-stoleshnitsa-h1145-st10-dub-bardolino-naturalnyy-38-4100x600-eg.html",
+    "thickness": 38,
+    "materialId": "ldsp38",
+    "pricePerMeter": 641
+  },
+  {
+    "code": "CTOP-LDSP38-2061RA",
+    "name": "Столешница ЛДСП 38мм постформинг, глубина 600, чёрная (SwissKrono 2061 RA Negru)",
+    "unit": "пог.м",
+    "brand": "SwissKrono",
+    "depth": 600,
+    "image": "https://mobilier.md/image/cache/catalog/products/33880/3e45fc23634b374571cca05ecc5707d4-1400x1773.png",
+    "maxLength": 4100,
+    "sourceUrl": "https://mobilier.md/ru/stoleshnicy-i-sten-paneli/stoleshnicy-postforming/swisskrono/kuhonnaya-stoleshnitsa-2061-ra-chernyy-38-4100x600-su.html",
+    "thickness": 38,
+    "materialId": "ldsp38",
+    "pricePerMeter": 664
+  },
+  {
+    "code": "CTOP-LDSP38-920",
+    "name": "Столешница ЛДСП 38мм постформинг, глубина 920, тёмный сланец (Egger F235 ST76 Ardezie Scivaro)",
+    "note": "На сайте отмечена как «нет в наличии» — уточнять срок поставки у mobilier.md.",
+    "unit": "пог.м",
+    "brand": "Egger",
+    "depth": 920,
+    "image": "https://mobilier.md/image/cache/catalog/products/32284/4ef827b2524b36b22ac2dddb62d5b523-768x1087.png",
+    "maxLength": 4100,
+    "sourceUrl": "https://mobilier.md/ru/stoleshnicy-i-sten-paneli/stoleshnicy-postforming/egger-1/kuhonnaya-stoleshnitsa-f235-st76-slanets-scivaro-38-4100x920-eg.html",
+    "thickness": 38,
+    "materialId": "ldsp38",
+    "pricePerMeter": 1227
+  },
+  {
+    "code": "CTOP-COMPACT12-650",
+    "name": "Столешница компакт-плита HPL 12мм, глубина 650, дуб Санта-Фе винтаж (Egger H1330 ST10, нейтральный)",
+    "unit": "пог.м",
+    "brand": "Egger",
+    "depth": 650,
+    "image": "https://mobilier.md/image/cache/catalog/products/24132/4a61df401f36faf0a6b765640443a328-768x1087.png",
+    "maxLength": 4100,
+    "sourceUrl": "https://mobilier.md/ru/stoleshnicy-i-sten-paneli/stoleshnicy-iz-kompakt-plity/stoleshnica-kompakt-h1330-st10-dub-santa-fe-vintazh-12-4100x650-eg.html",
+    "thickness": 12,
+    "materialId": "compact12",
+    "pricePerMeter": 2248
+  },
+  {
+    "code": "CTOP-COMPACT12-F221ST87",
+    "name": "Столешница компакт-плита HPL 12мм, глубина 650, керамика крем (Egger F221 ST87 Tessina)",
+    "unit": "пог.м",
+    "brand": "Egger",
+    "depth": 650,
+    "image": "https://mobilier.md/image/cache/catalog/products/34232/dcdac2e673992a71d037326ad93ba34f-768x1091.png",
+    "maxLength": 4100,
+    "sourceUrl": "https://mobilier.md/ru/stoleshnicy-i-sten-paneli/stoleshnicy-iz-kompakt-plity/stoleshnitsa-hpl-kompakt-f221-st87-tessina-keramicheskiy-kremovyy-12-4100x650.html",
+    "thickness": 12,
+    "materialId": "compact12",
+    "pricePerMeter": 2248
+  },
+  {
+    "code": "CTOP-COMPACT12-F8001ST9",
+    "name": "Столешница компакт-плита HPL 12мм, глубина 650, мрамор светлый (Egger F8001 ST9 Marmură Crystal)",
+    "unit": "пог.м",
+    "brand": "Egger",
+    "depth": 650,
+    "image": "https://mobilier.md/image/cache/catalog/products/33959/e1e91a7f54701d4f077461feac6608ac-768x1087.png",
+    "maxLength": 4100,
+    "sourceUrl": "https://mobilier.md/ru/stoleshnicy-i-sten-paneli/stoleshnicy-iz-kompakt-plity/stoleshnitsa-hpl-kompakt-f8001-st9-kristallicheskiy-mramor-12-4100x650-eg.html",
+    "thickness": 12,
+    "materialId": "compact12",
+    "pricePerMeter": 3375
+  },
+  {
+    "code": "CTOP-COMPACT12-F206ST9",
+    "name": "Столешница компакт-плита HPL 12мм, глубина 650, камень чёрный (Egger F206 ST9 Pietra Grigia negru)",
+    "unit": "пог.м",
+    "brand": "Egger",
+    "depth": 650,
+    "image": "https://mobilier.md/image/cache/catalog/products/33966/a7f38e75dad98898267ccfb0d189a275-768x1087.png",
+    "maxLength": 4100,
+    "sourceUrl": "https://mobilier.md/ru/stoleshnicy-i-sten-paneli/stoleshnicy-iz-kompakt-plity/stoleshnitsa-hpl-kompakt-f206-st9-petra-gridzhia-chernyy-12-4100x650-eg.html",
+    "thickness": 12,
+    "materialId": "compact12",
+    "pricePerMeter": 2248
+  },
+  {
+    "code": "CTOP-COMPACT12-U999ST76",
+    "name": "Столешница компакт-плита HPL 12мм, глубина 650, антрацит (Egger U999 ST76)",
+    "unit": "пог.м",
+    "brand": "Egger",
+    "depth": 650,
+    "image": "https://mobilier.md/image/cache/catalog/products/24226/e693f3cec257bc4973ec56868872ea9b-768x1087.png",
+    "maxLength": 4100,
+    "sourceUrl": "https://mobilier.md/ru/stoleshnicy-i-sten-paneli/stoleshnicy-iz-kompakt-plity/stoleshnitsa-hpl-kompakt-u999-st76-chernyy-12-4100x650-eg.html",
+    "thickness": 12,
+    "materialId": "compact12",
+    "pricePerMeter": 2248
+  }
+];
 
   // Стекло для полок и фасадов: считается по площади, кромка не нужна —
   // торцы шлифуются на производстве стекла. На mobilier.md листовое стекло
@@ -115,10 +261,20 @@
   // Молдове найти не удалось, взята нижняя граница диапазона на ЗАКАЛЁННОЕ
   // стекло 8мм (750-1100 MDL/м²) как ориентир — источник glassinterior.md,
   // статья 2026 года. Наше стекло тоньше, реальная цена может быть ниже.
-  const GLASS = { code: 'GLASS-6', name: 'Стекло 6 мм (полки, фасады)',
-                  sheetPrice: 750, customOrder: true, priceNote: 'приближённая — уточняйте у поставщика',
-                  sourceUrl: 'https://glassinterior.md/blog/cat-costa-sticla-securizata-in-republica-moldova-in-2026/',
-                  unit: 'м²', thickness: 6, image: null, categoryPath: ['Стекло'] };
+  const GLASS = {
+  "code": "GLASS-6",
+  "name": "Стекло 6 мм (полки, фасады)",
+  "unit": "м²",
+  "image": null,
+  "priceNote": "приближённая — уточняйте у поставщика",
+  "sourceUrl": "https://glassinterior.md/blog/cat-costa-sticla-securizata-in-republica-moldova-in-2026/",
+  "thickness": 6,
+  "sheetPrice": 750,
+  "customOrder": true,
+  "categoryPath": [
+    "Стекло"
+  ]
+};
 
   // ---------------------------------------------------------------------------
   // ТИПЫ ФАСАДОВ
@@ -130,47 +286,105 @@
   // glassInside: за таким фасадом полки делаются из стекла
   // ---------------------------------------------------------------------------
   const FACADE_MATERIALS = {
-    'FAC-LDSP': { code: 'FAC-LDSP', name: 'ЛДСП 18 мм (фасад)', sheetPrice: 1768, sourceUrl: 'https://mobilier.md/ru/plitnye-materialy/dsp/dsp_egger/w1000-st9-belyy-premium-2800x2070x18-eg-dsp-laminirovannyy.html', sheetW: 2800, sheetH: 2070, unit: 'лист', image: 'https://mobilier.md/image/cache/catalog/products/24677/59fa523e0348a50dba8422059f9fe9d6-250x250.png', categoryPath: ['ДСП', 'Egger'], thickness: 18 },
-    'FAC-MDF':  { code: 'FAC-MDF',  name: 'МДФ крашеный 19 мм', sheetPrice: 5199, sourceUrl: 'https://mobilier.md/ru/plitnye-materialy/fasadnye-paneli-mdf/mdf-egger/df-u250-pmst9-bezhevaya-karamel-19-2800x2070-eg-perfectsense.html', sheetW: 2800, sheetH: 2070, unit: 'лист', image: 'https://mobilier.md/image/cache/catalog/products/33771/fa16c069b7ad4abdec263f6adff04801-768x1087.png', categoryPath: ['МДФ-плита', 'Egger'], thickness: 19 },
-    // Массив дуба листами не продаётся — это не плитный материал, а
-    // рамочное столярное изделие (рама + филёнка/стекло) под заказ.
-    // Цена — ОРИЕНТИР по прайсу молдавской фабрики ARAMA (arama.md,
-    // прайс-лист от 01.09.2026, породу дерева не уточняют — брать окрашенный
-    // вариант). Курс ≈20 MDL/€ (BNM). customOrder: true — как и стекло выше,
-    // считается area_m2 × sheetPrice без запаса на раскрой (это не лист).
-    // 'FAC-WOOD-FILON' — рама с цельной филёнкой (тип фасада `wood`,
-    // render:'frame'): ARAMA «Fronturi cu filon vopsit», 150 €/м² → ≈3000 MDL.
-    // Толщина в прайсе ARAMA не указана — thickness не добавлен.
-    'FAC-WOOD-FILON': { code: 'FAC-WOOD-FILON', name: 'Фасад из массива с филёнкой',
-                         sheetPrice: 3000, customOrder: true, priceNote: 'ориентировочная — уточняйте у изготовителя',
-                         sourceUrl: 'https://arama.md/images/price/servicii_general_arama.pdf',
-                         unit: 'м²', image: null, categoryPath: ['Массив', 'ARAMA'] },
-    // 'FAC-WOOD-FRAME' — просто рама, вставка (стекло/витраж) отдельно
-    // (тип фасада `woodGlass`, render:'frameGlass'): ARAMA «Fronturi ramă
-    // vopsit», 120 €/м² → ≈2400 MDL. Толщина в прайсе ARAMA не указана —
-    // thickness не добавлен.
-    'FAC-WOOD-FRAME': { code: 'FAC-WOOD-FRAME', name: 'Фасад из массива рамочный, под стекло/витраж',
-                         sheetPrice: 2400, customOrder: true, priceNote: 'ориентировочная — уточняйте у изготовителя',
-                         sourceUrl: 'https://arama.md/images/price/servicii_general_arama.pdf',
-                         unit: 'м²', image: null, categoryPath: ['Массив', 'ARAMA'] },
-    // Алюминиевый профиль для рамочных фасадов — узкоспециализированный
-    // товар, в Молдове не нашли ни одного продавца с открытыми ценой или
-    // чертежом сечения (проверены mobilier.md, numina.md, ARAMA, дилеры
-    // Rehau/Samet — профильной системы под фасады нет ни у кого). Цена
-    // осталась условной.
-    'FAC-ALU':  { code: 'FAC-ALU',  name: 'Алюминиевый профиль (рамка)', sheetPrice: 9800, sheetW: 2000, sheetH: 1000, unit: 'лист', image: null, categoryPath: ['Алюминий'] },
-    // Видимая боковина под деревянный фасад: массивом её не делают —
-    // ставят МДФ в шпоне того же дерева. thickness взят из названия (18мм);
-    // sourceUrl-слаг даёт "19" — расхождение источника, не разрешено молча.
-    'FAC-VENEER': { code: 'FAC-VENEER', name: 'МДФ шпонированный 18 мм (видимая боковина)',
-                    sheetPrice: 5796, sourceUrl: 'https://mobilier.md/ru/plitnye-materialy/shponirovannye-plity/df-shpon-dub-natur-19-2800x2070-mk-avstriya.html', sheetW: 2800, sheetH: 2070, unit: 'лист', image: 'https://mobilier.md/image/cache/catalog/products/30073/8bb6eb475f7e6ca545558881176cacf4-1400x1400.png', categoryPath: ['Шпонированные плиты'], thickness: 18 },
-    // Листовое стекло на mobilier.md не продаётся (см. GLASS выше) — та же
-    // приближённая цена и тот же источник (glassinterior.md), customOrder.
-    'GLASS-4':  { code: 'GLASS-4',  name: 'Стекло сатин бронз 4 мм (фасад)',
-                  sheetPrice: 750, customOrder: true, priceNote: 'приближённая — уточняйте у поставщика',
-                  sourceUrl: 'https://glassinterior.md/blog/cat-costa-sticla-securizata-in-republica-moldova-in-2026/',
-                  unit: 'м²', image: null, categoryPath: ['Стекло'], thickness: 4 },
-  };
+  "FAC-ALU": {
+    "code": "FAC-ALU",
+    "name": "Алюминиевый профиль (рамка)",
+    "unit": "лист",
+    "image": null,
+    "sheetH": 1000,
+    "sheetW": 2000,
+    "sheetPrice": 9800,
+    "categoryPath": [
+      "Алюминий"
+    ]
+  },
+  "FAC-MDF": {
+    "code": "FAC-MDF",
+    "name": "МДФ крашеный 19 мм",
+    "unit": "лист",
+    "image": "https://mobilier.md/image/cache/catalog/products/33771/fa16c069b7ad4abdec263f6adff04801-768x1087.png",
+    "sheetH": 2070,
+    "sheetW": 2800,
+    "sourceUrl": "https://mobilier.md/ru/plitnye-materialy/fasadnye-paneli-mdf/mdf-egger/df-u250-pmst9-bezhevaya-karamel-19-2800x2070-eg-perfectsense.html",
+    "thickness": 19,
+    "sheetPrice": 5199,
+    "categoryPath": [
+      "МДФ-плита",
+      "Egger"
+    ]
+  },
+  "GLASS-4": {
+    "code": "GLASS-4",
+    "name": "Стекло сатин бронз 4 мм (фасад)",
+    "unit": "м²",
+    "image": null,
+    "priceNote": "приближённая — уточняйте у поставщика",
+    "sourceUrl": "https://glassinterior.md/blog/cat-costa-sticla-securizata-in-republica-moldova-in-2026/",
+    "thickness": 4,
+    "sheetPrice": 750,
+    "customOrder": true,
+    "categoryPath": [
+      "Стекло"
+    ]
+  },
+  "FAC-LDSP": {
+    "code": "FAC-LDSP",
+    "name": "ЛДСП 18 мм (фасад)",
+    "unit": "лист",
+    "image": "https://mobilier.md/image/cache/catalog/products/24677/59fa523e0348a50dba8422059f9fe9d6-250x250.png",
+    "sheetH": 2070,
+    "sheetW": 2800,
+    "sourceUrl": "https://mobilier.md/ru/plitnye-materialy/dsp/dsp_egger/w1000-st9-belyy-premium-2800x2070x18-eg-dsp-laminirovannyy.html",
+    "thickness": 18,
+    "sheetPrice": 1768,
+    "categoryPath": [
+      "ДСП",
+      "Egger"
+    ]
+  },
+  "FAC-VENEER": {
+    "code": "FAC-VENEER",
+    "name": "МДФ шпонированный 18 мм (видимая боковина)",
+    "unit": "лист",
+    "image": "https://mobilier.md/image/cache/catalog/products/30073/8bb6eb475f7e6ca545558881176cacf4-1400x1400.png",
+    "sheetH": 2070,
+    "sheetW": 2800,
+    "sourceUrl": "https://mobilier.md/ru/plitnye-materialy/shponirovannye-plity/df-shpon-dub-natur-19-2800x2070-mk-avstriya.html",
+    "thickness": 18,
+    "sheetPrice": 5796,
+    "categoryPath": [
+      "Шпонированные плиты"
+    ]
+  },
+  "FAC-WOOD-FILON": {
+    "code": "FAC-WOOD-FILON",
+    "name": "Фасад из массива с филёнкой",
+    "unit": "м²",
+    "image": null,
+    "priceNote": "ориентировочная — уточняйте у изготовителя",
+    "sourceUrl": "https://arama.md/images/price/servicii_general_arama.pdf",
+    "sheetPrice": 3000,
+    "customOrder": true,
+    "categoryPath": [
+      "Массив",
+      "ARAMA"
+    ]
+  },
+  "FAC-WOOD-FRAME": {
+    "code": "FAC-WOOD-FRAME",
+    "name": "Фасад из массива рамочный, под стекло/витраж",
+    "unit": "м²",
+    "image": null,
+    "priceNote": "ориентировочная — уточняйте у изготовителя",
+    "sourceUrl": "https://arama.md/images/price/servicii_general_arama.pdf",
+    "sheetPrice": 2400,
+    "customOrder": true,
+    "categoryPath": [
+      "Массив",
+      "ARAMA"
+    ]
+  }
+};
 
   const FACADE_TYPES = {
     ldsp:      { id: 'ldsp', name: 'Фасад ЛДСП', material: 'FAC-LDSP', thickness: 18,
@@ -198,65 +412,280 @@
   // в названии ключа. Только для отображения в Библиотеке — на расчёт
   // присадки/спецификации не влияют.
   const EDGE_PRICES = {
-    'ПВХ 2 мм': { price: 15, width: 23, thickness: 2, sourceUrl: 'https://mobilier.md/ru/plitnye-materialy/kromka/egger/abs-kromka-w1000-st9-23x20-uw.html', unit: 'пог.м', image: 'https://mobilier.md/image/cache/catalog/products/26230/ce0e0716652affb47c8cb90922d63a60-900x300.png', categoryPath: ['ПВХ'] },
-    'ПВХ 0.8 мм': { price: 10, width: 23, thickness: 0.8, sourceUrl: 'https://mobilier.md/ru/plitnye-materialy/kromka/egger/abs-kromka-w1000-st9-23x08.html', unit: 'пог.м', image: 'https://mobilier.md/image/cache/catalog/products/25719/ce0e0716652affb47c8cb90922d63a60-900x300.png', categoryPath: ['ПВХ'] },
-    'ПВХ 0.4 мм': { price: 5, width: 22, thickness: 0.4, sourceUrl: 'https://mobilier.md/ru/plitnye-materialy/kromka/egger/abs-kromka-w1000-st9-22x04.html', unit: 'пог.м', image: 'https://mobilier.md/image/cache/catalog/products/26208/ce0e0716652affb47c8cb90922d63a60-900x300.png', categoryPath: ['ПВХ'] },
-  };
+  "ПВХ 2 мм": {
+    "unit": "пог.м",
+    "image": "https://mobilier.md/image/cache/catalog/products/26230/ce0e0716652affb47c8cb90922d63a60-900x300.png",
+    "price": 15,
+    "width": 23,
+    "sourceUrl": "https://mobilier.md/ru/plitnye-materialy/kromka/egger/abs-kromka-w1000-st9-23x20-uw.html",
+    "thickness": 2,
+    "categoryPath": [
+      "ПВХ"
+    ]
+  },
+  "ПВХ 0.4 мм": {
+    "unit": "пог.м",
+    "image": "https://mobilier.md/image/cache/catalog/products/26208/ce0e0716652affb47c8cb90922d63a60-900x300.png",
+    "price": 5,
+    "width": 22,
+    "sourceUrl": "https://mobilier.md/ru/plitnye-materialy/kromka/egger/abs-kromka-w1000-st9-22x04.html",
+    "thickness": 0.4,
+    "categoryPath": [
+      "ПВХ"
+    ]
+  },
+  "ПВХ 0.8 мм": {
+    "unit": "пог.м",
+    "image": "https://mobilier.md/image/cache/catalog/products/25719/ce0e0716652affb47c8cb90922d63a60-900x300.png",
+    "price": 10,
+    "width": 23,
+    "sourceUrl": "https://mobilier.md/ru/plitnye-materialy/kromka/egger/abs-kromka-w1000-st9-23x08.html",
+    "thickness": 0.8,
+    "categoryPath": [
+      "ПВХ"
+    ]
+  }
+};
 
   const HARDWARE_PRICES = {
-    // Блюм на mobilier.md не продаётся вообще (0 совпадений по бренду) —
-    // цена оставлена условной. sourceUrl — официальная страница линейки
-    // Blum CLIP top (включает исполнение 110°); цены на этой странице нет,
-    // проверить актуальную цену у поставщика.
-    hinge: { name: 'Петля накладная Blum CLIP 110°', article: 'BLUM-CLIP', price: 210, sourceUrl: 'https://www.blum.com/us/en/products/hingesystems/clip-top/programme/', unit: 'шт', category: 'hinge', hardwareModelSlot: 'hingeCup' },
-    handle: { name: 'Ручка мебельная скоба 128мм', article: 'RH-128', price: 76, sourceUrl: 'https://mobilier.md/ru/mebelnaya-furnitura/licevaya-furnitura/mebelnye-ruchki/modern-1/ua-b31112806mj-ruchka-ua-b311-128mm-shlifovannaya-stal.html', image: 'https://mobilier.md/image/cache/catalog/products/23266/9345c2a74166028f3546d248401de3ca-800x800.png', unit: 'шт', category: 'handle', subcategory: 'Модерн' },
-    // Цена — пара штук по цене за 1 шт (GTV GX1 H45 L500, бренд Blum
-    // на сайте отсутствует, направляющая эконом-класса).
-    drawerRunnerPair: { name: 'Направляющие шариковые 500мм (пара)', article: 'DR-500', price: 216, sourceUrl: 'https://mobilier.md/index.php?route=product/product&product_id=17414&language=ru-ru', image: 'https://mobilier.md/image/cache/catalog/products/17414/3b29aa24ba017bb8da3327544e43f714-1200x800.png', unit: 'пара', category: 'runner', subcategory: 'GTV' },
-    leg: { name: 'Опора мебельная алюминиевая Ø50, регулируемая h100', article: 'LEG-D50-100', price: 105, sourceUrl: 'https://mobilier.md/index.php?route=product/product&product_id=16315&language=ru-ru', image: 'https://mobilier.md/image/cache/catalog/products/16315/9082a5fd288ae5c90dbf11ac2579d3c2-1200x800.png', unit: 'шт', category: 'leg' },
-    legPlastic: { name: 'Опора пластиковая регулируемая h100 (кухонная)', article: 'LEG-PL-100', price: 32, sourceUrl: 'https://mobilier.md/ru/mebelnaya-furnitura/licevaya-furnitura/mebelnye-nozhki-i-kolesnye-opory-roliki/nm-dak27-100-10-nozhka-mebelnaya-dak-27-dak-26-h-100-s-regulirovkoy-belyy.html', image: 'https://mobilier.md/image/cache/catalog/products/22485/831467e86d0ce9b83be7bb7932aa0572-1200x800.png', unit: 'шт', category: 'leg' },
-    shelfSupport: { name: 'Полкодержатель штифт 5мм', article: 'SUP-5', price: 0.5, sourceUrl: 'https://mobilier.md/ru/mebelnaya-furnitura/furnitura-rejs/td01020401062-polkoderzhatel-metallicheskiy-rejs.html', image: 'https://mobilier.md/image/cache/catalog/products/31691/d1ed55635d1051ecefa9539fe094b15d-600x600.png', unit: 'шт', category: 'support', subcategory: 'REJS' },
-    shelfSupportGlass: { name: 'Полкодержатель для стекла с силиконовой пяткой Ø5',
-                         article: 'SUP-5G', price: 6, sourceUrl: 'https://mobilier.md/ru/mebelnaya-furnitura/funkcionalnaya-furnitura/soedinitelnye-elementy/pp-gl-b48-01-polkoderzhatel-dlya-steklyannyh-polok-4-8mm-kreplenie-pod-press-a48-hrom.html', image: 'https://mobilier.md/image/cache/catalog/products/32219/cbe4be945e6dce085581653415b74cb5-300x200.png', unit: 'шт', category: 'support' },
-    // На сайте есть только зажимная петля для стекла без Ø26 (GTV
-    // ZP-CIG-07UZE, 16 MDL) — другой тип крепления, не аналог, поэтому
-    // не подставлена; цена осталась условной. sourceUrl — та же страница
-    // линейки Blum CLIP top, в её разделе «Glass door applications»
-    // описана петля именно под высверленное отверстие Ø26.
-    hingeGlass: { name: 'Петля для стеклянной двери (отверстие Ø26)',
-                  article: 'HNG-GLASS', price: 520, sourceUrl: 'https://www.blum.com/us/en/products/hingesystems/clip-top/programme/', unit: 'шт', category: 'hinge', hardwareModelSlot: 'hingeGlass' },
-    plinthClip: { name: 'Крепление цоколя', article: 'PLC-1', price: 2, sourceUrl: 'https://mobilier.md/index.php?route=product/product&product_id=16385&language=ru-ru', image: 'https://mobilier.md/image/cache/catalog/products/16385/26ca5f3dd46ef1b0d0d57387b3a6df1a-1200x800.png', unit: 'шт', category: 'plinth' },
-    countertopCornerTie: { name: 'Угловая стяжка для столешницы Egger 38 (LMB-KAT38-20M)', article: 'LMB-KAT38-20M', price: 75, sourceUrl: 'https://mobilier.md/ru/mebelnaya-furnitura/funkcionalnaya-furnitura/soedinitelnye-elementy/lmb-kat38-20m-planka-dlya-stoleshnitsy-uglovaya-egger-38mm-chernaya.html', image: 'https://mobilier.md/image/cache/catalog/products/32214/b521ad1a5415992e1598430d686c48d3-1400x929.png', unit: 'шт', category: 'countertop' },
-    // ЦЕНА-ЗАГЛУШКА, не найдена на mobilier.md, подтвердить у пользователя
-    countertopStraightTie: { name: 'Стяжка для прямого стыка столешницы (эксцентрик Ø20)', article: 'CTOP-TIE-20', price: 0, unit: 'шт', category: 'countertop' },
-    // ЦЕНА-ЗАГЛУШКА, не найдена на mobilier.md, подтвердить у пользователя
-    countertopSealant: { name: 'Клей/герметик для стыка столешницы', article: 'CTOP-SEAL', price: 0, unit: 'уп', category: 'countertop' },
-    // ЦЕНА-ЗАГЛУШКА, не найдена на mobilier.md, подтвердить у пользователя.
-    // Отдельная позиция от countertopSealant: там клей для шва МЕЖДУ двумя
-    // столешницами (стык), здесь — проклейка компакт-плиты по всей площади
-    // К КРЫШКЕ КОРПУСА (она тонкая и плохо сверлится, крепёж в торец
-    // боковины ей не подходит, см. engine.js skipTopPanel/ctPart.note).
-    countertopGlueToCarcass: { name: 'Клей для приклейки столешницы к корпусу (компакт-плита)', article: 'CTOP-GLUE-CARCASS', price: 0, unit: 'уп', category: 'countertop' },
-    pushToOpen: { name: 'Механизм Push-to-open (толкатель)', article: 'PTO-1', price: 14, sourceUrl: 'https://mobilier.md/ru/mebelnaya-furnitura/funkcionalnaya-furnitura/amortizatory/am-bocz01-60-amortizator-reguliruemyj-s-pryamym-adapterom.html', image: 'https://mobilier.md/image/cache/catalog/products/22616/c51017e4983679491f170b4cf5ae3270-595x596.png', unit: 'шт', category: 'mechanism' },
-    // На сайте штанга продаётся хлыстом 3м за 97 MDL — цена пересчитана
-    // на 1 пог.м (97/3 ≈ 32).
-    rod: { name: 'Штанга для одежды хромированная Ø25', article: 'ROD-D25', price: 32, sourceUrl: 'https://mobilier.md/ru/mebelnaya-furnitura/funkcionalnaya-furnitura/napolnenie-dlya-shkafov/rr-250630h01-truba-d-25-tolshchina-metala-08mm-l-3m-hrom.html', image: 'https://mobilier.md/image/cache/catalog/products/33494/241a10024a8ffd6e06f06e272c8cad2f-1200x800.png', unit: 'пог.м', category: 'rod' },
-    rodHolder: { name: 'Держатель штанги Ø25 (пара)', article: 'ROD-H25', price: 38, sourceUrl: 'https://mobilier.md/index.php?route=product/product&product_id=16263&language=ru-ru', image: 'https://mobilier.md/image/cache/catalog/products/16263/0e4ca43c964112a0a7c2cbd08077956f-1200x800.png', unit: 'пара', category: 'rod' },
-  };
+  "leg": {
+    "name": "Опора мебельная алюминиевая Ø50, регулируемая h100",
+    "unit": "шт",
+    "image": "https://mobilier.md/image/cache/catalog/products/16315/9082a5fd288ae5c90dbf11ac2579d3c2-1200x800.png",
+    "price": 105,
+    "article": "LEG-D50-100",
+    "category": "leg",
+    "sourceUrl": "https://mobilier.md/index.php?route=product/product&product_id=16315&language=ru-ru"
+  },
+  "rod": {
+    "name": "Штанга для одежды хромированная Ø25",
+    "unit": "пог.м",
+    "image": "https://mobilier.md/image/cache/catalog/products/33494/241a10024a8ffd6e06f06e272c8cad2f-1200x800.png",
+    "price": 32,
+    "article": "ROD-D25",
+    "category": "rod",
+    "sourceUrl": "https://mobilier.md/ru/mebelnaya-furnitura/funkcionalnaya-furnitura/napolnenie-dlya-shkafov/rr-250630h01-truba-d-25-tolshchina-metala-08mm-l-3m-hrom.html"
+  },
+  "hinge": {
+    "name": "Петля накладная Blum CLIP 110°",
+    "unit": "шт",
+    "price": 210,
+    "article": "BLUM-CLIP",
+    "category": "hinge",
+    "sourceUrl": "https://www.blum.com/us/en/products/hingesystems/clip-top/programme/",
+    "subcategory": "Blum",
+    "categoryPath": [
+      "Blum"
+    ],
+    "hardwareModelSlot": "hingeCup",
+    "categoryPathEdited": true
+  },
+  "handle": {
+    "name": "Ручка мебельная скоба 128мм",
+    "unit": "шт",
+    "image": "https://mobilier.md/image/cache/catalog/products/23266/9345c2a74166028f3546d248401de3ca-800x800.png",
+    "price": 76,
+    "article": "RH-128",
+    "category": "handle",
+    "sourceUrl": "https://mobilier.md/ru/mebelnaya-furnitura/licevaya-furnitura/mebelnye-ruchki/modern-1/ua-b31112806mj-ruchka-ua-b311-128mm-shlifovannaya-stal.html",
+    "subcategory": "Модерн"
+  },
+  "rodHolder": {
+    "name": "Держатель штанги Ø25 (пара)",
+    "unit": "пара",
+    "image": "https://mobilier.md/image/cache/catalog/products/16263/0e4ca43c964112a0a7c2cbd08077956f-1200x800.png",
+    "price": 38,
+    "article": "ROD-H25",
+    "category": "rod",
+    "sourceUrl": "https://mobilier.md/index.php?route=product/product&product_id=16263&language=ru-ru"
+  },
+  "hingeGlass": {
+    "name": "Петля для стеклянной двери (отверстие Ø26)",
+    "unit": "шт",
+    "price": 520,
+    "article": "HNG-GLASS",
+    "category": "hinge",
+    "sourceUrl": "https://www.blum.com/us/en/products/hingesystems/clip-top/programme/",
+    "subcategory": "петли для стекла",
+    "categoryPath": [
+      "петли для стекла"
+    ],
+    "hardwareModelSlot": "hingeGlass",
+    "categoryPathEdited": true
+  },
+  "legPlastic": {
+    "name": "Опора пластиковая регулируемая h100 (кухонная)",
+    "unit": "шт",
+    "image": "https://mobilier.md/image/cache/catalog/products/22485/831467e86d0ce9b83be7bb7932aa0572-1200x800.png",
+    "price": 32,
+    "article": "LEG-PL-100",
+    "category": "leg",
+    "sourceUrl": "https://mobilier.md/ru/mebelnaya-furnitura/licevaya-furnitura/mebelnye-nozhki-i-kolesnye-opory-roliki/nm-dak27-100-10-nozhka-mebelnaya-dak-27-dak-26-h-100-s-regulirovkoy-belyy.html"
+  },
+  "plinthClip": {
+    "name": "Крепление цоколя",
+    "unit": "шт",
+    "image": "https://mobilier.md/image/cache/catalog/products/16385/26ca5f3dd46ef1b0d0d57387b3a6df1a-1200x800.png",
+    "price": 2,
+    "article": "PLC-1",
+    "category": "plinth",
+    "sourceUrl": "https://mobilier.md/index.php?route=product/product&product_id=16385&language=ru-ru"
+  },
+  "pushToOpen": {
+    "name": "Механизм Push-to-open (толкатель)",
+    "unit": "шт",
+    "brand": "Без бренда",
+    "image": "https://mobilier.md/image/cache/catalog/products/22616/c51017e4983679491f170b4cf5ae3270-595x596.png",
+    "price": 14,
+    "article": "PTO-1",
+    "category": "mechanism",
+    "sourceUrl": "https://mobilier.md/ru/mebelnaya-furnitura/funkcionalnaya-furnitura/amortizatory/am-bocz01-60-amortizator-reguliruemyj-s-pryamym-adapterom.html",
+    "categoryPath": [
+      "Без бренда"
+    ],
+    "categoryPathEdited": true
+  },
+  "shelfSupport": {
+    "name": "Полкодержатель штифт 5мм",
+    "unit": "шт",
+    "image": "https://mobilier.md/image/cache/catalog/products/31691/d1ed55635d1051ecefa9539fe094b15d-600x600.png",
+    "price": 0.5,
+    "article": "SUP-5",
+    "category": "support",
+    "sourceUrl": "https://mobilier.md/ru/mebelnaya-furnitura/furnitura-rejs/td01020401062-polkoderzhatel-metallicheskiy-rejs.html",
+    "subcategory": "REJS"
+  },
+  "drawerRunnerPair": {
+    "name": "Направляющие шариковые 500мм (пара)",
+    "unit": "пара",
+    "image": "https://mobilier.md/image/cache/catalog/products/17414/3b29aa24ba017bb8da3327544e43f714-1200x800.png",
+    "price": 216,
+    "article": "DR-500",
+    "category": "runner",
+    "sourceUrl": "https://mobilier.md/index.php?route=product/product&product_id=17414&language=ru-ru",
+    "subcategory": "GTV"
+  },
+  "countertopSealant": {
+    "name": "Клей/герметик для стыка столешницы",
+    "unit": "уп",
+    "price": 0,
+    "article": "CTOP-SEAL",
+    "category": "countertop"
+  },
+  "shelfSupportGlass": {
+    "name": "Полкодержатель для стекла с силиконовой пяткой Ø5",
+    "unit": "шт",
+    "image": "https://mobilier.md/image/cache/catalog/products/32219/cbe4be945e6dce085581653415b74cb5-300x200.png",
+    "price": 6,
+    "article": "SUP-5G",
+    "category": "support",
+    "sourceUrl": "https://mobilier.md/ru/mebelnaya-furnitura/funkcionalnaya-furnitura/soedinitelnye-elementy/pp-gl-b48-01-polkoderzhatel-dlya-steklyannyh-polok-4-8mm-kreplenie-pod-press-a48-hrom.html",
+    "subcategory": "Без бренда",
+    "categoryPath": [
+      "Без бренда"
+    ],
+    "categoryPathEdited": true
+  },
+  "countertopCornerTie": {
+    "name": "Угловая стяжка для столешницы Egger 38 (LMB-KAT38-20M)",
+    "unit": "шт",
+    "image": "https://mobilier.md/image/cache/catalog/products/32214/b521ad1a5415992e1598430d686c48d3-1400x929.png",
+    "price": 75,
+    "article": "LMB-KAT38-20M",
+    "category": "countertop",
+    "sourceUrl": "https://mobilier.md/ru/mebelnaya-furnitura/funkcionalnaya-furnitura/soedinitelnye-elementy/lmb-kat38-20m-planka-dlya-stoleshnitsy-uglovaya-egger-38mm-chernaya.html"
+  },
+  "countertopStraightTie": {
+    "name": "Стяжка для прямого стыка столешницы (эксцентрик Ø20)",
+    "unit": "шт",
+    "price": 0,
+    "article": "CTOP-TIE-20",
+    "category": "countertop"
+  },
+  "countertopGlueToCarcass": {
+    "name": "Клей для приклейки столешницы к корпусу (компакт-плита)",
+    "unit": "уп",
+    "price": 0,
+    "article": "CTOP-GLUE-CARCASS",
+    "category": "countertop"
+  }
+};
 
   const FASTENER_PRICES = {
-    confirmat: { name: 'Конфирмат 7х50', article: 'CONF-50', price: 0.5, sourceUrl: 'https://mobilier.md/index.php?route=product/product&product_id=18604&language=ru-ru', image: 'https://mobilier.md/image/cache/catalog/products/18604/cdb0b8caac46eecd76ab0042e5021eca-1200x800.png', unit: 'шт', category: 'fastener', subcategory: 'GTV' },
-    minifixBolt: { name: 'Rastex шток', article: 'RASTEX-BOLT-8', price: 3, sourceUrl: 'https://mobilier.md/index.php?route=product/product&product_id=17692&language=ru-ru', image: 'https://mobilier.md/image/cache/catalog/products/17692/3586bd04286f60b28cb6fd0ec6396a2c-1200x800.png', unit: 'шт', category: 'fastener' },
-    minifixCam: { name: 'Rastex эксцентрик', article: 'RASTEX-CAM-15', price: 1, sourceUrl: 'https://mobilier.md/index.php?route=product/product&product_id=18603&language=ru-ru', image: 'https://mobilier.md/image/cache/catalog/products/18603/7050eb11594814eb02a6aef3193910b9-1200x800.png', unit: 'шт', category: 'fastener' },
-    dowel: { name: 'Шкант 8х30', article: 'DWL-30', price: 0.2, sourceUrl: 'https://mobilier.md/ru/mebelnaya-furnitura/furnitura-rejs/tk01758117000-shkant-8x30-mm.html', image: 'https://mobilier.md/image/cache/catalog/products/31719/6fa8e8560e0aafc29a0f11b117a4507e-492x493.png', unit: 'шт', category: 'fastener', subcategory: 'REJS' },
-    // На сайте у этой позиции карточка товара без фотографии — «образец»
-    // оставлен пустым (см. libSwatchHtml: пустой image = можно загрузить
-    // свой файл), в отличие от остальных строк FASTENER_PRICES/HARDWARE_PRICES.
-    backPanelScrew: { name: 'Шуруп-стяжка задней стенки', article: 'SCR-15', price: 0.5, sourceUrl: 'https://mobilier.md/index.php?route=product/product&product_id=18763&language=ru-ru', unit: 'шт', category: 'fastener' },
-    // ЦЕНА-ЗАГЛУШКА: на mobilier.md нашёлся только шуруп 3.5×30мм по 159 лей
-    // за упаковку (не за штуку) — не подставлена как цена за 1 шт.
-    worktopScrew: { name: 'Шуруп 3.5×35 (крепление столешницы к планке)', article: 'SCR-35-CTOP', price: 0, unit: 'шт', category: 'fastener' },
-  };
+  "dowel": {
+    "name": "Шкант 8х30",
+    "unit": "шт",
+    "image": "https://mobilier.md/image/cache/catalog/products/31719/6fa8e8560e0aafc29a0f11b117a4507e-492x493.png",
+    "price": 0.2,
+    "article": "DWL-30",
+    "category": "fastener",
+    "sourceUrl": "https://mobilier.md/ru/mebelnaya-furnitura/furnitura-rejs/tk01758117000-shkant-8x30-mm.html",
+    "subcategory": "REJS"
+  },
+  "confirmat": {
+    "name": "Конфирмат 7х50",
+    "unit": "шт",
+    "image": "https://mobilier.md/image/cache/catalog/products/18604/cdb0b8caac46eecd76ab0042e5021eca-1200x800.png",
+    "price": 0.5,
+    "article": "CONF-50",
+    "category": "fastener",
+    "sourceUrl": "https://mobilier.md/index.php?route=product/product&product_id=18604&language=ru-ru",
+    "subcategory": "GTV"
+  },
+  "minifixCam": {
+    "name": "Rastex эксцентрик",
+    "unit": "шт",
+    "image": "https://mobilier.md/image/cache/catalog/products/18603/7050eb11594814eb02a6aef3193910b9-1200x800.png",
+    "price": 1,
+    "article": "RASTEX-CAM-15",
+    "category": "fastener",
+    "sourceUrl": "https://mobilier.md/index.php?route=product/product&product_id=18603&language=ru-ru",
+    "subcategory": "Без бренда",
+    "categoryPath": [
+      "Без бренда"
+    ],
+    "categoryPathEdited": true
+  },
+  "minifixBolt": {
+    "name": "Rastex шток",
+    "unit": "шт",
+    "image": "https://mobilier.md/image/cache/catalog/products/17692/3586bd04286f60b28cb6fd0ec6396a2c-1200x800.png",
+    "price": 3,
+    "article": "RASTEX-BOLT-8",
+    "category": "fastener",
+    "sourceUrl": "https://mobilier.md/index.php?route=product/product&product_id=17692&language=ru-ru",
+    "subcategory": "Без бренда",
+    "categoryPath": [
+      "Без бренда"
+    ],
+    "categoryPathEdited": true
+  },
+  "worktopScrew": {
+    "name": "Шуруп 3.5×35 (крепление столешницы к планке)",
+    "unit": "шт",
+    "price": 0,
+    "article": "SCR-35-CTOP",
+    "category": "fastener",
+    "subcategory": "Без бренда",
+    "categoryPath": [
+      "Без бренда"
+    ],
+    "categoryPathEdited": true
+  },
+  "backPanelScrew": {
+    "name": "Шуруп-стяжка задней стенки",
+    "unit": "шт",
+    "price": 0.5,
+    "article": "SCR-15",
+    "category": "fastener",
+    "sourceUrl": "https://mobilier.md/index.php?route=product/product&product_id=18763&language=ru-ru",
+    "subcategory": "Без бренда",
+    "categoryPath": [
+      "Без бренда"
+    ],
+    "categoryPathEdited": true
+  }
+};
 
   const JOINT_LABEL = {
     confirmat: 'Конфирмат',
@@ -505,25 +934,114 @@
   // ---------------------------------------------------------------------------
   const HANDLE_HOLE_D = 5;          // диаметр отверстия под винт ручки, мм
   const HANDLES = {
-    none:    { id: 'none', name: 'Без ручек', holes: 0, price: 0, category: 'handle' },
-    knob:    { id: 'knob', name: 'Ручка-кнопка', holes: 1, cc: 0, price: 39,
-               sourceUrl: 'https://mobilier.md/ru/mebelnaya-furnitura/licevaya-furnitura/mebelnye-ruchki/klassicheskie/gz-point-1-06-ruchka-knopka-point-shlifovannaya-stal.html',
-               image: 'https://mobilier.md/image/cache/catalog/products/25202/372a34519f2d10b08bef212f35a9ecf8-1200x800.png',
-               article: 'H-KNOB', note: 'Одно отверстие Ø5', category: 'handle', subcategory: 'Классика' },
-    bow96:   { id: 'bow96', name: 'Ручка-скоба 96 мм', holes: 2, cc: 96, price: 70, sourceUrl: 'https://mobilier.md/ru/mebelnaya-furnitura/licevaya-furnitura/mebelnye-ruchki/modern-1/ua-b31109606mj-ruchka-ua-b311-96mm-shlifovannaya-stal.html', image: 'https://mobilier.md/image/cache/catalog/products/22474/9345c2a74166028f3546d248401de3ca-800x800.png', article: 'H-96', category: 'handle', subcategory: 'Модерн' },
-    bow128:  { id: 'bow128', name: 'Ручка-скоба 128 мм', holes: 2, cc: 128, price: 76, sourceUrl: 'https://mobilier.md/ru/mebelnaya-furnitura/licevaya-furnitura/mebelnye-ruchki/modern-1/ua-b31112806mj-ruchka-ua-b311-128mm-shlifovannaya-stal.html', image: 'https://mobilier.md/image/cache/catalog/products/23266/9345c2a74166028f3546d248401de3ca-800x800.png', article: 'H-128', category: 'handle', subcategory: 'Модерн' },
-    bow160:  { id: 'bow160', name: 'Ручка-скоба 160 мм', holes: 2, cc: 160, price: 81, sourceUrl: 'https://mobilier.md/ru/mebelnaya-furnitura/licevaya-furnitura/mebelnye-ruchki/modern-1/ua-b31116006mj-ruchka-ua-b311-160mm-shlifovannaya-stal.html', image: 'https://mobilier.md/image/cache/catalog/products/23223/9345c2a74166028f3546d248401de3ca-800x800.png', article: 'H-160', category: 'handle', subcategory: 'Модерн' },
-    // Точного 192мм на сайте нет — взята ближайшая доступная 160мм (та же
-    // линейка UA-B311) вместо 192мм.
-    bow192:  { id: 'bow192', name: 'Ручка-скоба 192 мм', holes: 2, cc: 192, price: 81, sourceUrl: 'https://mobilier.md/ru/mebelnaya-furnitura/licevaya-furnitura/mebelnye-ruchki/modern-1/ua-b31116006mj-ruchka-ua-b311-160mm-shlifovannaya-stal.html', image: 'https://mobilier.md/image/cache/catalog/products/23223/9345c2a74166028f3546d248401de3ca-800x800.png', article: 'H-192', category: 'handle', subcategory: 'Модерн' },
-    // Точного 224мм на сайте нет — взята ближайшая доступная 256мм (та же
-    // линейка UA-B311) вместо 224мм.
-    bow224:  { id: 'bow224', name: 'Ручка-скоба 224 мм', holes: 2, cc: 224, price: 105, sourceUrl: 'https://mobilier.md/ru/mebelnaya-furnitura/licevaya-furnitura/mebelnye-ruchki/modern-1/ua-b31125606mj-ruchka-ua-b311-256mm-shlifovannaya-stal.html', image: 'https://mobilier.md/image/cache/catalog/products/22540/9345c2a74166028f3546d248401de3ca-800x800.png', article: 'H-224', category: 'handle', subcategory: 'Модерн' },
-    bow320:  { id: 'bow320', name: 'Ручка-скоба 320 мм', holes: 2, cc: 320, price: 120, sourceUrl: 'https://mobilier.md/ru/mebelnaya-furnitura/licevaya-furnitura/mebelnye-ruchki/modern-1/ua-b31132006mj-ruchka-ua-b311-320mm-shlifovannaya-stal.html', image: 'https://mobilier.md/image/cache/catalog/products/22549/9345c2a74166028f3546d248401de3ca-800x800.png', article: 'H-320', category: 'handle', subcategory: 'Модерн' },
-    // Межосевое задаётся вручную: нестандартная или дизайнерская скоба.
-    custom:  { id: 'custom', name: 'Скоба — задать межосевое', holes: 2, cc: 0, price: 200,
-               article: 'H-CUSTOM', custom: true, category: 'handle' },
-  };
+  "knob": {
+    "cc": 0,
+    "id": "knob",
+    "name": "Ручка-кнопка",
+    "note": "Одно отверстие Ø5",
+    "holes": 1,
+    "image": "https://mobilier.md/image/cache/catalog/products/25202/372a34519f2d10b08bef212f35a9ecf8-1200x800.png",
+    "price": 39,
+    "article": "H-KNOB",
+    "category": "handle",
+    "sourceUrl": "https://mobilier.md/ru/mebelnaya-furnitura/licevaya-furnitura/mebelnye-ruchki/klassicheskie/gz-point-1-06-ruchka-knopka-point-shlifovannaya-stal.html",
+    "subcategory": "Классика"
+  },
+  "none": {
+    "id": "none",
+    "name": "Без ручек",
+    "holes": 0,
+    "price": 0,
+    "category": "handle"
+  },
+  "bow96": {
+    "cc": 96,
+    "id": "bow96",
+    "name": "Ручка-скоба 96 мм",
+    "holes": 2,
+    "image": "https://mobilier.md/image/cache/catalog/products/22474/9345c2a74166028f3546d248401de3ca-800x800.png",
+    "price": 70,
+    "article": "H-96",
+    "category": "handle",
+    "sourceUrl": "https://mobilier.md/ru/mebelnaya-furnitura/licevaya-furnitura/mebelnye-ruchki/modern-1/ua-b31109606mj-ruchka-ua-b311-96mm-shlifovannaya-stal.html",
+    "subcategory": "Модерн"
+  },
+  "bow128": {
+    "cc": 128,
+    "id": "bow128",
+    "name": "Ручка-скоба 128 мм",
+    "holes": 2,
+    "image": "https://mobilier.md/image/cache/catalog/products/23266/9345c2a74166028f3546d248401de3ca-800x800.png",
+    "price": 76,
+    "article": "H-128",
+    "category": "handle",
+    "sourceUrl": "https://mobilier.md/ru/mebelnaya-furnitura/licevaya-furnitura/mebelnye-ruchki/modern-1/ua-b31112806mj-ruchka-ua-b311-128mm-shlifovannaya-stal.html",
+    "subcategory": "Модерн"
+  },
+  "bow160": {
+    "cc": 160,
+    "id": "bow160",
+    "name": "Ручка-скоба 160 мм",
+    "holes": 2,
+    "image": "https://mobilier.md/image/cache/catalog/products/23223/9345c2a74166028f3546d248401de3ca-800x800.png",
+    "price": 81,
+    "article": "H-160",
+    "category": "handle",
+    "sourceUrl": "https://mobilier.md/ru/mebelnaya-furnitura/licevaya-furnitura/mebelnye-ruchki/modern-1/ua-b31116006mj-ruchka-ua-b311-160mm-shlifovannaya-stal.html",
+    "subcategory": "Модерн"
+  },
+  "bow192": {
+    "cc": 192,
+    "id": "bow192",
+    "name": "Ручка-скоба 192 мм",
+    "holes": 2,
+    "image": "https://mobilier.md/image/cache/catalog/products/23223/9345c2a74166028f3546d248401de3ca-800x800.png",
+    "price": 81,
+    "article": "H-192",
+    "category": "handle",
+    "sourceUrl": "https://mobilier.md/ru/mebelnaya-furnitura/licevaya-furnitura/mebelnye-ruchki/modern-1/ua-b31116006mj-ruchka-ua-b311-160mm-shlifovannaya-stal.html",
+    "subcategory": "Модерн"
+  },
+  "bow224": {
+    "cc": 224,
+    "id": "bow224",
+    "name": "Ручка-скоба 224 мм",
+    "holes": 2,
+    "image": "https://mobilier.md/image/cache/catalog/products/22540/9345c2a74166028f3546d248401de3ca-800x800.png",
+    "price": 105,
+    "article": "H-224",
+    "category": "handle",
+    "sourceUrl": "https://mobilier.md/ru/mebelnaya-furnitura/licevaya-furnitura/mebelnye-ruchki/modern-1/ua-b31125606mj-ruchka-ua-b311-256mm-shlifovannaya-stal.html",
+    "subcategory": "Модерн"
+  },
+  "bow320": {
+    "cc": 320,
+    "id": "bow320",
+    "name": "Ручка-скоба 320 мм",
+    "holes": 2,
+    "image": "https://mobilier.md/image/cache/catalog/products/22549/9345c2a74166028f3546d248401de3ca-800x800.png",
+    "price": 120,
+    "article": "H-320",
+    "category": "handle",
+    "sourceUrl": "https://mobilier.md/ru/mebelnaya-furnitura/licevaya-furnitura/mebelnye-ruchki/modern-1/ua-b31132006mj-ruchka-ua-b311-320mm-shlifovannaya-stal.html",
+    "subcategory": "Модерн"
+  },
+  "custom": {
+    "cc": 0,
+    "id": "custom",
+    "name": "Скоба — задать межосевое",
+    "holes": 2,
+    "price": 200,
+    "custom": true,
+    "article": "H-CUSTOM",
+    "category": "handle",
+    "subcategory": "Без бренда",
+    "categoryPath": [
+      "Без бренда"
+    ],
+    "categoryPathEdited": true
+  }
+};
   const HANDLE_ORDER = ['none', 'knob', 'bow96', 'bow128', 'bow160', 'bow192', 'bow224', 'bow320', 'custom'];
 
   // ---------------------------------------------------------------------------
@@ -542,31 +1060,109 @@
   // линейка называется иначе (Multi Mech/Solo Mech/Slim Mech/Gas Spring/
   // D-Lite Lift), выдумывать соответствие не стали, sourceUrl не добавлен.
   const LIFTS = {
-    aventosHK:  { id: 'aventosHK', brand: 'Blum', name: 'Blum AVENTOS HK (откидной)',
-                  article: 'AVENTOS-HK', price: 4200, sourceUrl: 'https://www.blum.com/eu/en/products/liftsystems/aventos-hk/programme/', minH: 240, maxH: 600, maxW: 1800,
-                  note: 'Фасад откидывается вверх одной плоскостью', category: 'mechanism' },
-    aventosHF:  { id: 'aventosHF', brand: 'Blum', name: 'Blum AVENTOS HF (складной, два фасада)',
-                  article: 'AVENTOS-HF', price: 8900, sourceUrl: 'https://www.blum.com/us/en/products/liftsystems/aventos-hf/programme/', minH: 480, maxH: 1040, maxW: 1800,
-                  note: 'Складывается пополам — для высоких антресолей', category: 'mechanism' },
-    aventosHL:  { id: 'aventosHL', brand: 'Blum', name: 'Blum AVENTOS HL (параллельный подъём)',
-                  article: 'AVENTOS-HL', price: 9800, sourceUrl: 'https://www.blum.com/us/en/products/liftsystems/aventos-hl/programme/', minH: 300, maxH: 580, maxW: 1800,
-                  note: 'Фасад уходит параллельно вверх, открывая весь проём', category: 'mechanism' },
-    aventosHS:  { id: 'aventosHS', brand: 'Blum', name: 'Blum AVENTOS HS (подъём над корпусом)',
-                  article: 'AVENTOS-HS', price: 10500, sourceUrl: 'https://www.blum.com/us/en/products/liftsystems/aventos-hs/programme/', minH: 350, maxH: 800, maxW: 1800,
-                  note: 'Единый фасад поднимается над корпусом', category: 'mechanism' },
-    hettichHL:  { id: 'hettichHL', brand: 'Hettich', name: 'Hettich Lift Advanced HL',
-                  article: 'HT-LIFT-HL', price: 3900, sourceUrl: 'https://shop.hettich.com/us_EN/Further-products/Flap-fittings/Flap-lift-fittings/Flap-lift-fitting-Lift-Advanced-HL,-403---462/p/9079600', minH: 200, maxH: 700, maxW: 1200,
-                  note: 'Откидной подъёмник для навесных шкафов', category: 'mechanism' },
-    hettichHF:  { id: 'hettichHF', brand: 'Hettich', name: 'Hettich Lift Advanced HF (складной)',
-                  article: 'HT-LIFT-HF', price: 7600, sourceUrl: 'https://shop.hettich.com/us_EN/Further-products/Flap-fittings/Folding-flap-fittings/Folding-flap-fitting-Lift-Advanced-HF,-440---550/p/9079605', minH: 480, maxH: 1000, maxW: 1200,
-                  note: 'Складной фасад из двух частей', category: 'mechanism' },
-    sametSmart: { id: 'sametSmart', brand: 'Samet', name: 'Samet Smart Lift',
-                  article: 'SM-SMART', price: 2400, minH: 240, maxH: 600, maxW: 1000,
-                  note: 'Бюджетный откидной подъёмник', category: 'mechanism' },
-    sametRapid: { id: 'sametRapid', brand: 'Samet', name: 'Samet Rapid Lift (газовый)',
-                  article: 'SM-RAPID', price: 1600, minH: 200, maxH: 500, maxW: 900,
-                  note: 'Газовый упор с доводчиком', category: 'mechanism' },
-  };
+  "aventosHF": {
+    "id": "aventosHF",
+    "maxH": 1040,
+    "maxW": 1800,
+    "minH": 480,
+    "name": "Blum AVENTOS HF (складной, два фасада)",
+    "note": "Складывается пополам — для высоких антресолей",
+    "brand": "Blum",
+    "price": 8900,
+    "article": "AVENTOS-HF",
+    "category": "mechanism",
+    "sourceUrl": "https://www.blum.com/us/en/products/liftsystems/aventos-hf/programme/"
+  },
+  "aventosHK": {
+    "id": "aventosHK",
+    "maxH": 600,
+    "maxW": 1800,
+    "minH": 240,
+    "name": "Blum AVENTOS HK (откидной)",
+    "note": "Фасад откидывается вверх одной плоскостью",
+    "brand": "Blum",
+    "price": 4200,
+    "article": "AVENTOS-HK",
+    "category": "mechanism",
+    "sourceUrl": "https://www.blum.com/eu/en/products/liftsystems/aventos-hk/programme/"
+  },
+  "aventosHL": {
+    "id": "aventosHL",
+    "maxH": 580,
+    "maxW": 1800,
+    "minH": 300,
+    "name": "Blum AVENTOS HL (параллельный подъём)",
+    "note": "Фасад уходит параллельно вверх, открывая весь проём",
+    "brand": "Blum",
+    "price": 9800,
+    "article": "AVENTOS-HL",
+    "category": "mechanism",
+    "sourceUrl": "https://www.blum.com/us/en/products/liftsystems/aventos-hl/programme/"
+  },
+  "aventosHS": {
+    "id": "aventosHS",
+    "maxH": 800,
+    "maxW": 1800,
+    "minH": 350,
+    "name": "Blum AVENTOS HS (подъём над корпусом)",
+    "note": "Единый фасад поднимается над корпусом",
+    "brand": "Blum",
+    "price": 10500,
+    "article": "AVENTOS-HS",
+    "category": "mechanism",
+    "sourceUrl": "https://www.blum.com/us/en/products/liftsystems/aventos-hs/programme/"
+  },
+  "hettichHF": {
+    "id": "hettichHF",
+    "maxH": 1000,
+    "maxW": 1200,
+    "minH": 480,
+    "name": "Hettich Lift Advanced HF (складной)",
+    "note": "Складной фасад из двух частей",
+    "brand": "Hettich",
+    "price": 7600,
+    "article": "HT-LIFT-HF",
+    "category": "mechanism",
+    "sourceUrl": "https://shop.hettich.com/us_EN/Further-products/Flap-fittings/Folding-flap-fittings/Folding-flap-fitting-Lift-Advanced-HF,-440---550/p/9079605"
+  },
+  "hettichHL": {
+    "id": "hettichHL",
+    "maxH": 700,
+    "maxW": 1200,
+    "minH": 200,
+    "name": "Hettich Lift Advanced HL",
+    "note": "Откидной подъёмник для навесных шкафов",
+    "brand": "Hettich",
+    "price": 3900,
+    "article": "HT-LIFT-HL",
+    "category": "mechanism",
+    "sourceUrl": "https://shop.hettich.com/us_EN/Further-products/Flap-fittings/Flap-lift-fittings/Flap-lift-fitting-Lift-Advanced-HL,-403---462/p/9079600"
+  },
+  "sametRapid": {
+    "id": "sametRapid",
+    "maxH": 500,
+    "maxW": 900,
+    "minH": 200,
+    "name": "Samet Rapid Lift (газовый)",
+    "note": "Газовый упор с доводчиком",
+    "brand": "Samet",
+    "price": 1600,
+    "article": "SM-RAPID",
+    "category": "mechanism"
+  },
+  "sametSmart": {
+    "id": "sametSmart",
+    "maxH": 600,
+    "maxW": 1000,
+    "minH": 240,
+    "name": "Samet Smart Lift",
+    "note": "Бюджетный откидной подъёмник",
+    "brand": "Samet",
+    "price": 2400,
+    "article": "SM-SMART",
+    "category": "mechanism"
+  }
+};
   const LIFT_ORDER = ['aventosHK', 'aventosHF', 'aventosHL', 'aventosHS',
                       'hettichHL', 'hettichHF', 'sametSmart', 'sametRapid'];
 
