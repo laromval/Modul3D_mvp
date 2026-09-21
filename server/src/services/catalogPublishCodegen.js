@@ -56,6 +56,8 @@ const APP_STATE_KEYS = [
   'libTopParent',
   'libHwCatLabels',
   'libHwCustomCats',
+  'libModOverrides',
+  'libModPlacements',
 ];
 
 function parseSource(source, label) {
@@ -180,7 +182,7 @@ function buildCatalogSource(originalSource, blob) {
 }
 
 /**
- * Собирает новый текст src/app.js, подставив в 6 полей объекта
+ * Собирает новый текст src/app.js, подставив в 8 полей объекта
  * `const state = { ... }` соответствующие ключи из blob. Ключи, которых нет
  * в blob, пропускаются — поле в файле не трогается.
  *
