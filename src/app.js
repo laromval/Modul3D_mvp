@@ -14,7 +14,7 @@
 (function () {
 // Версия сборки — показывается во вкладке браузера и в шапке.
 // При выпуске новой версии меняется только эта строка.
-const APP_VERSION = 'v293';
+const APP_VERSION = 'v296';
 
 // Номер версии выводим ПЕРВЫМ делом: если дальше что-то упадёт, по нему сразу
 // видно, какая сборка открыта.
@@ -167,6 +167,26 @@ const state = {
   // то самое «при первом входе видно только название категории». Чисто
   // UI-состояние, сессионное.
   libCatOpen: {},
+  // Последняя корневая категория вкладки («Материалы»/«Фурнитура»/«Двери»),
+  // строку которой пользователь только что трогал в дереве (клик по
+  // заголовку/ветке/листу, см. bindLibraryEvents) — { materials: 'sheet',
+  // hardware: 'hw:hinge', facades: 'facade' }. Единственная цель — новая
+  // своя корневая категория (кнопка-плитка «Добавить категорию», см.
+  // libAddMaterialCategory/libAddHwCategory/libAddFacadeCategory) встаёт
+  // СРАЗУ ПОСЛЕ этой категории (через libPlaceTopAt/libTopInsertIndex), а не
+  // в конец списка (задача 2026-09-21) — «рядом с тем, с чем сейчас
+  // работали». Нет записи (ничего не трогали) — прежнее поведение, в конец.
+  // Чисто UI-состояние, сессионное, как libCatOpen выше — в снимок каталога
+  // не попадает, это не структура дерева, а лишь подсказка «куда вставить
+  // следующую категорию».
+  libLastFocusedTop: {},
+  // То же самое, но для ПОДкатегорий внутри одного родителя (значок «+» в
+  // строке дерева, см. libAddChildNode) — ключ: libNodeKey(topCode,
+  // parentPath), значение — имя последнего дочернего сегмента, который
+  // пользователь раскрывал/фокусировал СРЕДИ ДЕТЕЙ ИМЕННО ЭТОГО родителя.
+  // Новая подкатегория встаёт сразу после него (см. libAddChildNode), а не в
+  // конец. Чисто UI-состояние, сессионное, как libLastFocusedTop выше.
+  libLastFocusedChild: {},
   // «Фокус» на одном листе дерева одной верхнеуровневой категории (см.
   // libTopCategoryHtml/libLeafTableHtml) — { sheet: 'ДСП::Egger', ... }:
   // путь листа (join('::')) или отсутствие ключа/null — фокуса нет, дерево
@@ -1056,18 +1076,26 @@ function openDrawersPanel(secIndex) {
   renderParamsPanel();
 }
 
+// Одна пилюля «Базы модулей» по её коду (заводской PRESETS.id или своя
+// group.key, см. libTabTopCodesRaw('modules')) — заводская и своя выглядят
+// почти одинаково, разница только в значке «×» удаления (см.
+// libDeleteModuleGroup, у PRESETS его нет: встроенный раздел не удалить).
+function libModulePillHtml(code) {
+  const preset = PRESETS.find((g) => g.id === code);
+  if (preset) {
+    return `<button class="lib-cat ${code === state.libraryOpenCat ? 'on' : ''}" type="button"
+             data-cat="${esc(code)}">${esc(preset.name)} ▾</button>`;
+  }
+  const custom = (state.libModCustomGroups || []).find((g) => g.key === code);
+  if (!custom) return '';   // осиротевший код в state.libTopOrder.modules — не рисуем
+  return `<button class="lib-cat ${code === state.libraryOpenCat ? 'on' : ''}" type="button"
+           data-cat="${esc(code)}">${esc(custom.name)} ▾<span class="lib-cat-del" data-del-modcat="${esc(code)}" title="Удалить категорию">×</span></button>`;
+}
 function libraryBlock() {
   return `
     <h3>База модулей</h3>
     <div class="lib-row">
-      ${PRESETS.map((g) =>
-        `<button class="lib-cat ${g.id === state.libraryOpenCat ? 'on' : ''}" type="button"
-                 data-cat="${g.id}">${esc(g.name)} ▾</button>`
-      ).join('')}
-      ${(state.libModCustomGroups || []).map((g) =>
-        `<button class="lib-cat ${g.key === state.libraryOpenCat ? 'on' : ''}" type="button"
-                 data-cat="${esc(g.key)}">${esc(g.name)} ▾<span class="lib-cat-del" data-del-modcat="${esc(g.key)}" title="Удалить категорию">×</span></button>`
-      ).join('')}
+      ${libTabTopCodes('modules').map(libModulePillHtml).join('')}
       ${libAddCatTileHtml('modules')}
     </div>
     ${libraryGridBlock()}
@@ -1231,7 +1259,7 @@ function curSym() {
 // равно берётся из data-raw (см. startCellEdit), поэтому клик по такой ячейке
 // открывает инпут с полным/настоящим значением, а не с тем, что нарисовано.
 // opts.extraClass — доп. класс на <td> (см. .lib-char-col — тумблер
-// «Характеристики листа», libIsCharsCollapsed).
+// «Характеристики материала», libIsCharsCollapsed).
 // opts.title — подсказка по наведению на ячейку: нужна там, где из самой
 // колонки уже не видно, ЧТО именно в ней написано (цена фурнитуры — за штуку
 // или за пару, см. libHwPriceCellHtml: отдельной колонки «Ед. изм.» в
@@ -2332,6 +2360,21 @@ function libAddChildNode(topCode, parentPath) {
   }
   if (!state.libExtraNodes[topCode]) state.libExtraNodes[topCode] = [];
   state.libExtraNodes[topCode].push(parentPath.concat([name]));
+  // Новая подкатегория встаёт СРАЗУ ПОСЛЕ той, что пользователь только что
+  // раскрывал/фокусировал среди детей ЭТОГО ЖЕ родителя (см.
+  // state.libLastFocusedChild), а не в конец списка — задача 2026-09-21.
+  // libChildInsertIndex — та же функция, что считает место при перетаскивании
+  // (см. libTreeDragEnd): movedName ещё не значится в чужом порядке, поэтому
+  // безопасно передать его и для только что созданного узла. Ref не найден
+  // (ничего не трогали, или сосед уже переименован/удалён) — оставляем как
+  // раньше, порядок не трогаем, новый узел уйдёт в конец (см. libChildSegments).
+  const parentKey = libNodeKey(topCode, parentPath);
+  const ref = state.libLastFocusedChild[parentKey];
+  if (ref) {
+    const idx = libChildInsertIndex(topCode, parentPath, name, ref, false);
+    if (idx != null) libPlaceChildAt(topCode, parentPath, name, idx);
+  }
+  state.libLastFocusedChild[parentKey] = name;
   if (!parentPath.length) state.libCatOpen[topCode] = true;
   else state.libCollapsed[libNodeKey(topCode, parentPath)] = false;
   scheduleCatalogSave();
@@ -2391,6 +2434,9 @@ function libAddHwCategory() {
   const key = 'custom-' + Date.now();
   state.libHwCustomCats.push(key);
   state.libHwCatLabels[key] = name;
+  // Встаёт сразу после категории, которую пользователь только что трогал в
+  // дереве этой вкладки — не в конец (см. libPlaceNewTopAfterFocused).
+  libPlaceNewTopAfterFocused('hardware', 'hw:' + key);
   state.libCatOpen['hw:' + key] = true;   // новая категория сразу раскрыта — видно, куда добавлять позиции
   scheduleCatalogSave();
   renderLibraryPanel();
@@ -2476,6 +2522,9 @@ function libAddMaterialCategory() {
   const key = 'matcustom-' + Date.now();
   state.libMatCustomCats.push(key);
   state.libMatCatLabels[key] = name;
+  // Встаёт сразу после категории, которую пользователь только что трогал в
+  // дереве этой вкладки — не в конец (см. libPlaceNewTopAfterFocused).
+  libPlaceNewTopAfterFocused('materials', key);
   state.libCatOpen[key] = true;   // новая категория сразу раскрыта — видно, куда добавлять позиции
   scheduleCatalogSave();
   renderLibraryPanel();
@@ -2524,6 +2573,9 @@ function libAddFacadeCategory() {
   const key = 'faccustom-' + Date.now();
   state.libFacCustomCats.push(key);
   state.libFacCatLabels[key] = name;
+  // Встаёт сразу после категории, которую пользователь только что трогал в
+  // дереве этой вкладки — не в конец (см. libPlaceNewTopAfterFocused).
+  libPlaceNewTopAfterFocused('facades', key);
   state.libCatOpen[key] = true;
   scheduleCatalogSave();
   renderLibraryPanel();
@@ -2576,6 +2628,15 @@ function libAddModuleGroup() {
   }
   const key = 'modcustom-' + Date.now();
   state.libModCustomGroups.push({ key, name });
+  // Встаёт сразу после ТЕКУЩЕЙ открытой пилюли (state.libraryOpenCat — уже
+  // готовый сигнал «с чем сейчас работали», отдельного поля не нужно, в
+  // отличие от libLastFocusedTop у дерева материалов/фурнитуры/дверей) — не
+  // в конец списка, как раньше (задача 2026-09-21). Открытая пилюля —
+  // ЛЮБАЯ, заводская (PRESETS) или своя: обе участвуют в одном общем
+  // порядке (см. libTabTopCodesRaw/libPlaceTopAfterRef), поэтому «выделена
+  // встроенная категория» тоже работает, не только своя. Ничего не открыто —
+  // прежнее поведение, в конец.
+  libPlaceTopAfterRef('modules', key, state.libraryOpenCat);
   state.libraryOpenCat = key;   // сразу открыта — видно подсказку «Пока нет модулей»
   scheduleCatalogSave();
   renderLibraryPanel();
@@ -2589,6 +2650,12 @@ function libDeleteModuleGroup(key) {
   if (!requireLibraryEditAuth()) return;
   state.libModCustomGroups = (state.libModCustomGroups || []).filter((g) => g.key !== key);
   if (state.libraryOpenCat === key) state.libraryOpenCat = null;
+  // Узла больше нет — его место в общем порядке пилюль ни к чему не
+  // относится (тот же приём, что у libDeleteMaterialCategory/
+  // libDeleteHwCategory/libDeleteFacadeCategory выше).
+  if (Array.isArray(state.libTopOrder.modules)) {
+    state.libTopOrder.modules = state.libTopOrder.modules.filter((c) => c !== key);
+  }
   scheduleCatalogSave();
   renderLibraryPanel();
 }
@@ -2968,7 +3035,7 @@ function libColgroup(pickMode, collapsed) {
     + `${pickMode ? '<col style="width:76px">' : ''}</colgroup>`;
 }
 // Заголовок — ОДНА строка <thead> (никаких rowspan/colspan, см. коммент у
-// libColgroup выше — кнопка «Характеристики листа» больше не здесь), Длина/
+// libColgroup выше — кнопка «Характеристики материала» больше не здесь), Длина/
 // Ширина/Толщина рисуются, только когда !collapsed — раз колонок в теле нет
 // (см. libColgroup/libRowHtml), то и заголовков под ними быть не должно.
 // Подписи Длина/Ширина/Толщина — БЕЗ «, мм»: при трёх колонках по 84px
@@ -3013,7 +3080,7 @@ const libFilterRowsCache = {};
 // libraryMaterialsBlock) строки одной таблицы приходят из decors/back/facade
 // одновременно, и каждая правится через libEditCell(entry.group, ...), а не
 // через код категории. opts.pickMode — доп. кнопка «Выбрать» (см.
-// libColgroup). opts.collapsed — «Характеристики листа» (см. libLeafTableHtml):
+// libColgroup). opts.collapsed — «Характеристики материала» (см. libLeafTableHtml):
 // при true ячейки Длина/Ширина/Толщина вообще не выводятся (не просто
 // прячутся CSS — см. коммент у libColgroup, почему). data-row-group/
 // data-row-key — клик по строке выделяет её (см. state.libSelectedRow/
@@ -3150,16 +3217,19 @@ function libLeafTableHtml(topCode, path, entries, opts) {
     ? `<button type="button" class="link-btn lib-row-del" ${selectedHere ? '' : 'disabled'}${selectedHere ? '' : ` title="${esc(LIB_ROW_DEL_HINT)}"`}>− Удалить материал</button>`
     : '';
   const actionsHtml = (addHtml || linkAddHtml || delHtml) ? `<div class="lib-leaf-actions">${addHtml}${linkAddHtml}${delHtml}</div>` : '';
-  // Кнопка «Характеристики листа» — НАД таблицей, а не заголовок внутри
+  // Кнопка «Характеристики материала» — НАД таблицей, а не заголовок внутри
   // <thead> (см. коммент у libColgroup/libTableHead, почему): общий на всю
   // Библиотеку тумблер (state.libCharsCollapsed), клик в любой из открытых
   // таблиц сворачивает/разворачивает колонки Длина/Ширина/Толщина везде
   // разом (обработчик — делегированный click на .lib-chars-toggle, см.
   // initLibraryPanel, ему всё равно, внутри таблицы кнопка или снаружи).
-  // Подпись статична («Характеристики листа», без +/− префикса) — текущее
-  // состояние (характеристики показаны/скрыты) отражает класс .active на
-  // самой кнопке, не текст (см. .lib-chars-btn в style.css).
-  const charsToggleHtml = `<button type="button" class="lib-chars-btn lib-chars-toggle${collapsed ? '' : ' active'}" data-chars-toggle="1" title="Показать/скрыть длину, ширину, толщину">Характеристики листа</button>`;
+  // Подпись статична («Характеристики материала», без +/− префикса) —
+  // текущее состояние (характеристики показаны/скрыты) отражает класс
+  // .active на самой кнопке, не текст (см. .lib-chars-btn в style.css).
+  // Названа не «...листа» (было так до 2026-09-21): кнопка общая для ЛЮБОЙ
+  // таблицы каталога (материалы/кромка/фурнитура), «лист» неуместен для
+  // кромки, погонажных материалов и фурнитуры.
+  const charsToggleHtml = `<button type="button" class="lib-chars-btn lib-chars-toggle${collapsed ? '' : ' active'}" data-chars-toggle="1" title="Показать/скрыть длину, ширину, толщину">Характеристики материала</button>`;
   return `
     <div class="lib-leaf-body">
       ${charsToggleHtml}
@@ -3413,7 +3483,7 @@ function libHardwareLeafTableHtml(topCode, path, entries, opts) {
   // data-chars-key — тот же атрибут, по которому renderLibraryPanel находит
   // таблицы и заново применяет к ним сохранённый фильтр. Название атрибута
   // историческое (у материалов ключ заодно обслуживает тумблер
-  // «Характеристики листа»), у фурнитуры характеристик нет — это просто
+  // «Характеристики материала»), у фурнитуры характеристик нет — это просто
   // ключ таблицы, других значений он не несёт.
   return `
     <div class="lib-leaf-body">
@@ -3506,7 +3576,7 @@ function libTreeRowHtml(topCode, path, name, kind, collapsed, depthOffset) {
   const canMove = !isCountertop && !isTop;
   const canDelete = !isTop || (isHardware && !isBuiltinHwTop) || isMatCustomTop || isFacCustomTop;
   const renameIc = canRename ? '<span class="lib-tree-ic" data-tree-rename="1" title="Переименовать">✎</span>' : '';
-  const addIc = canAdd ? '<span class="lib-tree-ic" data-tree-add="1" title="Добавить категорию">+</span>' : '';
+  const addIc = canAdd ? '<span class="lib-tree-ic" data-tree-add="1" title="Добавить подкатегорию">+</span>' : '';
   const moveIc = canMove ? '<span class="lib-tree-ic" data-tree-move="1" title="Переместить">⇄</span>' : '';
   const delIc = canDelete ? '<span class="lib-tree-ic" data-tree-del="1" title="Удалить">×</span>' : '';
   return `<div class="lib-tree-row${isTopHeading ? ' lib-tree-top' : ''}" style="padding-left:${depth * LIB_TREE_INDENT}px"
@@ -3577,6 +3647,24 @@ function libBreadcrumbHtml(topCode, path) {
 // лист: таблица рисуется прямо под заголовком, даже если позиций пока нет,
 // иначе в такую категорию («Крепление цоколя» у «Фурнитуры» — она не
 // делится на бренды вовсе) негде было бы добавить первую позицию.
+//
+// ИСКЛЮЧЕНИЕ — своя корневая категория «Материалов»/«Дверей» (кнопка-плитка
+// «Добавить категорию», см. state.libMatCustomCats/libFacCustomCats, ключ
+// узнаётся по libIsCustomRootTop ниже): у ВСТРОЕННЫХ разделов
+// (sheet/edge/glass/countertop/facade) «нет подкатегорий → сам себе лист»
+// оправдано — тип товара известен заранее, только эта категория имеет право
+// хранить такие позиции. У свежесозданной своей категории типа товара нет
+// вовсе — пока в ней нет ни одной подкатегории, показывать пустую таблицу и
+// «+ Добавить материал»/«+ Добавить по ссылке» читалось бы как «категория
+// уже готова принимать позиции», хотя по ожиданию это просто папка, которая
+// раскладывается на подкатегории (задача 2026-09-21). Поэтому такая
+// категория — ЧИСТАЯ папка без таблицы (см. пустое состояние ниже); как
+// только появляется первая подкатегория (значок «+» строки дерева,
+// libAddChildNode), инвариант выше снова работает как обычно — таблица
+// появляется у НЕЁ, а не у родителя.
+function libIsCustomRootTop(topCode) {
+  return String(topCode).indexOf('matcustom-') === 0 || String(topCode).indexOf('faccustom-') === 0;
+}
 function libTopCategoryHtml(topCode, title, opts) {
   // Глубина самого раздела и готовая разметка вложенных в него разделов —
   // их подставляет libTopCategoryTreeHtml, у обычного корневого раздела это
@@ -3601,9 +3689,18 @@ function libTopCategoryHtml(topCode, title, opts) {
   } else {
     const open = !!state.libCatOpen[topCode];
     const topSegments = libChildSegments(topCode, []);
-    const ownHtml = topSegments.length
-      ? topSegments.map((seg) => libNodeHtml(topCode, [seg], opts)).join('')
-      : libLeafTableHtmlAny(topCode, [], libEntriesAtPath(topCode, []), opts);
+    let ownHtml;
+    if (topSegments.length) {
+      ownHtml = topSegments.map((seg) => libNodeHtml(topCode, [seg], opts)).join('');
+    } else if (libIsCustomRootTop(topCode)) {
+      // Своя категория без единой подкатегории — «папка», а не лист (см.
+      // комментарий выше): без таблицы, без «+ Добавить материал/по
+      // ссылке», значок «+» самой строки категории (libTreeRowHtml) по-
+      // прежнему кликабелен как обычно и заводит первую подкатегорию.
+      ownHtml = '<div class="hint lib-empty-folder-hint">В этой категории пока нет подкатегорий — добавьте её значком «+».</div>';
+    } else {
+      ownHtml = libLeafTableHtmlAny(topCode, [], libEntriesAtPath(topCode, []), opts);
+    }
     // Вложенные РАЗДЕЛЫ (см. state.libTopParent) — в том же списке, что и
     // подкатегории, но ПОСЛЕ них: «Без бренда» обязан оставаться последним
     // среди подкатегорий (см. libChildSegments), а раздел — это уже другая
@@ -3674,8 +3771,21 @@ const LIB_TAB_TOP_CODES = {
   facades: ['facade'],
 };
 
+// tabKey 'modules' — «База модулей» (см. libraryBlock ниже): пилюли
+// заводских разделов PRESETS вперемешку со своими (см.
+// state.libModCustomGroups), в ОДНОМ общем порядке — тот же приём, что у
+// libHwCategoryKeys для «Фурнитуры» (заводские коды первыми, дальше свои по
+// мере добавления, а окончательный порядок всё равно решает libTabTopCodes
+// через state.libTopOrder.modules ниже). До 2026-09-21 «Базу модулей» рисовали
+// двумя отдельными .map() (сперва все PRESETS, потом все свои) — из-за этого
+// «Добавить категорию» ФИЗИЧЕСКИ не могла вставить новую пилюлю иначе, чем
+// в самый конец: заводские пилюли не участвовали в общем порядке вовсе, «после
+// выделенной пилюли» не работало, если выделена была заводская («Тумба» и
+// т.п.), а не своя. Здесь у пилюли нет собственного дерева/categoryPath —
+// «раздел» тут не более чем стабильный id/key для упорядочивания и клика.
 function libTabTopCodesRaw(tabKey) {
   if (tabKey === 'hardware') return libHwCategoryKeys().map((c) => 'hw:' + c);
+  if (tabKey === 'modules') return PRESETS.map((g) => g.id).concat((state.libModCustomGroups || []).map((g) => g.key));
   const base = (LIB_TAB_TOP_CODES[tabKey] || []).slice();
   // Свои категории «Материалов»/«Дверей» (кнопка-плитка «Добавить категорию»,
   // см. state.libMatCustomCats/libFacCustomCats) — дописываются к заводскому
@@ -3720,6 +3830,29 @@ function libTopInsertIndex(tabKey, code, ref, before) {
   const at = rest.indexOf(ref);
   if (at < 0) return null;
   return before ? at : at + 1;
+}
+
+// Ставит code сразу после раздела ref в общем порядке вкладки (или в конец,
+// если ref пуст/уже не существует — libTopInsertIndex тогда вернёт null).
+// Общая основа для libPlaceNewTopAfterFocused (материалы/фурнитура/двери,
+// ref — state.libLastFocusedTop) и libAddModuleGroup («База модулей», ref —
+// state.libraryOpenCat: там нет дерева, поэтому и нет отдельного «последнего
+// тронутого узла», сигнал — уже открытая пилюля).
+function libPlaceTopAfterRef(tabKey, code, ref) {
+  const idx = ref ? libTopInsertIndex(tabKey, code, ref, false) : null;
+  libPlaceTopAt(tabKey, code, idx);
+}
+
+// Ставит только что созданную свою корневую категорию (code — уже добавлен в
+// её custom-массив, см. libAddHwCategory/libAddMaterialCategory/
+// libAddFacadeCategory) сразу после последней категории этой вкладки, с
+// которой пользователь только что работал (см. state.libLastFocusedTop) — а
+// не в конец списка, как раньше (задача 2026-09-21). Заодно запоминает саму
+// новую категорию как «последнюю тронутую» — следующая категория, заведённая
+// без клика по дереву между ними, встанет рядом с ней.
+function libPlaceNewTopAfterFocused(tabKey, code) {
+  libPlaceTopAfterRef(tabKey, code, state.libLastFocusedTop[tabKey]);
+  state.libLastFocusedTop[tabKey] = code;
 }
 
 // ---------------------------------------------------------------------------
@@ -7023,7 +7156,7 @@ function renderLibraryPanel() {
   // Применяет уже сохранённое состояние поповера сортировки/фильтра (см.
   // openColumnFilterMenu/columnFilterStates) к каждой заново отрисованной
   // таблице листа отдельно (ключ — data-chars-key, тот же, что и у кнопки
-  // «Характеристики листа») — иначе после переключения дерева/добавления позиции
+  // «Характеристики материала») — иначе после переключения дерева/добавления позиции
   // ранее выбранный фильтр сбросился бы визуально, хотя состояние осталось.
   panel.querySelectorAll('table.lib-table[data-chars-key]').forEach((table) => {
     const tableKey = table.dataset.charsKey;
@@ -7233,6 +7366,13 @@ function initLibraryPanel() {
         state.libCollapsed[libNodeKey(topCode, segPath.slice(0, j))] = false;
       }
       state.libSelectedRow = null;
+      // См. state.libLastFocusedTop/libLastFocusedChild — тот же сигнал
+      // «что пользователь только что трогал», что и у клика по строке дерева
+      // ниже, крошка — такое же перемещение по дереву.
+      state.libLastFocusedTop[state.libraryTab] = topCode;
+      if (segPath.length) {
+        state.libLastFocusedChild[libNodeKey(topCode, segPath.slice(0, -1))] = segPath[segPath.length - 1];
+      }
       renderLibraryPanel();
       return;
     }
@@ -7245,6 +7385,15 @@ function initLibraryPanel() {
       const topCode = treeRow.dataset.top;
       const path = treeRow.dataset.path ? treeRow.dataset.path.split('::') : [];
       const kind = treeRow.dataset.kind;
+      // Запоминаем, что пользователь только что трогал именно этот узел —
+      // см. state.libLastFocusedTop/libLastFocusedChild выше (нужно
+      // «Добавить категорию»/«+» подкатегории, задача 2026-09-21). Для
+      // корневой категории — она сама; для ветки/листа — ещё и место среди
+      // детей ЕЁ родителя (kind === 'top' самого родителя не имеет).
+      state.libLastFocusedTop[state.libraryTab] = topCode;
+      if (kind !== 'top' && path.length) {
+        state.libLastFocusedChild[libNodeKey(topCode, path.slice(0, -1))] = path[path.length - 1];
+      }
       // Смена того, какая таблица(-ы) сейчас видна — выделенная строка (см.
       // state.libSelectedRow) больше не обязательно принадлежит видимой
       // таблице, сбрасываем в обоих случаях (клик по категории целиком и
@@ -7275,7 +7424,7 @@ function initLibraryPanel() {
       renderLibraryPanel();
       return;
     }
-    // Кнопка-тумблер «Характеристики листа» (см. libLeafTableHtml) — общий
+    // Кнопка-тумблер «Характеристики материала» (см. libLeafTableHtml) — общий
     // на всю Библиотеку (state.libCharsCollapsed — булево, не по ключу таблицы):
     // клик в ЛЮБОЙ из одновременно открытых таблиц сворачивает/разворачивает
     // колонки Длина/Ширина/Толщина сразу везде и сужает саму панель (см.
