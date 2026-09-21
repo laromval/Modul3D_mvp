@@ -79,6 +79,39 @@
       "ДСП",
       "Egger"
     ]
+  },
+  {
+    "code": "NEW-1790013912016",
+    "name": "Новый материал",
+    "unit": "лист",
+    "image": null,
+    "sheetH": 1830,
+    "sheetW": 2750,
+    "sheetPrice": 0,
+    "categoryPath": [
+      "ДСП",
+      "Egger"
+    ]
+  },
+  {
+    "code": "LINK-1790014004794",
+    "name": "H1145 ST10 Дуб Бардолино натуральный",
+    "unit": "м²",
+    "image": "https://mobilier.md/image/cache/catalog/products/24750/6390e2cc89e9a4392f1f31ffd03bb28a-768x1089.png",
+    "sheetH": 2070,
+    "sheetW": 2800,
+    "article": "",
+    "sourceUrl": "https://mobilier.md/ru/plitnye-materialy/dsp/dsp_egger/h1145-st10-dub-bardolino-naturalnyy-2800x2070x18-eg-dsp-laminirovannyy.html",
+    "thickness": 18,
+    "sheetPrice": 296,
+    "sourceName": "H1145 ST10 Дуб Бардолино натуральный  2800x2070x18 (EG) Дсп ламинированный",
+    "verifiedAt": "2026-09-21T18:06:44.794Z",
+    "categoryPath": [
+      "ДСП",
+      "Egger"
+    ],
+    "sourceSiteId": "mobilierMd",
+    "sourceArticle": ""
   }
 ];
 
@@ -608,6 +641,22 @@
     "price": 0,
     "article": "CTOP-GLUE-CARCASS",
     "category": "countertop"
+  },
+  "link_runner_1790013629486": {
+    "name": "PB-3D0SHX18-250-PRO Направляющая нижнего монтажа с доводчиком 0SHX-18 3D, L-250",
+    "unit": "шт",
+    "price": 234,
+    "article": "PB-3D0SHX18-250-PRO",
+    "category": "runner",
+    "sourceUrl": "https://mobilier.md/index.php?route=product/product&path=288_1397_339&product_id=34599",
+    "sourceName": "PB-3D0SHX18-250-PRO Glisiere sub sertar cu amortizator 0SHX-18 3D, L-250",
+    "verifiedAt": "2026-09-21T18:00:29.486Z",
+    "subcategory": "GTV",
+    "categoryPath": [
+      "GTV"
+    ],
+    "sourceSiteId": "mobilierMd",
+    "sourceArticle": "PB-3D0SHX18-250-PRO"
   }
 };
 

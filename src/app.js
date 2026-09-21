@@ -213,9 +213,25 @@ const state = {
       "Blum"
     ]
   ],
+  "mod:base": [
+    [
+      "Камоды"
+    ],
+    [
+      "Прикроватные тумбочки"
+    ]
+  ],
   "hw:runner": [
     [
       "фаа"
+    ]
+  ],
+  "mod:kitchen": [
+    [
+      "Верхние модули"
+    ],
+    [
+      "Нижний модуль"
     ]
   ]
 },
@@ -242,6 +258,18 @@ const state = {
       "Blum",
       "петли для стекла"
     ]
+  },
+  "mod:base": {
+    "": [
+      "Камоды",
+      "Прикроватные тумбочки"
+    ]
+  },
+  "mod:kitchen": {
+    "": [
+      "Верхние модули",
+      "Нижний модуль"
+    ]
   }
 },
   // То же самое, но для КОРНЕВЫХ категорий — по вкладке «Библиотеки»:
@@ -256,6 +284,11 @@ const state = {
   // перечисленные (новая своя категория фурнитуры) — следом, в заводском
   // порядке. Как libNodeOrder выше, едет на сервер в снимке каталога.
   libTopOrder: {
+  "modules": [
+    "mod:kitchen",
+    "mod:wardrobe",
+    "mod:base"
+  ],
   "hardware": [
     "hw:hinge",
     "hw:runner",
@@ -266,7 +299,14 @@ const state = {
     "hw:countertop",
     "hw:mechanism",
     "hw:rod",
-    "hw:fastener"
+    "hw:fastener",
+    "hw:custom-1790008010310"
+  ],
+  "materials": [
+    "sheet",
+    "edge",
+    "glass",
+    "countertop"
   ]
 },
   // Вложенность КОРНЕВЫХ категорий друг в друга — по вкладке:
@@ -284,7 +324,9 @@ const state = {
   // Как libTopOrder выше — не сессионное состояние, едет на сервер в снимке
   // каталога.
   libTopParent: {
-  "hardware": {}
+  "modules": {},
+  "hardware": {},
+  "materials": {}
 },
   // Свои ПОДПИСИ корневых категорий вкладки «Фурнитура» — { hinge: 'Петельки',
   // 'custom-1758...': 'Уплотнители' }: ключ — тот же item.category, по которому
@@ -297,7 +339,9 @@ const state = {
   // HARDWARE_CATEGORY_LABEL). В отличие от libCollapsed/libCatOpen выше это
   // не сессионное UI-состояние: подписи переживают перезагрузку вместе с
   // остальными правками каталога (см. snapshotCatalogCollections).
-  libHwCatLabels: {},
+  libHwCatLabels: {
+  "custom-1790008010310": "фурнтитура кухни"
+},
   // СВОИ корневые категории фурнитуры, заведённые кнопкой «+ Добавить
   // категорию» на вкладке «Фурнитура» (см. libAddHwCategory) — массив ключей
   // вида 'custom-<timestamp>' в порядке добавления, они дописываются к
@@ -306,7 +350,9 @@ const state = {
   // item.category === этому ключу (HARDWARE_PRICES, см. libAddHardwareRow).
   // Расчёт про такие ключи ничего не знает — это просто контейнер каталога.
   // Как и libHwCatLabels, сохраняется на сервере вместе с правками каталога.
-  libHwCustomCats: [],
+  libHwCustomCats: [
+  "custom-1790008010310"
+],
   // СВОИ корневые категории вкладок «Материалы» и «Двери», заведённые той же
   // кнопкой-плиткой «Добавить категорию» (новый визуальный стиль — маленький
   // квадрат с пунктирной рамкой и синим «+», см. libAddCatTileHtml), что и
@@ -346,7 +392,82 @@ const state = {
   // трогается, см. libModDeleteCard). Материализуется лениво: пока
   // пользователь карточку не трогал, записи для неё нет вовсе (см.
   // libModRealPlacement). Сохраняется на сервере вместе с правками каталога.
-  libModOverrides: {},
+  libModOverrides: {
+  "base::bedside": {
+    "categoryPath": [
+      "Прикроватные тумбочки"
+    ],
+    "categoryPathEdited": true
+  },
+  "base::drawers": {
+    "categoryPath": [
+      "Камоды"
+    ],
+    "categoryPathEdited": true
+  },
+  "base::doorDrawer": {
+    "categoryPath": [
+      "Прикроватные тумбочки"
+    ],
+    "categoryPathEdited": true
+  },
+  "kitchen::sink800": {
+    "group": "kitchen",
+    "categoryPath": [
+      "Нижний модуль"
+    ],
+    "categoryPathEdited": true
+  },
+  "kitchen::tall600": {
+    "group": "kitchen",
+    "categoryPath": [
+      "Нижний модуль"
+    ],
+    "categoryPathEdited": true
+  },
+  "kitchen::lower600": {
+    "group": "kitchen",
+    "categoryPath": [
+      "Нижний модуль"
+    ],
+    "categoryPathEdited": true
+  },
+  "kitchen::upper600": {
+    "categoryPath": [
+      "Верхние модули"
+    ],
+    "categoryPathEdited": true
+  },
+  "kitchen::upper800": {
+    "categoryPath": [
+      "Верхние модули"
+    ],
+    "categoryPathEdited": true
+  },
+  "kitchen::cornerSink": {
+    "group": "kitchen",
+    "categoryPath": [
+      "Нижний модуль"
+    ],
+    "categoryPathEdited": true
+  },
+  "kitchen::cornerLower": {
+    "removed": true
+  },
+  "kitchen::cornerUpper": {
+    "categoryPath": [
+      "Верхние модули"
+    ],
+    "categoryPathEdited": true
+  },
+  "kitchen::lower600drawers": {
+    "group": "kitchen",
+    "categoryPath": [
+      "Нижний модуль"
+    ],
+    "categoryPathEdited": true
+  }
+},
   // НЕЗАВИСИМЫЕ копии карточек «Базы модулей», заведённые значком «+»
   // (копировать, см. libModCopyCard) — в отличие от libModOverrides выше это
   // не отклонение уже существующей карточки, а совсем НОВОЕ размещение того
@@ -355,7 +476,17 @@ const state = {
   // presetId может иметь произвольное число таких копий одновременно в
   // разных местах дерева, независимо друг от друга и от её дефолтной
   // карточки. Сохраняется на сервере вместе с правками каталога.
-  libModPlacements: [],
+  libModPlacements: [
+  {
+    "id": "modplace-1790022541237-489qo9",
+    "name": null,
+    "group": "base",
+    "presetId": "kitchen::lower600drawers",
+    "categoryPath": [
+      "Камоды"
+    ]
+  }
+],
   // Режим подбора материала из «Параметры проекта» (кнопка «+ Добавить
   // материал» у Материал корпуса/Материал фасада/Задняя стенка, см.
   // materialPickActionsHtml/openMaterialPicker) — { role: 'decor' | 'facadeDecor'
