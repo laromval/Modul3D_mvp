@@ -14,7 +14,7 @@
 (function () {
 // Версия сборки — показывается во вкладке браузера и в шапке.
 // При выпуске новой версии меняется только эта строка.
-const APP_VERSION = 'v296';
+const APP_VERSION = 'v297';
 
 // Номер версии выводим ПЕРВЫМ делом: если дальше что-то упадёт, по нему сразу
 // видно, какая сборка открыта.
@@ -136,10 +136,6 @@ const state = {
   // Имя подсвеченного модуля. null — выделение снято (клик по пустому месту).
   selected: null,
   modules: [],          // проект стартует пустым — первый модуль выбирает пользователь
-  // Какая категория «Базы модулей» сейчас развёрнута сеткой миниатюр внутри
-  // панели (id группы из PRESETS или null — все свёрнуты). Чисто UI-состояние,
-  // в историю отмены/файл проекта не попадает (не перечислено в snapshot()).
-  libraryOpenCat: null,
   // Какая вкладка сейчас открыта в панели «Библиотека» (отдельная панель —
   // см. renderLibraryPanel()): 'modules' — база модулей, 'materials' —
   // редактируемые таблицы каталога материалов, 'hardware' — фурнитура.
@@ -329,15 +325,37 @@ const state = {
   libMatCatLabels: {},
   libFacCustomCats: [],
   libFacCatLabels: {},
-  // Свои категории «Базы модулей» (та же кнопка-плитка, в конце ряда .lib-row
-  // из libraryBlock, см. libAddModuleGroup) — в отличие от PRESETS
-  // (src/presets.js, зашитый список типовых модулей) это ПУСТЫЕ именованные
-  // категории без миниатюр: наполнение пресетами внутри них — отдельная
-  // задача владельца проекта на будущее, libraryGridBlock() для них рисует
-  // только подсказку «Пока нет модулей». { key: 'modcustom-<timestamp>',
-  // name: 'Название' } в порядке добавления. Как и остальные свои категории
-  // Библиотеки выше, сохраняется на сервере вместе с правками каталога.
+  // Свои ВЕРХНЕУРОВНЕВЫЕ категории «Базы модулей» (кнопка-плитка
+  // libAddCatTileHtml('modules'), см. libAddModuleGroup) — топ-уровень
+  // общего дерева наравне с группами PRESETS (src/presets.js), только
+  // переименовываемый/удаляемый (см. libTreeRowHtml/libRenameNode/
+  // libDeleteModuleTopCategory), как своя категория «Материалов»/«Фурнитуры»
+  // выше. { key: 'modcustom-<timestamp>', name: 'Название' } в порядке
+  // добавления. Как и остальные свои категории Библиотеки выше, сохраняется
+  // на сервере вместе с правками каталога.
   libModCustomGroups: [],
+  // Дерево «Базы модулей» (2026-09-21, задача «строки вместо кнопок») — у
+  // каждой карточки пресета есть СВОЙ путь в дереве, независимый от исходной
+  // группы PRESETS (см. libModAllPlacements/libModTopEntries). Хранятся
+  // ТОЛЬКО отклонения от дефолта — { <groupId>::<itemId ПРЕСЕТА>: { group,
+  // categoryPath, name, removed } }: group/categoryPath — где карточка
+  // сейчас лежит (по умолчанию group = родная группа PRESETS, categoryPath —
+  // пусто), name — подпись ЭТОЙ карточки, переопределённая значком ✎
+  // (contextmenu на миниатюре, см. libModRenameCard) — не название пресета,
+  // removed — карточку убрали значком × (сам пресет в presets.js не
+  // трогается, см. libModDeleteCard). Материализуется лениво: пока
+  // пользователь карточку не трогал, записи для неё нет вовсе (см.
+  // libModRealPlacement). Сохраняется на сервере вместе с правками каталога.
+  libModOverrides: {},
+  // НЕЗАВИСИМЫЕ копии карточек «Базы модулей», заведённые значком «+»
+  // (копировать, см. libModCopyCard) — в отличие от libModOverrides выше это
+  // не отклонение уже существующей карточки, а совсем НОВОЕ размещение того
+  // же пресета: { id: 'modplace-<timestamp>-<rand>', presetId:
+  // '<groupId>::<itemId>', group, categoryPath, name }. Одна карточка
+  // presetId может иметь произвольное число таких копий одновременно в
+  // разных местах дерева, независимо друг от друга и от её дефолтной
+  // карточки. Сохраняется на сервере вместе с правками каталога.
+  libModPlacements: [],
   // Режим подбора материала из «Параметры проекта» (кнопка «+ Добавить
   // материал» у Материал корпуса/Материал фасада/Задняя стенка, см.
   // materialPickActionsHtml/openMaterialPicker) — { role: 'decor' | 'facadeDecor'
@@ -463,7 +481,7 @@ const state = {
   // Имя модуля, изолированного двойным кликом в 3D (см. viewer.onIsolateModule
   // ниже), или null — режим изоляции выключен. Чисто UI-состояние режима
   // просмотра, не часть данных проекта — в snapshot()/файл не попадает,
-  // как и panelView/libraryOpenCat выше.
+  // как и panelView выше.
   isolatedModule: null,
   // Деталь, выбранная через «Редактировать» в контекстном меню фокуса
   // (см. openPartEditor): { module, kind, side } — side есть только у
@@ -557,6 +575,11 @@ function snapshotCatalogCollections() {
     libFacCustomCats: JSON.parse(JSON.stringify(state.libFacCustomCats)),
     libFacCatLabels: JSON.parse(JSON.stringify(state.libFacCatLabels)),
     libModCustomGroups: JSON.parse(JSON.stringify(state.libModCustomGroups)),
+    // Дерево «Базы модулей» (см. комментарий у state.libModOverrides/
+    // libModPlacements выше) — тем же способом и по той же причине, что и
+    // остальные свои правки каталога в этом снимке.
+    libModOverrides: JSON.parse(JSON.stringify(state.libModOverrides)),
+    libModPlacements: JSON.parse(JSON.stringify(state.libModPlacements)),
   };
 }
 
@@ -730,6 +753,11 @@ function restoreCatalogFrom(blob) {
   if (blob.libFacCustomCats) state.libFacCustomCats = JSON.parse(JSON.stringify(blob.libFacCustomCats));
   if (blob.libFacCatLabels) state.libFacCatLabels = JSON.parse(JSON.stringify(blob.libFacCatLabels));
   if (blob.libModCustomGroups) state.libModCustomGroups = JSON.parse(JSON.stringify(blob.libModCustomGroups));
+  // Дерево «Базы модулей» — этих ключей нет в снимках до появления фичи,
+  // тогда просто нет ни одного переопределённого/скопированного размещения,
+  // все карточки лежат в своих родных группах PRESETS.
+  if (blob.libModOverrides) state.libModOverrides = JSON.parse(JSON.stringify(blob.libModOverrides));
+  if (blob.libModPlacements) state.libModPlacements = JSON.parse(JSON.stringify(blob.libModPlacements));
 }
 
 // Снимает режим изоляции модуля (двойной клик в 3D) и выбор детали внутри
@@ -1076,60 +1104,130 @@ function openDrawersPanel(secIndex) {
   renderParamsPanel();
 }
 
-// Одна пилюля «Базы модулей» по её коду (заводской PRESETS.id или своя
-// group.key, см. libTabTopCodesRaw('modules')) — заводская и своя выглядят
-// почти одинаково, разница только в значке «×» удаления (см.
-// libDeleteModuleGroup, у PRESETS его нет: встроенный раздел не удалить).
-function libModulePillHtml(code) {
-  const preset = PRESETS.find((g) => g.id === code);
-  if (preset) {
-    return `<button class="lib-cat ${code === state.libraryOpenCat ? 'on' : ''}" type="button"
-             data-cat="${esc(code)}">${esc(preset.name)} ▾</button>`;
-  }
-  const custom = (state.libModCustomGroups || []).find((g) => g.key === code);
-  if (!custom) return '';   // осиротевший код в state.libTopOrder.modules — не рисуем
-  return `<button class="lib-cat ${code === state.libraryOpenCat ? 'on' : ''}" type="button"
-           data-cat="${esc(code)}">${esc(custom.name)} ▾<span class="lib-cat-del" data-del-modcat="${esc(code)}" title="Удалить категорию">×</span></button>`;
-}
-function libraryBlock() {
-  return `
-    <h3>База модулей</h3>
-    <div class="lib-row">
-      ${libTabTopCodes('modules').map(libModulePillHtml).join('')}
-      ${libAddCatTileHtml('modules')}
-    </div>
-    ${libraryGridBlock()}
-    <div class="hint">Выберите категорию, затем вариант — готовый модуль добавится в проект и появится в 3D.</div>`;
+// ---------------------------------------------------------------------------
+// «База модулей» как дерево (2026-09-21) — та же архитектура, что у вкладок
+// «Материалы»/«Фурнитура» (см. большой комментарий над libTopEntries):
+// топ-уровень 'mod:<groupKey>' — группа PRESETS (заводская, groupKey — её
+// id) ИЛИ своя категория (state.libModCustomGroups, groupKey — её key).
+// «Позиция» дерева — не сама позиция каталога, а РАЗМЕЩЕНИЕ карточки
+// пресета (group 'modplace') — у каждой карточки свой путь, независимый от
+// исходной группы PRESETS (см. libModAllPlacements/state.libModOverrides/
+// state.libModPlacements). Вся навигация по дереву (раскрытие/свёртывание,
+// переименование/добавление/перенос/удаление ПОДКАТЕГОРИЙ, хлебные крошки,
+// перетаскивание узлов) — общий код с материалами/фурнитурой, отдельного
+// здесь почти нет: см. правки libTopEntries/libRealItemOf/libEntryTargetPath/
+// libLeafTableHtmlAny/libTabTopCodesRaw/libTabOfTopCode/libTopCategoryDef/
+// libTreeRowHtml/libNodeHtml/libTopCategoryHtml/libRenameNode/libDeleteNode/
+// libRowMoveTargets/libMoveEntry дальше по файлу.
+//
+// В отличие от материалов/фурнитуры здесь НЕТ инварианта «есть подкатегории
+// → своих позиций нет» (см. NO_BRAND_SUBCAT): карточка пресета по умолчанию
+// лежит прямо в корне своей группы, и группа/подкатегория может ОДНОВРЕМЕННО
+// иметь и вложенные категории, и свои карточки — как папка и файлы рядом в
+// проводнике (см. правки libNodeHtml/libTopCategoryHtml/libEntryTargetPath).
+// ---------------------------------------------------------------------------
+
+function libModPresetId(groupId, itemId) { return groupId + '::' + itemId; }
+
+// { group, item } исходного пресета по presetId, или null (пресет удалили
+// из presets.js — отклонение/копия в state тогда просто не рисуется).
+function libModPresetOf(presetId) {
+  const parts = String(presetId).split('::');
+  const g = PRESETS.find((x) => x.id === parts[0]);
+  const it = g && g.items.find((x) => x.id === parts[1]);
+  return it ? { group: g, item: it } : null;
 }
 
-// Сетка миниатюр открытой категории. Рендерится СИНХРОННО только для пунктов
-// текущей открытой группы (несколько штук), а не для всех 16 пресетов сразу —
-// иначе панель тормозила бы при каждой перерисовке. Дополнительно результат
-// (dataURL) кэшируется в _thumbCache по ключу «id пресета + декор/толщины,
-// от которых реально зависит картинка» — buildModel()+renderThumbnail()
-// (создание и уничтожение WebGL-контекста) выполняются один раз на каждую
-// такую комбинацию, а не при каждой перерисовке панели. Пресеты сами по себе
-// не меняются, поэтому смена вкладки/категории повторно рендерить не должна.
+function libModTopIsBuiltin(key) { return PRESETS.some((g) => g.id === key); }
+function libModGroupExists(key) {
+  return libModTopIsBuiltin(key) || (state.libModCustomGroups || []).some((g) => g.key === key);
+}
+// Подпись верхнеуровневой категории «Базы модулей» — имя группы PRESETS или
+// своей категории (state.libModCustomGroups). В отличие от «Фурнитуры» у
+// заводской группы нет отдельной «своей подписи» — переименовать её нельзя
+// (см. libTreeRowHtml/libRenameNode), поэтому и хранить для неё нечего.
+function libModTopLabel(key) {
+  const preset = PRESETS.find((g) => g.id === key);
+  if (preset) return preset.name;
+  const custom = (state.libModCustomGroups || []).find((g) => g.key === key);
+  return custom ? custom.name : key;
+}
+
+// Все карточки «Базы модулей» — и дефолтные (одна на каждый пресет, пока
+// пользователь её не тронул), и независимые копии (значок «+», см.
+// libModCopyCard). Дефолтная карточка материализуется лениво: если
+// state.libModOverrides[presetId] нет, она просто лежит в корне своей
+// родной группы под родным именем пресета.
+function libModAllPlacements() {
+  const out = [];
+  PRESETS.forEach((g) => {
+    g.items.forEach((it) => {
+      const presetId = libModPresetId(g.id, it.id);
+      const ov = state.libModOverrides[presetId];
+      if (ov && ov.removed) return;   // убрана значком × — сам пресет не трогаем
+      out.push({
+        id: 'default:' + presetId,
+        presetId,
+        group: (ov && ov.group) || g.id,
+        categoryPath: (ov && Array.isArray(ov.categoryPath)) ? ov.categoryPath.slice() : [],
+        name: (ov && ov.name) || null,
+      });
+    });
+  });
+  (state.libModPlacements || []).forEach((p) => {
+    out.push({
+      id: p.id, presetId: p.presetId, group: p.group,
+      categoryPath: (p.categoryPath || []).slice(), name: p.name || null,
+    });
+  });
+  return out;
+}
+function libModPlacementById(id) {
+  return libModAllPlacements().find((p) => p.id === id) || null;
+}
+
+// Записи ОДНОЙ верхнеуровневой категории (topCode 'mod:<groupKey>') — тот же
+// приём, что и libHardwareTopEntries: карточки фильтруются по тому, в какой
+// группе они сейчас лежат. item.name/item.note — РЕЗОЛВЛЕННЫЕ (переопределение
+// карточки, если есть, иначе имя/примечание самого пресета) — весь остальной
+// generic-код дерева (заголовки меню переноса и т.п.) читает it.name не зная
+// о пресетах вовсе, так же, как читает его у декоров/фурнитуры.
+function libModTopEntries(groupKey) {
+  return libModAllPlacements()
+    .filter((p) => p.group === groupKey)
+    .map((p) => {
+      const ref = libModPresetOf(p.presetId);
+      const name = p.name || (ref ? ref.item.name : '') || '';
+      const note = ref ? ref.item.note : '';
+      return { group: 'modplace', item: Object.assign({ key: p.id }, p, { name, note }) };
+    });
+}
+
+// «Живой» изменяемый объект карточки по её id — материализует запись
+// отклонения для дефолтной карточки встроенного пресета при первом же
+// изменении (переименование/перенос/удаление), тем же приёмом, что и
+// остальные точки правки дерева каталога (см. libSetEntryPath/libRealItemOf
+// ниже: категория пишется в it.categoryPath, это и есть тот самый объект).
+function libModRealPlacement(id) {
+  if (String(id).indexOf('default:') === 0) {
+    const presetId = id.slice('default:'.length);
+    if (!state.libModOverrides[presetId]) state.libModOverrides[presetId] = {};
+    return state.libModOverrides[presetId];
+  }
+  return (state.libModPlacements || []).find((p) => p.id === id) || null;
+}
+
+// ---------------------------------------------------------------------------
+// Миниатюры карточек — рендерятся СИНХРОННО только для видимых (раскрытых)
+// узлов дерева, а не для всех пресетов сразу, и кэшируются в _thumbCache по
+// ключу «пресет + декор/толщины, от которых реально зависит картинка» — тот
+// же приём, что и раньше в libraryGridBlock (перенесено сюда без изменения
+// логики самого рендера, см. комментарии внутри).
+// ---------------------------------------------------------------------------
 const _thumbCache = new Map();
-function libraryGridBlock() {
-  const group = PRESETS.filter((g) => g.id === state.libraryOpenCat)[0];
-  if (!group) {
-    // Открыта своя категория (см. state.libModCustomGroups/libAddModuleGroup)
-    // — по требованию она ВСЕГДА пуста (без миниатюр, без пресетов внутри,
-    // наполнение — отдельная задача на будущее), явная подсказка вместо
-    // молчаливой пустоты, чтобы не выглядело как баг. Ничего не открыто
-    // (state.libraryOpenCat === null) — по-прежнему пусто, без подсказки.
-    const isCustomOpen = state.libraryOpenCat
-      && (state.libModCustomGroups || []).some((g) => g.key === state.libraryOpenCat);
-    return isCustomOpen ? '<div class="hint">В этой категории пока нет модулей.</div>' : '';
-  }
 
-  // Материалы для превью берём из ТЕКУЩЕГО проекта (те же источники, что и
-  // recompute()) — миниатюра сразу показывает модуль в декоре, в котором он
-  // реально появится у пользователя. Вид миниатюры «в реальном цвете» (см.
-  // renderThumbnail({ realistic: true })) — декор, толщины и опоры видны как
-  // на готовом модуле, поэтому именно эти поля входят в ключ _thumbCache ниже.
-  const thumbBase = {
+function libModThumbBase() {
+  return {
     bodyThickness: state.bodyThickness,
     backThickness: state.backThickness,
     facadeThickness: state.facadeThickness,
@@ -1138,108 +1236,492 @@ function libraryGridBlock() {
     // отдельно от app.js, коды могут переименовать или убрать — так уже было
     // 2026-09-03). Без отката buildModel() падает на undefined.code и рвёт
     // всю инициализацию приложения (пустая библиотека, неработающие кнопки).
-    decor: DECORS.find(d => d.code === state.decorCode) || DECORS[0],
-    facadeDecor: DECORS.find(d => d.code === state.facadeDecorCode)
-      || DECORS.find(d => d.code === state.decorCode) || DECORS[0],
-    backMaterial: BACK_MATERIALS.find(d => d.code === state.backCode) || BACK_MATERIALS[0],
+    decor: DECORS.find((d) => d.code === state.decorCode) || DECORS[0],
+    facadeDecor: DECORS.find((d) => d.code === state.facadeDecorCode)
+      || DECORS.find((d) => d.code === state.decorCode) || DECORS[0],
+    backMaterial: BACK_MATERIALS.find((d) => d.code === state.backCode) || BACK_MATERIALS[0],
     worktopDepth: state.worktopDepth,
     jointType: state.jointType,
   };
+}
 
-  // Ключ кэша — id пресета плюс всё, что реально влияет на итоговую картинку
-  // (декор корпуса/фасада/задней стенки, толщины плит, глубина столешницы,
-  // тип соединения). Если ни одно из этих полей не менялось с прошлой
-  // перерисовки — пресет берётся из _thumbCache без повторного buildModel()
-  // и renderThumbnail() (то есть без пересоздания WebGL-контекста).
+// Кухонные пресеты на миниатюре красим в БЕЛЫЙ корпус независимо от decor
+// ТЕКУЩЕГО проекта (по умолчанию у нового проекта это дуб, не белый) — так
+// попросил владелец 2026-09-21, только для превью категории «Кухонный
+// модуль», «Шкаф»/«Тумба» по-прежнему красятся в decor проекта. Ищем декор/
+// столешницу по коду через find(), а не хардкодим объект — код когда-нибудь
+// могут переименовать/убрать в каталоге (см. thumbBase.decor выше).
+function libModThumbDataUrl(groupId, it) {
+  const thumbBase = libModThumbBase();
   const thumbKeyBase = [
     thumbBase.bodyThickness, thumbBase.backThickness, thumbBase.facadeThickness,
     thumbBase.decor.code, thumbBase.facadeDecor.code, thumbBase.backMaterial.code,
     thumbBase.worktopDepth, thumbBase.jointType,
   ].join('|');
+  const cacheKey = `${libModPresetId(groupId, it.id)}|${thumbKeyBase}`;
+  if (_thumbCache.has(cacheKey)) return _thumbCache.get(cacheKey);
+  let dataUrl = null;
+  try {
+    const m = it.make();
+    const isKitchen = (m.family || 'custom') === 'kitchen';
+    const kitchenThumbDecor = isKitchen ? (DECORS.find((d) => d.code === 'H3450ST22') || null) : null;
+    // Столешница нижнего яруса кухни на миниатюре — тоже только для наглядности
+    // превью (owner: «почему модули кухни без столешницы»). Задаётся ОТДЕЛЬНЫМ
+    // полем модуля p.countertop (см. engine.js countertopMat()/ctEnabled) —
+    // proj.worktopDepth сам по себе столешницу не строит.
+    const kitchenThumbCountertopCode = isKitchen && window.Modul3D.catalog.findCountertopMaterialByCode('CTOP-LDSP38-1063SQ')
+      ? 'CTOP-LDSP38-1063SQ' : null;
+    const project = Object.assign({}, thumbBase, {
+      modules: [{
+        name: m.name, width: m.width, height: m.height, depth: m.depth,
+        rotation: m.rotation || 0, corner: !!m.corner, family: m.family || 'custom',
+        topType: m.topType, railWidth: m.railWidth, noBack: !!m.noBack,
+        blindPanel: !!m.blindPanel, blindStrip: m.blindStrip,
+        leftSide: m.leftSide, rightSide: m.rightSide,
+        base: m.baseType === 'plinth'
+          ? { type: 'plinth', plinthHeight: m.plinthHeight }
+          : { type: m.baseType, legHeight: m.legHeight },
+        legType: m.legType || 'metal',
+        sections: m.sections || [],
+        // Переопределение декора корпуса ТОЛЬКО этого модуля превью —
+        // побеждает proj.decor в engine.js (decor: m.carcassDecor || proj.decor),
+        // сам decor проекта (state.decorCode) нигде не трогается.
+        carcassDecor: kitchenThumbDecor || undefined,
+        // Столешница — не у всего tier==='lower' (пенал tall600 тоже
+        // «нижний», потому что стоит на полу, но он во всю высоту до потолка
+        // и столешницы сверху не имеет — см. presets.js). Точный сигнал —
+        // topType модели: 'rails'/'railsEdge' — это ИМЕННО рельсовый верх
+        // нижней тумбы под столешницу (см. engine.js skipTopPanel/topType).
+        countertop: (isKitchen && (m.topType === 'rails' || m.topType === 'railsEdge') && kitchenThumbCountertopCode)
+          ? { enabled: true, decorCode: kitchenThumbCountertopCode } : undefined,
+      }],
+    });
+    const model = buildModel(project);
+    dataUrl = window.Modul3D.viewer.renderThumbnail(model, { size: 200, realistic: true });
+  } catch (err) {
+    dataUrl = null;
+  }
+  // Та же самоочистка, что и у _partGeoCache в viewer.js (см. там же, порог
+  // 300) — без верхней границы кэш рос бы неограниченно за сеанс, например
+  // при посимвольном вводе толщины плиты прямо в открытой панели (каждое
+  // нажатие клавиши — новый thumbKeyBase, значит новые ключи).
+  if (_thumbCache.size > 300) _thumbCache.clear();
+  _thumbCache.set(cacheKey, dataUrl);
+  return dataUrl;
+}
 
-  // Кухонные пресеты на миниатюре красим в БЕЛЫЙ корпус независимо от decor
-  // ТЕКУЩЕГО проекта (по умолчанию у нового проекта это дуб, не белый) — так
-  // попросил владелец 2026-09-21, только для превью категории «Кухонный
-  // модуль», «Шкаф»/«Тумба» по-прежнему красятся в decor проекта (thumbBase
-  // выше). Ищем декор по коду через DECORS.find(), а не хардкодим объект —
-  // код когда-нибудь могут переименовать/убрать в каталоге (см. пояснение
-  // у thumbBase.decor выше про такой же откат).
-  const kitchenThumbDecor = DECORS.find((d) => d.code === 'H3450ST22') || null;
-  // Столешница нижнего яруса кухни на миниатюре — тоже только для наглядности
-  // превью (owner: «почему модули кухни без столешницы»). Задаётся ОТДЕЛЬНЫМ
-  // полем модуля p.countertop (см. engine.js countertopMat()/ctEnabled) —
-  // proj.worktopDepth сам по себе столешницу не строит.
-  const kitchenThumbCountertopCode = window.Modul3D.catalog.findCountertopMaterialByCode('CTOP-LDSP38-1063SQ')
-    ? 'CTOP-LDSP38-1063SQ' : null;
+// Одна карточка модуля — button.lib-item, как и раньше: ЛЕВЫЙ клик добавляет
+// модуль в проект (см. bindLibraryEvents), ПРАВЫЙ открывает плашку ✎+⇄×
+// (см. openLibModCardMenu). data-group/data-preset — id ИСХОДНОГО пресета
+// (не меняются, где бы карточка ни лежала в дереве) — по ним левый клик
+// находит it.make(), а data-placement — id ЭТОГО размещения (нужен
+// контекстному меню/перетаскиванию, см. libModPlacementById).
+function libModCardHtml(p) {
+  const ref = libModPresetOf(p.presetId);
+  if (!ref) return '';
+  const dataUrl = libModThumbDataUrl(ref.group.id, ref.item);
+  const displayName = p.name || ref.item.name;
+  // Полное примечание пресета иногда длиной за сотню символов — для
+  // всплывающей подсказки (узкая колонка, перенос по словам) обрезаем его.
+  const note = ref.item.note;
+  const noteShort = note && note.length > 70 ? note.slice(0, 68) + '…' : note;
+  const tip = `${displayName}${noteShort ? ` — ${noteShort}` : ''}`;
+  return `<button type="button" class="lib-item tip tip-down" data-placement="${esc(p.key)}"
+      data-group="${esc(ref.group.id)}" data-preset="${esc(ref.item.id)}" data-tip="${esc(tip)}">
+      ${dataUrl ? `<img class="lib-thumb" src="${dataUrl}" alt="">` : ''}
+    </button>`;
+}
 
-  const tiles = group.items.map((it) => {
-    const cacheKey = `${it.id}|${thumbKeyBase}`;
-    let dataUrl;
-    if (_thumbCache.has(cacheKey)) {
-      dataUrl = _thumbCache.get(cacheKey);
-    } else {
-      dataUrl = null;
-      try {
-        const m = it.make();
-        const isKitchen = (m.family || 'custom') === 'kitchen';
-        const project = Object.assign({}, thumbBase, {
-          modules: [{
-            name: m.name, width: m.width, height: m.height, depth: m.depth,
-            rotation: m.rotation || 0, corner: !!m.corner, family: m.family || 'custom',
-            topType: m.topType, railWidth: m.railWidth, noBack: !!m.noBack,
-            blindPanel: !!m.blindPanel, blindStrip: m.blindStrip,
-            leftSide: m.leftSide, rightSide: m.rightSide,
-            base: m.baseType === 'plinth'
-              ? { type: 'plinth', plinthHeight: m.plinthHeight }
-              : { type: m.baseType, legHeight: m.legHeight },
-            legType: m.legType || 'metal',
-            sections: m.sections || [],
-            // Переопределение декора корпуса ТОЛЬКО этого модуля превью —
-            // побеждает proj.decor в engine.js (decor: m.carcassDecor || proj.decor),
-            // сам decor проекта (state.decorCode) нигде не трогается.
-            carcassDecor: (isKitchen && kitchenThumbDecor) ? kitchenThumbDecor : undefined,
-            // Столешница — не у всего tier==='lower' (пенал tall600 тоже
-            // «нижний», потому что стоит на полу, но он во всю высоту до
-            // потолка и столешницы сверху не имеет — см. presets.js). Точный
-            // сигнал — topType модели: 'rails'/'railsEdge' — это ИМЕННО
-            // рельсовый верх нижней тумбы под столешницу (см. engine.js
-            // skipTopPanel/topType), а не сплошная крыша обычного шкафа.
-            // Берём m.topType (поле модели), а не it.tier (поле пресета).
-            countertop: (isKitchen && (m.topType === 'rails' || m.topType === 'railsEdge') && kitchenThumbCountertopCode)
-              ? { enabled: true, decorCode: kitchenThumbCountertopCode } : undefined,
-          }],
-        });
-        const model = buildModel(project);
-        dataUrl = window.Modul3D.viewer.renderThumbnail(model, { size: 200, realistic: true });
-      } catch (err) {
-        dataUrl = null;
-      }
-      // Та же самоочистка, что и у _partGeoCache в viewer.js (см. там же,
-      // порог 300) — без верхней границы кэш рос бы неограниченно за сеанс,
-      // например при посимвольном вводе толщины плиты прямо в открытой панели
-      // (каждое нажатие клавиши — новый thumbKeyBase, значит новые ключи).
-      if (_thumbCache.size > 300) _thumbCache.clear();
-      _thumbCache.set(cacheKey, dataUrl);
+// Грид карточек одного узла дерева (аналог таблицы листа у материалов, см.
+// libLeafTableHtml/libLeafTableHtmlAny) — вызывается и для корня группы, и
+// для любой подкатегории, и в режиме фокуса на листе (см. libTopCategoryHtml).
+function libModLeafGridHtml(topCode, path, entries) {
+  const tiles = entries.map((e) => libModCardHtml(e.item)).join('');
+  const empty = entries.length ? '' : '<div class="hint lib-grid-empty">Пока нет модулей.</div>';
+  return `<div class="lib-leaf-body"><div class="lib-grid">${tiles}${empty}</div></div>`;
+}
+
+function libraryBlock() {
+  const catsHtml = libTabRootCodes('modules')
+    .map((code) => libTopCategoryTreeHtml('modules', code, 0))
+    .join('');
+  return `
+    <h3>База модулей</h3>
+    ${catsHtml}
+    <div class="lib-link-refresh-bar">${libAddCatTileHtml('modules')}</div>
+    <div class="hint">Раскройте категорию и нажмите на модуль — он добавится в проект. Правая кнопка мыши на модуле — переименовать/скопировать/переместить/удалить карточку (сам пресет при этом не меняется); перетащите миниатюру на строку категории, чтобы перенести её.</div>`;
+}
+
+// ---------------------------------------------------------------------------
+// Плашка ✎ + ⇄ × по правому клику на карточке модуля — тот же порядок
+// значков и тот же визуальный язык (.lib-tree-ic), что у строки категории
+// (см. libTreeRowHtml), но адресована ОДНОЙ карточке-размещению, а не узлу
+// дерева:
+//  ✎ — переименовывает подпись ИМЕННО ЭТОЙ карточки (см. libModRenameCard),
+//      не сам пресет и не другие её копии;
+//  + — копирует: открывает тот же пикер цели, что и ⇄ (см.
+//      openLibMoveMenu/libRowMoveTargets), но создаёт НОВОЕ независимое
+//      размещение того же пресета, не трогая исходную карточку (см.
+//      libModCopyCard);
+//  ⇄ — переносит ЭТУ карточку (переиспользует libMoveEntry — тот же код,
+//      что двигает позицию материала/фурнитуры между категориями);
+//  × — убирает карточку из дерева (см. libModDeleteCard) — не сам пресет:
+//      уже добавленные из него модули проекта не меняются, а если это была
+//      последняя карточка встроенного пресета — он просто перестаёт быть
+//      виден в библиотеке (ожидаемо, presets.js не трогается).
+// ---------------------------------------------------------------------------
+let libModCardMenuOutsideClick = null;
+let libModCardMenuEscHandler = null;
+function closeLibModCardMenu() {
+  const menu = document.getElementById('libModCardMenu');
+  if (menu) menu.remove();
+  if (libModCardMenuOutsideClick) { document.removeEventListener('click', libModCardMenuOutsideClick); libModCardMenuOutsideClick = null; }
+  if (libModCardMenuEscHandler) { document.removeEventListener('keydown', libModCardMenuEscHandler); libModCardMenuEscHandler = null; }
+}
+
+function openLibModCardMenu(x, y, placementId) {
+  closeLibModCardMenu();
+  if (!requireLibraryEditAuth()) return;
+  const menu = document.createElement('div');
+  menu.id = 'libModCardMenu';
+  menu.className = 'ctx-menu lib-mod-card-menu';
+  menu.innerHTML = `
+    <span class="lib-tree-ic" data-mc-rename="1" title="Переименовать карточку">✎</span>
+    <span class="lib-tree-ic" data-mc-copy="1" title="Копировать в категорию">+</span>
+    <span class="lib-tree-ic" data-mc-move="1" title="Переместить в категорию">⇄</span>
+    <span class="lib-tree-ic" data-mc-del="1" title="Убрать из библиотеки">×</span>`;
+  document.body.appendChild(menu);
+  menu.addEventListener('click', (e) => e.stopPropagation());
+  const rect = menu.getBoundingClientRect();
+  const left = Math.max(4, Math.min(x, window.innerWidth - rect.width - 4));
+  const top = Math.max(4, Math.min(y, window.innerHeight - rect.height - 4));
+  menu.style.left = Math.round(left) + 'px';
+  menu.style.top = Math.round(top) + 'px';
+
+  const on = (sel, handler) => { const el = menu.querySelector(sel); if (el) el.addEventListener('click', handler); };
+  on('[data-mc-rename]', () => { closeLibModCardMenu(); libModRenameCard(placementId); });
+  on('[data-mc-copy]', (e) => libModCopyCardMenu(e.currentTarget, placementId));
+  on('[data-mc-move]', (e) => libModMoveCardMenu(e.currentTarget, placementId));
+  on('[data-mc-del]', () => { closeLibModCardMenu(); libModDeleteCard(placementId); });
+
+  setTimeout(() => {
+    libModCardMenuOutsideClick = (e) => { if (!menu.contains(e.target)) closeLibModCardMenu(); };
+    document.addEventListener('click', libModCardMenuOutsideClick);
+  }, 0);
+  libModCardMenuEscHandler = (e) => { if (e.key === 'Escape') closeLibModCardMenu(); };
+  document.addEventListener('keydown', libModCardMenuEscHandler);
+}
+
+// Подпись карточки — своя (переопределена значком ✎) или имя пресета.
+function libModCardDisplayName(id) {
+  const p = libModPlacementById(id);
+  if (!p) return '';
+  const ref = libModPresetOf(p.presetId);
+  return p.name || (ref ? ref.item.name : '') || '';
+}
+
+function libModRenameCard(id) {
+  if (!requireLibraryEditAuth()) return;
+  const cur = libModCardDisplayName(id);
+  const raw = window.prompt('Название карточки в библиотеке:', cur);
+  if (raw == null) return;
+  const name = String(raw).trim();
+  const real = libModRealPlacement(id);
+  if (!real) return;
+  const p = libModPlacementById(id);
+  const ref = p && libModPresetOf(p.presetId);
+  const presetName = ref ? ref.item.name : '';
+  // Пустой ввод или совпадение с исходным именем пресета — возврат к
+  // заводскому названию (снимаем переопределение), а не пустая подпись.
+  real.name = (!name || name === presetName) ? null : name;
+  scheduleCatalogSave();
+  renderLibraryPanel();
+}
+
+// ⇄/+ карточки открывают ОДИН и тот же пикер целей, что и у позиций
+// материалов/фурнитуры (см. libRowMoveTargets/openLibMoveMenu) — btnEl тут
+// сам значок ✎/+/⇄/× плашки, под которым и встаёт список. Координаты
+// значка читаем ДО closeLibModCardMenu(): она удаляет плашку (и сам значок)
+// из DOM, а getBoundingClientRect() отсоединённого узла вернул бы нули —
+// меню открылось бы в левом верхнем углу экрана вместо места клика.
+function libModCopyCardMenu(btnEl, id) {
+  const rect = btnEl.getBoundingClientRect();
+  closeLibModCardMenu();
+  const p = libModPlacementById(id);
+  if (!p) return;
+  const topCode = 'mod:' + p.group;
+  const entry = { group: 'modplace', item: Object.assign({ key: p.id }, p) };
+  const anchor = { getBoundingClientRect: () => rect };
+  openLibMoveMenu(anchor, {
+    titleHtml: `Копировать «${esc(libModCardDisplayName(id))}» в:`,
+    targets: libRowMoveTargets(topCode, entry),
+    rootLabel: 'В корень категории',
+    labelOf: (target) => libRowMoveTargetLabel(topCode, target, 'В корень категории'),
+    onPick: (target) => libModCopyCard(id, target),
+  });
+}
+function libModMoveCardMenu(btnEl, id) {
+  const rect = btnEl.getBoundingClientRect();
+  closeLibModCardMenu();
+  const p = libModPlacementById(id);
+  if (!p) return;
+  const topCode = 'mod:' + p.group;
+  const entry = { group: 'modplace', item: Object.assign({ key: p.id }, p) };
+  const anchor = { getBoundingClientRect: () => rect };
+  openLibMoveMenu(anchor, {
+    titleHtml: `Переместить «${esc(libModCardDisplayName(id))}» в:`,
+    targets: libRowMoveTargets(topCode, entry),
+    rootLabel: 'В корень категории',
+    labelOf: (target) => libRowMoveTargetLabel(topCode, target, 'В корень категории'),
+    onPick: (target) => libMoveEntry(topCode, 'modplace', p.id, target),
+  });
+}
+
+// + — создаёт НЕЗАВИСИМУЮ копию карточки (свой id, та же ссылка на пресет,
+// см. state.libModPlacements) в выбранной пользователем категории. Исходная
+// карточка не трогается — именно поэтому копия ВСЕГДА уходит в
+// libModPlacements, даже если id исходной карточки был 'default:…'.
+function libModCopyCard(id, target) {
+  if (!requireLibraryEditAuth()) return;
+  const p = libModPlacementById(id);
+  if (!p) return;
+  const newId = 'modplace-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8);
+  state.libModPlacements.push({
+    id: newId,
+    presetId: p.presetId,
+    group: target && target.top ? String(target.top).slice(4) : p.group,
+    categoryPath: ((target && target.path) || []).slice(),
+    name: null,
+  });
+  scheduleCatalogSave();
+  renderLibraryPanel();
+}
+
+// × — убирает РАЗМЕЩЕНИЕ карточки из дерева, не сам пресет (см. большой
+// комментарий над openLibModCardMenu).
+function libModDeleteCard(id) {
+  if (!requireLibraryEditAuth()) return;
+  if (!window.confirm('Убрать эту карточку из библиотеки? Сам модуль и уже добавленные из него в проект копии не пострадают.')) return;
+  if (String(id).indexOf('default:') === 0) {
+    const presetId = id.slice('default:'.length);
+    if (!state.libModOverrides[presetId]) state.libModOverrides[presetId] = {};
+    state.libModOverrides[presetId].removed = true;
+  } else {
+    state.libModPlacements = (state.libModPlacements || []).filter((p) => p.id !== id);
+  }
+  scheduleCatalogSave();
+  renderLibraryPanel();
+}
+
+// Удаление своей верхнеуровневой категории «Базы модулей» (× в строке
+// дерева, см. libDeleteNode/libTreeRowHtml) — встроенную группу PRESETS
+// сюда не пускаем (подстраховка, значка × у неё и так нет), непустую свою
+// категорию не удаляем без предупреждения (та же причина, что и у
+// libDeleteHwCategory/libDeleteMaterialCategory: массовое удаление карточек
+// одним кликом слишком легко сделать случайно).
+function libDeleteModuleTopCategory(topCode) {
+  if (String(topCode).indexOf('mod:') !== 0) return;
+  const key = topCode.slice(4);
+  if (libModTopIsBuiltin(key)) return;
+  if (libNodeHasItems(topCode, [])) {
+    window.alert('Сначала удалите или перенесите модули из этой категории.');
+    return;
+  }
+  state.libModCustomGroups = (state.libModCustomGroups || []).filter((g) => g.key !== key);
+  delete state.libExtraNodes[topCode];
+  delete state.libNodeOrder[topCode];
+  if (Array.isArray(state.libTopOrder.modules)) {
+    state.libTopOrder.modules = state.libTopOrder.modules.filter((c) => c !== topCode);
+  }
+  const parentMap = state.libTopParent.modules;
+  if (parentMap) {
+    delete parentMap[topCode];
+    Object.keys(parentMap).forEach((c) => { if (parentMap[c] === topCode) delete parentMap[c]; });
+  }
+  delete state.libCatOpen[topCode];
+  delete state.libActiveLeaf[topCode];
+  const collapsedPrefix = topCode + '::';
+  Object.keys(state.libCollapsed).forEach((k) => { if (k.indexOf(collapsedPrefix) === 0) delete state.libCollapsed[k]; });
+  scheduleCatalogSave();
+  renderLibraryPanel();
+}
+
+// «Добавить категорию» вкладки «База модулей» (кнопка-плитка libAddCatTileHtml)
+// — своя ВЕРХНЕУРОВНЕВАЯ категория дерева наравне с группами PRESETS, как и
+// libAddMaterialCategory/libAddHwCategory у соседних вкладок.
+function libAddModuleGroup() {
+  if (!requireLibraryEditAuth()) return;
+  const name = libCleanNodeName(window.prompt('Название новой категории базы модулей:'));
+  if (!name) return;
+  const busy = PRESETS.map((g) => g.name.toLowerCase())
+    .concat((state.libModCustomGroups || []).map((g) => g.name.toLowerCase()));
+  if (busy.indexOf(name.toLowerCase()) >= 0) {
+    window.alert('Категория с таким названием уже есть.');
+    return;
+  }
+  const key = 'modcustom-' + Date.now();
+  state.libModCustomGroups.push({ key, name });
+  // Встаёт сразу после категории, которую пользователь только что трогал в
+  // дереве этой вкладки — не в конец (см. libPlaceNewTopAfterFocused).
+  libPlaceNewTopAfterFocused('modules', 'mod:' + key);
+  state.libCatOpen['mod:' + key] = true;   // новая категория сразу раскрыта
+  scheduleCatalogSave();
+  renderLibraryPanel();
+}
+
+// ---------------------------------------------------------------------------
+// Перетаскивание МИНИАТЮРЫ модуля на строку дерева категорий — меняет путь
+// ЭТОЙ карточки (тот же эффект, что и ⇄ в контекстном меню, см.
+// libModMoveCardMenu/libMoveEntry), без открытия пикера: бросили на строку —
+// карточка переехала туда. По ощущениям и визуальному языку — тот же приём,
+// что и перетаскивание узла дерева (см. большой комментарий над
+// libTreeDragPointerDown): удержание/сдвиг запускают жест, призрак следует
+// за курсором, строка-цель подсвечена тем же классом .lib-drop-into — но
+// процесс отдельный и более простой: карточка не «встаёт по соседству» с
+// точностью до позиции (в дереве модулей нет заданного пользователем
+// порядка карточек внутри категории), только переезжает В узел, на который
+// её бросили — поэтому Pointer Events здесь свои, не разделяемые с
+// libDrag/libTreeDragPointerDown (тот адресует УЗЛЫ дерева по topCode+path
+// одного и того же раздела, карточка адресуется отдельным id и может
+// переехать в ЛЮБУЮ группу «Базы модулей»).
+// ---------------------------------------------------------------------------
+let libModCardDrag = null;
+let libModCardDragClickGuard = false;
+let libModCardDragClickGuardTimer = null;
+
+function libModCardDragPointerDown(e) {
+  if (libModCardDrag) libModCardDragFinish();
+  if (e.button != null && e.button > 0) return;
+  if (!e.target || !e.target.closest) return;
+  if (state.libPickTarget) return;
+  const card = e.target.closest('.lib-item[data-placement]');
+  if (!card) return;
+  libModCardDrag = {
+    id: card.dataset.placement, card,
+    pointerId: e.pointerId, touch: e.pointerType === 'touch',
+    startX: e.clientX, startY: e.clientY, x: e.clientX, y: e.clientY,
+    grabDX: 0, grabDY: 0,
+    active: false, holdTimer: null, ghost: null, overRow: null, captured: false,
+  };
+  libModCardDrag.holdTimer = setTimeout(libModCardDragBegin, LIB_DRAG_HOLD_MS);
+  document.addEventListener('pointermove', libModCardDragMove);
+  document.addEventListener('pointerup', libModCardDragPointerUp);
+  document.addEventListener('pointercancel', libModCardDragPointerCancel);
+}
+
+function libModCardDragBegin() {
+  if (!libModCardDrag || libModCardDrag.active) return false;
+  clearTimeout(libModCardDrag.holdTimer);
+  libModCardDrag.holdTimer = null;
+  if (!requireLibraryEditAuth()) { libModCardDragFinish(); return false; }
+  libModCardDrag.active = true;
+  const rect = libModCardDrag.card.getBoundingClientRect();
+  libModCardDrag.grabDX = libModCardDrag.x - rect.left;
+  libModCardDrag.grabDY = libModCardDrag.y - rect.top;
+  try {
+    if (libModCardDrag.pointerId != null && libModCardDrag.card.setPointerCapture) {
+      libModCardDrag.card.setPointerCapture(libModCardDrag.pointerId);
+      libModCardDrag.captured = true;
+      libModCardDrag.card.addEventListener('lostpointercapture', libModCardDragPointerCancel);
     }
-    // Полное примечание пресета иногда длиной за сотню символов — для
-    // всплывающей подсказки (узкая колонка, перенос по словам) обрезаем его,
-    // иначе подсказка растягивается на добрый десяток строк. Полный текст
-    // примечания по-прежнему виден в самом контекстном меню категории (см.
-    // раньше — до переноса в сетку миниатюр), здесь это только краткая метка.
-    const noteShort = it.note && it.note.length > 70 ? it.note.slice(0, 68) + '…' : it.note;
-    const tip = `${it.name}${noteShort ? ` — ${noteShort}` : ''}`;
-    return `<button type="button" class="lib-item tip tip-down" data-preset="${it.id}" data-tip="${esc(tip)}">
-        ${dataUrl ? `<img class="lib-thumb" src="${dataUrl}" alt="">` : ''}
-      </button>`;
-  }).join('');
+  } catch (err) { /* захват не обязателен: без него перетаскивание работает, просто менее надёжно */ }
+  document.body.classList.add('lib-dragging');
+  libModCardDrag.card.classList.add('lib-drag-src');
+  const ghost = document.createElement('div');
+  ghost.className = 'lib-drag-ghost lib-mod-drag-ghost';
+  const img = libModCardDrag.card.querySelector('img');
+  ghost.innerHTML = img ? `<img src="${img.getAttribute('src')}" alt="">` : '';
+  document.body.appendChild(ghost);
+  libModCardDrag.ghost = ghost;
+  if (libModCardDrag.touch) document.addEventListener('touchmove', libDragBlockTouchScroll, { passive: false });
+  libModCardDragMoveGhost();
+  libModCardDragUpdateTarget();
+  return true;
+}
 
-  return `<div class="lib-grid">${tiles}</div>`;
+function libModCardDragMoveGhost() {
+  if (!libModCardDrag || !libModCardDrag.ghost) return;
+  libModCardDrag.ghost.style.left = (libModCardDrag.x - libModCardDrag.grabDX) + 'px';
+  libModCardDrag.ghost.style.top = (libModCardDrag.y - libModCardDrag.grabDY) + 'px';
+}
+
+function libModCardDragMove(e) {
+  if (!libModCardDrag) return;
+  if (e.pointerId != null && libModCardDrag.pointerId != null && e.pointerId !== libModCardDrag.pointerId) return;
+  libModCardDrag.x = e.clientX;
+  libModCardDrag.y = e.clientY;
+  if (!libModCardDrag.active) {
+    const dx = e.clientX - libModCardDrag.startX;
+    const dy = e.clientY - libModCardDrag.startY;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    if (libModCardDrag.touch) {
+      if (dist > LIB_DRAG_TOUCH_SLOP) libModCardDragFinish();
+      return;
+    }
+    if (dist < LIB_DRAG_MOUSE_SLOP) return;
+    if (!libModCardDragBegin()) return;
+  }
+  if (e.cancelable) e.preventDefault();
+  libModCardDragMoveGhost();
+  libModCardDragUpdateTarget();
+}
+
+// Цель — ЛЮБАЯ строка дерева «Базы модулей» (её topCode начинается с
+// 'mod:') под курсором, независимо от того, какой группе принадлежит: в
+// отличие от перетаскивания узла дерева, у карточки нет «своего раздела»,
+// который нельзя покидать.
+function libModCardDragUpdateTarget() {
+  if (!libModCardDrag || !libModCardDrag.active) return;
+  const el = document.elementFromPoint(libModCardDrag.x, libModCardDrag.y);
+  const row = el && el.closest ? el.closest('[data-tree-node]') : null;
+  const nextRow = (row && String(row.dataset.top || '').indexOf('mod:') === 0) ? row : null;
+  if (libModCardDrag.overRow && libModCardDrag.overRow !== nextRow) libModCardDrag.overRow.classList.remove('lib-drop-into');
+  if (nextRow) nextRow.classList.add('lib-drop-into');
+  libModCardDrag.overRow = nextRow;
+}
+
+function libModCardDragPointerUp(e) {
+  if (!libModCardDrag) return;
+  if (e.pointerId != null && libModCardDrag.pointerId != null && e.pointerId !== libModCardDrag.pointerId) return;
+  const wasActive = libModCardDrag.active;
+  const row = libModCardDrag.overRow;
+  const id = libModCardDrag.id;
+  libModCardDragFinish();
+  if (!wasActive) return;
+  // Клик, который браузер шлёт следом за отпусканием кнопки в конце
+  // перетаскивания, не должен ещё и добавить модуль в проект (тот же приём,
+  // что у libDragClickGuard/libTreeDragFinish).
+  libModCardDragClickGuard = true;
+  clearTimeout(libModCardDragClickGuardTimer);
+  libModCardDragClickGuardTimer = setTimeout(() => { libModCardDragClickGuard = false; }, 0);
+  if (row) {
+    const p = libModPlacementById(id);
+    if (p) libMoveEntry('mod:' + p.group, 'modplace', id, { top: row.dataset.top, path: row.dataset.path ? row.dataset.path.split('::') : [] });
+  }
+}
+function libModCardDragPointerCancel() { libModCardDragFinish(); }
+
+function libModCardDragFinish() {
+  if (!libModCardDrag) return;
+  clearTimeout(libModCardDrag.holdTimer);
+  document.removeEventListener('pointermove', libModCardDragMove);
+  document.removeEventListener('pointerup', libModCardDragPointerUp);
+  document.removeEventListener('pointercancel', libModCardDragPointerCancel);
+  document.removeEventListener('touchmove', libDragBlockTouchScroll);
+  if (libModCardDrag.captured && libModCardDrag.card.releasePointerCapture) {
+    try { libModCardDrag.card.releasePointerCapture(libModCardDrag.pointerId); } catch (err) { /* захват уже снят */ }
+  }
+  if (libModCardDrag.card) libModCardDrag.card.classList.remove('lib-drag-src');
+  if (libModCardDrag.overRow) libModCardDrag.overRow.classList.remove('lib-drop-into');
+  if (libModCardDrag.ghost) libModCardDrag.ghost.remove();
+  document.body.classList.remove('lib-dragging');
+  libModCardDrag = null;
 }
 
 // ---------------------------------------------------------------------------
 // Панель «Библиотека» (отдельная, самостоятельная — не путать с «Параметры
-// проекта»): поиск + три вкладки. «База модулей» — существующий блок выше
-// (libraryBlock/libraryGridBlock/bindLibraryEvents), просто отрисован в
+// проекта»): поиск + четыре вкладки. «База модулей» — существующий блок выше
+// (libraryBlock/bindLibraryEvents), просто отрисован в
 // #libraryPanel вместо #paramsPanel. «Материалы» и «Фурнитура» — редактируемые
 // таблицы каталога (window.Modul3D.catalog.*): правки пишутся НАПРЯМУЮ в
 // объекты каталога (никакой копии состояния в app.js/ui-shell.js), поэтому
@@ -1420,6 +1902,10 @@ function libTopEntries(topCode) {
   // Ручки/...) — своё НЕЗАВИСИМОЕ дерево верхнего уровня, как и у пяти веток
   // «Материалов» выше, без общей обёртки «Фурнитура» (убрана 2026-09-15).
   if (topCode.indexOf('hw:') === 0) return libHardwareTopEntries(cat, topCode.slice(3));
+  // 'mod:<groupKey>' — «База модулей» (см. большой комментарий над
+  // libModAllPlacements): каждая группа PRESETS/своя категория — своё
+  // независимое дерево верхнего уровня, тем же приёмом, что и у 'hw:' выше.
+  if (String(topCode).indexOf('mod:') === 0) return libModTopEntries(topCode.slice(4));
   return [];
 }
 
@@ -1693,6 +2179,10 @@ function libNodeHasItems(topCode, path) {
 // категория), иначе он появится сам — от записи пути позиции (libAllPaths
 // собирает форму дерева из путей позиций, отдельно заводить узел не нужно).
 function libEntryTargetPath(topCode, path) {
+  // «База модулей» не подчиняется этому инварианту (см. большой комментарий
+  // над libModAllPlacements) — карточка пресета может лежать прямо в узле,
+  // даже если у него уже есть подкатегории, путь не подменяется.
+  if (String(topCode).indexOf('mod:') === 0) return path.slice();
   const children = libChildSegments(topCode, path);
   if (!children.length) return path.slice();
   const existing = children.find((seg) => String(seg).toLowerCase() === NO_BRAND_SUBCAT.toLowerCase());
@@ -1791,6 +2281,10 @@ function libToggleNode(topCode, path) {
 function libRealItemOf(entry) {
   const it = (entry && entry.item) || null;
   if (!it) return null;
+  // 'modplace' — карточка «Базы модулей»: у неё нет записи в catalog.js,
+  // «настоящий» объект — размещение в state.libModOverrides/libModPlacements
+  // (см. libModRealPlacement).
+  if (entry.group === 'modplace') return libModRealPlacement(it.key);
   const key = it.key !== undefined ? it.key : it.code;
   return libFindItem(entry.group, key) || null;
 }
@@ -1951,6 +2445,26 @@ function libRenameNode(topCode, path, newName) {
         return;
       }
       labels[topCode] = newName;
+      scheduleCatalogSave();
+      return;
+    }
+    // Своя категория «Базы модулей» — в отличие от «Материалов»/«Дверей»
+    // выше подпись хранится прямо в state.libModCustomGroups (та же форма,
+    // что и раньше у пилюль, см. libAddModuleGroup), не в отдельной карте
+    // labels. Группа PRESETS сюда не доходит — значка ✎ у неё нет (см.
+    // libTreeRowHtml), return — только подстраховка.
+    if (topCode.indexOf('mod:') === 0) {
+      const key = topCode.slice(4);
+      if (libModTopIsBuiltin(key)) return;
+      const group = (state.libModCustomGroups || []).find((g) => g.key === key);
+      if (!group) return;
+      const busy = PRESETS.map((g) => g.name.toLowerCase())
+        .concat((state.libModCustomGroups || []).filter((g) => g.key !== key).map((g) => g.name.toLowerCase()));
+      if (busy.indexOf(newName.toLowerCase()) >= 0) {
+        window.alert('Категория с таким названием уже есть.');
+        return;
+      }
+      group.name = newName;
       scheduleCatalogSave();
       return;
     }
@@ -2155,7 +2669,12 @@ function libFindTreeEntry(topCode, group, key) {
 // перенос между ними сменил бы саму суть позиции (см. также
 // libRowSheetFacadeLock — ограничение по материалам фасадов внутри вкладки).
 function libRowMoveTargets(topCode, entry) {
-  const codes = String(topCode).indexOf('hw:') === 0 ? libTabTopCodes('hardware') : [topCode];
+  // «База модулей» — как «Фурнитура»: карточка может переехать в ЛЮБУЮ
+  // группу дерева, а не только внутри своей (у модуля нет «типа товара»,
+  // который перенос между группами мог бы случайно сменить).
+  const codes = String(topCode).indexOf('hw:') === 0 ? libTabTopCodes('hardware')
+    : String(topCode).indexOf('mod:') === 0 ? libTabTopCodes('modules')
+    : [topCode];
   const out = [];
   codes.forEach((code) => {
     libRowMoveTargetsIn(code, entry, code === topCode)
@@ -2173,7 +2692,9 @@ function libRowMoveTargetLabel(topCode, target, rootLabel) {
   if (target.top === topCode) return path.length ? path.join(' › ') : rootLabel;
   const catLabel = String(target.top).indexOf('hw:') === 0
     ? libHwCategoryLabel(target.top.slice(3))
-    : target.top;
+    : String(target.top).indexOf('mod:') === 0
+      ? libModTopLabel(target.top.slice(4))
+      : target.top;
   return path.length ? catLabel + ' › ' + path.join(' › ') : catLabel;
 }
 
@@ -2286,6 +2807,14 @@ function libMoveEntry(topCode, group, key, target) {
     // данных, убираем сразу.
     if (it.category === 'mechanism') delete it.subcategory; else delete it.brand;
   }
+  // «База модулей»: аналогично 'hw:' выше, только меняется it.group — по
+  // нему libModTopEntries раскладывает карточки на группы (см.
+  // libModAllPlacements).
+  if (targetTop !== topCode && String(targetTop).indexOf('mod:') === 0) {
+    const it = libRealItemOf(entry);
+    if (!it) return;
+    it.group = targetTop.slice(4);
+  }
   libSetEntryPath(entry, targetPath);
   // Узел, который держался ТОЛЬКО на этой позиции, после её ухода исчез бы
   // из дерева — со стороны это выглядит как «категория пропала сама собой»
@@ -2397,10 +2926,13 @@ function libDeleteNode(topCode, path) {
     if (topCode.indexOf('hw:') === 0) { libDeleteHwCategory(topCode); return; }
     if (topCode.indexOf('matcustom-') === 0) { libDeleteMaterialCategory(topCode); return; }
     if (topCode.indexOf('faccustom-') === 0) { libDeleteFacadeCategory(topCode); return; }
+    if (topCode.indexOf('mod:') === 0) { libDeleteModuleTopCategory(topCode); return; }
     return;
   }
   if (libNodeHasItems(topCode, path)) {
-    window.alert('Сначала удалите или перенесите позиции из этой категории — в ней есть товары.');
+    window.alert(topCode.indexOf('mod:') === 0
+      ? 'Сначала удалите или перенесите модули из этой категории.'
+      : 'Сначала удалите или перенесите позиции из этой категории — в ней есть товары.');
     return;
   }
   const extra = state.libExtraNodes[topCode] || [];
@@ -2609,56 +3141,10 @@ function libDeleteFacadeCategory(topCode) {
   renderLibraryPanel();
 }
 
-// «Добавить категорию» вкладки «База модулей» (кнопка-плитка в конце ряда
-// .lib-row, см. libraryBlock) — в отличие от «Материалов»/«Дверей»/
-// «Фурнитуры» выше это НЕ раздел каталога, а просто пустая именованная
-// группа поверх PRESETS (src/presets.js, зашитый список типовых модулей):
-// наполнение готовыми модулями внутри неё — отдельная задача на будущее, эта
-// кнопка только заводит саму категорию (см. libraryGridBlock — для такой
-// категории она всегда рисует подсказку «Пока нет модулей», а не пресеты).
-function libAddModuleGroup() {
-  if (!requireLibraryEditAuth()) return;
-  const name = libCleanNodeName(window.prompt('Название новой категории базы модулей:'));
-  if (!name) return;
-  const busy = PRESETS.map((g) => g.name.toLowerCase())
-    .concat((state.libModCustomGroups || []).map((g) => g.name.toLowerCase()));
-  if (busy.indexOf(name.toLowerCase()) >= 0) {
-    window.alert('Категория с таким названием уже есть.');
-    return;
-  }
-  const key = 'modcustom-' + Date.now();
-  state.libModCustomGroups.push({ key, name });
-  // Встаёт сразу после ТЕКУЩЕЙ открытой пилюли (state.libraryOpenCat — уже
-  // готовый сигнал «с чем сейчас работали», отдельного поля не нужно, в
-  // отличие от libLastFocusedTop у дерева материалов/фурнитуры/дверей) — не
-  // в конец списка, как раньше (задача 2026-09-21). Открытая пилюля —
-  // ЛЮБАЯ, заводская (PRESETS) или своя: обе участвуют в одном общем
-  // порядке (см. libTabTopCodesRaw/libPlaceTopAfterRef), поэтому «выделена
-  // встроенная категория» тоже работает, не только своя. Ничего не открыто —
-  // прежнее поведение, в конец.
-  libPlaceTopAfterRef('modules', key, state.libraryOpenCat);
-  state.libraryOpenCat = key;   // сразу открыта — видно подсказку «Пока нет модулей»
-  scheduleCatalogSave();
-  renderLibraryPanel();
-}
-
-// Удаление своей категории «Базы модулей» (× на её пилюле). Проверки на
-// «есть товары» здесь не нужно (в отличие от libDeleteMaterialCategory/
-// libDeleteFacadeCategory/libDeleteHwCategory выше) — такая категория по
-// построению ВСЕГДА пуста, готовые модули в неё не добавляются.
-function libDeleteModuleGroup(key) {
-  if (!requireLibraryEditAuth()) return;
-  state.libModCustomGroups = (state.libModCustomGroups || []).filter((g) => g.key !== key);
-  if (state.libraryOpenCat === key) state.libraryOpenCat = null;
-  // Узла больше нет — его место в общем порядке пилюль ни к чему не
-  // относится (тот же приём, что у libDeleteMaterialCategory/
-  // libDeleteHwCategory/libDeleteFacadeCategory выше).
-  if (Array.isArray(state.libTopOrder.modules)) {
-    state.libTopOrder.modules = state.libTopOrder.modules.filter((c) => c !== key);
-  }
-  scheduleCatalogSave();
-  renderLibraryPanel();
-}
+// «Добавить категорию» и «×» своей категории «Базы модулей» теперь часть
+// общего дерева — см. libAddModuleGroup/libDeleteModuleTopCategory рядом с
+// остальными функциями «Базы модулей» (libModAllPlacements и далее, начало
+// файла).
 
 // Фильтр Длина/Ширина/Толщина таблиц Библиотеки раньше был отдельным набором
 // плоских <select> (libFilterValues/LIB_FILTER_FIELD_DEFS/libFiltersHtml) —
@@ -3248,7 +3734,10 @@ function libLeafTableHtml(topCode, path, entries, opts) {
 // хлебные крошки и фокус на листе общие и НЕ дублируются, различается только
 // содержимое таблицы конкретного листа.
 function libLeafTableHtmlAny(topCode, path, entries, opts) {
-  return topCode.indexOf('hw:') === 0 ? libHardwareLeafTableHtml(topCode, path, entries, opts) : libLeafTableHtml(topCode, path, entries, opts);
+  if (topCode.indexOf('hw:') === 0) return libHardwareLeafTableHtml(topCode, path, entries, opts);
+  // «База модулей» — грид карточек вместо таблицы (см. libModLeafGridHtml).
+  if (String(topCode).indexOf('mod:') === 0) return libModLeafGridHtml(topCode, path, entries);
+  return libLeafTableHtml(topCode, path, entries, opts);
 }
 
 // Единицы измерения, в которых реально продаётся фурнитура (сверено с
@@ -3570,11 +4059,22 @@ function libTreeRowHtml(topCode, path, name, kind, collapsed, depthOffset) {
   // товара у них завязан на группу каталога).
   const isMatCustomTop = isTop && String(topCode).indexOf('matcustom-') === 0;
   const isFacCustomTop = isTop && String(topCode).indexOf('faccustom-') === 0;
+  // «База модулей» — своя верхнеуровневая категория (кнопка-плитка, см.
+  // state.libModCustomGroups) переименовывается/удаляется как и у соседних
+  // вкладок; группа PRESETS (заводская) — как встроенный раздел «Материалов»,
+  // ни то ни другое.
+  const isModules = topCode.indexOf('mod:') === 0;
+  const isModCustomTop = isTop && isModules && !libModTopIsBuiltin(topCode.slice(4));
   const arrowHtml = isLeaf ? '<span class="lib-tree-arrow"></span>' : `<span class="lib-tree-arrow">${collapsed ? '▸' : '▾'}</span>`;
-  const canRename = !isCountertop && (!isTop || isHardware || isMatCustomTop || isFacCustomTop);
-  const canAdd = !isCountertop && !isLeaf;
+  const canRename = !isCountertop && (!isTop || isHardware || isMatCustomTop || isFacCustomTop || isModCustomTop);
+  // «База модулей» не подчиняется инварианту «есть подкатегории → своих
+  // позиций нет» (см. libEntryTargetPath/libModAllPlacements) — карточки
+  // пресета могут лежать прямо в узле, даже если у него уже есть свои
+  // подкатегории, поэтому «+» остаётся кликабельным даже у листа: узел
+  // просто обзаводится первой подкатегорией, не теряя своих карточек.
+  const canAdd = !isCountertop && (!isLeaf || isModules);
   const canMove = !isCountertop && !isTop;
-  const canDelete = !isTop || (isHardware && !isBuiltinHwTop) || isMatCustomTop || isFacCustomTop;
+  const canDelete = !isTop || (isHardware && !isBuiltinHwTop) || isMatCustomTop || isFacCustomTop || isModCustomTop;
   const renameIc = canRename ? '<span class="lib-tree-ic" data-tree-rename="1" title="Переименовать">✎</span>' : '';
   const addIc = canAdd ? '<span class="lib-tree-ic" data-tree-add="1" title="Добавить подкатегорию">+</span>' : '';
   const moveIc = canMove ? '<span class="lib-tree-ic" data-tree-move="1" title="Переместить">⇄</span>' : '';
@@ -3602,7 +4102,14 @@ function libNodeHtml(topCode, path, opts) {
   const off = (opts && opts.depthOffset) || 0;
   if (!children.length) return libTreeRowHtml(topCode, path, name, 'leaf', false, off);
   const collapsed = libIsNodeCollapsed(topCode, path);
-  const childrenHtml = children.map((seg) => libNodeHtml(topCode, path.concat([seg]), opts)).join('');
+  let childrenHtml = children.map((seg) => libNodeHtml(topCode, path.concat([seg]), opts)).join('');
+  // «База модулей»: узел может иметь ОДНОВРЕМЕННО и подкатегории, и свои
+  // карточки (см. комментарий у libTreeRowHtml/libEntryTargetPath) — грид
+  // карточек показываем НАД списком подкатегорий.
+  if (String(topCode).indexOf('mod:') === 0) {
+    const ownEntries = libEntriesAtPath(topCode, path);
+    if (ownEntries.length) childrenHtml = libModLeafGridHtml(topCode, path, ownEntries) + childrenHtml;
+  }
   return libTreeRowHtml(topCode, path, name, 'branch', collapsed, off)
     + `<div class="lib-tree-children${collapsed ? ' lib-collapsed' : ''}">${childrenHtml}</div>`;
 }
@@ -3692,6 +4199,14 @@ function libTopCategoryHtml(topCode, title, opts) {
     let ownHtml;
     if (topSegments.length) {
       ownHtml = topSegments.map((seg) => libNodeHtml(topCode, [seg], opts)).join('');
+      // «База модулей»: корень группы тоже может держать карточки ПРЯМО в
+      // себе, даже уже обзаведясь подкатегориями (см. комментарий у
+      // libTreeRowHtml/libNodeHtml/libEntryTargetPath) — грид карточек
+      // показываем НАД деревом подкатегорий.
+      if (String(topCode).indexOf('mod:') === 0) {
+        const rootEntries = libEntriesAtPath(topCode, []);
+        if (rootEntries.length) ownHtml = libModLeafGridHtml(topCode, [], rootEntries) + ownHtml;
+      }
     } else if (libIsCustomRootTop(topCode)) {
       // Своя категория без единой подкатегории — «папка», а не лист (см.
       // комментарий выше): без таблицы, без «+ Добавить материал/по
@@ -3771,21 +4286,17 @@ const LIB_TAB_TOP_CODES = {
   facades: ['facade'],
 };
 
-// tabKey 'modules' — «База модулей» (см. libraryBlock ниже): пилюли
-// заводских разделов PRESETS вперемешку со своими (см.
-// state.libModCustomGroups), в ОДНОМ общем порядке — тот же приём, что у
-// libHwCategoryKeys для «Фурнитуры» (заводские коды первыми, дальше свои по
-// мере добавления, а окончательный порядок всё равно решает libTabTopCodes
-// через state.libTopOrder.modules ниже). До 2026-09-21 «Базу модулей» рисовали
-// двумя отдельными .map() (сперва все PRESETS, потом все свои) — из-за этого
-// «Добавить категорию» ФИЗИЧЕСКИ не могла вставить новую пилюлю иначе, чем
-// в самый конец: заводские пилюли не участвовали в общем порядке вовсе, «после
-// выделенной пилюли» не работало, если выделена была заводская («Тумба» и
-// т.п.), а не своя. Здесь у пилюли нет собственного дерева/categoryPath —
-// «раздел» тут не более чем стабильный id/key для упорядочивания и клика.
+// tabKey 'modules' — «База модулей» (см. libraryBlock ниже): группы PRESETS
+// (topCode 'mod:<groupId>') вперемешку со своими категориями (topCode
+// 'mod:<key>', см. state.libModCustomGroups), в ОДНОМ общем порядке — тот же
+// приём, что у libHwCategoryKeys для «Фурнитуры» (заводские коды первыми,
+// дальше свои по мере добавления, а окончательный порядок всё равно решает
+// libTabTopCodes через state.libTopOrder.modules ниже). У каждого кода —
+// своё независимое дерево карточек (см. libTopEntries/libModTopEntries),
+// ровно как у каждой категории 'hw:<key>' «Фурнитуры».
 function libTabTopCodesRaw(tabKey) {
   if (tabKey === 'hardware') return libHwCategoryKeys().map((c) => 'hw:' + c);
-  if (tabKey === 'modules') return PRESETS.map((g) => g.id).concat((state.libModCustomGroups || []).map((g) => g.key));
+  if (tabKey === 'modules') return PRESETS.map((g) => 'mod:' + g.id).concat((state.libModCustomGroups || []).map((g) => 'mod:' + g.key));
   const base = (LIB_TAB_TOP_CODES[tabKey] || []).slice();
   // Свои категории «Материалов»/«Дверей» (кнопка-плитка «Добавить категорию»,
   // см. state.libMatCustomCats/libFacCustomCats) — дописываются к заводскому
@@ -3834,10 +4345,8 @@ function libTopInsertIndex(tabKey, code, ref, before) {
 
 // Ставит code сразу после раздела ref в общем порядке вкладки (или в конец,
 // если ref пуст/уже не существует — libTopInsertIndex тогда вернёт null).
-// Общая основа для libPlaceNewTopAfterFocused (материалы/фурнитура/двери,
-// ref — state.libLastFocusedTop) и libAddModuleGroup («База модулей», ref —
-// state.libraryOpenCat: там нет дерева, поэтому и нет отдельного «последнего
-// тронутого узла», сигнал — уже открытая пилюля).
+// Общая основа для libPlaceNewTopAfterFocused (материалы/фурнитура/двери/
+// модули, ref — state.libLastFocusedTop).
 function libPlaceTopAfterRef(tabKey, code, ref) {
   const idx = ref ? libTopInsertIndex(tabKey, code, ref, false) : null;
   libPlaceTopAt(tabKey, code, idx);
@@ -3933,6 +4442,7 @@ function libSetTopParent(tabKey, code, parentCode) {
 function libTabOfTopCode(code) {
   const c = String(code);
   if (c.indexOf('hw:') === 0) return 'hardware';
+  if (c.indexOf('mod:') === 0) return 'modules';
   // Свои категории «Материалов»/«Дверей» не входят в LIB_TAB_TOP_CODES
   // (заводской фиксированный набор) — их вкладку различает только префикс
   // ключа (см. libAddMaterialCategory/libAddFacadeCategory).
@@ -4028,6 +4538,17 @@ function libTopCategoryDef(tabKey, code) {
   if (tabKey === 'facades' && String(code).indexOf('faccustom-') === 0) {
     if ((state.libFacCustomCats || []).indexOf(code) < 0) return null;
     return { title: libFacCategoryLabel(code), opts: { addLabel: '+ Добавить материал', addDefaultGroup: 'facade' } };
+  }
+  // «База модулей» — группа PRESETS или своя категория (см.
+  // state.libModCustomGroups), обе в одном общем дереве (см.
+  // libTabTopCodesRaw). Своих opts.addLabel/pickable тут нет — у листа/ветки
+  // нет кнопки «+ Добавить…», карточки добавляются не через каталог, а
+  // копированием/переносом уже существующих (см. libModCopyCard).
+  if (tabKey === 'modules') {
+    if (String(code).indexOf('mod:') !== 0) return null;
+    const key = code.slice(4);
+    if (!libModGroupExists(key)) return null;
+    return { title: libModTopLabel(key), opts: {} };
   }
   const def = (LIB_TAB_TOP_DEFS[tabKey] || {})[code];
   return def ? { title: def[0], opts: def[1] } : null;
@@ -5724,8 +6245,8 @@ function libSaveEdit(group, key, field, value) {
   const it = libFindItem(group, key);
   if (!it) return;
   it[field] = value;
-  // Миниатюры Библиотеки (_thumbCache в libraryGridBlock) кэшируются по коду
-  // материала, а не по имени — но реальный цвет/текстуру в renderThumbnail
+  // Миниатюры Библиотеки (_thumbCache, см. libModThumbDataUrl) кэшируются по
+  // коду материала, а не по имени — но реальный цвет/текстуру в renderThumbnail
   // определяет decorLook() (viewer.js) по РЕГЭКСПУ ИМЕНИ («дуб»/«лдсп»/«бел» и
   // т.п.), а код при переименовании не меняется. Правка любого поля здесь
   // (не только name — categoryPath/image тоже видны в других местах) может
@@ -7117,6 +7638,11 @@ function renderLibraryPanel() {
   // подсветка цели. Рекурсии тут нет: сам бросок обнуляет перетаскивание
   // ДО того, как позовёт перерисовку.
   libTreeDragFinish(false);
+  // То же самое — перетаскивание миниатюры модуля (см. libModCardDragFinish)
+  // и её контекстное меню ✎+⇄× (см. closeLibModCardMenu): оба держат ссылки
+  // на карточку/строку, которые сейчас пропадут вместе с innerHTML.
+  libModCardDragFinish();
+  closeLibModCardMenu();
   document.querySelectorAll('.lib-tab-btn').forEach((b) => {
     b.classList.toggle('active', b.dataset.libtab === state.libraryTab);
   });
@@ -7150,7 +7676,7 @@ function renderLibraryPanel() {
   if (state.libraryTab === 'materials') panel.innerHTML = libraryMaterialsBlock();
   else if (state.libraryTab === 'hardware') panel.innerHTML = libraryHardwareBlock();
   else if (state.libraryTab === 'facades') panel.innerHTML = libraryFacadesBlock();
-  else panel.innerHTML = libraryBlock();   // 'modules' — существующая база модулей, без изменений
+  else panel.innerHTML = libraryBlock();   // 'modules' — «База модулей», дерево категорий (см. libraryBlock)
   bindLibraryEvents();
   applyLibrarySearch();
   // Применяет уже сохранённое состояние поповера сортировки/фильтра (см.
@@ -7291,6 +7817,10 @@ function initLibraryPanel() {
   // содержимого (renderLibraryPanel заменяет innerHTML целиком) его не
   // теряет, как и делегированный click ниже.
   panel.addEventListener('pointerdown', libTreeDragPointerDown);
+  // То же самое для карточек «Базы модулей» (см. большой комментарий над
+  // libModCardDragPointerDown) — отдельный, более простой жест: миниатюру
+  // можно бросить на ЛЮБУЮ строку дерева модулей, не только своего раздела.
+  panel.addEventListener('pointerdown', libModCardDragPointerDown);
 
   panel.addEventListener('click', (e) => {
     // Клик, который браузер шлёт следом за отпусканием кнопки в конце
@@ -9939,36 +10469,24 @@ function exitFocusMode() {
   if (changed && viewer && currentModel) viewer.render(currentModel, viewOpts());
 }
 
-// База модулей внутри вкладки «Библиотека»: клик по кнопке категории
-// открывает/закрывает под ней сетку миниатюр её пресетов, клик по миниатюре
-// добавляет модуль в проект (renderLibraryPanel() зовёт это после каждой
-// перерисовки вкладки «modules» — элементы .lib-cat/.lib-item каждый раз
-// новые, слушатели нужно вешать заново).
+// Карточки модулей внутри вкладки «Библиотека» (дерево категорий рисуется и
+// обрабатывается общим кодом с «Материалами»/«Фурнитурой», см.
+// initLibraryPanel/libTreeRowHtml) — левый клик по миниатюре добавляет
+// модуль в проект, правый открывает плашку ✎+⇄× (см. openLibModCardMenu).
+// renderLibraryPanel() зовёт это после каждой перерисовки вкладки «modules»
+// — элементы .lib-item каждый раз новые, слушатели нужно вешать заново.
 function bindLibraryEvents() {
-  document.querySelectorAll('.lib-cat').forEach((b) => {
-    b.addEventListener('click', (e) => {
-      e.stopPropagation();
-      const cat = b.dataset.cat;
-      // Повторный клик по уже открытой категории — закрыть; клик по другой —
-      // переключить; сетка одной категории видна за раз.
-      state.libraryOpenCat = state.libraryOpenCat === cat ? null : cat;
-      renderLibraryPanel();
-    });
-  });
   document.querySelectorAll('.lib-item').forEach((b) => {
     b.addEventListener('click', () => {
-      addPresetToProject(state.libraryOpenCat, b.dataset.preset);
+      // Клик, которым браузер завершает перетаскивание миниатюры (см.
+      // libModCardDragPointerUp/libModCardDragClickGuard), не должен ещё и
+      // добавить модуль в проект.
+      if (libModCardDragClickGuard) { libModCardDragClickGuard = false; return; }
+      addPresetToProject(b.dataset.group, b.dataset.preset);
     });
-  });
-  // «×» на пилюле своей категории (см. libDeleteModuleGroup) — только у
-  // категорий из state.libModCustomGroups, у PRESETS такого значка нет.
-  // stopPropagation ОБЯЗАТЕЛЕН: сам значок лежит внутри той же <button
-  // class="lib-cat">, чей слушатель выше иначе среагировал бы вторым и
-  // тут же заново открыл/закрыл только что удалённую категорию.
-  document.querySelectorAll('.lib-cat-del').forEach((el) => {
-    el.addEventListener('click', (e) => {
-      e.stopPropagation();
-      libDeleteModuleGroup(el.dataset.delModcat);
+    b.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      openLibModCardMenu(e.clientX || 0, e.clientY || 0, b.dataset.placement);
     });
   });
 }
