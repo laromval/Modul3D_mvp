@@ -1025,6 +1025,32 @@ input[type='number'] { font-family: var(--ff-mono); }
 .lib-cat { padding-left: 8px; padding-right: 8px; font-weight: 600; color: var(--accent); border-color: var(--border-strong); }
 .lib-cat:hover { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); }
 .lib-cat.on { background: var(--accent-soft); border-color: var(--accent); }
+/* «×» удалить свою категорию базы модулей — внутри пилюли .lib-cat (см.
+   libDeleteModuleGroup в app.js), у встроенных категорий PRESETS его нет. */
+.lib-cat-del { margin-left: 5px; color: var(--muted); font-weight: 400; }
+.lib-cat-del:hover { color: var(--danger); }
+
+/* Кнопка-плитка «Добавить категорию» — маленький квадрат с пунктирной
+   рамкой и синим «+» по центру, без подписи текстом (см. libAddCatTileHtml в
+   app.js) — на вкладках «Материалы»/«Двери»/«Фурнитура» панели «Библиотека»
+   (в ряду .lib-link-refresh-bar рядом с «+ Добавить по ссылке») и на «Базе
+   модулей» (в конце ряда .lib-row). Тот же визуальный язык, что у «+
+   Добавить модуль»/«+ Добавить секцию» (.mod-add/.sec-add выше), но строго
+   квадратная и меньше — рядом с .btn/.lib-cat, а не вместо них. */
+.lib-add-cat-tile {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 30px; height: 30px; flex: 0 0 auto; padding: 0;
+  font-family: inherit; font-size: 17px; font-weight: 700; line-height: 1;
+  color: var(--accent);
+  background: var(--surface-solid);
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--r-sm);
+  cursor: pointer;
+  transition: background var(--dur) var(--ease), border-color var(--dur) var(--ease),
+              box-shadow var(--dur) var(--ease), transform .12s var(--ease);
+}
+.lib-add-cat-tile:hover { border-color: var(--accent); background: var(--accent-soft); box-shadow: 0 4px 12px -6px var(--accent-glow); transform: translateY(-1px); }
+.lib-add-cat-tile:active { transform: translateY(1px); box-shadow: none; }
 
 /* Сетка миниатюр открытой категории «Базы модулей» — рендерится прямо в
    панели под рядом кнопок-категорий (см. libraryGridBlock() в app.js). */

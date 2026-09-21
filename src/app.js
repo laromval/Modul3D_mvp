@@ -14,7 +14,7 @@
 (function () {
 // Версия сборки — показывается во вкладке браузера и в шапке.
 // При выпуске новой версии меняется только эта строка.
-const APP_VERSION = 'v288';
+const APP_VERSION = 'v293';
 
 // Номер версии выводим ПЕРВЫМ делом: если дальше что-то упадёт, по нему сразу
 // видно, какая сборка открыта.
@@ -254,6 +254,33 @@ const state = {
   // Расчёт про такие ключи ничего не знает — это просто контейнер каталога.
   // Как и libHwCatLabels, сохраняется на сервере вместе с правками каталога.
   libHwCustomCats: [],
+  // СВОИ корневые категории вкладок «Материалы» и «Двери», заведённые той же
+  // кнопкой-плиткой «Добавить категорию» (новый визуальный стиль — маленький
+  // квадрат с пунктирной рамкой и синим «+», см. libAddCatTileHtml), что и
+  // libHwCustomCats выше, — тот же паттерн, только раздельно по вкладкам.
+  // У «Материалов» встроенные разделы жёстко привязаны к типу товара
+  // (Листовые материалы/Кромка/Стекло/Столешницы), поэтому своя категория —
+  // одна и та же decor-таблица (код/название/цена листа/размеры/картинка) у
+  // ЛЮБОЙ своей категории; её позиции — обычные DECORS с проставленным
+  // item.customRoot = ключ категории, которое отличает их от «настоящих»
+  // позиций «Листовых материалов» (см. libTopEntries/libAddMaterialCategory/
+  // libAddRow). У «Дверей» то же самое, но позиции лежат в FACADE_MATERIALS.
+  // Ключи — 'matcustom-<timestamp>'/'faccustom-<timestamp>' в порядке
+  // добавления, подписи — в libMatCatLabels/libFacCatLabels рядом. Как и
+  // libHwCustomCats, сохраняется на сервере вместе с правками каталога.
+  libMatCustomCats: [],
+  libMatCatLabels: {},
+  libFacCustomCats: [],
+  libFacCatLabels: {},
+  // Свои категории «Базы модулей» (та же кнопка-плитка, в конце ряда .lib-row
+  // из libraryBlock, см. libAddModuleGroup) — в отличие от PRESETS
+  // (src/presets.js, зашитый список типовых модулей) это ПУСТЫЕ именованные
+  // категории без миниатюр: наполнение пресетами внутри них — отдельная
+  // задача владельца проекта на будущее, libraryGridBlock() для них рисует
+  // только подсказку «Пока нет модулей». { key: 'modcustom-<timestamp>',
+  // name: 'Название' } в порядке добавления. Как и остальные свои категории
+  // Библиотеки выше, сохраняется на сервере вместе с правками каталога.
+  libModCustomGroups: [],
   // Режим подбора материала из «Параметры проекта» (кнопка «+ Добавить
   // материал» у Материал корпуса/Материал фасада/Задняя стенка, см.
   // materialPickActionsHtml/openMaterialPicker) — { role: 'decor' | 'facadeDecor'
@@ -459,6 +486,20 @@ function snapshotCatalogCollections() {
     // libExtraNodes (пустые категории-заглушки) — и то, и другое здесь уже есть.
     libHwCatLabels: JSON.parse(JSON.stringify(state.libHwCatLabels)),
     libHwCustomCats: JSON.parse(JSON.stringify(state.libHwCustomCats)),
+    // Свои корневые категории «Материалов»/«Дверей» и «Базы модулей» (кнопка-
+    // плитка «Добавить категорию», см. комментарий у state.libMatCustomCats) —
+    // тем же способом и по той же причине, что libHwCatLabels/libHwCustomCats
+    // выше: без этого свои категории пропадали бы при перезагрузке страницы,
+    // ровно как уже один раз случилось с фурнитурой (см. комментарий над
+    // snapshotCatalogCollections). Сами позиции внутри matcustom-/faccustom-
+    // категорий (item.customRoot) отдельно регистрировать не нужно — они
+    // обычные записи DECORS/FACADE_MATERIALS и так целиком попадают в decors/
+    // facade выше.
+    libMatCustomCats: JSON.parse(JSON.stringify(state.libMatCustomCats)),
+    libMatCatLabels: JSON.parse(JSON.stringify(state.libMatCatLabels)),
+    libFacCustomCats: JSON.parse(JSON.stringify(state.libFacCustomCats)),
+    libFacCatLabels: JSON.parse(JSON.stringify(state.libFacCatLabels)),
+    libModCustomGroups: JSON.parse(JSON.stringify(state.libModCustomGroups)),
   };
 }
 
@@ -564,6 +605,12 @@ function mergeCatalogObject(savedObj, freshObj) {
 // мержится напрямую через mergeCatalogItem, а не mergeCatalogObject.
 function restoreCatalogFrom(blob) {
   if (!blob) return;
+  // Полная подмена/merge DECORS/BACK_MATERIALS/FACADE_MATERIALS ниже может
+  // вернуть для уже существующего code другие данные (например, другое имя
+  // из сохранённых на сервере правок) — а именно по имени decorLook()
+  // (viewer.js) определяет цвет миниатюры. Сбрасываем _thumbCache Библиотеки
+  // целиком, чтобы не показать старую картинку под новыми данными каталога.
+  _thumbCache.clear();
   const cat = window.Modul3D.catalog;
   const fresh = CATALOG_DEFAULTS;
   if (blob.decors) { DECORS.length = 0; DECORS.push.apply(DECORS, mergeCatalogArray(blob.decors, fresh.decors)); }
@@ -617,6 +664,15 @@ function restoreCatalogFrom(blob) {
   // просто остаётся заводской набор категорий без своих подписей.
   if (blob.libHwCatLabels) state.libHwCatLabels = JSON.parse(JSON.stringify(blob.libHwCatLabels));
   if (blob.libHwCustomCats) state.libHwCustomCats = JSON.parse(JSON.stringify(blob.libHwCustomCats));
+  // Свои категории «Материалов»/«Дверей»/«Базы модулей» (кнопка-плитка
+  // «Добавить категорию») — этих ключей нет в снимках до появления фичи,
+  // тогда просто нет ни одной своей категории на этих трёх вкладках, как и
+  // было раньше.
+  if (blob.libMatCustomCats) state.libMatCustomCats = JSON.parse(JSON.stringify(blob.libMatCustomCats));
+  if (blob.libMatCatLabels) state.libMatCatLabels = JSON.parse(JSON.stringify(blob.libMatCatLabels));
+  if (blob.libFacCustomCats) state.libFacCustomCats = JSON.parse(JSON.stringify(blob.libFacCustomCats));
+  if (blob.libFacCatLabels) state.libFacCatLabels = JSON.parse(JSON.stringify(blob.libFacCatLabels));
+  if (blob.libModCustomGroups) state.libModCustomGroups = JSON.parse(JSON.stringify(blob.libModCustomGroups));
 }
 
 // Снимает режим изоляции модуля (двойной клик в 3D) и выбор детали внутри
@@ -971,6 +1027,11 @@ function libraryBlock() {
         `<button class="lib-cat ${g.id === state.libraryOpenCat ? 'on' : ''}" type="button"
                  data-cat="${g.id}">${esc(g.name)} ▾</button>`
       ).join('')}
+      ${(state.libModCustomGroups || []).map((g) =>
+        `<button class="lib-cat ${g.key === state.libraryOpenCat ? 'on' : ''}" type="button"
+                 data-cat="${esc(g.key)}">${esc(g.name)} ▾<span class="lib-cat-del" data-del-modcat="${esc(g.key)}" title="Удалить категорию">×</span></button>`
+      ).join('')}
+      ${libAddCatTileHtml('modules')}
     </div>
     ${libraryGridBlock()}
     <div class="hint">Выберите категорию, затем вариант — готовый модуль добавится в проект и появится в 3D.</div>`;
@@ -978,16 +1039,31 @@ function libraryBlock() {
 
 // Сетка миниатюр открытой категории. Рендерится СИНХРОННО только для пунктов
 // текущей открытой группы (несколько штук), а не для всех 16 пресетов сразу —
-// иначе панель тормозила бы при каждой перерисовке.
+// иначе панель тормозила бы при каждой перерисовке. Дополнительно результат
+// (dataURL) кэшируется в _thumbCache по ключу «id пресета + декор/толщины,
+// от которых реально зависит картинка» — buildModel()+renderThumbnail()
+// (создание и уничтожение WebGL-контекста) выполняются один раз на каждую
+// такую комбинацию, а не при каждой перерисовке панели. Пресеты сами по себе
+// не меняются, поэтому смена вкладки/категории повторно рендерить не должна.
+const _thumbCache = new Map();
 function libraryGridBlock() {
   const group = PRESETS.filter((g) => g.id === state.libraryOpenCat)[0];
-  if (!group) return '';
+  if (!group) {
+    // Открыта своя категория (см. state.libModCustomGroups/libAddModuleGroup)
+    // — по требованию она ВСЕГДА пуста (без миниатюр, без пресетов внутри,
+    // наполнение — отдельная задача на будущее), явная подсказка вместо
+    // молчаливой пустоты, чтобы не выглядело как баг. Ничего не открыто
+    // (state.libraryOpenCat === null) — по-прежнему пусто, без подсказки.
+    const isCustomOpen = state.libraryOpenCat
+      && (state.libModCustomGroups || []).some((g) => g.key === state.libraryOpenCat);
+    return isCustomOpen ? '<div class="hint">В этой категории пока нет модулей.</div>' : '';
+  }
 
   // Материалы для превью берём из ТЕКУЩЕГО проекта (те же источники, что и
   // recompute()) — миниатюра сразу показывает модуль в декоре, в котором он
-  // реально появится у пользователя. Сам вид миниатюры при этом нейтральный
-  // (см. renderThumbnail({ neutral: true })) — декор на неё не влияет, но
-  // прочие поля (толщины и т.п.) должны быть настоящими, не выдуманными.
+  // реально появится у пользователя. Вид миниатюры «в реальном цвете» (см.
+  // renderThumbnail({ realistic: true })) — декор, толщины и опоры видны как
+  // на готовом модуле, поэтому именно эти поля входят в ключ _thumbCache ниже.
   const thumbBase = {
     bodyThickness: state.bodyThickness,
     backThickness: state.backThickness,
@@ -1005,28 +1081,80 @@ function libraryGridBlock() {
     jointType: state.jointType,
   };
 
+  // Ключ кэша — id пресета плюс всё, что реально влияет на итоговую картинку
+  // (декор корпуса/фасада/задней стенки, толщины плит, глубина столешницы,
+  // тип соединения). Если ни одно из этих полей не менялось с прошлой
+  // перерисовки — пресет берётся из _thumbCache без повторного buildModel()
+  // и renderThumbnail() (то есть без пересоздания WebGL-контекста).
+  const thumbKeyBase = [
+    thumbBase.bodyThickness, thumbBase.backThickness, thumbBase.facadeThickness,
+    thumbBase.decor.code, thumbBase.facadeDecor.code, thumbBase.backMaterial.code,
+    thumbBase.worktopDepth, thumbBase.jointType,
+  ].join('|');
+
+  // Кухонные пресеты на миниатюре красим в БЕЛЫЙ корпус независимо от decor
+  // ТЕКУЩЕГО проекта (по умолчанию у нового проекта это дуб, не белый) — так
+  // попросил владелец 2026-09-21, только для превью категории «Кухонный
+  // модуль», «Шкаф»/«Тумба» по-прежнему красятся в decor проекта (thumbBase
+  // выше). Ищем декор по коду через DECORS.find(), а не хардкодим объект —
+  // код когда-нибудь могут переименовать/убрать в каталоге (см. пояснение
+  // у thumbBase.decor выше про такой же откат).
+  const kitchenThumbDecor = DECORS.find((d) => d.code === 'H3450ST22') || null;
+  // Столешница нижнего яруса кухни на миниатюре — тоже только для наглядности
+  // превью (owner: «почему модули кухни без столешницы»). Задаётся ОТДЕЛЬНЫМ
+  // полем модуля p.countertop (см. engine.js countertopMat()/ctEnabled) —
+  // proj.worktopDepth сам по себе столешницу не строит.
+  const kitchenThumbCountertopCode = window.Modul3D.catalog.findCountertopMaterialByCode('CTOP-LDSP38-1063SQ')
+    ? 'CTOP-LDSP38-1063SQ' : null;
+
   const tiles = group.items.map((it) => {
-    let dataUrl = null;
-    try {
-      const m = it.make();
-      const project = Object.assign({}, thumbBase, {
-        modules: [{
-          name: m.name, width: m.width, height: m.height, depth: m.depth,
-          rotation: m.rotation || 0, corner: !!m.corner, family: m.family || 'custom',
-          topType: m.topType, railWidth: m.railWidth, noBack: !!m.noBack,
-          blindPanel: !!m.blindPanel, blindStrip: m.blindStrip,
-          leftSide: m.leftSide, rightSide: m.rightSide,
-          base: m.baseType === 'plinth'
-            ? { type: 'plinth', plinthHeight: m.plinthHeight }
-            : { type: m.baseType, legHeight: m.legHeight },
-          legType: m.legType || 'metal',
-          sections: m.sections || [],
-        }],
-      });
-      const model = buildModel(project);
-      dataUrl = window.Modul3D.viewer.renderThumbnail(model, { size: 200, neutral: true });
-    } catch (err) {
+    const cacheKey = `${it.id}|${thumbKeyBase}`;
+    let dataUrl;
+    if (_thumbCache.has(cacheKey)) {
+      dataUrl = _thumbCache.get(cacheKey);
+    } else {
       dataUrl = null;
+      try {
+        const m = it.make();
+        const isKitchen = (m.family || 'custom') === 'kitchen';
+        const project = Object.assign({}, thumbBase, {
+          modules: [{
+            name: m.name, width: m.width, height: m.height, depth: m.depth,
+            rotation: m.rotation || 0, corner: !!m.corner, family: m.family || 'custom',
+            topType: m.topType, railWidth: m.railWidth, noBack: !!m.noBack,
+            blindPanel: !!m.blindPanel, blindStrip: m.blindStrip,
+            leftSide: m.leftSide, rightSide: m.rightSide,
+            base: m.baseType === 'plinth'
+              ? { type: 'plinth', plinthHeight: m.plinthHeight }
+              : { type: m.baseType, legHeight: m.legHeight },
+            legType: m.legType || 'metal',
+            sections: m.sections || [],
+            // Переопределение декора корпуса ТОЛЬКО этого модуля превью —
+            // побеждает proj.decor в engine.js (decor: m.carcassDecor || proj.decor),
+            // сам decor проекта (state.decorCode) нигде не трогается.
+            carcassDecor: (isKitchen && kitchenThumbDecor) ? kitchenThumbDecor : undefined,
+            // Столешница — не у всего tier==='lower' (пенал tall600 тоже
+            // «нижний», потому что стоит на полу, но он во всю высоту до
+            // потолка и столешницы сверху не имеет — см. presets.js). Точный
+            // сигнал — topType модели: 'rails'/'railsEdge' — это ИМЕННО
+            // рельсовый верх нижней тумбы под столешницу (см. engine.js
+            // skipTopPanel/topType), а не сплошная крыша обычного шкафа.
+            // Берём m.topType (поле модели), а не it.tier (поле пресета).
+            countertop: (isKitchen && (m.topType === 'rails' || m.topType === 'railsEdge') && kitchenThumbCountertopCode)
+              ? { enabled: true, decorCode: kitchenThumbCountertopCode } : undefined,
+          }],
+        });
+        const model = buildModel(project);
+        dataUrl = window.Modul3D.viewer.renderThumbnail(model, { size: 200, realistic: true });
+      } catch (err) {
+        dataUrl = null;
+      }
+      // Та же самоочистка, что и у _partGeoCache в viewer.js (см. там же,
+      // порог 300) — без верхней границы кэш рос бы неограниченно за сеанс,
+      // например при посимвольном вводе толщины плиты прямо в открытой панели
+      // (каждое нажатие клавиши — новый thumbKeyBase, значит новые ключи).
+      if (_thumbCache.size > 300) _thumbCache.clear();
+      _thumbCache.set(cacheKey, dataUrl);
     }
     // Полное примечание пресета иногда длиной за сотню символов — для
     // всплывающей подсказки (узкая колонка, перенос по словам) обрезаем его,
@@ -1168,18 +1296,39 @@ const NO_BRAND_SUBCAT = 'Без бренда';
 function libTopEntries(topCode) {
   const cat = window.Modul3D.catalog;
   if (topCode === 'sheet') {
+    // Позиции своей категории (item.customRoot, см. libAddMaterialCategory/
+    // libAddRow) сюда не входят — иначе одна и та же позиция задвоилась бы
+    // и под «Листовыми материалами», и под своей категорией.
     const facadeAll = Object.values(cat.FACADE_MATERIALS);
-    const facadeSheet = facadeAll.filter((it) => SHEET_FACADE_SUBCATS.indexOf((it.categoryPath || [])[0]) >= 0);
+    const facadeSheet = facadeAll.filter((it) => SHEET_FACADE_SUBCATS.indexOf((it.categoryPath || [])[0]) >= 0 && !it.customRoot);
     return []
-      .concat(DECORS.map((it) => ({ group: 'decors', item: it })))
+      .concat(DECORS.filter((it) => !it.customRoot).map((it) => ({ group: 'decors', item: it })))
       .concat(facadeSheet.map((it) => ({ group: 'facade', item: it })))
       .concat(BACK_MATERIALS.map((it) => ({ group: 'back', item: it })));
   }
   if (topCode === 'facade') {
+    // Та же защита от задвоения, что и у 'sheet' выше — своя категория
+    // «Дверей» (item.customRoot, см. libAddFacadeCategory) сюда не входит.
     const facadeAll = Object.values(cat.FACADE_MATERIALS);
     return facadeAll
-      .filter((it) => SHEET_FACADE_SUBCATS.indexOf((it.categoryPath || [])[0]) < 0)
+      .filter((it) => SHEET_FACADE_SUBCATS.indexOf((it.categoryPath || [])[0]) < 0 && !it.customRoot)
       .map((it) => ({ group: 'facade', item: it }));
+  }
+  // 'matcustom-<timestamp>'/'faccustom-<timestamp>' — своя корневая
+  // категория «Материалов»/«Дверей», заведённая кнопкой-плиткой «Добавить
+  // категорию» (см. state.libMatCustomCats/libFacCustomCats выше и
+  // libAddMaterialCategory/libAddFacadeCategory ниже). В отличие от пяти
+  // встроенных разделов выше, тип товара тут не фиксирован — все свои
+  // категории «Материалов» используют одну и ту же decor-таблицу (см.
+  // libAddRow: group 'decors'), свои категории «Дверей» — ту же таблицу, но
+  // над FACADE_MATERIALS (group 'facade'); отличает их друг от друга только
+  // item.customRoot, проставленный при добавлении позиции именно под этим
+  // корнем.
+  if (String(topCode).indexOf('matcustom-') === 0) {
+    return DECORS.filter((it) => it.customRoot === topCode).map((it) => ({ group: 'decors', item: it }));
+  }
+  if (String(topCode).indexOf('faccustom-') === 0) {
+    return Object.values(cat.FACADE_MATERIALS).filter((it) => it.customRoot === topCode).map((it) => ({ group: 'facade', item: it }));
   }
   if (topCode === 'edge') {
     return Object.keys(cat.EDGE_PRICES).map((name) => ({ group: 'edge', item: Object.assign({ key: name }, cat.EDGE_PRICES[name]) }));
@@ -1492,7 +1641,10 @@ function libEntryTargetPath(topCode, path) {
 // отрисовке считала бы, что позицию снова надо перенести, и без толку слала
 // бы снимок каталога на сервер.
 function libNormalizableTopCodes() {
-  return ['sheet', 'edge', 'glass', 'facade'].concat(libHwCategoryKeys().map((c) => 'hw:' + c));
+  return ['sheet', 'edge', 'glass', 'facade']
+    .concat(state.libMatCustomCats || [])
+    .concat(state.libFacCustomCats || [])
+    .concat(libHwCategoryKeys().map((c) => 'hw:' + c));
 }
 
 // Собственно миграция: у каждого узла раздела (включая корень), у которого
@@ -1691,31 +1843,52 @@ function libRepathNode(topCode, oldPath, newPath) {
 }
 
 // Переименование узла (значок ✎ в libTreeRowHtml) — тот же путь, но с другим
-// последним сегментом. Особый случай — КОРЕНЬ дерева (path пуст): у разделов
-// «Материалов» переименования нет вовсе (набор разделов фиксирован, тип
-// товара завязан на группу каталога), а у категории «Фурнитуры» меняется
-// ТОЛЬКО подпись на экране (state.libHwCatLabels) — сам ключ категории
-// (item.category), по которому движок подбирает фурнитуру в расчёте,
-// остаётся прежним.
+// последним сегментом. Особый случай — КОРЕНЬ дерева (path пуст): у ВСТРОЕННЫХ
+// разделов «Материалов»/«Дверей» переименования нет вовсе (набор фиксирован,
+// тип товара завязан на группу каталога), а у категории «Фурнитуры» и у СВОИХ
+// категорий «Материалов»/«Дверей» (кнопка-плитка «Добавить категорию») меняется
+// ТОЛЬКО подпись на экране (state.libHwCatLabels/libMatCatLabels/
+// libFacCatLabels) — сам ключ категории, от которого у фурнитуры зависит
+// подбор в расчёте (item.category), остаётся прежним.
 function libRenameNode(topCode, path, newName) {
   newName = libCleanNodeName(newName);
   if (!newName) return;
   if (!path.length) {
-    if (topCode.indexOf('hw:') !== 0) return;
-    const catKey = topCode.slice(3);
-    // Та же проверка на дубликат ПОДПИСИ и то же сообщение, что и при
-    // создании своей категории (см. libAddHwCategory): ключи у категорий
-    // разные всегда, а вот двух одинаково названных «Петель» в списке
-    // пользователь не различит.
-    const busy = libHwCategoryKeys()
-      .filter((k) => k !== catKey)
-      .map((k) => libHwCategoryLabel(k).toLowerCase());
-    if (busy.indexOf(newName.toLowerCase()) >= 0) {
-      window.alert('Категория с таким названием уже есть.');
+    if (topCode.indexOf('hw:') === 0) {
+      const catKey = topCode.slice(3);
+      // Та же проверка на дубликат ПОДПИСИ и то же сообщение, что и при
+      // создании своей категории (см. libAddHwCategory): ключи у категорий
+      // разные всегда, а вот двух одинаково названных «Петель» в списке
+      // пользователь не различит.
+      const busy = libHwCategoryKeys()
+        .filter((k) => k !== catKey)
+        .map((k) => libHwCategoryLabel(k).toLowerCase());
+      if (busy.indexOf(newName.toLowerCase()) >= 0) {
+        window.alert('Категория с таким названием уже есть.');
+        return;
+      }
+      state.libHwCatLabels[catKey] = newName;
+      scheduleCatalogSave();
       return;
     }
-    state.libHwCatLabels[catKey] = newName;
-    scheduleCatalogSave();
+    // Своя категория «Материалов»/«Дверей» — та же проверка на дубликат
+    // ПОДПИСИ среди ВСЕХ разделов вкладки (встроенных и своих), что и у
+    // фурнитуры выше, только источник подписей другой (см.
+    // libTopCategoryDef/libMatCategoryLabel/libFacCategoryLabel).
+    if (topCode.indexOf('matcustom-') === 0 || topCode.indexOf('faccustom-') === 0) {
+      const tabKey = topCode.indexOf('matcustom-') === 0 ? 'materials' : 'facades';
+      const labels = tabKey === 'materials' ? state.libMatCatLabels : state.libFacCatLabels;
+      const busy = libTabTopCodesRaw(tabKey)
+        .filter((c) => c !== topCode)
+        .map((c) => { const def = libTopCategoryDef(tabKey, c); return def ? def.title.toLowerCase() : ''; });
+      if (busy.indexOf(newName.toLowerCase()) >= 0) {
+        window.alert('Категория с таким названием уже есть.');
+        return;
+      }
+      labels[topCode] = newName;
+      scheduleCatalogSave();
+      return;
+    }
     return;
   }
   libRepathNode(topCode, path, path.slice(0, -1).concat([newName]));
@@ -2137,10 +2310,15 @@ function libAddChildNode(topCode, parentPath) {
 function libDeleteNode(topCode, path) {
   if (!requireLibraryEditAuth()) return;
   // Пустой путь — это сам КОРЕНЬ раздела. Значок × там есть только у СВОЕЙ
-  // категории фурнитуры (см. libTreeRowHtml), у неё отдельная процедура
-  // удаления: убрать нужно не путь внутри дерева, а саму категорию из
-  // state.libHwCustomCats.
-  if (!path.length) { libDeleteHwCategory(topCode); return; }
+  // категории (фурнитуры, «Материалов» или «Дверей», см. libTreeRowHtml), у
+  // каждой — своя отдельная процедура удаления: убрать нужно не путь внутри
+  // дерева, а саму категорию из соответствующего state.lib*CustomCats.
+  if (!path.length) {
+    if (topCode.indexOf('hw:') === 0) { libDeleteHwCategory(topCode); return; }
+    if (topCode.indexOf('matcustom-') === 0) { libDeleteMaterialCategory(topCode); return; }
+    if (topCode.indexOf('faccustom-') === 0) { libDeleteFacadeCategory(topCode); return; }
+    return;
+  }
   if (libNodeHasItems(topCode, path)) {
     window.alert('Сначала удалите или перенесите позиции из этой категории — в ней есть товары.');
     return;
@@ -2230,6 +2408,150 @@ function libDeleteHwCategory(topCode) {
   Object.keys(state.libCollapsed).forEach((k) => {
     if (k.indexOf(collapsedPrefix) === 0) delete state.libCollapsed[k];
   });
+  scheduleCatalogSave();
+  renderLibraryPanel();
+}
+
+// ---------------------------------------------------------------------------
+// «Добавить категорию» вкладок «Материалы» и «Двери» (кнопка-плитка, см.
+// libAddCatTileHtml) — тот же паттерн, что и libAddHwCategory/
+// libDeleteHwCategory выше, СВОЯ корневая категория с ключом
+// 'matcustom-<timestamp>'/'faccustom-<timestamp>'. В отличие от фурнитуры
+// здесь нет понятия «встроенная нельзя удалить, можно только переименовать»
+// — своя категория либо есть целиком (и удаляется целиком), либо её нет:
+// встроенные четыре раздела «Материалов»/один раздел «Дверей» вообще не
+// проходят через эти функции (у них нет ключа topCode с нужным префиксом).
+// ---------------------------------------------------------------------------
+function libAddMaterialCategory() {
+  if (!requireLibraryEditAuth()) return;
+  const name = libCleanNodeName(window.prompt('Название новой категории материалов:'));
+  if (!name) return;
+  // Дубликат проверяем среди ВСЕХ разделов вкладки (встроенных и своих) —
+  // та же причина и тот же приём, что у libRenameNode.
+  const busy = libTabTopCodesRaw('materials').map((c) => {
+    const def = libTopCategoryDef('materials', c);
+    return def ? def.title.toLowerCase() : '';
+  });
+  if (busy.indexOf(name.toLowerCase()) >= 0) {
+    window.alert('Категория с таким названием уже есть.');
+    return;
+  }
+  const key = 'matcustom-' + Date.now();
+  state.libMatCustomCats.push(key);
+  state.libMatCatLabels[key] = name;
+  state.libCatOpen[key] = true;   // новая категория сразу раскрыта — видно, куда добавлять позиции
+  scheduleCatalogSave();
+  renderLibraryPanel();
+}
+
+function libDeleteMaterialCategory(topCode) {
+  if (String(topCode).indexOf('matcustom-') !== 0) return;
+  if (libNodeHasItems(topCode, [])) {
+    window.alert('Сначала удалите или перенесите позиции из этой категории — в ней есть товары.');
+    return;
+  }
+  state.libMatCustomCats = (state.libMatCustomCats || []).filter((c) => c !== topCode);
+  delete state.libMatCatLabels[topCode];
+  delete state.libExtraNodes[topCode];
+  delete state.libNodeOrder[topCode];
+  if (Array.isArray(state.libTopOrder.materials)) {
+    state.libTopOrder.materials = state.libTopOrder.materials.filter((c) => c !== topCode);
+  }
+  const parentMap = state.libTopParent.materials;
+  if (parentMap) {
+    delete parentMap[topCode];
+    Object.keys(parentMap).forEach((c) => { if (parentMap[c] === topCode) delete parentMap[c]; });
+  }
+  delete state.libCatOpen[topCode];
+  delete state.libActiveLeaf[topCode];
+  const collapsedPrefix = topCode + '::';
+  Object.keys(state.libCollapsed).forEach((k) => {
+    if (k.indexOf(collapsedPrefix) === 0) delete state.libCollapsed[k];
+  });
+  scheduleCatalogSave();
+  renderLibraryPanel();
+}
+
+function libAddFacadeCategory() {
+  if (!requireLibraryEditAuth()) return;
+  const name = libCleanNodeName(window.prompt('Название новой категории фасадов:'));
+  if (!name) return;
+  const busy = libTabTopCodesRaw('facades').map((c) => {
+    const def = libTopCategoryDef('facades', c);
+    return def ? def.title.toLowerCase() : '';
+  });
+  if (busy.indexOf(name.toLowerCase()) >= 0) {
+    window.alert('Категория с таким названием уже есть.');
+    return;
+  }
+  const key = 'faccustom-' + Date.now();
+  state.libFacCustomCats.push(key);
+  state.libFacCatLabels[key] = name;
+  state.libCatOpen[key] = true;
+  scheduleCatalogSave();
+  renderLibraryPanel();
+}
+
+function libDeleteFacadeCategory(topCode) {
+  if (String(topCode).indexOf('faccustom-') !== 0) return;
+  if (libNodeHasItems(topCode, [])) {
+    window.alert('Сначала удалите или перенесите позиции из этой категории — в ней есть товары.');
+    return;
+  }
+  state.libFacCustomCats = (state.libFacCustomCats || []).filter((c) => c !== topCode);
+  delete state.libFacCatLabels[topCode];
+  delete state.libExtraNodes[topCode];
+  delete state.libNodeOrder[topCode];
+  if (Array.isArray(state.libTopOrder.facades)) {
+    state.libTopOrder.facades = state.libTopOrder.facades.filter((c) => c !== topCode);
+  }
+  const parentMap = state.libTopParent.facades;
+  if (parentMap) {
+    delete parentMap[topCode];
+    Object.keys(parentMap).forEach((c) => { if (parentMap[c] === topCode) delete parentMap[c]; });
+  }
+  delete state.libCatOpen[topCode];
+  delete state.libActiveLeaf[topCode];
+  const collapsedPrefix = topCode + '::';
+  Object.keys(state.libCollapsed).forEach((k) => {
+    if (k.indexOf(collapsedPrefix) === 0) delete state.libCollapsed[k];
+  });
+  scheduleCatalogSave();
+  renderLibraryPanel();
+}
+
+// «Добавить категорию» вкладки «База модулей» (кнопка-плитка в конце ряда
+// .lib-row, см. libraryBlock) — в отличие от «Материалов»/«Дверей»/
+// «Фурнитуры» выше это НЕ раздел каталога, а просто пустая именованная
+// группа поверх PRESETS (src/presets.js, зашитый список типовых модулей):
+// наполнение готовыми модулями внутри неё — отдельная задача на будущее, эта
+// кнопка только заводит саму категорию (см. libraryGridBlock — для такой
+// категории она всегда рисует подсказку «Пока нет модулей», а не пресеты).
+function libAddModuleGroup() {
+  if (!requireLibraryEditAuth()) return;
+  const name = libCleanNodeName(window.prompt('Название новой категории базы модулей:'));
+  if (!name) return;
+  const busy = PRESETS.map((g) => g.name.toLowerCase())
+    .concat((state.libModCustomGroups || []).map((g) => g.name.toLowerCase()));
+  if (busy.indexOf(name.toLowerCase()) >= 0) {
+    window.alert('Категория с таким названием уже есть.');
+    return;
+  }
+  const key = 'modcustom-' + Date.now();
+  state.libModCustomGroups.push({ key, name });
+  state.libraryOpenCat = key;   // сразу открыта — видно подсказку «Пока нет модулей»
+  scheduleCatalogSave();
+  renderLibraryPanel();
+}
+
+// Удаление своей категории «Базы модулей» (× на её пилюле). Проверки на
+// «есть товары» здесь не нужно (в отличие от libDeleteMaterialCategory/
+// libDeleteFacadeCategory/libDeleteHwCategory выше) — такая категория по
+// построению ВСЕГДА пуста, готовые модули в неё не добавляются.
+function libDeleteModuleGroup(key) {
+  if (!requireLibraryEditAuth()) return;
+  state.libModCustomGroups = (state.libModCustomGroups || []).filter((g) => g.key !== key);
+  if (state.libraryOpenCat === key) state.libraryOpenCat = null;
   scheduleCatalogSave();
   renderLibraryPanel();
 }
@@ -2759,8 +3081,12 @@ function libLeafTableHtml(topCode, path, entries, opts) {
   const colCount = (collapsed ? 3 : 6) + (pickMode ? 1 : 0);
   const emptyRow = entries.length ? '' : `<tr><td colspan="${colCount}" class="hint">Пока нет позиций</td></tr>`;
   const addGroup = topCode === 'edge' ? 'edge' : ((opts.addGroupMap && opts.addGroupMap[path[0]]) || opts.addDefaultGroup || topCode);
+  // data-add-top — сам topCode (а не addGroup, который для СВОИХ категорий
+  // «Материалов»/«Дверей» всегда 'decors'/'facade', см. libTopCategoryDef) —
+  // нужен libAddRow, чтобы проставить новой позиции item.customRoot, когда
+  // добавление идёт внутрь matcustom-/faccustom- категории (см. там же).
   const addHtml = opts.addLabel
-    ? `<button type="button" class="link-btn lib-add" data-add="${esc(addGroup)}" data-add-path="${esc(path.join('::'))}">${esc(opts.addLabel)}</button>`
+    ? `<button type="button" class="link-btn lib-add" data-add="${esc(addGroup)}" data-add-path="${esc(path.join('::'))}" data-add-top="${esc(topCode)}">${esc(opts.addLabel)}</button>`
     : '';
   // «+ Добавить по ссылке» (см. openLibLinkForm/libLinkFormHtml) — рядом с
   // обычным «+ Добавить материал», тот же контекст (topCode/addGroup/path)
@@ -3130,11 +3456,18 @@ function libTreeRowHtml(topCode, path, name, kind, collapsed, depthOffset) {
   // Встроенная корневая категория фурнитуры — единственный корень, который
   // можно переименовать, но нельзя удалить (см. комментарий выше).
   const isBuiltinHwTop = isTop && isHardware && libHwCategoryIsBuiltin(topCode.slice(3));
+  // Своя корневая категория «Материалов»/«Дверей» (кнопка-плитка «Добавить
+  // категорию», см. state.libMatCustomCats/libFacCustomCats) — как и своя
+  // категория фурнитуры выше, её можно и переименовать, и удалить: встроенные
+  // четыре раздела «Материалов»/один раздел «Дверей» по-прежнему нет (тип
+  // товара у них завязан на группу каталога).
+  const isMatCustomTop = isTop && String(topCode).indexOf('matcustom-') === 0;
+  const isFacCustomTop = isTop && String(topCode).indexOf('faccustom-') === 0;
   const arrowHtml = isLeaf ? '<span class="lib-tree-arrow"></span>' : `<span class="lib-tree-arrow">${collapsed ? '▸' : '▾'}</span>`;
-  const canRename = !isCountertop && (!isTop || isHardware);
+  const canRename = !isCountertop && (!isTop || isHardware || isMatCustomTop || isFacCustomTop);
   const canAdd = !isCountertop && !isLeaf;
   const canMove = !isCountertop && !isTop;
-  const canDelete = !isTop || (isHardware && !isBuiltinHwTop);
+  const canDelete = !isTop || (isHardware && !isBuiltinHwTop) || isMatCustomTop || isFacCustomTop;
   const renameIc = canRename ? '<span class="lib-tree-ic" data-tree-rename="1" title="Переименовать">✎</span>' : '';
   const addIc = canAdd ? '<span class="lib-tree-ic" data-tree-add="1" title="Добавить категорию">+</span>' : '';
   const moveIc = canMove ? '<span class="lib-tree-ic" data-tree-move="1" title="Переместить">⇄</span>' : '';
@@ -3306,7 +3639,13 @@ const LIB_TAB_TOP_CODES = {
 
 function libTabTopCodesRaw(tabKey) {
   if (tabKey === 'hardware') return libHwCategoryKeys().map((c) => 'hw:' + c);
-  return (LIB_TAB_TOP_CODES[tabKey] || []).slice();
+  const base = (LIB_TAB_TOP_CODES[tabKey] || []).slice();
+  // Свои категории «Материалов»/«Дверей» (кнопка-плитка «Добавить категорию»,
+  // см. state.libMatCustomCats/libFacCustomCats) — дописываются к заводскому
+  // набору в порядке добавления, тем же приёмом, что и libHwCategoryKeys выше.
+  if (tabKey === 'materials') return base.concat(state.libMatCustomCats || []);
+  if (tabKey === 'facades') return base.concat(state.libFacCustomCats || []);
+  return base;
 }
 
 // Разделы вкладки в том порядке, в каком их надо рисовать: сначала
@@ -3422,8 +3761,14 @@ function libSetTopParent(tabKey, code, parentCode) {
 // Вкладка, которой принадлежит раздел, — нужна тем местам, что знают только
 // код раздела (перенос позиции значком ⇄ в другую категорию).
 function libTabOfTopCode(code) {
-  if (String(code).indexOf('hw:') === 0) return 'hardware';
-  return LIB_TAB_TOP_CODES.materials.indexOf(code) >= 0 ? 'materials' : 'facades';
+  const c = String(code);
+  if (c.indexOf('hw:') === 0) return 'hardware';
+  // Свои категории «Материалов»/«Дверей» не входят в LIB_TAB_TOP_CODES
+  // (заводской фиксированный набор) — их вкладку различает только префикс
+  // ключа (см. libAddMaterialCategory/libAddFacadeCategory).
+  if (c.indexOf('matcustom-') === 0) return 'materials';
+  if (c.indexOf('faccustom-') === 0) return 'facades';
+  return LIB_TAB_TOP_CODES.materials.indexOf(c) >= 0 ? 'materials' : 'facades';
 }
 
 // Бросок ЗАГОЛОВКА категории (см. libDragApplyDrop): 'topInto' — вложить в
@@ -3474,6 +3819,19 @@ const LIB_TAB_TOP_DEFS = {
   },
 };
 
+// Подпись своей категории «Материалов»/«Дверей» — своя (введена при
+// создании, см. libAddMaterialCategory/libAddFacadeCategory) → сам ключ как
+// резерв (не должно случаться в норме, только на испорченных данных). Та же
+// роль, что у libHwCategoryLabel, только у этих двух категорий подпись —
+// единственное, что вообще есть (ключ никогда не меняется и нигде не
+// показывается пользователю напрямую).
+function libMatCategoryLabel(code) {
+  return (state.libMatCatLabels || {})[code] || code;
+}
+function libFacCategoryLabel(code) {
+  return (state.libFacCatLabels || {})[code] || code;
+}
+
 // { title, opts } раздела или null, если такого раздела на вкладке нет.
 function libTopCategoryDef(tabKey, code) {
   if (tabKey === 'hardware') {
@@ -3481,6 +3839,25 @@ function libTopCategoryDef(tabKey, code) {
     const key = code.slice(3);
     if (libHwCategoryKeys().indexOf(key) < 0) return null;
     return { title: libHwCategoryLabel(key), opts: { hwCategory: key } };
+  }
+  // Своя категория «Материалов»/«Дверей» (кнопка-плитка «Добавить
+  // категорию») — не входит в LIB_TAB_TOP_DEFS ниже (набор там фиксированный),
+  // всегда одна и та же decor-таблица (см. комментарий у
+  // state.libMatCustomCats): addDefaultGroup сразу определяет, в какой
+  // массив каталога уйдёт новая позиция (decors/facade), addGroupMap не
+  // нужен — своих подкатегорий по типу товара тут нет.
+  if (tabKey === 'materials' && String(code).indexOf('matcustom-') === 0) {
+    if ((state.libMatCustomCats || []).indexOf(code) < 0) return null;
+    // pickable — как у 'sheet' (её позиции тоже DECORS): в режиме подбора
+    // материала корпуса/фасада/задней стенки (см. state.libPickTarget) своя
+    // категория должна предлагать «Выбрать» точно так же, как «Листовые
+    // материалы» — иначе позиции, заведённые сюда пользователем, были бы
+    // недоступны для подбора без веской причины.
+    return { title: libMatCategoryLabel(code), opts: { addLabel: '+ Добавить материал', addDefaultGroup: 'decors', pickable: true } };
+  }
+  if (tabKey === 'facades' && String(code).indexOf('faccustom-') === 0) {
+    if ((state.libFacCustomCats || []).indexOf(code) < 0) return null;
+    return { title: libFacCategoryLabel(code), opts: { addLabel: '+ Добавить материал', addDefaultGroup: 'facade' } };
   }
   const def = (LIB_TAB_TOP_DEFS[tabKey] || {})[code];
   return def ? { title: def[0], opts: def[1] } : null;
@@ -5062,7 +5439,11 @@ async function refreshCatalogLinkedPrices() {
   } finally {
     // Хоть что-то успело обновиться (в т.ч. если упала не первая партия) —
     // пересчитываем и сохраняем сразу, не дожидаясь следующей правки каталога.
-    if (updated > 0) { recompute(); scheduleCatalogSave(); }
+    // libLinkApplyRefreshedDraft может незаметно обновить и НАЗВАНИЕ позиции
+    // (если пользователь его не трогал, см. libLinkApplyIfUntouched) — код при
+    // этом не меняется, а decorLook() (viewer.js) красит миниатюру именно по
+    // имени, поэтому _thumbCache Библиотеки тоже сбрасываем.
+    if (updated > 0) { recompute(); _thumbCache.clear(); scheduleCatalogSave(); }
     state.libLinkRefreshResult = requestError ? { updated, failed, error: requestError } : { updated, failed };
     state.libLinkRefreshBusy = false;
     renderLibraryPanel();
@@ -5109,25 +5490,38 @@ function libLinkRefreshBarHtml() {
 // проставлен) — раздел («Петли»/«Ручки»/... ) выбирается на самом экране
 // подтверждения, см. hwCatHtml в libLinkConfirmHtml.
 //
-// «+ Добавить категорию» (только «Фурнитура») стоит в этом же ряду — это
-// тоже действие уровня вкладки, а не строки таблицы: заводит СВОЮ корневую
-// категорию фурнитуры (см. libAddHwCategory). На «Материалах» такой кнопки
-// нет сознательно — там набор корневых разделов фиксирован (Листовые
-// материалы / Кромка / Стекло / Столешницы), тип товара завязан на группу
-// каталога; всё, что ниже корня, там по-прежнему заводится значком «+» на
-// самой строке дерева.
+// «Добавить категорию» стоит в этом же ряду у обеих вкладок — это тоже
+// действие уровня вкладки, а не строки таблицы: заводит СВОЮ корневую
+// категорию (см. libAddHwCategory/libAddMaterialCategory). У «Материалов»
+// это одна и та же decor-таблица для ЛЮБОЙ своей категории (см.
+// state.libMatCustomCats) — встроенные четыре раздела (Листовые материалы /
+// Кромка / Стекло / Столешницы) по-прежнему нет, там тип товара завязан на
+// группу каталога; всё, что ниже корня встроенного раздела, там по-прежнему
+// заводится значком «+» на самой строке дерева.
 function libLinkTopBarHtml(kind) {
   const addAttrs = kind === 'hardware'
     ? 'data-link-kind="hardware"'
     : 'data-link-kind="materials" data-link-top="sheet" data-link-group="decors"';
-  const addCatHtml = kind === 'hardware'
-    ? '<button type="button" class="btn lib-add-hw-cat">+ Добавить категорию</button>'
-    : '';
   return `<div class="lib-link-refresh-bar">
     <button type="button" class="btn lib-add-by-link" ${addAttrs}>+ Добавить по ссылке</button>
-    ${addCatHtml}
+    ${libAddCatTileHtml(kind)}
     ${libLinkRefreshBarHtml()}
   </div>`;
+}
+
+// Кнопка-плитка «Добавить категорию» — маленький квадрат с пунктирной рамкой
+// и синим «+» по центру (тот же визуальный язык, что у «+ Добавить модуль»/
+// «+ Добавить секцию», см. .mod-add/.sec-add в style.css), без подписи
+// текстом: сама операция (завести пустую именованную категорию) настолько
+// простая, что не нуждается в тексте, а текстовая кнопка рядом с «+ Добавить
+// по ссылке»/«Обновить цены с сайта» спорила бы с ними за внимание. Раньше
+// была текстовой ТОЛЬКО у «Фурнитуры» (.lib-add-hw-cat) — теперь один и тот
+// же стиль и один обработчик (см. .lib-add-cat-tile в initLibraryPanel) у всех
+// четырёх вкладок «Библиотеки», включая «Базу модулей» (см. libraryBlock),
+// у которой нет ни каталога, ни дерева, только своя пустая категория.
+// kind — 'hardware'|'materials'|'facades'|'modules', читает обработчик клика.
+function libAddCatTileHtml(kind) {
+  return `<button type="button" class="lib-add-cat-tile" data-add-cat="${esc(kind)}" title="Добавить категорию" aria-label="Добавить категорию">+</button>`;
 }
 
 // ---------------------------------------------------------------------------
@@ -5160,6 +5554,14 @@ function libSaveEdit(group, key, field, value) {
   const it = libFindItem(group, key);
   if (!it) return;
   it[field] = value;
+  // Миниатюры Библиотеки (_thumbCache в libraryGridBlock) кэшируются по коду
+  // материала, а не по имени — но реальный цвет/текстуру в renderThumbnail
+  // определяет decorLook() (viewer.js) по РЕГЭКСПУ ИМЕНИ («дуб»/«лдсп»/«бел» и
+  // т.п.), а код при переименовании не меняется. Правка любого поля здесь
+  // (не только name — categoryPath/image тоже видны в других местах) может
+  // сделать закэшированную картинку неактуальной, поэтому сбрасываем кэш
+  // целиком: дёшево, и не нужно гадать, какая именно правка задела регэксп.
+  _thumbCache.clear();
   // Правка ЦЕНЫ (а не названия/размеров/единицы измерения) снимает пометку о
   // неточной цене — см. libClearPriceNote/LIB_PRICE_EDIT_FIELDS. Проверяем сам
   // факт подтверждения ячейки, а не изменение значения: подтвердить то же
@@ -5378,14 +5780,25 @@ function libAddHardwareRow(category, path) {
 // получает categoryPath = path. 'hwadd:*' (фурнитура) с 2026-09-16 тоже
 // получает path целиком — её дерево категорий стало таким же полноценным,
 // как у материалов (см. libAddHardwareRow/libHardwareTopEntries).
-function libAddRow(group, path) {
+// topCode — сам раздел дерева, из которого нажали кнопку (см. data-add-top в
+// libLeafTableHtml) — отличается от group ТОЛЬКО у своих категорий
+// «Материалов»/«Дверей» (matcustom-/faccustom-, см.
+// libAddMaterialCategory/libAddFacadeCategory): у остальных разделов group и
+// topCode либо совпадают, либо topCode не нужен вовсе. Проставляет новой
+// позиции item.customRoot, чтобы libTopEntries отличал её от «настоящих»
+// позиций «Листовых материалов»/«Видов фасадов» (см. там же).
+function libAddRow(group, path, topCode) {
   if (!requireLibraryEditAuth()) return;
   const cat = window.Modul3D.catalog;
   path = path || [];
+  const isMatCustom = topCode && (state.libMatCustomCats || []).indexOf(topCode) >= 0;
+  const isFacCustom = topCode && (state.libFacCustomCats || []).indexOf(topCode) >= 0;
   if (group.indexOf('hwadd:') === 0) {
     libAddHardwareRow(group.slice(6), path);
   } else if (group === 'decors') {
-    DECORS.push({ code: 'NEW-' + Date.now(), name: 'Новый материал', sheetPrice: 0, sheetW: 2750, sheetH: 1830, unit: 'лист', image: null, categoryPath: path.slice() });
+    const item = { code: 'NEW-' + Date.now(), name: 'Новый материал', sheetPrice: 0, sheetW: 2750, sheetH: 1830, unit: 'лист', image: null, categoryPath: path.slice() };
+    if (isMatCustom) item.customRoot = topCode;
+    DECORS.push(item);
   } else if (group === 'back') {
     // thickness обязателен: это единственный источник state.backThickness
     // при выборе материала в «Параметрах проекта» (ручного поля-дублёра
@@ -5393,7 +5806,9 @@ function libAddRow(group, path) {
     BACK_MATERIALS.push({ code: 'NEW-' + Date.now(), name: 'Новый материал', sheetPrice: 0, sheetW: 2440, sheetH: 1220, thickness: 3, unit: 'лист', image: null, categoryPath: path.slice() });
   } else if (group === 'facade') {
     const code = 'FAC-NEW-' + Date.now();
-    cat.FACADE_MATERIALS[code] = { code, name: 'Новый материал фасада', sheetPrice: 0, sheetW: 2750, sheetH: 1830, unit: 'лист', image: null, categoryPath: path.slice() };
+    const item = { code, name: 'Новый материал фасада', sheetPrice: 0, sheetW: 2750, sheetH: 1830, unit: 'лист', image: null, categoryPath: path.slice() };
+    if (isFacCustom) item.customRoot = topCode;
+    cat.FACADE_MATERIALS[code] = item;
   } else if (group === 'edge') {
     const name = (window.prompt('Название новой кромки:') || '').trim();
     if (!name) return;
@@ -6655,16 +7070,21 @@ function libSelectRow(panel, group, key) {
 // дефолтом top:'sheet'/group:'decors' (см. коммент у libLinkTopBarHtml),
 // категории «Виды фасадов» это не подходит, а своя, правильно
 // заполненная кнопка «+ Добавить по ссылке» у неё уже есть на уровне листа.
+// «Добавить категорию»-плитка (см. libAddCatTileHtml) при этом здесь всё
+// же нужна — заводит СВОЮ корневую категорию «Дверей» (см.
+// libAddFacadeCategory/state.libFacCustomCats), это не привязано к форме
+// «Добавить по ссылке» выше, отдельный маленький ряд.
 function libraryFacadesBlock() {
-  // Раздел здесь пока один, но список строится так же, как на соседних
-  // вкладках (libTabRootCodes/libTopCategoryTreeHtml) — чтобы порядок и
-  // вложенность заголовков работали одинаково везде и второй раздел, когда
-  // появится, не потребовал отдельной ветки.
+  // Раздел здесь пока один плюс, возможно, свои категории пользователя —
+  // список строится так же, как на соседних вкладках (libTabRootCodes/
+  // libTopCategoryTreeHtml), чтобы порядок и вложенность заголовков работали
+  // одинаково везде.
   const catsHtml = libTabRootCodes('facades')
     .map((code) => libTopCategoryTreeHtml('facades', code, 0))
     .join('');
   return `
     <h3>Двери</h3>
+    <div class="lib-link-refresh-bar">${libAddCatTileHtml('facades')}</div>
     ${state.libLinkForm && state.libLinkForm.kind === 'materials' ? libLinkFormHtml(state.libLinkForm) : ''}
     ${catsHtml}`;
 }
@@ -6744,9 +7164,19 @@ function initLibraryPanel() {
       else if (treeIcon.dataset.treeDel != null) libDeleteNode(topCode, path);
       return;
     }
-    // «+ Добавить категорию» — кнопка уровня вкладки «Фурнитура» (см.
-    // libLinkTopBarHtml/libAddHwCategory), заводит СВОЮ корневую категорию.
-    if (e.target.closest('.lib-add-hw-cat')) { libAddHwCategory(); return; }
+    // «Добавить категорию» — кнопка-плитка уровня вкладки (см.
+    // libAddCatTileHtml), заводит СВОЮ корневую категорию. kind различает,
+    // какой из четырёх вкладок она принадлежит — «База модулей» её тоже
+    // использует (см. libraryBlock), хотя там нет ни каталога, ни дерева.
+    const addCatTile = e.target.closest('.lib-add-cat-tile');
+    if (addCatTile) {
+      const kind = addCatTile.dataset.addCat;
+      if (kind === 'hardware') libAddHwCategory();
+      else if (kind === 'materials') libAddMaterialCategory();
+      else if (kind === 'facades') libAddFacadeCategory();
+      else if (kind === 'modules') libAddModuleGroup();
+      return;
+    }
     // Хлебная крошка над таблицей сфокусированного листа (см.
     // libBreadcrumbHtml) — клик по любому сегменту, кроме текущего
     // (последнего — сам лист), снимает фокус категории и раскрывает дерево
@@ -6851,7 +7281,7 @@ function initLibraryPanel() {
     const addBtn = e.target.closest('.lib-add');
     if (addBtn) {
       const pathStr = addBtn.dataset.addPath || '';
-      libAddRow(addBtn.dataset.add, pathStr ? pathStr.split('::') : []);
+      libAddRow(addBtn.dataset.add, pathStr ? pathStr.split('::') : [], addBtn.dataset.addTop || '');
       return;
     }
     // «+ Добавить по ссылке» (см. openLibLinkForm/libLinkFormHtml) — та же
@@ -9340,6 +9770,17 @@ function bindLibraryEvents() {
   document.querySelectorAll('.lib-item').forEach((b) => {
     b.addEventListener('click', () => {
       addPresetToProject(state.libraryOpenCat, b.dataset.preset);
+    });
+  });
+  // «×» на пилюле своей категории (см. libDeleteModuleGroup) — только у
+  // категорий из state.libModCustomGroups, у PRESETS такого значка нет.
+  // stopPropagation ОБЯЗАТЕЛЕН: сам значок лежит внутри той же <button
+  // class="lib-cat">, чей слушатель выше иначе среагировал бы вторым и
+  // тут же заново открыл/закрыл только что удалённую категорию.
+  document.querySelectorAll('.lib-cat-del').forEach((el) => {
+    el.addEventListener('click', (e) => {
+      e.stopPropagation();
+      libDeleteModuleGroup(el.dataset.delModcat);
     });
   });
 }

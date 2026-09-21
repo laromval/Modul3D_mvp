@@ -51,6 +51,54 @@ function woodTexture() {
   return _woodTex;
 }
 
+// НЕПРЕРЫВНОСТЬ РИСУНКА ВОЛОКНА МЕЖДУ СОСЕДНИМИ ДЕТАЛЯМИ.
+// UV детали в buildSlabGeometry — «сырые» координаты ЕЁ ПЛАСТИ в метрах,
+// от центра детали (см. spec.uv там же): это специально, чтобы густота
+// волокна не зависела от размера детали. Но у двух соседних деталей одного
+// модуля (например, двух дверей корпуса) центры стоят в разных точках
+// корпуса — и без поправки фаза узора «переезжает» на стыке (виден шов).
+// Чтобы узор был как бы вырезан из одного большого листа, нужно сдвинуть
+// UV каждой детали на ЕЁ положение в корпусе — тогда одна и та же мировая
+// точка всегда даёт одну и ту же фазу узора, независимо от того, какой
+// детали она принадлежит.
+//
+// Ось u/v детали живёт в системе ГЕОМЕТРИИ уже ПОСЛЕ разворота пласти в
+// мировые оси (rotateY/rotateX в месте вызова buildSlabGeometry), но ДО
+// общего поворота детали (mesh.rotation.y = rotDeg). planeAxisDirs() как
+// раз и даёт направление осей u/v в этой системе координат:
+//   боковина (planeIsX)  — u (глубина) вдоль Z, v (высота) вдоль Y;
+//   гориз. деталь (planeIsY) — u (длина) вдоль X, v (глубина) вдоль Z;
+//   фасад/вертикаль (иначе)  — u (ширина) вдоль X, v (высота) вдоль Y.
+function planeAxisDirs(planeIsX, planeIsY) {
+  if (planeIsX) return { u: [0, 0, 1], v: [0, 1, 0] };
+  if (planeIsY) return { u: [1, 0, 0], v: [0, 0, 1] };
+  return { u: [1, 0, 0], v: [0, 1, 0] };
+}
+// Тот же поворот вокруг Y, что применяет THREE к геометрии/мешу
+// (rotateY/mesh.rotation.y) — нужен, чтобы направления осей u/v пересчитать
+// в МИРОВЫЕ оси и корректно спроецировать на них положение детали.
+function rotateYVec(v, rad) {
+  const c = Math.cos(rad), s = Math.sin(rad);
+  return [v[0] * c + v[2] * s, v[1], -v[0] * s + v[2] * c];
+}
+// Смещение UV (в «сырых» метрах пласти, до repeat) для детали с центром
+// (box.x, box.y, box.z в мм) и разворотом rotDeg — проекция мировой позиции
+// центра детали на мировые направления её осей u/v. Прибавленное к «сырому»
+// локальному UV детали (см. buildSlabGeometry), оно превращает его в
+// координату, единую для всего корпуса: соседние детали продолжают узор
+// друг друга, а не начинают его заново от своего угла.
+function woodUvOrigin(box, rotDeg, planeIsX, planeIsY) {
+  const dirs = planeAxisDirs(planeIsX, planeIsY);
+  const rad = ((rotDeg || 0) * Math.PI) / 180;
+  const wu = rotateYVec(dirs.u, rad);
+  const wv = rotateYVec(dirs.v, rad);
+  const bx = box.x * MM, by = box.y * MM, bz = box.z * MM;
+  return {
+    u: bx * wu[0] + by * wu[1] + bz * wu[2],
+    v: bx * wv[0] + by * wv[1] + bz * wv[2],
+  };
+}
+
 // Цвет детали по её МАТЕРИАЛУ: белый корпус должен быть белым и в 3D, а не
 // «древесным» по типу детали. Ищем материал в каталоге и смотрим на название.
 function decorLook(code) {
@@ -66,6 +114,13 @@ function decorLook(code) {
   if (!nm) return null;
   if (/бел/i.test(nm)) return { color: 0xf3f1ec, wood: false };
   if (/чёрн|черн/i.test(nm)) return { color: 0x35332f, wood: false };
+  // Камень/мрамор/керамика (столешницы CTOP-*, напр. «мрамор Bianco Bello»,
+  // «керамика крем») — раньше без отдельной ветки такие декоры попадали в
+  // «лдсп»- или «компакт-плита»-фолбэк ниже и красились ДЕРЕВОМ (бежевый цвет
+  // + текстура волокна), хотя визуально это гладкий холодный камень. Ветка
+  // стоит ДО «дерева»/«лдсп»/«компакт-плиты», но ПОСЛЕ бел/чёрн — уже белый
+  // или уже чёрный мрамор/камень должен остаться в тех более точных ветках.
+  if (/мрамор|камень|керамика/i.test(nm)) return { color: 0xd9d3c7, wood: false };
   if (/шпон|дуб|сонома|крафт|массив|орех|ясен/i.test(nm)) return { color: 0xc9a76a, wood: true };
   if (/крашен|эмал|плёнк|пленк|мдф/i.test(nm)) return { color: 0xf2efe9, wood: false };
   if (/лдсп|дсп/i.test(nm) && !/стенк/i.test(nm)) return { color: 0xc9a76a, wood: true };
@@ -171,11 +226,13 @@ const GEO_EPS = 1e-6;
 const RING_BASE = Math.PI / 4;
 
 // Сколько граней у отверстия. Правило согласовано с пользователем:
-//   до Ø5 — 6, Ø5…8 — 12, Ø8…15 — 16, крупнее — ⌀×16/15 вверх до кратного
-//   четырём (Ø35 → 40). У глухих отверстий столько же, сколько у сквозных.
+//   Ø0…4 — 6, Ø5…7 — 8, Ø8…10 — 12, Ø11…15 — 16, крупнее — ⌀×16/15 вверх до
+//   кратного четырём (Ø35 → 40). У глухих отверстий столько же, сколько у
+//   сквозных.
 function segmentsForHole(d) {
-  if (d <= 5) return 6;
-  if (d <= 8) return 12;
+  if (d <= 4) return 6;
+  if (d <= 7) return 8;
+  if (d <= 10) return 12;
   if (d <= 15) return 16;
   return Math.ceil((d * (16 / 15)) / 4) * 4;
 }
@@ -2754,6 +2811,9 @@ class Viewer3D {
         // spec.uv в buildSlabGeometry) — 1 тайл = WOOD_TILE_M метров
         // детали, густота волокна (линий на мм) одинакова у любой детали
         // независимо от размера, как и должно быть у одной породы.
+        // offset (фаза узора относительно корпуса) выставляется ниже, в
+        // цикле по row.boxes — woodUvOrigin(), — там известно положение
+        // конкретной детали в корпусе.
         mat.map.repeat.set(1 / WOOD_TILE_M, 1 / WOOD_TILE_M);
       }
       // Кэш геометрии детали (см. this._partGeoCache в конструкторе):
@@ -2840,8 +2900,29 @@ class Viewer3D {
 
       for (const box of row.boxes) {
         const mesh = new THREE.Group();
+        // Смещаем UV древесной текстуры на положение ИМЕННО ЭТОЙ детали в
+        // корпусе (см. woodUvOrigin выше) — иначе у деталей одного размера
+        // с разным положением в корпусе (например, у пары дверей) фаза
+        // узора совпадала бы один в один и рвалась на стыке между ними.
+        // Обычный случай — один box на строку, тогда безопасно двигать
+        // offset самого mat.map (это и так отдельный клон текстуры на всю
+        // строку, см. выше). Но mergeEqualParts может свести несколько
+        // одинаковых деталей (например, зеркальную пару дверей) в одну
+        // строку с несколькими box — им нужен уже СВОЙ клон текстуры на
+        // каждый, иначе все они делят один offset и в кадре остаётся
+        // фаза только последней по циклу детали.
+        let boxMat = mat;
+        if (tex) {
+          const origin = woodUvOrigin(box, rotDeg, planeIsX, planeIsY);
+          if (row.boxes.length > 1) {
+            boxMat = mat.clone();
+            boxMat.map = mat.map.clone();
+            boxMat.map.needsUpdate = true;
+          }
+          boxMat.map.offset.set(origin.u / WOOD_TILE_M, origin.v / WOOD_TILE_M);
+        }
         for (const g of partGeos) {
-          const piece = new THREE.Mesh(g, mat);
+          const piece = new THREE.Mesh(g, boxMat);
           piece.userData.module = row.module;
           mesh.add(piece);
         }
@@ -3086,20 +3167,44 @@ function renderThumbnail(model, opts) {
     const group = new THREE.Group();
     scene.add(group);
 
+    // Режим «в реальном цвете» (для миниатюр Библиотеки, opts.realistic) —
+    // в отличие от нейтрального силуэта, здесь опоры должны попасть и в
+    // кадр, и в bounding box камеры (кухонная тумба «висела бы в воздухе»
+    // без них на иконке).
+    const realistic = !!(opts && opts.realistic);
     for (const row of source) {
       // Фурнитуру (опоры/ручки/штанги/полкодержатели/фланцы) для маленькой
-      // иконки не рисуем — силуэт модуля определяют только листовые детали.
-      // Сюда же попадает и опора: она использует src/legMeshes.js, который
-      // по правилам проекта не читаем и не трогаем.
-      if (row.shape && row.shape !== 'box') continue;
+      // иконки обычно не рисуем — силуэт модуля определяют только листовые
+      // детали. Опоры (row.shape === 'cylinder') — исключение в реальном
+      // режиме: см. makeLeg/makeKitchenLeg ниже (используют src/legMeshes.js,
+      // который по правилам проекта не читаем и не трогаем — вызываем его
+      // так же, как основной Viewer3D.render()).
+      if (row.shape && row.shape !== 'box') {
+        if (realistic && row.shape === 'cylinder') {
+          const legBoxes = row.boxes || (row.box ? [row.box] : []);
+          for (const legBox of legBoxes) {
+            // Геометрию/материалы опоры НЕ добавляем в geoms/mats ниже —
+            // см. пояснение у finally: часть геометрии тут — общий на всё
+            // приложение кэш (kitchenLegSplitCache/clipTabGeoCache), и
+            // диспозить его отсюда нельзя.
+            const leg = row.legType === 'kitchen'
+              ? makeKitchenLeg(legBox, row.module, false, !!row.hasClip, false, row.rot || 0)
+              : makeLeg(legBox, row.module, false, false);
+            group.add(leg);
+          }
+        }
+        continue;
+      }
       const box = row.box;
       if (!box || !(box.w > 0) || !(box.h > 0) || !(box.d > 0)) continue;
 
       // Цвет — по материалу детали (тот же decorLook/KIND_COLOR, что и в
-      // основной сцене), без текстур: для иконки достаточно плоского тона.
-      // В нейтральном режиме (opts.neutral) реальный декор игнорируем —
-      // все детали красим одним светлым тоном, а силуэт читается по
-      // контуру (EdgesGeometry), а не по цвету материала.
+      // основной сцене). В нейтральном режиме (opts.neutral) реальный декор
+      // игнорируем — все детали красим одним светлым тоном, а силуэт
+      // читается по контуру (EdgesGeometry), а не по цвету материала. В
+      // реальном режиме (opts.realistic), наоборот, поверх цвета кладём ещё
+      // и текстуру «под древесину» — ту же woodTexture(), что и основная
+      // сцена, — на декорах ЛДСП/дерева (не на МДФ/плёнке/стекле).
       const neutral = !!(opts && opts.neutral);
       const look = decorLook(row.material);
       const asFacade = !!row.facadeType;
@@ -3110,6 +3215,9 @@ function renderThumbnail(model, opts) {
       // см. пояснение у GLASS4_COLOR выше. asFacade (row.facadeType задан
       // только у двери/ящика) отличает фасад от полки.
       const glassFacade = !!row.glass && asFacade;
+      const isMdf = row.facadeType === 'mdf' || row.facadeType === 'mdfMilled';
+      const ldspLike = !row.glass && !isMdf && (look ? look.wood : true);
+      const tex = (realistic && ldspLike) ? woodTexture() : null;
 
       const geo = new THREE.BoxGeometry(
         Math.max(box.w * MM, 0.001), Math.max(box.h * MM, 0.001), Math.max(box.d * MM, 0.001));
@@ -3118,6 +3226,17 @@ function renderThumbnail(model, opts) {
         roughness: 0.7, metalness: 0.03,
         transparent: !!row.glass, opacity: glassFacade ? GLASS4_OPACITY : (row.glass ? 0.4 : 1),
       });
+      if (tex) {
+        // BoxGeometry (не аналитическая пласть buildSlabGeometry) даёт UV
+        // 0..1 на каждую грань — переводим repeat в те же метры детали, что
+        // и в основной сцене (WOOD_TILE_M), чтобы густота волокна на иконке
+        // не «плыла» от размера детали.
+        mat.map = tex.clone();
+        mat.map.needsUpdate = true;
+        mat.map.wrapS = THREE.RepeatWrapping;
+        mat.map.wrapT = THREE.RepeatWrapping;
+        mat.map.repeat.set(Math.max(box.w * MM, 0.01) / WOOD_TILE_M, Math.max(box.h * MM, 0.01) / WOOD_TILE_M);
+      }
       geoms.push(geo); mats.push(mat);
 
       const mesh = new THREE.Mesh(geo, mat);
@@ -3127,16 +3246,34 @@ function renderThumbnail(model, opts) {
       mesh.position.set(box.x * MM, box.y * MM, box.z * MM);
       mesh.rotation.y = ((row.rot || 0) * Math.PI) / 180;
 
-      if (neutral) {
-        // Контур детали — та же техника, что и в основном 3D-виде
-        // (Viewer3D.render): EdgesGeometry поверх боксовой геометрии, тем
-        // же mesh.position/rotation (edges — дочерний объект mesh).
-        const edgesGeo = new THREE.EdgesGeometry(geo);
-        const edgesMat = new THREE.LineBasicMaterial({ color: 0x33302a });
-        geoms.push(edgesGeo); mats.push(edgesMat);
-        const edges = new THREE.LineSegments(edgesGeo, edgesMat);
-        mesh.add(edges);
-      }
+      // Контур детали — та же техника, что и в основном 3D-виде
+      // (Viewer3D.render): EdgesGeometry поверх боксовой геометрии, тем же
+      // mesh.position/rotation (edges — дочерний объект mesh). Раньше рисовали
+      // только в neutral (силуэт без цвета, контур — единственная подсказка
+      // о границах деталей), но в realistic цветные детали одного тона
+      // (боковины/полки/фасад одного декора) сливались в один силуэт без
+      // контура — рисуем контур и здесь, цветом чуть темнее нейтрального,
+      // чтобы он читался и на светлом, и на цветном/древесном корпусе.
+      const edgesGeo = new THREE.EdgesGeometry(geo);
+      // В realistic контур раньше рисовали сплошным почти-чёрным (opacity 1,
+      // 0x241f18) — на светлом корпусе (белый, МДФ) это давало огромный
+      // контраст и «резало глаз». linewidth у LineBasicMaterial в WebGL почти
+      // везде (в т.ч. Windows/ANGLE) игнорируется браузером и всегда рисует
+      // 1px независимо от значения — поэтому «потоньше» делаем не через
+      // толщину, а через контраст: полупрозрачная линия (opacity 0.6)
+      // подмешивается к тому, что уже нарисовано позади неё. На белом/светлом
+      // корпусе она смягчается до тёмно-серой (не «кричит»), а декор «чёрный
+      // ЛДСП» в каталоге на самом деле тёмно-серый (0x35332f, не абсолютный
+      // чёрный) — той же полупрозрачной линии темнее его всё равно хватает,
+      // чтобы контур читался, а не пропадал. Neutral-режим (силуэт без цвета,
+      // контур — единственная подсказка о границах) не трогаем — там линия
+      // должна остаться чёткой и непрозрачной, как раньше.
+      const edgesMat = neutral
+        ? new THREE.LineBasicMaterial({ color: 0x33302a })
+        : new THREE.LineBasicMaterial({ color: 0x1a1712, transparent: true, opacity: 0.6 });
+      geoms.push(edgesGeo); mats.push(edgesMat);
+      const edges = new THREE.LineSegments(edgesGeo, edgesMat);
+      mesh.add(edges);
 
       group.add(mesh);
     }
@@ -3191,8 +3328,26 @@ function renderThumbnail(model, opts) {
     // если не закрывать контекст явно, браузер быстро упрётся в лимит
     // одновременных WebGL-контекстов, и дальнейшие иконки перестанут
     // рендериться.
+    //
+    // ОПОРЫ (realistic, makeLeg/makeKitchenLeg) — единственное, что сюда
+    // сознательно НЕ попадает. У makeLeg вся геометрия/материалы фреш-
+    // изготовленные (можно было бы диспозить), но у makeKitchenLeg часть
+    // геометрии — ОБЩИЙ на всё приложение кэш (kitchenLegSplitCache —
+    // lowGeo/highGeo, и clipTabGeoCache — plateGeo/hoopGeo/holeGeo клипсы,
+    // см. их у makeClipTabGeo/splitKitchenLegParts выше), который использует
+    // и основная 3D-сцена. Диспозить их отсюда — значит заставить основной
+    // Viewer3D перезаливать эту геометрию на GPU при следующей перерисовке
+    // (не поломка, но лишняя работа на пустом месте), а разбирать группу
+    // опоры руками, чтобы отличить «своё» от «кэшированного», усложнило бы
+    // функцию сильнее, чем стоит эта экономия. GPU-память опоры всё равно
+    // полностью освобождается ниже через renderer.forceContextLoss() — он
+    // целиком уничтожает WebGL-контекст этого разового рендера, независимо
+    // от того, вызывали мы .dispose() на конкретных объектах или нет.
     for (const g of geoms) g.dispose();
-    for (const m of mats) m.dispose();
+    // map — клон woodTexture() (см. realistic выше): сам canvas общий
+    // (singleton _woodTex), но каждый клон — отдельная GPU-текстура, и её
+    // нужно закрыть отдельно от материала.
+    for (const m of mats) { if (m.map) m.map.dispose(); m.dispose(); }
     if (renderer) {
       renderer.dispose();
       if (typeof renderer.forceContextLoss === 'function') renderer.forceContextLoss();
