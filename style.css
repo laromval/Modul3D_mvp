@@ -208,7 +208,6 @@ body {
 .btn,
 .btn-header,
 .add-section-btn,
-.lib-cat,
 .mod-tab,
 .mod-add,
 .sec-tab,
@@ -231,7 +230,6 @@ body {
 .btn:hover,
 .btn-header:hover,
 .add-section-btn:hover,
-.lib-cat:hover,
 .mod-tab:hover,
 .mod-add:hover,
 .sec-tab:hover,
@@ -267,7 +265,6 @@ body {
 .btn:active,
 .btn-header:active,
 .add-section-btn:active,
-.lib-cat:active,
 .mod-tab:active,
 .mod-add:active,
 .sec-tab:active,
@@ -1023,25 +1020,13 @@ input[type='number'] { font-family: var(--ff-mono); }
 .axis-label-x { color: #e03131; }
 .axis-label-y { color: #2f9e44; }
 
-.lib-row { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 6px; }
-/* Уже уменьшенный горизонтальный отступ (было 12px, как у обычных .btn) —
-   чтобы все три категории («Шкаф», «Тумба», «Кухонный модуль») помещались
-   в один ряд на стандартной ширине панели «Библиотека» (340px). */
-.lib-cat { padding-left: 8px; padding-right: 8px; font-weight: 600; color: var(--accent); border-color: var(--border-strong); }
-.lib-cat:hover { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); }
-.lib-cat.on { background: var(--accent-soft); border-color: var(--accent); }
-/* «×» удалить свою категорию базы модулей — внутри пилюли .lib-cat (см.
-   libDeleteModuleGroup в app.js), у встроенных категорий PRESETS его нет. */
-.lib-cat-del { margin-left: 5px; color: var(--muted); font-weight: 400; }
-.lib-cat-del:hover { color: var(--danger); }
-
 /* Кнопка-плитка «Добавить категорию» — маленький квадрат с пунктирной
    рамкой и синим «+» по центру, без подписи текстом (см. libAddCatTileHtml в
-   app.js) — на вкладках «Материалы»/«Двери»/«Фурнитура» панели «Библиотека»
-   (в ряду .lib-link-refresh-bar рядом с «+ Добавить по ссылке») и на «Базе
-   модулей» (в конце ряда .lib-row). Тот же визуальный язык, что у «+
-   Добавить модуль»/«+ Добавить секцию» (.mod-add/.sec-add выше), но строго
-   квадратная и меньше — рядом с .btn/.lib-cat, а не вместо них. */
+   app.js) — в ряду .lib-link-refresh-bar рядом с «+ Добавить по ссылке» на
+   вкладках «Материалы»/«Двери»/«Фурнитура», и там же (без «+ Добавить по
+   ссылке» рядом) на «Базе модулей», см. libraryBlock(). Тот же визуальный
+   язык, что у «+ Добавить модуль»/«+ Добавить секцию» (.mod-add/.sec-add
+   выше), но строго квадратная и меньше — рядом с .btn, а не вместо него. */
 .lib-add-cat-tile {
   display: inline-flex; align-items: center; justify-content: center;
   width: 30px; height: 30px; flex: 0 0 auto; padding: 0;
@@ -1057,12 +1042,14 @@ input[type='number'] { font-family: var(--ff-mono); }
 .lib-add-cat-tile:hover { border-color: var(--accent); background: var(--accent-soft); box-shadow: 0 4px 12px -6px var(--accent-glow); transform: translateY(-1px); }
 .lib-add-cat-tile:active { transform: translateY(1px); box-shadow: none; }
 
-/* Сетка миниатюр открытой категории «Базы модулей» — рендерится прямо в
-   панели под рядом кнопок-категорий (см. libraryGridBlock() в app.js). */
+/* Сетка карточек узла дерева «Базы модулей» — рендерится внутри
+   .lib-leaf-body, тем же местом, что и таблица листа материалов (см.
+   libModLeafGridHtml() в app.js). */
 .lib-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 8px; }
-/* Заголовок группы плиток по `tier` (например, «Нижние модули» / «Верхние
-   модули» для кухонных модулей) — на всю ширину сетки, см. libraryGridBlock().
-   Показывается и перед самой первой группой, не только между группами. */
+/* Заголовок группы плиток по `tier` — исторический класс, сейчас нигде не
+   выводится (группировка тумб/кухонных модулей по ярусам ушла из «Базы
+   модулей» вместе с прежней плоской сеткой пресетов), оставлен на случай,
+   если понадобится такая же группировка внутри дерева. */
 .lib-grid-heading {
   grid-column: 1 / -1;
   font-size: var(--fs-xs);
@@ -1077,8 +1064,8 @@ input[type='number'] { font-family: var(--ff-mono); }
 /* У самой первой плитки в сетке заголовок не должен создавать лишний
    отступ сверху (он и так margin-top:8px у .lib-grid) — компенсируем. */
 .lib-grid-heading:first-child { margin-top: 0; }
-/* Подсказка «Модули появятся позже» под пустой tier-группой (см.
-   libraryGridBlock() в app.js) — растягиваем на всю ширину сетки, само
+/* Подсказка «Пока нет модулей» под пустым узлом дерева (см.
+   libModLeafGridHtml() в app.js) — растягиваем на всю ширину сетки, само
    оформление текста даёт класс .hint. */
 .lib-grid-empty { grid-column: 1 / -1; margin: 0 0 var(--sp-2); }
 .lib-item {
@@ -1088,6 +1075,11 @@ input[type='number'] { font-family: var(--ff-mono); }
   transition: border-color var(--dur) var(--ease);
 }
 .lib-item:hover { border-color: var(--accent); }
+/* Перетаскивание миниатюры на строку категории (app.js:
+   libModCardDragPointerDown) — источник остаётся на месте приглушённым,
+   тот же приём и тот же класс-модификатор, что у строки дерева
+   (.lib-tree-row.lib-drag-src ниже). */
+.lib-item.lib-drag-src { opacity: .35; }
 /* Скругление — на самой картинке, не на .lib-item: этот элемент несёт
    класс .tip (всплывающая подсказка с названием пресета), а overflow:hidden
    на нём самом обрезал бы подсказку (она — тоже дочерний элемент .lib-item,
@@ -1277,6 +1269,12 @@ h4.spec-title { margin: var(--sp-5) 0 var(--sp-2); font-size: var(--fs-md); font
 }
 .ctx-numrow .ctx-item { width: auto; flex: 1; text-align: center; background: var(--surface-2); }
 .ctx-numrow .ctx-item:hover { background: var(--accent-soft); color: var(--accent); }
+/* Плашка ✎+⇄× по правому клику на карточке модуля (app.js:
+   openLibModCardMenu) — тот же .ctx-menu, но узкая строка из значков
+   .lib-tree-ic (тот же визуальный язык, что у строки категории дерева, см.
+   .lib-tree-ic выше), а не список .ctx-item. */
+.lib-mod-card-menu { min-width: 0; display: flex; align-items: center; gap: 14px; padding: 8px 12px; }
+.lib-mod-card-menu .lib-tree-ic { font-size: var(--fs-md); }
 
 /* ---------- 12. ПОПОВЕРЫ (эскиз ИИ, API-ключ) ----------------------------- */
 
@@ -1431,6 +1429,10 @@ body.lib-dragging .drawer-body { touch-action: none; }
   background: var(--surface-solid); box-shadow: var(--shadow-2);
 }
 .lib-drag-ghost .lib-tree-row { cursor: grabbing; }
+/* Тот же призрак, но для перетаскивания МИНИАТЮРЫ модуля (app.js:
+   libModCardDragBegin) — квадратная картинка вместо строки дерева. */
+.lib-mod-drag-ghost { padding: 3px; cursor: grabbing; }
+.lib-mod-drag-ghost img { display: block; width: 60px; height: 60px; object-fit: contain; border-radius: var(--r-sm); }
 /* Меню «Переместить» узла дерева (значок ⇄, см. openLibTreeMoveMenu в
    app.js) — обычное .ctx-menu, отличается только тем, что список возможных
    родителей может быть длинным: прокручиваем его внутри меню, как список

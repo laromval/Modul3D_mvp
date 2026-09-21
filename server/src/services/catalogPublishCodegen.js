@@ -56,6 +56,15 @@ const APP_STATE_KEYS = [
   'libTopParent',
   'libHwCatLabels',
   'libHwCustomCats',
+  'libModOverrides',
+  'libModPlacements',
+  // Свои категории верхнего уровня «Базы модулей» (кнопка-плитка «Добавить
+  // категорию», см. state.libModCustomGroups) — без этого ключа сама
+  // категория не публикуется как дефолт, хотя размещённые в ней карточки
+  // (libModOverrides/libModPlacements выше, group: 'modcustom-…') уже
+  // публикуются — у остальных пользователей они стали бы «осиротевшими»,
+  // без своей категории в дереве (найдено ревью, 2026-09-21).
+  'libModCustomGroups',
 ];
 
 function parseSource(source, label) {
@@ -180,7 +189,7 @@ function buildCatalogSource(originalSource, blob) {
 }
 
 /**
- * Собирает новый текст src/app.js, подставив в 6 полей объекта
+ * Собирает новый текст src/app.js, подставив в 8 полей объекта
  * `const state = { ... }` соответствующие ключи из blob. Ключи, которых нет
  * в blob, пропускаются — поле в файле не трогается.
  *
