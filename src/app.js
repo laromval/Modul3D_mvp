@@ -187,7 +187,22 @@ const state = {
   // state.libExtraSubcats (был только один уровень вложенности —
   // subcategory). Чисто UI-состояние, как libCollapsed выше: в историю
   // отмены/файл проекта не попадает.
-  libExtraNodes: { sheet: [], facade: [], edge: [], glass: [] },
+  libExtraNodes: {
+  "edge": [],
+  "glass": [],
+  "sheet": [],
+  "facade": [],
+  "hw:hinge": [
+    [
+      "Blum"
+    ]
+  ],
+  "hw:runner": [
+    [
+      "фаа"
+    ]
+  ]
+},
   // СВОЙ порядок подкатегорий в дереве «Библиотеки», заданный
   // перетаскиванием строки узла мышью/пальцем (см. libTreeDragStart ниже) —
   // по разделу: { sheet: { '': ['ДСП', 'ХДФ/ДВП'], 'ДСП': ['Egger',
@@ -205,7 +220,14 @@ const state = {
   // В отличие от libCollapsed/libCatOpen выше это НЕ сессионное состояние:
   // едет на сервер в общем снимке каталога (см. snapshotCatalogCollections)
   // и переживает перезагрузку, как libExtraNodes/libHwCatLabels.
-  libNodeOrder: {},
+  libNodeOrder: {
+  "hw:hinge": {
+    "": [
+      "Blum",
+      "петли для стекла"
+    ]
+  }
+},
   // То же самое, но для КОРНЕВЫХ категорий — по вкладке «Библиотеки»:
   // { materials: ['edge','sheet','glass','countertop'],
   //   hardware: ['hw:handle','hw:hinge', …], facades: ['facade'] }.
@@ -217,7 +239,20 @@ const state = {
   // Перечисленные разделы идут первыми в указанном порядке, не
   // перечисленные (новая своя категория фурнитуры) — следом, в заводском
   // порядке. Как libNodeOrder выше, едет на сервер в снимке каталога.
-  libTopOrder: {},
+  libTopOrder: {
+  "hardware": [
+    "hw:hinge",
+    "hw:runner",
+    "hw:handle",
+    "hw:leg",
+    "hw:support",
+    "hw:plinth",
+    "hw:countertop",
+    "hw:mechanism",
+    "hw:rod",
+    "hw:fastener"
+  ]
+},
   // Вложенность КОРНЕВЫХ категорий друг в друга — по вкладке:
   // { hardware: { 'hw:shelfSupport': 'hw:fastener' } }, ключ — код
   // вложенной категории, значение — код её родителя (те же коды, что в
@@ -232,7 +267,9 @@ const state = {
   // такую категорию корневой (см. там же защиту от цикла).
   // Как libTopOrder выше — не сессионное состояние, едет на сервер в снимке
   // каталога.
-  libTopParent: {},
+  libTopParent: {
+  "hardware": {}
+},
   // Свои ПОДПИСИ корневых категорий вкладки «Фурнитура» — { hinge: 'Петельки',
   // 'custom-1758...': 'Уплотнители' }: ключ — тот же item.category, по которому
   // engine.js/specification.js подбирают фурнитуру в расчёте, значение — только
