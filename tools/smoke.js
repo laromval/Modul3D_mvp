@@ -235,6 +235,50 @@ function docsTab(name) {
   return $('tab-' + name);
 }
 
+// «База модулей» (2026-09-21) — категории (группы PRESETS/свои) стали
+// строками дерева, как у «Материалов»/«Фурнитуры» (см. app.js libraryBlock/
+// libTreeRowHtml), вместо кнопок-пилюль .lib-cat. Строка кликается через
+// ДЕЛЕГИРОВАННЫЙ обработчик на #libraryPanel (app.js initLibraryPanel) —
+// row.click() сработал бы только для слушателей, повешенных НА САМУ строку
+// (таких нет), поэтому открываем/закрываем её так же, как остальные
+// проверки дерева «Библиотеки» ниже: lib.dispatch('click', { target: row })
+// (см. комментарий у El.closest в начале файла). Карточки модулей
+// (.lib-item[data-preset]) по-прежнему кликаются напрямую (item.click()) —
+// у них остался свой addEventListener (см. app.js bindLibraryEvents).
+// ВАЖНО: в отличие от прежних пилюль (только ОДНА категория когда-либо была
+// в разметке — see state.libraryOpenCat), грид карточек КАЖДОЙ группы теперь
+// всегда есть в HTML (закрытость — только CSS-класс .lib-collapsed на
+// обёртке, харнесс его не учитывает), поэтому modGridItems() ищет по ВСЕЙ
+// панели сразу — карточки одной группы нужно отбирать по data-group
+// (id родной группы пресета, не меняется от переносов/копий, см.
+// app.js libModCardHtml).
+function libPanelEl() { return document.getElementById('libraryPanel'); }
+function modGroupRows() {
+  return libPanelEl().querySelectorAll('[data-tree-node]')
+    .filter((r) => r.dataset.kind === 'top' && String(r.dataset.top || '').indexOf('mod:') === 0);
+}
+function modGroupRow(groupId) {
+  return modGroupRows().filter((r) => r.dataset.top === 'mod:' + groupId)[0];
+}
+function toggleModGroup(row) {
+  if (row) libPanelEl().dispatch('click', { target: row });
+}
+function modGridItems(groupId) {
+  const all = libPanelEl().querySelectorAll('[data-preset]');
+  return groupId == null ? all : all.filter((el) => el.dataset.group === groupId);
+}
+// Раскрыта ли категория верхнего уровня — читаем класс .lib-collapsed на
+// <div class="lib-tree-children"> сразу под её строкой (см. libTopCategoryHtml
+// в app.js), тем же приёмом, что и остальные regex-проверки разметки в этом
+// файле (см. SEL_RE/parseSel ниже): харнесс не даёт настоящего scoped
+// querySelectorAll на вложенный без-id узел.
+function modGroupOpen(groupId) {
+  const html = String(libPanelEl().innerHTML || '');
+  const re = new RegExp('data-top="mod:' + groupId + '"[\\s\\S]*?<div class="lib-tree-children([^"]*)"');
+  const m = re.exec(html);
+  return !!m && m[1].indexOf('lib-collapsed') < 0;
+}
+
 const INDEX = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
 harvest(INDEX);
 const INDEX_ELS = parseElements(INDEX);
@@ -657,16 +701,16 @@ for (const id of Array.from(registry.keys())) {
     if (!d) break;
     d.click();
   }
-  const cats = document.querySelectorAll('.lib-cat');
-  const kitchen = cats.filter((c) => c.attrs['data-cat'] === 'kitchen')[0];
+  const kitchen = modGroupRow('kitchen');
   check('категория «Кухонный модуль» есть', () => !!kitchen);
   check('у кухонного модуля штанги нет', () => {
     if (!kitchen) return false;
-    // Категория теперь раскрывается ИНЛАЙН в #libraryPanel (сетка миниатюр
-    // .lib-item[data-preset]), без плавающего #moduleMenu — клик по миниатюре
-    // сразу добавляет модуль в проект (см. app.js bindLibraryEvents).
-    kitchen.click();
-    const item = document.getElementById('libraryPanel').querySelectorAll('[data-preset]')[0];
+    // Категория раскрывается ИНЛАЙН в #libraryPanel (грид карточек
+    // .lib-item[data-preset] внутри строки дерева), без плавающего
+    // #moduleMenu — клик по миниатюре сразу добавляет модуль в проект
+    // (см. app.js bindLibraryEvents).
+    toggleModGroup(kitchen);
+    const item = modGridItems('kitchen')[0];
     if (!item) return false;
     item.click();
     return sectionsHtml().indexOf('Штанга для одежды') === -1;
@@ -680,24 +724,26 @@ for (const id of Array.from(registry.keys())) {
 })();
 
 // --- база готовых модулей: категория → вариант → модуль в проекте ----------
-// Категория раскрывается ИНЛАЙН в #libraryPanel (сетка миниатюр
-// .lib-item[data-preset]) — плавающего #moduleMenu для выбора пресета больше
-// нет, клик по миниатюре сразу добавляет модуль (см. app.js libraryBlock/
-// libraryGridBlock/bindLibraryEvents).
+// Категория — строка дерева (data-kind="top", topCode 'mod:<id>', см. app.js
+// libraryBlock/libTreeRowHtml), открывается делегированным кликом по
+// #libraryPanel (см. modGroupRow/toggleModGroup выше). Сама карточка
+// (.lib-item[data-preset]) кликается напрямую — плавающего #moduleMenu для
+// выбора пресета нет, клик по миниатюре сразу добавляет модуль (см. app.js
+// bindLibraryEvents).
 (function presetScenario() {
-  const cats = () => document.querySelectorAll('.lib-cat');
-  check('кнопки категорий базы есть', () => cats().length >= 2);
+  check('строки категорий базы есть', () => modGroupRows().length >= 2);
 
   const tabsCount = () => document.querySelectorAll('.mod-tab').length;
   const before = tabsCount();
-  const gridItems = () => document.getElementById('libraryPanel').querySelectorAll('[data-preset]');
+  const firstRow = modGroupRows()[0];
+  const firstGroupId = firstRow ? firstRow.dataset.top.slice(4) : '';
 
   check('категория открывает список вариантов', () => {
-    cats()[0].click();
-    return gridItems().length >= 2;
+    toggleModGroup(modGroupRow(firstGroupId));
+    return modGroupOpen(firstGroupId) && modGridItems(firstGroupId).length >= 2;
   });
   check('выбор варианта добавляет модуль в проект', () => {
-    const item = gridItems()[0];
+    const item = modGridItems(firstGroupId)[0];
     if (!item) return false;
     item.click();
     return tabsCount() === before + 1;
@@ -705,21 +751,22 @@ for (const id of Array.from(registry.keys())) {
   check('модуль из базы построился без ошибок', () =>
     docsTab('detailing').innerHTML.indexOf('NaN') === -1 && docsTab('detailing').innerHTML.indexOf('<table') !== -1);
   check('в деталировке появились детали шкафа', () => /Боковина|Полка/.test(docsTab('detailing').innerHTML));
-  cats()[0].click();   // закрыть категорию, открытую проверками выше (клик — переключатель)
+  toggleModGroup(modGroupRow(firstGroupId));   // закрыть категорию, открытую проверками выше (клик — переключатель)
+  check('закрытие категории снимает .lib-collapsed', () => !modGroupOpen(firstGroupId));
 
   // все варианты всех категорий добавляются без исключений
   let added = 0;
-  for (const c of cats()) {
-    c.click();                                    // открыть категорию
-    const items = gridItems();
-    if (!items.length) { fails.push('база: список вариантов пуст для ' + (c.attrs['data-cat'] || '?')); continue; }
+  for (const groupId of modGroupRows().map((r) => r.dataset.top.slice(4))) {
+    toggleModGroup(modGroupRow(groupId));          // открыть категорию
+    const items = modGridItems(groupId);
+    if (!items.length) { fails.push('база: список вариантов пуст для mod:' + groupId); continue; }
     for (const it of items) {
       const n = tabsCount();
       it.click();
       if (tabsCount() !== n + 1) { fails.push('база: вариант не добавился — ' + it.attrs['data-preset']); }
       else added += 1;
     }
-    c.click();                                    // закрыть категорию перед следующей
+    toggleModGroup(modGroupRow(groupId));          // закрыть категорию перед следующей
   }
   check('добавились все варианты базы', () => added >= 8);
   check('после всех вариантов деталировка цела', () => docsTab('detailing').innerHTML.indexOf('NaN') === -1);
@@ -774,9 +821,9 @@ for (const id of Array.from(registry.keys())) {
       if (!d) break;
       d.click();
     }
-    const cats = document.querySelectorAll('.lib-cat');
-    cats[0].click();
-    const item = document.getElementById('libraryPanel').querySelectorAll('[data-preset]')[0];
+    const row = modGroupRows()[0];
+    toggleModGroup(row);
+    const item = row ? modGridItems(row.dataset.top.slice(4))[0] : null;
     if (!item) return false;
     item.click();
     return /^Модуль \d+$/.test(activeModuleName());
@@ -1014,15 +1061,13 @@ for (const el of document.querySelectorAll('.tab-btn')) {
     if (!d) break;
     d.click();
   }
-  const cats = document.querySelectorAll('.lib-cat');
-  const kitchen = cats.filter((c) => c.dataset.cat === 'kitchen')[0];
+  const kitchen = modGroupRow('kitchen');
   if (!kitchen) fails.push('база модулей: нет категории «Кухонный модуль»');
   else {
     // Категория раскрывается ИНЛАЙН в #libraryPanel — без плавающего
     // #moduleMenu, см. app.js libraryBlock/bindLibraryEvents.
-    kitchen.click();
-    const item = document.getElementById('libraryPanel').querySelectorAll('[data-preset]')
-      .filter((b) => b.dataset.preset === 'cornerSink')[0];
+    toggleModGroup(kitchen);
+    const item = modGridItems('kitchen').filter((b) => b.dataset.preset === 'cornerSink')[0];
     if (!item) fails.push('база модулей: нет варианта «под мойку»');
     else {
       item.click();
@@ -1035,14 +1080,14 @@ for (const el of document.querySelectorAll('.tab-btn')) {
         fails.push('под мойку: планки не встали на ребро (нет отметки в деталировке)');
       }
     }
-    kitchen.click();                              // закрыть категорию за собой
+    toggleModGroup(kitchen);                      // закрыть категорию за собой
   }
 }
 
 // Кухонный пресет должен ставить белый корпус и белые ящики, а декор
 // пользователя переносить на фасад.
 {
-  const kitchen = document.querySelectorAll('.lib-cat').filter((c) => c.dataset.cat === 'kitchen')[0];
+  const kitchen = modGroupRow('kitchen');
   if (kitchen) {
     let guard = 60;
     while (document.querySelectorAll('.mod-tab').length && guard-- > 0) {
@@ -1050,9 +1095,8 @@ for (const el of document.querySelectorAll('.tab-btn')) {
       if (!d) break;
       d.click();
     }
-    kitchen.click();
-    const item = document.getElementById('libraryPanel').querySelectorAll('[data-preset]')
-      .filter((b) => b.dataset.preset === 'lower600drawers')[0];
+    toggleModGroup(kitchen);
+    const item = modGridItems('kitchen').filter((b) => b.dataset.preset === 'lower600drawers')[0];
     if (item) {
       item.click();
       // Код «белого» декора не хардкодим (раньше тут был /U702|бел/i под
@@ -1081,7 +1125,7 @@ for (const el of document.querySelectorAll('.tab-btn')) {
         if (!isWhite(drawer && drawer.value)) fails.push('кухня: ящики не стали белыми');
       }
     }
-    kitchen.click();
+    toggleModGroup(kitchen);
   }
 }
 
