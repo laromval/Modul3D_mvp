@@ -58,6 +58,13 @@ const APP_STATE_KEYS = [
   'libHwCustomCats',
   'libModOverrides',
   'libModPlacements',
+  // Свои категории верхнего уровня «Базы модулей» (кнопка-плитка «Добавить
+  // категорию», см. state.libModCustomGroups) — без этого ключа сама
+  // категория не публикуется как дефолт, хотя размещённые в ней карточки
+  // (libModOverrides/libModPlacements выше, group: 'modcustom-…') уже
+  // публикуются — у остальных пользователей они стали бы «осиротевшими»,
+  // без своей категории в дереве (найдено ревью, 2026-09-21).
+  'libModCustomGroups',
 ];
 
 function parseSource(source, label) {
