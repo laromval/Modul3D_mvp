@@ -14,7 +14,7 @@
 (function () {
 // Версия сборки — показывается во вкладке браузера и в шапке.
 // При выпуске новой версии меняется только эта строка.
-const APP_VERSION = 'v297';
+const APP_VERSION = 'v298';
 
 // Номер версии выводим ПЕРВЫМ делом: если дальше что-то упадёт, по нему сразу
 // видно, какая сборка открыта.
@@ -476,6 +476,31 @@ const state = {
   // presetId может иметь произвольное число таких копий одновременно в
   // разных местах дерева, независимо друг от друга и от её дефолтной
   // карточки. Сохраняется на сервере вместе с правками каталога.
+  //
+  // С 2026-09-22 сюда же попадают ПОЛНОСТЬЮ СВОИ карточки, заведённые
+  // «Сохранить»/«Сохранить как…» (контекстное меню вкладки модуля, см.
+  // showModuleMenu/libModSaveModule/libModSaveModuleAs) и кнопкой «Добавить
+  // модуль» в шапке этой панели (см. libraryBlock/libModSaveProjectAsKit) —
+  // presetId у них ОТСУТСТВУЕТ, вместо ссылки на presets.js карточка несёт
+  // параметры сама:
+  //  - одиночный модуль — { id, group, categoryPath, name, params }, params —
+  //    те же поля, что у объекта в state.modules (name/width/height/depth/
+  //    rotation/corner/family/leftSide/rightSide/baseType/plinthHeight/
+  //    legHeight/topType/railWidth/sections/... — служебные UI-поля вроде
+  //    activeSection сняты, см. libModCloneModuleParams);
+  //  - комплект нескольких модулей — { id, group, categoryPath, name, kit:
+  //    [{ params, x, z }, ...] }, порядок элементов kit — порядок модулей
+  //    вдоль ряда (та же раскладка, что и в engine.js buildModel — модули
+  //    расставляются строго по порядку массива, поворот/угол читаются из
+  //    самого params); x/z — их взаимное смещение на момент сохранения
+  //    (первый модуль всегда 0/0), это лишь справочные координаты для
+  //    самодостаточности данных, при вставке в проект (см.
+  //    addLibModCardToProject) не используются — раскладку и так
+  //    воспроизводит порядок вставки.
+  // Модуль, добавленный из такой карточки (или из старой, ссылающейся на
+  // presetId), несёт на себе state.modules[i].libOrigin = id этой карточки
+  // (кроме элементов комплекта — см. комментарий у addLibModCardToProject) —
+  // по нему «Сохранить» находит, какую карточку перезаписать.
   libModPlacements: [
   {
     "id": "modplace-1790022541237-489qo9",
@@ -1209,6 +1234,44 @@ function insertModule(m) {
   if (resyncZoneHeightsForNewNeighbor(at)) recompute();
 }
 
+// Пакетная вставка НЕСКОЛЬКИХ модулей разом — та же логика, что у
+// insertModule() выше (столешница по умолчанию, нумерация, довязка соседних
+// зон), но recompute() вызывается один раз на весь набор, а не на каждый
+// модуль отдельно. Нужна карточке-комплекту «Базы модулей» (см.
+// addLibModCardToProject/libModSaveProjectAsKit) — порядок элементов `mods`
+// сохраняется как есть: раскладка вдоль ряда в engine.js (buildModel) идёт
+// строго по порядку массива state.modules, поэтому взаимное расположение
+// модулей комплекта (с их поворотами/угловыми флагами из params) само
+// воспроизводится по факту вставки в этом порядке — отдельных абсолютных
+// координат для этого не нужно.
+function insertModulesBatch(mods) {
+  if (!mods || !mods.length) return;
+  exitIsolation();
+  mods.forEach((m) => {
+    const noRealSupport = m.baseType === 'plinth' && Number(m.plinthHeight) === 0;
+    if (moduleHasFloorBase(m) && !noRealSupport && !m.countertop && Number(m.height) <= 1000) {
+      m.countertop = {
+        enabled: true,
+        decorCode: defaultCountertopDecorCode(),
+        overhangFront: defaultCountertopOverhangFront(m),
+        overhangLeft: 0,
+        overhangRight: 0,
+      };
+    }
+  });
+  const at = Math.min(state.activeModule + 1, state.modules.length);
+  state.modules.splice(at, 0, ...mods);
+  renumberModules();
+  state.activeModule = at;
+  state.selected = state.modules[at].name;
+  state.panelView = 'module';
+  renderParamsPanel();
+  recompute();
+  let needsExtra = false;
+  mods.forEach((_, i) => { if (resyncZoneHeightsForNewNeighbor(at + i)) needsExtra = true; });
+  if (needsExtra) recompute();
+}
+
 // Переключатель экрана панели «Параметры проекта» — точка связи с
 // ui-shell.js (кнопка «Параметры» в HUD ведёт на экран 'module').
 function setPanelView(view) {
@@ -1309,6 +1372,12 @@ function libModAllPlacements() {
     out.push({
       id: p.id, presetId: p.presetId, group: p.group,
       categoryPath: (p.categoryPath || []).slice(), name: p.name || null,
+      // Полностью своя карточка («Сохранить»/«Сохранить как…», см. большой
+      // комментарий у state.libModPlacements выше) — params одиночного
+      // модуля ИЛИ kit комплекта вместо ссылки на пресет. У карточек-ссылок
+      // (presetId задан) оба поля просто undefined — безвредно для всего
+      // остального кода этой секции, который их не читает.
+      params: p.params, kit: p.kit,
     });
   });
   return out;
@@ -1441,24 +1510,94 @@ function libModThumbDataUrl(groupId, it) {
   return dataUrl;
 }
 
+// Модуль проекта (объект state.modules[i]) → «модуль project.modules» для
+// buildModel() — тот же набор полей, что recompute() собирает для реальной
+// сцены (см. этот же список там) и что libModThumbDataUrl выше — своя
+// строго-заводская веха для превью пресетов. Общий helper для ДВУХ мест,
+// которым нужен временный, ни на что не влияющий предпросмотр модулей,
+// которых ещё нет в state.modules: превью карточки-«Сохранить» ниже
+// (libModCustomThumbDataUrl) и подсчёт относительных x/z комплекта
+// (libModSaveProjectAsKit). Сам живой пересчёт сцены (recompute()) эту
+// функцию не использует и не обязан — совпадение полей поддерживается
+// вручную, как и раньше между recompute()/libModThumbDataUrl.
+function libModProjectModuleOf(m) {
+  return {
+    name: m.name, width: m.width, height: m.height, depth: m.depth,
+    rotation: m.rotation || 0, corner: !!m.corner, family: m.family || 'custom',
+    topType: m.topType, railWidth: m.railWidth, noBack: !!m.noBack,
+    blindPanel: !!m.blindPanel, blindStrip: m.blindStrip,
+    leftSide: m.leftSide, rightSide: m.rightSide,
+    base: m.baseType === 'plinth'
+      ? { type: 'plinth', plinthHeight: m.plinthHeight }
+      : { type: m.baseType, legHeight: m.legHeight },
+    legType: m.legType || 'metal',
+    sections: m.sections || [],
+    partOverrides: m.partOverrides || {},
+    countertop: m.countertop,
+  };
+}
+
+// Превью карточки БЕЗ presetId — самостоятельный модуль (p.params) или
+// комплект (p.kit), сохранённые «Сохранить»/«Сохранить как…»/«Добавить
+// модуль» (см. libModSaveModule/libModSaveModuleAs/libModSaveProjectAsKit).
+// Тот же приём рендера, что и у libModThumbDataUrl (временный project →
+// buildModel() → renderThumbnail()), но модули берутся прямо из карточки, а
+// не из it.make() — карточка сама себе «пресет». В кэш добавлен JSON самих
+// params/kit: у заводских пресетов данные неизменны, поэтому ключ там —
+// просто id пресета, а здесь параметры МЕНЯЮТСЯ на том же id карточки
+// (повторное «Сохранить» перезаписывает params) — без этого превью осталось
+// бы от предыдущей версии.
+function libModCustomThumbDataUrl(p) {
+  const thumbBase = libModThumbBase();
+  const thumbKeyBase = [
+    thumbBase.bodyThickness, thumbBase.backThickness, thumbBase.facadeThickness,
+    thumbBase.decor.code, thumbBase.facadeDecor.code, thumbBase.backMaterial.code,
+    thumbBase.worktopDepth, thumbBase.jointType,
+  ].join('|');
+  const dataKey = JSON.stringify((p.kit && p.kit.map((k) => k.params)) || p.params || null);
+  const cacheKey = `custom:${p.id}|${thumbKeyBase}|${dataKey}`;
+  if (_thumbCache.has(cacheKey)) return _thumbCache.get(cacheKey);
+  let dataUrl = null;
+  try {
+    const srcMods = Array.isArray(p.kit) && p.kit.length
+      ? p.kit.map((k) => k.params)
+      : (p.params ? [p.params] : []);
+    const project = Object.assign({}, thumbBase, {
+      modules: srcMods.map((m) => libModProjectModuleOf(m)),
+    });
+    const model = buildModel(project);
+    dataUrl = window.Modul3D.viewer.renderThumbnail(model, { size: 200, realistic: true });
+  } catch (err) {
+    dataUrl = null;
+  }
+  if (_thumbCache.size > 300) _thumbCache.clear();
+  _thumbCache.set(cacheKey, dataUrl);
+  return dataUrl;
+}
+
 // Одна карточка модуля — button.lib-item, как и раньше: ЛЕВЫЙ клик добавляет
 // модуль в проект (см. bindLibraryEvents), ПРАВЫЙ открывает плашку ✎+⇄×
 // (см. openLibModCardMenu). data-group/data-preset — id ИСХОДНОГО пресета
 // (не меняются, где бы карточка ни лежала в дереве) — по ним левый клик
 // находит it.make(), а data-placement — id ЭТОГО размещения (нужен
-// контекстному меню/перетаскиванию, см. libModPlacementById).
+// контекстному меню/перетаскиванию, см. libModPlacementById). У карточки без
+// presetId (см. libModAllPlacements/state.libModPlacements — «Сохранить»/
+// «Сохранить как…») data-group/data-preset не пишем вовсе — по их
+// отсутствию левый клик (bindLibraryEvents) отличает такую карточку и берёт
+// параметры из неё самой (см. addLibModCardToProject).
 function libModCardHtml(p) {
   const ref = libModPresetOf(p.presetId);
-  if (!ref) return '';
-  const dataUrl = libModThumbDataUrl(ref.group.id, ref.item);
-  const displayName = p.name || ref.item.name;
+  if (p.presetId && !ref) return '';   // ссылка на пресет, которого больше нет в presets.js
+  const displayName = p.name || (ref ? ref.item.name : '') || '';
   // Полное примечание пресета иногда длиной за сотню символов — для
   // всплывающей подсказки (узкая колонка, перенос по словам) обрезаем его.
-  const note = ref.item.note;
+  // У своей карточки (без presetId) примечания нет вовсе.
+  const note = ref ? ref.item.note : '';
   const noteShort = note && note.length > 70 ? note.slice(0, 68) + '…' : note;
   const tip = `${displayName}${noteShort ? ` — ${noteShort}` : ''}`;
+  const dataUrl = ref ? libModThumbDataUrl(ref.group.id, ref.item) : libModCustomThumbDataUrl(p);
   return `<button type="button" class="lib-item tip tip-down" data-placement="${esc(p.key)}"
-      data-group="${esc(ref.group.id)}" data-preset="${esc(ref.item.id)}" data-tip="${esc(tip)}">
+      ${ref ? `data-group="${esc(ref.group.id)}" data-preset="${esc(ref.item.id)}"` : ''} data-tip="${esc(tip)}">
       ${dataUrl ? `<img class="lib-thumb" src="${dataUrl}" alt="">` : ''}
     </button>`;
 }
@@ -1478,9 +1617,12 @@ function libraryBlock() {
     .join('');
   return `
     <h3>База модулей</h3>
+    <div class="lib-link-refresh-bar">
+      <button type="button" class="btn" data-lib-save-project="1" title="Сохранить текущий проект в «Базу модулей»">Добавить модуль</button>
+    </div>
     ${catsHtml}
     <div class="lib-link-refresh-bar">${libAddCatTileHtml('modules')}</div>
-    <div class="hint">Раскройте категорию и нажмите на модуль — он добавится в проект. Правая кнопка мыши на модуле — переименовать/скопировать/переместить/удалить карточку (сам пресет при этом не меняется); перетащите миниатюру на строку категории, чтобы перенести её.</div>`;
+    <div class="hint">Раскройте категорию и нажмите на модуль — он добавится в проект. Правая кнопка мыши на модуле — переименовать/скопировать/переместить/удалить карточку (сам пресет при этом не меняется); перетащите миниатюру на строку категории, чтобы перенести её. «Добавить модуль» выше сохраняет текущий проект в библиотеку: один модуль — обычной карточкой, несколько — карточкой-комплектом.</div>`;
 }
 
 // ---------------------------------------------------------------------------
@@ -1608,22 +1750,30 @@ function libModMoveCardMenu(btnEl, id) {
   });
 }
 
-// + — создаёт НЕЗАВИСИМУЮ копию карточки (свой id, та же ссылка на пресет,
-// см. state.libModPlacements) в выбранной пользователем категории. Исходная
-// карточка не трогается — именно поэтому копия ВСЕГДА уходит в
-// libModPlacements, даже если id исходной карточки был 'default:…'.
+// + — создаёт НЕЗАВИСИМУЮ копию карточки (свой id, та же ссылка на пресет
+// ИЛИ те же params/kit, см. state.libModPlacements) в выбранной пользователем
+// категории. Исходная карточка не трогается — именно поэтому копия ВСЕГДА
+// уходит в libModPlacements, даже если id исходной карточки был 'default:…'.
 function libModCopyCard(id, target) {
   if (!requireLibraryEditAuth()) return;
   const p = libModPlacementById(id);
   if (!p) return;
-  const newId = 'modplace-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8);
-  state.libModPlacements.push({
-    id: newId,
-    presetId: p.presetId,
+  const copy = {
+    id: libModNewPlacementId(),
     group: target && target.top ? String(target.top).slice(4) : p.group,
     categoryPath: ((target && target.path) || []).slice(),
-    name: null,
-  });
+    // presetId-карточка: null падает на имя пресета (см. libModCardHtml/
+    // libModCardDisplayName). У params/kit-карточки такого источника имени
+    // нет — копируем название как есть, иначе копия осталась бы безымянной.
+    name: p.presetId ? null : (p.name || null),
+  };
+  // Ссылка на пресет ИЛИ свои параметры (см. большой комментарий у
+  // state.libModPlacements) — у карточки бывает ровно одно из трёх, копия
+  // переносит то же самое поле, не подмешивая остальные.
+  if (p.presetId) copy.presetId = p.presetId;
+  else if (Array.isArray(p.kit)) copy.kit = JSON.parse(JSON.stringify(p.kit));
+  else if (p.params) copy.params = JSON.parse(JSON.stringify(p.params));
+  state.libModPlacements.push(copy);
   scheduleCatalogSave();
   renderLibraryPanel();
 }
@@ -1640,6 +1790,160 @@ function libModDeleteCard(id) {
   } else {
     state.libModPlacements = (state.libModPlacements || []).filter((p) => p.id !== id);
   }
+  scheduleCatalogSave();
+  renderLibraryPanel();
+}
+
+// ---------------------------------------------------------------------------
+// «Сохранить»/«Сохранить как…» модуля в «Базу модулей» (контекстное меню
+// вкладки модуля, см. showModuleMenu) и «Добавить модуль» — сохранение ВСЕГО
+// проекта одной карточкой/комплектом (кнопка в шапке libraryBlock). Все три
+// пишут в state.libModPlacements карточки БЕЗ presetId — см. большой
+// комментарий над этим полем в начале файла.
+// ---------------------------------------------------------------------------
+
+// Тот же генератор id, что у copy/move карточек выше (libModCopyCard) — общий
+// формат для ЛЮБОГО нового элемента state.libModPlacements, независимо от
+// того, что в нём лежит (ссылка на пресет, params одного модуля или kit).
+function libModNewPlacementId() {
+  return 'modplace-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8);
+}
+
+// Параметры модуля для сохранения в карточку — снимает служебные UI-поля,
+// которых не должно быть в самостоятельной карточке библиотеки: libOrigin —
+// ссылка НА карточку (имеет смысл только внутри state.modules текущего
+// проекта), activeSection — какая вкладка секции сейчас раскрыта в панели.
+// Остальное (все декоры/фурнитура/сечения секций) сохраняется как есть —
+// именно эта форма и есть params/kit[].params в state.libModPlacements.
+function libModCloneModuleParams(mod) {
+  const clone = JSON.parse(JSON.stringify(mod));
+  delete clone.libOrigin;
+  delete clone.activeSection;
+  return clone;
+}
+
+// Где сейчас лежит карточка-происхождение модуля (mod.libOrigin) — группа и
+// путь категории, куда ляжет ЗАМЕНЯЮЩАЯ её карточка (см. libModSaveModule)
+// или новая карточка «Сохранить как…», унаследовавшая место старой. null,
+// если у модуля происхождения нет вовсе (не из «Базы модулей» или карточка,
+// откуда он был добавлен, с тех пор удалена).
+function libModOriginTarget(mod) {
+  const p = mod && mod.libOrigin ? libModPlacementById(mod.libOrigin) : null;
+  return p ? { group: p.group, categoryPath: (p.categoryPath || []).slice() } : null;
+}
+
+// Куда класть НОВУЮ карточку, если у модуля нет происхождения (собран
+// вручную, не из библиотеки) — своя группа PRESETS по семейству модуля:
+// кухонный уходит в «Кухонный модуль», остальные — в «Тумба» (та же группа,
+// где уже лежит большинство заготовок-тумб, см. presets.js).
+function libModDefaultTarget(mod) {
+  return { group: (mod && mod.family === 'kitchen') ? 'kitchen' : 'base', categoryPath: [] };
+}
+
+// «Сохранить» — заменяет параметры КАРТОЧКИ, из которой этот модуль был
+// добавлен в проект (mod.libOrigin), текущими. Карточка остаётся на своём
+// месте в дереве под тем же названием — меняется только содержимое.
+// Заводская карточка (id вида 'default:<presetId>') сама params хранить не
+// может (см. большой комментарий над libModAllPlacements — она лишь
+// ссылается на presets.js), поэтому первое «Сохранить» на ней материализует
+// НОВУЮ самостоятельную карточку на том же месте дерева и прячет заводскую
+// (тем же приёмом, что и × в libModDeleteCard), а модуль получает libOrigin
+// этой новой карточки — второе и последующие «Сохранить» уже просто
+// перезаписывают её. Доступность пункта меню — см. showModuleMenu (canSave).
+function libModSaveModule(mod) {
+  if (!requireLibraryEditAuth()) return;
+  const originId = mod.libOrigin;
+  const p = originId ? libModPlacementById(originId) : null;
+  if (!p) return;
+  const params = libModCloneModuleParams(mod);
+  // Имя карточки — если оно ещё не переопределено (p.name === null),
+  // резолвим его ЧЕРЕЗ presetId, ПОКА ссылка на пресет ещё жива: и заводская
+  // «default:»-карточка, и уже скопированная (см. libModCopyCard), которую
+  // ещё ни разу не сохраняли своими параметрами, могут ссылаться на пресет
+  // с null-именем (значит «имя пресета»). После «Сохранить» presetId у
+  // карточки пропадёт (см. ветки ниже) — без этого её имя осталось бы
+  // пустым НАВСЕГДА, падать будет уже не на что (см. код-ревью).
+  const ref = p.presetId ? libModPresetOf(p.presetId) : null;
+  const resolvedName = p.name || (ref ? ref.item.name : '') || null;
+  if (String(originId).indexOf('default:') === 0) {
+    const presetId = originId.slice('default:'.length);
+    if (!state.libModOverrides[presetId]) state.libModOverrides[presetId] = {};
+    state.libModOverrides[presetId].removed = true;
+    const newId = libModNewPlacementId();
+    state.libModPlacements.push({
+      id: newId, group: p.group, categoryPath: (p.categoryPath || []).slice(),
+      name: resolvedName, params,
+    });
+    mod.libOrigin = newId;
+  } else {
+    const real = (state.libModPlacements || []).find((x) => x.id === originId);
+    if (!real) return;
+    delete real.presetId;
+    delete real.kit;
+    real.name = resolvedName;
+    real.params = params;
+  }
+  scheduleCatalogSave();
+  renderLibraryPanel();
+}
+
+// «Сохранить как…» — спрашивает название и добавляет НОВУЮ карточку с
+// текущими параметрами модуля, не трогая старую (если она была). Новое
+// место в дереве — там же, где лежит карточка-происхождение модуля, если она
+// есть (логично класть рядом с «родителем»), иначе — свой дефолт по семейству
+// (см. libModDefaultTarget). Модуль в сцене получает libOrigin НОВОЙ
+// карточки — «Сохранить» сразу следом доступно и пишет уже в неё.
+function libModSaveModuleAs(mod) {
+  if (!requireLibraryEditAuth()) return;
+  const target = libModOriginTarget(mod) || libModDefaultTarget(mod);
+  const raw = window.prompt('Название модуля в «Базе модулей»:', mod.name || 'Модуль');
+  if (raw == null) return;
+  const name = String(raw).trim() || (mod.name || 'Модуль');
+  const newId = libModNewPlacementId();
+  state.libModPlacements.push({
+    id: newId, group: target.group, categoryPath: target.categoryPath.slice(),
+    name, params: libModCloneModuleParams(mod),
+  });
+  mod.libOrigin = newId;
+  scheduleCatalogSave();
+  renderLibraryPanel();
+}
+
+// «Добавить модуль» в шапке «Базы модулей» (см. libraryBlock) — сохраняет
+// ВЕСЬ текущий проект: один модуль ведёт себя как обычное «Сохранить как…»
+// (libModSaveModuleAs), несколько — одной карточкой-комплектом (p.kit).
+// x/z каждого элемента — только СПРАВОЧНОЕ смещение относительно первого
+// модуля комплекта на момент сохранения (для самодостаточности данных карты);
+// сама вставка комплекта в проект (addLibModCardToProject/insertModulesBatch)
+// их не читает — раскладку воспроизводит порядок модулей в kit, тот же
+// принцип, по которому engine.js (buildModel) раскладывает state.modules.
+function libModSaveProjectAsKit() {
+  if (!requireLibraryEditAuth()) return;
+  if (!state.modules.length) { window.alert('В проекте нет ни одного модуля.'); return; }
+  if (state.modules.length === 1) { libModSaveModuleAs(state.modules[0]); return; }
+  const raw = window.prompt('Название комплекта в «Базе модулей»:', '');
+  if (raw == null) return;
+  const name = String(raw).trim();
+  if (!name) { window.alert('Введите название комплекта.'); return; }
+  const target = libModDefaultTarget(state.modules[0]);
+  const kitProject = Object.assign({}, libModThumbBase(), {
+    countertopCornerJoint: state.countertopCornerJoint,
+    modules: state.modules.map((m) => libModProjectModuleOf(m)),
+  });
+  const kitModel = buildModel(kitProject);
+  const base = (kitModel.modules && kitModel.modules[0]) || { offsetX: 0, offsetZ: 0 };
+  const kit = state.modules.map((m, i) => {
+    const placed = kitModel.modules && kitModel.modules[i];
+    return {
+      params: libModCloneModuleParams(m),
+      x: Math.round(((placed ? placed.offsetX : 0) - base.offsetX) * 10) / 10,
+      z: Math.round(((placed ? placed.offsetZ : 0) - base.offsetZ) * 10) / 10,
+    };
+  });
+  state.libModPlacements.push({
+    id: libModNewPlacementId(), group: target.group, categoryPath: target.categoryPath.slice(),
+    name, kit,
+  });
   scheduleCatalogSave();
   renderLibraryPanel();
 }
@@ -7037,7 +7341,11 @@ function libDeleteSelectedHardwareRow(sel) {
 }
 
 // Загрузка образца (карточки цвета) — чисто клиентская: input[type=file] →
-// FileReader → dataURL, без бэкенда.
+// FileReader → canvas (сжатие) → dataURL, без бэкенда. Само изображение
+// синхронизируется на сервер целиком как часть state (см. scheduleCatalogSave/
+// PUT /catalog-overrides), поэтому важно не тащить в базу мегабайтные фото
+// с телефона «как есть» — при многих пользователях это быстро съедает
+// лимиты дешёвых тарифов хостинга.
 let pendingLibImageTarget = null;
 function openLibImagePicker(group, key) {
   if (!requireLibraryEditAuth()) return;
@@ -7047,6 +7355,67 @@ function openLibImagePicker(group, key) {
   input.value = '';
   input.click();
 }
+
+// Реально образец сейчас показывается лишь маленькой карточкой-превью в
+// таблице «Материалы» (см. libSwatchHtml/.lib-swatch — 36×24 CSS px);
+// текстурой на деталях в 3D-сцене декор не рисуется — viewer.js красит
+// детали процедурно по названию материала (см. decorLook), само фото не
+// используется как текстура. 800 px по большей стороне — с запасом на
+// ретину-экраны и возможный будущий крупный просмотр/зум карточки, но
+// далеко от исходных 2-5 МБ с телефона.
+const LIB_IMAGE_MAX_SIDE = 800;
+const LIB_IMAGE_JPEG_QUALITY = 0.85;
+
+// Сжимает выбранный файл перед сохранением в state: вписывает в
+// LIB_IMAGE_MAX_SIDE по большей стороне (сохраняя пропорции, без апскейла
+// маленьких фото) и перекодирует в JPEG с качеством ~0.85.
+// Возвращает Promise<string> — готовый dataURL для libSaveEdit(...,'image',…).
+function compressLibImage(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(reader.error || new Error('Не удалось прочитать файл.'));
+    reader.onload = () => {
+      const originalDataUrl = String(reader.result);
+      const img = new Image();
+      // Не удалось декодировать как изображение — не блокируем загрузку,
+      // сохраняем как есть (libSaveEdit ниже всё равно ждёт dataURL).
+      img.onerror = () => resolve(originalDataUrl);
+      img.onload = () => {
+        const w = img.naturalWidth || img.width || 0;
+        const h = img.naturalHeight || img.height || 0;
+        if (!w || !h || Math.max(w, h) <= LIB_IMAGE_MAX_SIDE) {
+          // Фото уже компактное — не апскейлим, canvas не нужен.
+          resolve(originalDataUrl);
+          return;
+        }
+        const scale = LIB_IMAGE_MAX_SIDE / Math.max(w, h);
+        const targetW = Math.max(1, Math.round(w * scale));
+        const targetH = Math.max(1, Math.round(h * scale));
+        try {
+          const canvas = document.createElement('canvas');
+          canvas.width = targetW;
+          canvas.height = targetH;
+          const ctx = canvas.getContext('2d');
+          // JPEG не хранит альфа-канал — прозрачные области при экспорте
+          // иначе могут стать чёрными; заливаем белым фоном (образцы
+          // декора — непрозрачные фото/текстуры, белая подложка для них
+          // естественна).
+          ctx.fillStyle = '#ffffff';
+          ctx.fillRect(0, 0, targetW, targetH);
+          ctx.drawImage(img, 0, 0, targetW, targetH);
+          resolve(canvas.toDataURL('image/jpeg', LIB_IMAGE_JPEG_QUALITY));
+        } catch (err) {
+          // canvas не сработал (напр. заблокирован окружением) — не теряем
+          // загрузку, сохраняем оригинал.
+          resolve(originalDataUrl);
+        }
+      };
+      img.src = originalDataUrl;
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
 function initLibImageInput() {
   const input = document.getElementById('libImageInput');
   if (!input) return;
@@ -7054,9 +7423,12 @@ function initLibImageInput() {
     const file = input.files && input.files[0];
     const target = pendingLibImageTarget;
     if (!file || !target) return;
-    const reader = new FileReader();
-    reader.onload = () => libSaveEdit(target.group, target.key, 'image', String(reader.result));
-    reader.readAsDataURL(file);
+    compressLibImage(file)
+      .then((dataUrl) => libSaveEdit(target.group, target.key, 'image', dataUrl))
+      .catch((err) => {
+        console.error('Не удалось обработать изображение образца материала:', err);
+        window.alert('Не удалось загрузить изображение. Попробуйте другой файл.');
+      });
   });
 }
 
@@ -8010,6 +8382,11 @@ function initLibraryPanel() {
       else if (kind === 'modules') libAddModuleGroup();
       return;
     }
+    // «Добавить модуль» — кнопка в шапке «Базы модулей» (см. libraryBlock):
+    // сохраняет ТЕКУЩИЙ проект в библиотеку одной карточкой (или комплектом,
+    // если модулей несколько, см. libModSaveProjectAsKit).
+    const saveProjectBtn = e.target.closest('[data-lib-save-project]');
+    if (saveProjectBtn) { libModSaveProjectAsKit(); return; }
     // Хлебная крошка над таблицей сфокусированного листа (см.
     // libBreadcrumbHtml) — клик по любому сегменту, кроме текущего
     // (последнего — сам лист), снимает фокус категории и раскрывает дерево
@@ -10380,13 +10757,19 @@ function renderSectionsList() {
 // Клик по миниатюре в сетке «База модулей» внутри панели: ДОБАВЛЯЕТ модуль в
 // проект (не заменяет текущий) и делает его активным — он сразу виден в 3D.
 // Логика перенесена без изменений из бывшего плавающего меню showPresetMenu().
-function addPresetToProject(catId, presetId) {
+// placementId — id КАРТОЧКИ (см. libModPlacementById), с которой кликнули, а
+// не самого пресета — presetId может встречаться у нескольких карточек
+// сразу (см. libModCopyCard). Пишем его на модуль как mod.libOrigin — по
+// нему «Сохранить» контекстного меню модуля (см. showModuleMenu/
+// libModSaveModule) находит, какую карточку заменить.
+function addPresetToProject(catId, presetId, placementId) {
   const group = PRESETS.filter((g) => g.id === catId)[0];
   const item = group && group.items.filter((i) => i.id === presetId)[0];
   if (!item) return;
   // Имя модулю даёт проект — «Модуль N», как у добавленных вручную.
   const m = item.make();
   m.name = '';
+  if (placementId) m.libOrigin = placementId;
   // «Нижние» модули (включая пенал — он стоит на полу и опирается на цоколь
   // так же, как нижний ярус) держат единую глубину ряда: берём её у соседа,
   // а не у дефолта пресета. Левый сосед (после которого встанет модуль)
@@ -10413,6 +10796,30 @@ function addPresetToProject(catId, presetId) {
     }
   }
   insertModule(m);
+}
+
+// Клик по карточке «Базы модулей» БЕЗ presetId (см. libModCardHtml) —
+// самостоятельный модуль (p.params) или комплект (p.kit), сохранённые
+// «Сохранить»/«Сохранить как…»/«Добавить модуль» (см. libModSaveModule/
+// libModSaveModuleAs/libModSaveProjectAsKit). Клонируем params/kit, чтобы
+// вставленный в проект модуль не делил объект с эталоном в библиотеке —
+// insertModule()/insertModulesBatch() дальше мутируют его (например,
+// проставляют столешницу по умолчанию), тот же приём, что и у item.make() в
+// addPresetToProject выше. Элементы комплекта libOrigin НЕ получают — одной
+// карточке-комплекту соответствует сразу НЕСКОЛЬКО модулей, «Сохранить»
+// (замена ровно ОДНОЙ карточки) для них не определено однозначно; доступно
+// только «Сохранить как…» — она заведёт для такого модуля отдельную карточку.
+function addLibModCardToProject(placementId) {
+  const p = libModPlacementById(placementId);
+  if (!p) return;
+  if (Array.isArray(p.kit) && p.kit.length) {
+    const mods = p.kit.map((k) => JSON.parse(JSON.stringify(k.params)));
+    insertModulesBatch(mods);
+  } else if (p.params) {
+    const m = JSON.parse(JSON.stringify(p.params));
+    m.libOrigin = placementId;
+    insertModule(m);
+  }
 }
 
 // Повороты модуля вокруг вертикальной оси — общий список подписей для
@@ -10456,21 +10863,30 @@ function closeModuleMenu() {
   if (old && old.remove) old.remove();
 }
 
-// Контекстное меню модуля: только переименование. Поворот переехал в
-// HUD-меню в 3D (клик по модулю, см. ui-shell.js/rotateModule выше),
-// удаление — в иконку в шапке программы (delBtn, см. ниже).
-// Вызывается правой кнопкой по вкладке модуля в левом верхнем углу панели.
+// Контекстное меню модуля: переименование + сохранение в «Базу модулей».
+// Поворот переехал в HUD-меню в 3D (клик по модулю, см.
+// ui-shell.js/rotateModule выше), удаление — в иконку в шапке программы
+// (delBtn, см. ниже). Вызывается правой кнопкой по вкладке модуля в левом
+// верхнем углу панели.
+// «Сохранить» (замена карточки-происхождения текущими параметрами модуля) —
+// видно, только если mod.libOrigin указывает на карточку, которая реально
+// ещё существует в дереве (см. libModSaveModule/libModOriginTarget); иначе
+// (модуль собран вручную либо карточка-происхождение с тех пор удалена)
+// доступно только «Сохранить как…» (libModSaveModuleAs).
 function showModuleMenu(modIndex, x, y) {
   closeModuleMenu();
   const mod = state.modules[modIndex];
   if (!mod) return;
+  const canSave = !!(mod.libOrigin && libModPlacementById(mod.libOrigin));
 
   const menu = document.createElement('div');
   menu.id = 'moduleMenu';
   menu.className = 'ctx-menu';
   menu.style.left = Math.round(x) + 'px';
   menu.style.top = Math.round(y) + 'px';
-  menu.innerHTML = `<input class="ctx-title ctx-title-input" id="ctxModName" type="text" value="${esc(mod.name)}">`;
+  menu.innerHTML = `<input class="ctx-title ctx-title-input" id="ctxModName" type="text" value="${esc(mod.name)}">
+    ${canSave ? '<button type="button" class="ctx-item" data-mm-save="1">Сохранить</button>' : ''}
+    <button type="button" class="ctx-item" data-mm-save-as="1">Сохранить как…</button>`;
   document.body.appendChild(menu);
 
   // Переименование модуля прямо из контекстного меню (поле в заголовке).
@@ -10495,6 +10911,11 @@ function showModuleMenu(modIndex, x, y) {
       }
     });
   }
+
+  const saveBtn = menu.querySelector('[data-mm-save]');
+  if (saveBtn) saveBtn.addEventListener('click', () => { closeModuleMenu(); libModSaveModule(mod); });
+  const saveAsBtn = menu.querySelector('[data-mm-save-as]');
+  if (saveAsBtn) saveAsBtn.addEventListener('click', () => { closeModuleMenu(); libModSaveModuleAs(mod); });
 }
 
 // ---------------------------------------------------------------------------
@@ -10606,6 +11027,10 @@ function exitFocusMode() {
 // модуль в проект, правый открывает плашку ✎+⇄× (см. openLibModCardMenu).
 // renderLibraryPanel() зовёт это после каждой перерисовки вкладки «modules»
 // — элементы .lib-item каждый раз новые, слушатели нужно вешать заново.
+// data-preset есть только у карточек-ссылок на presets.js (см.
+// libModCardHtml) — у самостоятельных карточек («Сохранить»/«Сохранить
+// как…», см. большой комментарий над state.libModPlacements) его нет, левый
+// клик по ним идёт отдельным путём (addLibModCardToProject).
 function bindLibraryEvents() {
   document.querySelectorAll('.lib-item').forEach((b) => {
     b.addEventListener('click', () => {
@@ -10613,7 +11038,11 @@ function bindLibraryEvents() {
       // libModCardDragPointerUp/libModCardDragClickGuard), не должен ещё и
       // добавить модуль в проект.
       if (libModCardDragClickGuard) { libModCardDragClickGuard = false; return; }
-      addPresetToProject(b.dataset.group, b.dataset.preset);
+      if (b.dataset.preset) {
+        addPresetToProject(b.dataset.group, b.dataset.preset, b.dataset.placement);
+      } else {
+        addLibModCardToProject(b.dataset.placement);
+      }
     });
     b.addEventListener('contextmenu', (e) => {
       e.preventDefault();
