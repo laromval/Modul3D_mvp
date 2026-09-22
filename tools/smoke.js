@@ -708,9 +708,14 @@ for (const id of Array.from(registry.keys())) {
     // Категория раскрывается ИНЛАЙН в #libraryPanel (грид карточек
     // .lib-item[data-preset] внутри строки дерева), без плавающего
     // #moduleMenu — клик по миниатюре сразу добавляет модуль в проект
-    // (см. app.js bindLibraryEvents).
+    // (см. app.js bindLibraryEvents). Берём КОНКРЕТНЫЙ вариант 'lower600'
+    // (нижний с полкой, topType: 'rails' — см. presets.js), а не первый
+    // попавшийся: с 2026-09-21 карточки кухни разложены по подкатегориям
+    // «Верхние модули»/«Нижний модуль» (см. state.libModOverrides), и
+    // первой в гриде теперь оказывается карточка ВЕРХНЕГО модуля (без
+    // planок — сплошная крышка, topType не задан), а не нижнего.
     toggleModGroup(kitchen);
-    const item = modGridItems('kitchen')[0];
+    const item = modGridItems('kitchen').filter((b) => b.dataset.preset === 'lower600')[0];
     if (!item) return false;
     item.click();
     return sectionsHtml().indexOf('Штанга для одежды') === -1;
@@ -718,9 +723,16 @@ for (const id of Array.from(registry.keys())) {
   // «Планка верхняя ...» (раздельно) или «Планки верхние» (если передняя и
   // задняя одинаковы и склеились в деталировке в одну строку — см.
   // mergeEqualParts/mergeNameKey в engine.js) — оба варианта означают, что
-  // построены планки, а не цельная крышка.
+  // построены планки, а не цельная крышка. Проверяем тот же 'lower600',
+  // добавленный проверкой выше.
   check('кухонный модуль всё равно строится с двумя планками', () =>
     /Планк[аи] верхн/.test(docsTab('detailing').innerHTML));
+  // Закрыть категорию за собой: иначе следующий сценарий (presetScenario
+  // ниже) находит «Кухонный модуль» уже открытым — с 2026-09-21 он первый
+  // в списке категорий (см. state.libTopOrder) — и его собственный
+  // toggleModGroup(modGroupRow(firstGroupId)) СВОРАЧИВАЕТ категорию вместо
+  // ожидаемого раскрытия.
+  toggleModGroup(kitchen);
 })();
 
 // --- база готовых модулей: категория → вариант → модуль в проекте ----------

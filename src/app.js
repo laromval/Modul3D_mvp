@@ -14,7 +14,7 @@
 (function () {
 // Версия сборки — показывается во вкладке браузера и в шапке.
 // При выпуске новой версии меняется только эта строка.
-const APP_VERSION = 'v298';
+const APP_VERSION = 'v299';
 
 // Номер версии выводим ПЕРВЫМ делом: если дальше что-то упадёт, по нему сразу
 // видно, какая сборка открыта.
@@ -4535,7 +4535,19 @@ function libNodeHtml(topCode, path, opts) {
   // Глубина раздела (0, если он корневой) — она же добавка к отступу всех
   // строк его дерева, см. libTreeRowHtml/libTopCategoryTreeHtml.
   const off = (opts && opts.depthOffset) || 0;
-  if (!children.length) return libTreeRowHtml(topCode, path, name, 'leaf', false, off);
+  if (!children.length) {
+    const rowHtml = libTreeRowHtml(topCode, path, name, 'leaf', false, off);
+    // «База модулей»: настоящий лист (без своих подкатегорий) — тот же
+    // случай, что и у ветки/корня выше (см. комментарии там): карточки
+    // пресета лежащие прямо в этом узле показываем инлайн под строкой
+    // дерева, без клика-фокуса (в отличие от «Материалов»/«Фурнитуры»,
+    // где лист открывает таблицу только через state.libActiveLeaf).
+    if (String(topCode).indexOf('mod:') === 0) {
+      const ownEntries = libEntriesAtPath(topCode, path);
+      if (ownEntries.length) return rowHtml + libModLeafGridHtml(topCode, path, ownEntries);
+    }
+    return rowHtml;
+  }
   const collapsed = libIsNodeCollapsed(topCode, path);
   let childrenHtml = children.map((seg) => libNodeHtml(topCode, path.concat([seg]), opts)).join('');
   // «База модулей»: узел может иметь ОДНОВРЕМЕННО и подкатегории, и свои
