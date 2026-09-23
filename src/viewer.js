@@ -26,24 +26,44 @@ const WOOD_TILE_M = 0.6;
 
 // Текстура ЛДСП рисуется прямо в браузере: полосы «под древесину». Так не
 // нужны внешние файлы, а фасад из ЛДСП визуально отличается от гладкого МДФ.
+//
+// БЕСШОВНОСТЬ: плитка повторяется (RepeatWrapping) по обеим осям, поэтому
+// рисунок должен «замыкаться» на краях, иначе на стыке плиток виден шов:
+//  - по x смещения излома периодичны с периодом SIZE (правый конец линии
+//    совпадает с левым), линия рисуется от -STEP до SIZE+STEP — без срезов;
+//  - по y каждая линия рисуется трижды со сдвигом -SIZE, 0, +SIZE: что
+//    вылезло за верхний/нижний край, дорисовывается с противоположной
+//    стороны (лишнее за canvas браузер обрезает сам).
 let _woodTex = null;
 function woodTexture() {
   if (_woodTex) return _woodTex;
+  const SIZE = 256;   // сторона плитки, px
+  const STEP = 32;    // шаг излома линии по x, px (SIZE / STEP = 8 сегментов)
+  const SEG = SIZE / STEP;
   const c = document.createElement('canvas');
-  c.width = 256; c.height = 256;
+  c.width = SIZE; c.height = SIZE;
   const g = c.getContext('2d');
   if (!g) return null;
   g.fillStyle = '#d8c8a8';
-  g.fillRect(0, 0, 256, 256);
+  g.fillRect(0, 0, SIZE, SIZE);
   for (let i = 0; i < 140; i++) {
-    const y = Math.random() * 256;
+    const y = Math.random() * SIZE;
     const a = 0.05 + Math.random() * 0.10;
     g.strokeStyle = `rgba(120, 92, 54, ${a})`;
     g.lineWidth = 0.5 + Math.random() * 1.6;
-    g.beginPath();
-    g.moveTo(0, y);
-    for (let x = 0; x <= 256; x += 32) g.lineTo(x, y + (Math.random() - 0.5) * 6);
-    g.stroke();
+    // Случайные смещения излома — SEG штук на период; точка k и k+SEG имеют
+    // одно и то же смещение, поэтому линия периодична по x.
+    const off = [];
+    for (let k = 0; k < SEG; k++) off.push((Math.random() - 0.5) * 6);
+    for (let dy = -SIZE; dy <= SIZE; dy += SIZE) {
+      g.beginPath();
+      for (let k = -1; k <= SEG + 1; k++) {
+        const px = k * STEP;
+        const py = y + dy + off[((k % SEG) + SEG) % SEG];
+        if (k === -1) g.moveTo(px, py); else g.lineTo(px, py);
+      }
+      g.stroke();
+    }
   }
   _woodTex = new THREE.CanvasTexture(c);
   _woodTex.wrapS = THREE.RepeatWrapping;
