@@ -253,6 +253,12 @@ const state = {
   // едет на сервер в общем снимке каталога (см. snapshotCatalogCollections)
   // и переживает перезагрузку, как libExtraNodes/libHwCatLabels.
   libNodeOrder: {
+  "sheet": {
+    "МДФ-плита": [
+      "Egger",
+      "Шпонированные плиты"
+    ]
+  },
   "hw:hinge": {
     "": [
       "Blum",
@@ -287,7 +293,9 @@ const state = {
   "modules": [
     "mod:kitchen",
     "mod:wardrobe",
-    "mod:base"
+    "mod:base",
+    "mod:modcustom-1790063101995",
+    "mod:modcustom-1790063135803"
   ],
   "hardware": [
     "hw:hinge",
@@ -379,7 +387,16 @@ const state = {
   // выше. { key: 'modcustom-<timestamp>', name: 'Название' } в порядке
   // добавления. Как и остальные свои категории Библиотеки выше, сохраняется
   // на сервере вместе с правками каталога.
-  libModCustomGroups: [],
+  libModCustomGroups: [
+  {
+    "key": "modcustom-1790063101995",
+    "name": "Гарнитур"
+  },
+  {
+    "key": "modcustom-1790063135803",
+    "name": "кухня угловая"
+  }
+],
   // Дерево «Базы модулей» (2026-09-21, задача «строки вместо кнопок») — у
   // каждой карточки пресета есть СВОЙ путь в дереве, независимый от исходной
   // группы PRESETS (см. libModAllPlacements/libModTopEntries). Хранятся
@@ -507,6 +524,468 @@ const state = {
     "name": null,
     "group": "base",
     "presetId": "kitchen::lower600drawers",
+    "categoryPath": [
+      "Камоды"
+    ]
+  },
+  {
+    "id": "modplace-1790063458282-owqndq",
+    "kit": [
+      {
+        "x": 0,
+        "z": 0,
+        "params": {
+          "name": "Модуль 1",
+          "depth": 510,
+          "width": 600,
+          "corner": false,
+          "family": "kitchen",
+          "height": 820,
+          "topType": "rails",
+          "baseType": "legsPlinth",
+          "leftSide": "onBottom",
+          "rotation": 0,
+          "sections": [
+            {
+              "rod": false,
+              "lift": "aventosHK",
+              "width": 400,
+              "facade": "doorLeft",
+              "handle": "bow160",
+              "drawers": 0,
+              "shelves": 1,
+              "handleCC": 160,
+              "rodHeight": 1900,
+              "shelfMode": "auto",
+              "widthMode": "auto",
+              "drawerMode": "auto",
+              "pushToOpen": false,
+              "drawerOffset": 10,
+              "drawerPinned": [],
+              "handleOrient": "vertical",
+              "shelfHeights": [],
+              "drawerHeights": [],
+              "drawerDecorCode": "H3450ST22"
+            }
+          ],
+          "legHeight": 100,
+          "railWidth": 100,
+          "rightSide": "onBottom",
+          "countertop": {
+            "enabled": true,
+            "decorCode": "CTOP-LDSP38-600",
+            "overhangLeft": 0,
+            "overhangFront": 20,
+            "overhangRight": 0
+          },
+          "plinthHeight": 100
+        }
+      },
+      {
+        "x": 600,
+        "z": 0,
+        "params": {
+          "name": "Модуль 2",
+          "depth": 510,
+          "width": 600,
+          "corner": false,
+          "family": "kitchen",
+          "height": 820,
+          "topType": "rails",
+          "baseType": "legsPlinth",
+          "leftSide": "onBottom",
+          "rotation": 0,
+          "sections": [
+            {
+              "rod": false,
+              "lift": "aventosHK",
+              "width": 400,
+              "facade": "open",
+              "handle": "bow160",
+              "drawers": 3,
+              "shelves": 0,
+              "handleCC": 160,
+              "rodHeight": 1900,
+              "shelfMode": "auto",
+              "widthMode": "auto",
+              "drawerMode": "auto",
+              "pushToOpen": false,
+              "drawerOffset": 10,
+              "drawerPinned": [],
+              "handleOrient": "vertical",
+              "shelfHeights": [],
+              "drawerHeights": []
+            }
+          ],
+          "legHeight": 100,
+          "railWidth": 100,
+          "rightSide": "onBottom",
+          "countertop": {
+            "enabled": true,
+            "decorCode": "CTOP-LDSP38-600",
+            "overhangLeft": 0,
+            "overhangFront": 20,
+            "overhangRight": 0
+          },
+          "plinthHeight": 100
+        }
+      },
+      {
+        "x": 1300,
+        "z": 0,
+        "params": {
+          "name": "Модуль 3",
+          "depth": 510,
+          "width": 800,
+          "corner": false,
+          "family": "kitchen",
+          "height": 820,
+          "topType": "rails",
+          "baseType": "legsPlinth",
+          "leftSide": "onBottom",
+          "rotation": 0,
+          "sections": [
+            {
+              "rod": false,
+              "lift": "aventosHK",
+              "width": 400,
+              "facade": "doors2",
+              "handle": "bow160",
+              "drawers": 0,
+              "shelves": 0,
+              "handleCC": 160,
+              "rodHeight": 1900,
+              "shelfMode": "auto",
+              "widthMode": "auto",
+              "drawerMode": "auto",
+              "pushToOpen": false,
+              "drawerOffset": 10,
+              "drawerPinned": [],
+              "handleOrient": "vertical",
+              "shelfHeights": [],
+              "drawerHeights": []
+            }
+          ],
+          "legHeight": 100,
+          "railWidth": 100,
+          "rightSide": "onBottom",
+          "countertop": {
+            "enabled": true,
+            "decorCode": "CTOP-LDSP38-600",
+            "overhangLeft": 0,
+            "overhangFront": 20,
+            "overhangRight": 0
+          },
+          "plinthHeight": 100
+        }
+      },
+      {
+        "x": 2192,
+        "z": 0,
+        "params": {
+          "name": "Модуль 4",
+          "depth": 510,
+          "width": 984,
+          "corner": true,
+          "family": "kitchen",
+          "height": 820,
+          "noBack": true,
+          "topType": "railsEdge",
+          "baseType": "legsPlinth",
+          "leftSide": "onBottom",
+          "rotation": 0,
+          "sections": [
+            {
+              "rod": false,
+              "lift": "aventosHK",
+              "width": 400,
+              "facade": "doorLeft",
+              "handle": "bow160",
+              "drawers": 0,
+              "shelves": 0,
+              "handleCC": 160,
+              "rodHeight": 1900,
+              "shelfMode": "auto",
+              "widthMode": "auto",
+              "drawerMode": "auto",
+              "pushToOpen": false,
+              "facadeWidth": 400,
+              "drawerOffset": 10,
+              "drawerPinned": [],
+              "handleOrient": "vertical",
+              "shelfHeights": [],
+              "drawerHeights": []
+            }
+          ],
+          "legHeight": 100,
+          "railWidth": 100,
+          "rightSide": "onBottom",
+          "blindPanel": true,
+          "blindStrip": 68,
+          "countertop": {
+            "enabled": true,
+            "decorCode": "CTOP-LDSP38-600",
+            "overhangLeft": 0,
+            "overhangFront": 20,
+            "overhangRight": 0
+          },
+          "plinthHeight": 100
+        }
+      },
+      {
+        "x": 2426,
+        "z": 623,
+        "params": {
+          "name": "Модуль 5",
+          "depth": 510,
+          "width": 600,
+          "corner": false,
+          "family": "kitchen",
+          "height": 820,
+          "topType": "rails",
+          "baseType": "legsPlinth",
+          "leftSide": "onBottom",
+          "rotation": 0,
+          "sections": [
+            {
+              "rod": false,
+              "lift": "aventosHK",
+              "width": 400,
+              "facade": "doorRight",
+              "handle": "bow160",
+              "drawers": 0,
+              "shelves": 1,
+              "handleCC": 160,
+              "rodHeight": 1900,
+              "shelfMode": "auto",
+              "widthMode": "auto",
+              "drawerMode": "auto",
+              "pushToOpen": false,
+              "drawerOffset": 10,
+              "drawerPinned": [],
+              "handleOrient": "vertical",
+              "shelfHeights": [],
+              "drawerHeights": []
+            }
+          ],
+          "legHeight": 100,
+          "railWidth": 100,
+          "rightSide": "onBottom",
+          "countertop": {
+            "enabled": true,
+            "decorCode": "CTOP-LDSP38-600",
+            "overhangLeft": 0,
+            "overhangFront": 20,
+            "overhangRight": 0
+          },
+          "plinthHeight": 100
+        }
+      },
+      {
+        "x": 2426,
+        "z": 1323,
+        "params": {
+          "name": "Модуль 6",
+          "depth": 510,
+          "width": 800,
+          "corner": false,
+          "family": "kitchen",
+          "height": 820,
+          "topType": "rails",
+          "baseType": "legsPlinth",
+          "leftSide": "onBottom",
+          "rotation": 0,
+          "sections": [
+            {
+              "rod": false,
+              "lift": "aventosHK",
+              "width": 400,
+              "facade": "doors2",
+              "handle": "bow160",
+              "drawers": 0,
+              "shelves": 0,
+              "handleCC": 160,
+              "rodHeight": 1900,
+              "shelfMode": "auto",
+              "widthMode": "auto",
+              "drawerMode": "auto",
+              "pushToOpen": false,
+              "drawerOffset": 10,
+              "drawerPinned": [],
+              "handleOrient": "vertical",
+              "shelfHeights": [],
+              "drawerHeights": []
+            }
+          ],
+          "legHeight": 100,
+          "railWidth": 100,
+          "rightSide": "onBottom",
+          "countertop": {
+            "enabled": true,
+            "decorCode": "CTOP-LDSP38-600",
+            "overhangLeft": 0,
+            "overhangFront": 20,
+            "overhangRight": 0
+          },
+          "plinthHeight": 100
+        }
+      },
+      {
+        "x": 2426,
+        "z": 2023,
+        "params": {
+          "name": "Модуль 7",
+          "depth": 510,
+          "width": 600,
+          "corner": false,
+          "family": "kitchen",
+          "height": 820,
+          "topType": "rails",
+          "baseType": "legsPlinth",
+          "leftSide": "onBottom",
+          "rotation": 0,
+          "sections": [
+            {
+              "rod": false,
+              "lift": "aventosHK",
+              "width": 400,
+              "facade": "open",
+              "handle": "bow160",
+              "drawers": 3,
+              "shelves": 0,
+              "handleCC": 160,
+              "rodHeight": 1900,
+              "shelfMode": "auto",
+              "widthMode": "auto",
+              "drawerMode": "auto",
+              "pushToOpen": false,
+              "drawerOffset": 10,
+              "drawerPinned": [],
+              "handleOrient": "vertical",
+              "shelfHeights": [],
+              "drawerHeights": []
+            }
+          ],
+          "legHeight": 100,
+          "railWidth": 100,
+          "rightSide": "onBottom",
+          "countertop": {
+            "enabled": true,
+            "decorCode": "CTOP-LDSP38-600",
+            "overhangLeft": 0,
+            "overhangFront": 20,
+            "overhangRight": 0
+          },
+          "plinthHeight": 100
+        }
+      },
+      {
+        "x": 2426,
+        "z": 2623,
+        "params": {
+          "name": "Модуль 8",
+          "depth": 510,
+          "width": 600,
+          "corner": false,
+          "family": "kitchen",
+          "height": 820,
+          "topType": "rails",
+          "baseType": "legsPlinth",
+          "leftSide": "onBottom",
+          "rotation": 0,
+          "sections": [
+            {
+              "rod": false,
+              "lift": "aventosHK",
+              "width": 400,
+              "facade": "doorRight",
+              "handle": "bow160",
+              "drawers": 0,
+              "shelves": 1,
+              "handleCC": 160,
+              "rodHeight": 1900,
+              "shelfMode": "auto",
+              "widthMode": "auto",
+              "drawerMode": "auto",
+              "pushToOpen": false,
+              "drawerOffset": 10,
+              "drawerPinned": [],
+              "handleOrient": "vertical",
+              "shelfHeights": [],
+              "drawerHeights": []
+            }
+          ],
+          "legHeight": 100,
+          "railWidth": 100,
+          "rightSide": "onBottom",
+          "countertop": {
+            "enabled": true,
+            "decorCode": "CTOP-LDSP38-600",
+            "overhangLeft": 0,
+            "overhangFront": 20,
+            "overhangRight": 0
+          },
+          "plinthHeight": 100
+        }
+      }
+    ],
+    "name": "кухня",
+    "group": "kitchen",
+    "categoryPath": []
+  },
+  {
+    "id": "modplace-1790149508761-0sjz0u",
+    "name": "комод для беллья",
+    "group": "base",
+    "params": {
+      "name": "Модуль 1",
+      "depth": 510,
+      "width": 950,
+      "corner": false,
+      "family": "kitchen",
+      "height": 820,
+      "topType": "rails",
+      "baseType": "legsPlinth",
+      "leftSide": "floor",
+      "rotation": 0,
+      "sections": [
+        {
+          "rod": false,
+          "lift": "aventosHK",
+          "width": 400,
+          "facade": "liftUp",
+          "handle": "bow160",
+          "drawers": 0,
+          "shelves": 1,
+          "handleCC": 160,
+          "rodHeight": 1900,
+          "shelfMode": "auto",
+          "widthMode": "auto",
+          "drawerMode": "auto",
+          "pushToOpen": false,
+          "drawerOffset": 10,
+          "drawerPinned": [],
+          "drawerSystem": "ballBearing",
+          "handleOrient": "vertical",
+          "shelfHeights": [],
+          "drawerHeights": [],
+          "drawerDecorCode": "H3450ST22",
+          "drawerThickness": 16
+        }
+      ],
+      "legHeight": 100,
+      "railWidth": 100,
+      "rightSide": "floor",
+      "countertop": {
+        "enabled": true,
+        "decorCode": "H1180ST37",
+        "overhangBack": 52,
+        "overhangLeft": 0,
+        "overhangFront": 0,
+        "overhangRight": 0
+      },
+      "plinthHeight": 100
+    },
     "categoryPath": [
       "Камоды"
     ]

@@ -112,6 +112,21 @@
     ],
     "sourceSiteId": "mobilierMd",
     "sourceArticle": ""
+  },
+  {
+    "code": "FAC-LINK-1790026940937",
+    "name": "U399 PM/ST9 Гранатовый красный  PerfectSense",
+    "unit": "м²",
+    "image": "https://mobilier.md/image/cache/catalog/products/33774/3a6657e1a126a1ce7a242017fd45749c-768x1087.png",
+    "sheetH": 2070,
+    "sheetW": 2800,
+    "sourceUrl": "https://mobilier.md/ru/plitnye-materialy/fasadnye-paneli-mdf/mdf-egger/df-u399-pmst9-granatovyy-krasnyy-19-2800x2070-eg-perfectsense.html",
+    "thickness": 19,
+    "sheetPrice": 897,
+    "categoryPath": [
+      "МДФ-плита",
+      "Egger"
+    ]
   }
 ];
 
@@ -333,7 +348,7 @@
   },
   "FAC-MDF": {
     "code": "FAC-MDF",
-    "name": "МДФ крашеный 19 мм",
+    "name": "U250 PM/ST9 Бежевая карамель PerfectSense",
     "unit": "лист",
     "image": "https://mobilier.md/image/cache/catalog/products/33771/fa16c069b7ad4abdec263f6adff04801-768x1087.png",
     "sheetH": 2070,
@@ -386,8 +401,10 @@
     "thickness": 18,
     "sheetPrice": 5796,
     "categoryPath": [
+      "МДФ-плита",
       "Шпонированные плиты"
-    ]
+    ],
+    "categoryPathEdited": true
   },
   "FAC-WOOD-FILON": {
     "code": "FAC-WOOD-FILON",
