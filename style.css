@@ -903,6 +903,9 @@ input[type='number'] { font-family: var(--ff-mono); }
   box-shadow: 0 0 0 3px var(--accent-soft);
 }
 .field input[type='checkbox'] { width: auto; }
+/* Недоступный select (например, «Направление текстуры» у декора без рисунка) —
+   у select нет своей заливки в disabled, без этого он выглядит как рабочий. */
+.field select:disabled { opacity: .55; cursor: not-allowed; }
 
 .field-row { display: grid; grid-template-columns: 1fr 1fr; gap: var(--sp-2); }
 /* Строки «Ящики, шт» и «Полки, шт» (renderSectionsList): числовому полю

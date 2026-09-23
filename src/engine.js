@@ -1479,6 +1479,164 @@ function applyPartOverrides(parts, partOverrides, warnings) {
   }
 }
 
+// ---------------------------------------------------------------------------
+// НАПРАВЛЕНИЕ ТЕКСТУРЫ (декоры с рисунком).
+//
+// Правило «Авто» (решение пользователя 2026-09-23):
+//   • вертикальные детали — боковины, стойки, двери/фальш-планки — текстура
+//     вдоль оси Y модуля (вертикально), первая цифра деталировки = размер
+//     по высоте;
+//   • горизонтальные — дно, крыша, полки — вдоль оси X модуля (по ширине
+//     корпуса), первая цифра = размер по ширине корпуса;
+//   • исключения — фасады ящиков, детали ящика, цоколь: вдоль длины, то есть
+//     вдоль БОЛЬШЕЙ из двух сторон, она же первая цифра;
+//   • столешница — вдоль оси X модуля (вдоль поля «Длина», как у дна).
+// Оси привязаны к каркасу модуля: повернули модуль — оси повернулись вместе
+// с ним, текстура относительно корпуса не меняется. Задняя стенка, стекло,
+// МДФ и декоры без рисунка (белый/чёрный, камень) направления не имеют.
+//
+// Ручное переключение «Поперёк» поворачивает текстуру на 90° и меняет местами
+// Длину и Ширину (и кромки L1/L2 ↔ S1/S2, чтобы кромка осталась на тех же
+// торцах) — только в ДЕТАЛИРОВКЕ (part.cutLength/cutWidth/cutEdging).
+// part.length/width/edging/holes остаются в геометрической системе детали:
+// присадка и DXF для ЧПУ от них зависят и не меняются.
+// Приоритет: настройка детали (mod.grainOverrides) → группы проекта
+// (proj.grainGroups) → «Авто».
+// ---------------------------------------------------------------------------
+const GRAIN_GROUPS = [
+  { id: 'facade',     label: 'Фасады' },
+  { id: 'side',       label: 'Боковины' },
+  { id: 'divider',    label: 'Стойки' },
+  { id: 'shelf',      label: 'Полки' },
+  { id: 'bottom',     label: 'Дно' },
+  { id: 'top',        label: 'Крыша' },
+  { id: 'plinth',     label: 'Цоколь' },
+  { id: 'drawer',     label: 'Детали ящика' },
+  { id: 'countertop', label: 'Столешница' },
+];
+// axis: 'y' | 'x' — ось модуля, вдоль которой идёт текстура в «Авто»;
+// 'long' — вдоль большей из двух сторон детали.
+const GRAIN_RULE_BY_KIND = {
+  side:         { group: 'side',       axis: 'y' },
+  divider:      { group: 'divider',    axis: 'y' },
+  door:         { group: 'facade',     axis: 'y' },
+  filler:       { group: 'facade',     axis: 'y' },
+  drawerFront:  { group: 'facade',     axis: 'long' },
+  bottom:       { group: 'bottom',     axis: 'x' },
+  top:          { group: 'top',        axis: 'x' },
+  shelf:        { group: 'shelf',      axis: 'x' },
+  plinth:       { group: 'plinth',     axis: 'long' },
+  drawerSide:   { group: 'drawer',     axis: 'long' },
+  drawerBottom: { group: 'drawer',     axis: 'long' },
+  drawerBack:   { group: 'drawer',     axis: 'long' },
+  countertop:   { group: 'countertop', axis: 'x' },
+};
+
+// Есть ли у детали рисунок, у которого бывает направление: не стекло, не МДФ
+// (плёнка/эмаль — гладкий), декор с рисунком (catalog.decorHasPattern). Тот же
+// критерий, что «ldspLike» при выборе текстуры во viewer.js.
+function partHasGrainPattern(part) {
+  if (part.hardware || part.glass) return false;
+  // МДФ (плёнка/эмаль), стекло и алюминиевый профиль — гладкие, рисунка нет.
+  if (part.facadeType === 'mdf' || part.facadeType === 'mdfMilled'
+    || part.facadeType === 'glass4' || part.facadeType === 'alu') return false;
+  if (/^GLASS/i.test(part.material || '')) return false;
+  const cat = window.Modul3D.catalog;
+  return cat.decorHasPattern ? cat.decorHasPattern(part.material) : true;
+}
+
+// Расставляет на деталях модуля поля направления текстуры (см. блок выше).
+// Вызывается на «чистом» списке деталей модуля: box.w/h/d — в собственной
+// системе модуля (w — по X, h — по Y, d — по Z), до поворота в прогоне.
+// localDims — необязательный пересчёт box в эту систему для деталей, которые
+// строятся уже в мировой системе (угловая фальш-планка).
+// Поля детали:
+//   grainGroup, grainKey   — группа и ключ настройки детали (для UI);
+//   grainOverride          — 'along' | 'across' | null (правка этой детали);
+//   grainGroupMode         — 'auto' | 'across' (настройка группы проекта);
+//   grainAcross            — итог: текстура повёрнута поперёк «Авто»;
+//   grainAxis              — 'x'|'y'|'z' ось модуля, вдоль которой идёт текстура
+//                            (только у деталей с рисунком);
+//   grainRule, grainLenOnBase — служебные, для finalizeGrainDisplay.
+// Ключ = kind|section|side|индекс в группе — как у applyPartOverrides, поэтому
+// после добавления/удаления полки в секции правка остаётся за номером полки.
+function applyGrainDirection(parts, groups, overrides, localDims) {
+  const counters = new Map();
+  for (const part of parts) {
+    const rule = GRAIN_RULE_BY_KIND[part.kind];
+    if (!rule || part.hardware) continue;
+    const gk = [part.kind, part.section || '', partOverrideSide(part) || ''].join('|');
+    const index = counters.get(gk) || 0;
+    counters.set(gk, index + 1);
+    part.grainGroup = rule.group;
+    part.grainKey = gk + '|' + index;
+    const ov = overrides && overrides[part.grainKey];
+    part.grainOverride = (ov === 'along' || ov === 'across') ? ov : null;
+    part.grainGroupMode = (groups && groups[rule.group] === 'across') ? 'across' : 'auto';
+    part.grainAcross = part.grainOverride
+      ? part.grainOverride === 'across'
+      : part.grainGroupMode === 'across';
+    part.grainDirection = false;
+    if (!partHasGrainPattern(part)) continue;
+
+    const b = localDims ? localDims(part.box) : part.box;
+    const dims = { x: b.w, y: b.h, z: b.d };
+    const axes = ['x', 'y', 'z'];
+    // Толщина листа — самая малая сторона бокса; текстура лежит в плоскости
+    // пласти, то есть на двух других осях.
+    const thick = axes.reduce((a, c) => (dims[c] < dims[a] ? c : a));
+    const plane = axes.filter((a) => a !== thick);
+    let base = rule.axis;
+    let kindRule = 'fixed';
+    if (base === 'long' || base === thick) {
+      kindRule = 'long';
+      base = dims[plane[0]] >= dims[plane[1]] ? plane[0] : plane[1];
+    }
+    const other = plane.find((a) => a !== base);
+    part.grainRule = kindRule;
+    part.grainAxis = part.grainAcross ? other : base;
+    part.grainDirection = true;
+    // Лежит ли поле «Длина» вдоль базовой оси — по ближайшему размеру бокса
+    // (допуски на паз и т.п. не мешают: они на миллиметры, а не на сторону).
+    const d = dims[base];
+    part.grainLenOnBase = Math.abs(d - part.length) <= Math.abs(d - part.width);
+  }
+}
+
+// ФИНАЛЬНЫЙ проход по всем деталям проекта — после сборки модулей и слияния
+// цоколей/столешниц (у слитых деталей длина уже итоговая) и до склейки
+// одинаковых деталей в деталировку. Считает, надо ли показать Длину и Ширину
+// в деталировке местами, и кладёт итог в part.cutLength/cutWidth/cutEdging
+// (у деталей без направления они равны length/width/edging).
+function finalizeGrainDisplay(parts) {
+  for (const part of parts) {
+    let swap = false;
+    if (part.grainAxis) {
+      if (part.grainRule === 'long') {
+        // «Авто» — первой большая сторона; «Поперёк» — первой меньшая.
+        // Равные стороны не переставляем.
+        swap = part.grainAcross ? part.length > part.width : part.length < part.width;
+      } else {
+        // Первая цифра — размер вдоль текстуры: если «Длина» не вдоль неё,
+        // цифры меняются местами.
+        swap = part.grainLenOnBase ? part.grainAcross : !part.grainAcross;
+      }
+    }
+    const e = part.edging || {};
+    part.grainSwap = swap;
+    part.cutLength = swap ? part.width : part.length;
+    part.cutWidth = swap ? part.length : part.width;
+    part.cutEdging = swap
+      ? { long1: e.short1 || null, long2: e.short2 || null, short1: e.long1 || null, short2: e.long2 || null }
+      : { long1: e.long1 || null, long2: e.long2 || null, short1: e.short1 || null, short2: e.short2 || null };
+    if (part.grainKey !== undefined) {
+      part.grainLabel = part.grainAxis
+        ? (part.grainAcross ? 'вдоль длины (повёрнута)' : 'вдоль длины')
+        : 'нет';
+    }
+  }
+}
+
 // Резолвер материала столешницы модуля (вынесен из buildModuleParts, чтобы
 // тем же правилом пользоваться и в buildModel — см. skipTopPanelOf/resolveBackMount).
 function countertopMatOf(ct) {
@@ -3668,6 +3826,9 @@ function buildModuleParts(p) {
   // ПОСЛЕДНИЙ шаг: все формулы корпуса уже отработали, соседние детали
   // пересчитывать не нужно (и не будем).
   applyPartOverrides(parts, p.partOverrides, warnings);
+  // Направление текстуры — тоже постобработка: только помечает детали
+  // (см. блок «НАПРАВЛЕНИЕ ТЕКСТУРЫ»), размеров и присадки не трогает.
+  applyGrainDirection(parts, p.grainGroups, p.grainOverrides);
 
   return {
     params: p,
@@ -3876,6 +4037,10 @@ function buildModel(project) {
         // модуля — переживает Undo/Redo и сохранение проекта бесплатно,
         // т.к. snapshot()/serializeProject() сериализуют state.modules целиком.
         partOverrides: m.partOverrides || {},
+        // Направление текстуры: настройки групп — общие на проект, правки
+        // отдельных деталей — в объекте модуля (как partOverrides).
+        grainGroups: proj.grainGroups || {},
+        grainOverrides: m.grainOverrides || {},
       });
 
       const manualRot = rotOf(m);
@@ -3962,18 +4127,25 @@ function buildModel(project) {
         const swap = dirRot === 90 || dirRot === 270;
         // У модуля со своей заглушкой стыковочную планку ставит он сам
         // (фальш-планка добора) — вторую в том же месте не делаем.
-        if (!m.blindPanel) allParts.push(Object.assign(makePart({
-          name: 'Фальш-планка угловая', section: 'Угловой стык',
-          material: ftc.material, thickness: ftc.thickness,
-          length: frontH, width: FILLER_W, qty: 1, kind: 'filler', grain: true,
-          note: `Фасадный элемент для стыка в углу, ${FILLER_W} мм; `
-            + `корпус соседнего ряда отставлен ещё на ${FILLER_GAP} мм`,
-          edging: { long1: facadeEdgeType(ftc), long2: facadeEdgeType(ftc), short1: facadeEdgeType(ftc), short2: facadeEdgeType(ftc) },
-          x: round1(gx), y: mBaseH + frontH / 2, z: round1(gz),
-          dims: swap
-            ? { w: FILLER_W, h: frontH, d: ftc.thickness }
-            : { w: ftc.thickness, h: frontH, d: FILLER_W },
-        }), { module: name, rot: dirRot }));
+        if (!m.blindPanel) {
+          const cornerFiller = Object.assign(makePart({
+            name: 'Фальш-планка угловая', section: 'Угловой стык',
+            material: ftc.material, thickness: ftc.thickness,
+            length: frontH, width: FILLER_W, qty: 1, kind: 'filler', grain: true,
+            note: `Фасадный элемент для стыка в углу, ${FILLER_W} мм; `
+              + `корпус соседнего ряда отставлен ещё на ${FILLER_GAP} мм`,
+            edging: { long1: facadeEdgeType(ftc), long2: facadeEdgeType(ftc), short1: facadeEdgeType(ftc), short2: facadeEdgeType(ftc) },
+            x: round1(gx), y: mBaseH + frontH / 2, z: round1(gz),
+            dims: swap
+              ? { w: FILLER_W, h: frontH, d: ftc.thickness }
+              : { w: ftc.thickness, h: frontH, d: FILLER_W },
+          }), { module: name, rot: dirRot });
+          // Планка строится сразу в мировой системе (габариты уже повёрнуты
+          // прогоном) — для направления текстуры возвращаем их в систему модуля.
+          applyGrainDirection([cornerFiller], proj.grainGroups, m.grainOverrides,
+            swap ? (bb) => ({ w: bb.d, h: bb.h, d: bb.w }) : null);
+          allParts.push(cornerFiller);
+        }
 
         // цоколь этого модуля дотягиваем до цоколя следующего прогона
         cornerPlinths.push({ name, sign: U[0] !== 0 ? U[0] : 0 });
@@ -4051,6 +4223,11 @@ function buildModel(project) {
 
   // Одинаковые предупреждения схлопываем — иначе список превращается в простыню
   const uniqueWarnings = warnings.filter((w, i) => warnings.indexOf(w) === i);
+
+  // Направление текстуры → порядок Длина/Ширина и кромок в деталировке.
+  // ПОСЛЕ слияния цоколей/столешниц (длина уже итоговая) и ДО склейки одинаковых
+  // деталей: grainAxis/grainSwap/grainAcross входят в mergeKey.
+  finalizeGrainDisplay(allParts);
 
   const { merged, numByKey } = mergeEqualParts(allParts);
   // Несклеенный список: каждая деталь со своим модулем, секцией и боксом,
@@ -4432,6 +4609,11 @@ function mergeKey(part) {
     mergeNameKey(part), part.material, part.thickness, part.length, part.width,
     part.edging.long1, part.edging.long2, part.edging.short1, part.edging.short2,
     part.grainDirection, part.note,
+    // Направление текстуры: две одинаковые по размеру детали с разным
+    // направлением (одна повёрнута вручную) — разные строки деталировки.
+    // grainAcross у детали без рисунка не учитываем: остаточная правка от
+    // прежнего декора не должна разбивать одинаковые детали на две строки.
+    part.grainAxis || null, part.grainSwap || false, part.grainAxis ? !!part.grainAcross : false,
     // Присадка/пазы/тип фасада — иначе две иначе одинаковые детали с разной
     // присадкой (например, деталь с ручными правками из part.overrides)
     // молча склеятся в одну строку и потеряют/задвоят отверстия.
@@ -5049,6 +5231,9 @@ function mergeEqualParts(parts) {
 window.Modul3D = window.Modul3D || {};
 window.Modul3D.engine = {
   buildModel, buildModuleParts, EDGE_FRONT, EDGE_BACK, EDGE_MID, SIDE_LABEL, sidesLabel,
+  // Группы деталей для блока «Направление текстуры» (id + подпись); правило
+  // «Авто» и поля детали — см. блок «НАПРАВЛЕНИЕ ТЕКСТУРЫ» выше.
+  GRAIN_GROUPS,
   // Числа паза под заднюю стенку по умолчанию — UI берёт их отсюда, чтобы
   // не дублировать (см. resolveBackMount).
   BACK_GROOVE_DEFAULTS,

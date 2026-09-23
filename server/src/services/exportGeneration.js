@@ -36,22 +36,29 @@ const DEFAULT_CURRENCY_SYMBOL = '₽';
 function buildDetailingWorkbook(model, projectName) {
   const rows = (model.parts || [])
     .filter((r) => !r.hardware) // фурнитура (опоры и т.п.) — не лист, пропускаем
-    .map((r) => ({
-    '№ п/п': r.num,
-    'Наименование детали': r.name,
-    'Изделие/секция': r.section,
-    'Материал': r.material,
-    'Толщина, мм': r.thickness,
-    'Длина, мм': r.length,
-    'Ширина, мм': r.width,
-    'Количество, шт': r.qty,
-    'Кромка длинная сторона 1': (r.edging && r.edging.long1) || 'без кромки',
-    'Кромка длинная сторона 2': (r.edging && r.edging.long2) || 'без кромки',
-    'Кромка короткая сторона 1': (r.edging && r.edging.short1) || 'без кромки',
-    'Кромка короткая сторона 2': (r.edging && r.edging.short2) || 'без кромки',
-    'Направление текстуры': r.grainDirection ? 'да' : 'нет',
-    'Примечание': r.note || '',
-  }));
+    .map((r) => {
+      const ed = r.cutEdging || r.edging || {};
+      return {
+        '№ п/п': r.num,
+        'Наименование детали': r.name,
+        'Изделие/секция': r.section,
+        'Материал': r.material,
+        'Толщина, мм': r.thickness,
+        // Длина/Ширина/кромки — в порядке деталировки: первой цифрой идёт
+        // размер ВДОЛЬ текстуры (engine.js, finalizeGrainDisplay; у детали без
+        // направления cut* равны length/width/edging). Модель от старого
+        // клиента без cut* — как раньше, по length/width.
+        'Длина, мм': r.cutLength != null ? r.cutLength : r.length,
+        'Ширина, мм': r.cutWidth != null ? r.cutWidth : r.width,
+        'Количество, шт': r.qty,
+        'Кромка длинная сторона 1': ed.long1 || 'без кромки',
+        'Кромка длинная сторона 2': ed.long2 || 'без кромки',
+        'Кромка короткая сторона 1': ed.short1 || 'без кромки',
+        'Кромка короткая сторона 2': ed.short2 || 'без кромки',
+        'Направление текстуры': r.grainLabel || (r.grainDirection ? 'да' : 'нет'),
+        'Примечание': r.note || '',
+      };
+    });
   const ws = XLSX.utils.json_to_sheet(rows);
   ws['!cols'] = [
     { wch: 6 }, { wch: 26 }, { wch: 16 }, { wch: 22 }, { wch: 10 }, { wch: 10 }, { wch: 10 },

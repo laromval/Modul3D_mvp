@@ -14,7 +14,7 @@
 (function () {
 // Версия сборки — показывается во вкладке браузера и в шапке.
 // При выпуске новой версии меняется только эта строка.
-const APP_VERSION = 'v302';
+const APP_VERSION = 'v303';
 
 // Номер версии выводим ПЕРВЫМ делом: если дальше что-то упадёт, по нему сразу
 // видно, какая сборка открыта.
@@ -126,6 +126,11 @@ const state = {
   // стяжку автоматически, это переключает только угол; читает engine.js
   // (joinCountertopSeams) как proj.countertopCornerJoint.
   countertopCornerJoint: 'strip',
+  // Направление текстуры по группам деталей — общее на проект (блок
+  // «Направление текстуры», materialsBlock ниже): { [groupId]: 'across' },
+  // нет ключа = «Авто». Читает engine.js как proj.grainGroups. Настройка
+  // ОТДЕЛЬНОЙ детали живёт в модуле: mod.grainOverrides[grainKey].
+  grainGroups: {},
   hideFacades: false,
   // Режим проверки присадки: корпус прозрачный, отверстия подсвечены
   drillCheck: false,
@@ -1431,6 +1436,7 @@ function snapshot() {
     decorCode: state.decorCode, facadeDecorCode: state.facadeDecorCode, backCode: state.backCode,
     jointType: state.jointType, worktopDepth: state.worktopDepth,
     countertopCornerJoint: state.countertopCornerJoint,
+    grainGroups: state.grainGroups,
   });
 }
 
@@ -1446,6 +1452,8 @@ function pushHistory() {
 function applySnapshot(snap) {
   const o = JSON.parse(snap);
   Object.keys(o).forEach((k) => { state[k] = o[k]; });
+  // Снимок без этого поля (старый) не должен оставлять группы от другого проекта.
+  if (!o.grainGroups) state.grainGroups = {};
   // state.modules целиком заменён — режим изоляции (по имени модуля) и
   // выбор детали внутри него могли устареть, снимаем безусловно.
   exitIsolation();
@@ -1550,6 +1558,9 @@ function restoreProjectData(data) {
     throw new Error('Файл не похож на проект «Modul3D» — нет списка модулей.');
   }
   Object.keys(data.state).forEach((k) => { state[k] = data.state[k]; });
+  // Проект из файла до появления «Направления текстуры» — все группы «Авто»,
+  // а не то, что было выставлено в предыдущем открытом проекте.
+  if (!data.state.grainGroups) state.grainGroups = {};
   migrateDrawerFieldsToSections(data);
   // Открыт другой проект (или восстановлено автосохранение) — модули заменены
   // целиком, старая изоляция/выбор детали больше не имеют смысла.
@@ -9908,6 +9919,15 @@ function resolveSelectedPart(mod) {
   if (!mod || !sp) return { candidates: [], chosenIdx: -1, chosen: null };
   const candidates = overridablePartCandidates(mod, sp.kind);
 
+  // Клик в 3D приносит ключ именно кликнутой детали (engine.js grainKey — та же
+  // схема, что и ключ кандидата): им находится ровно она, даже когда деталей
+  // одного вида много (полки, ящики). Не нашёлся (деталь пропала после
+  // пересчёта, клик по отсеку без ключа) — прежняя логика ниже.
+  if (sp.partKey) {
+    const byKey = candidates.findIndex((c) => (c.part.grainKey || c.key) === sp.partKey);
+    if (byKey >= 0) return { candidates, chosenIdx: byKey, chosen: candidates[byKey] };
+  }
+
   // Для боковины сторона уже известна из клика (sp.side). Для остальных
   // видов деталь в модуле почти всегда одна (index 0) — исключение крыша
   // из двух планок (topType: 'rails'/'railsEdge', см. ниже subIndex).
@@ -9937,13 +9957,71 @@ function resolveSelectedPart(mod) {
   return { candidates, chosenIdx, chosen: candidates[chosenIdx] || null };
 }
 
+// Селектор «Какая деталь» экрана «Деталь» (общий для partBlock и
+// partKindPlaceholderBlock). Клик в 3D теперь приносит partKey и выбирает
+// деталь сам, но список нужен, когда деталей вида несколько, а нужна другая.
+// У одноимённых деталей (полки разных секций) к названию добавляется секция и
+// номер — иначе пункты списка не отличить.
+function partPickerBlock(candidates, chosenIdx, kindTitle) {
+  if (candidates.length < 2) return '';
+  const label = (c, i) => {
+    const nm = c.part.name || (kindTitle + ' ' + (i + 1));
+    const same = candidates.filter((x) => (x.part.name || '') === (c.part.name || ''));
+    if (same.length < 2) return nm;
+    return `${nm} — ${c.part.section ? c.part.section + ', ' : ''}№${same.indexOf(c) + 1}`;
+  };
+  return `
+    <div class="field">
+      <label>Какая деталь</label>
+      <select id="partSubIndex">
+        ${candidates.map((c, i) => `<option value="${i}" ${i === chosenIdx ? 'selected' : ''}>${esc(label(c, i))}</option>`).join('')}
+      </select>
+    </div>`;
+}
+
+// Поле «Направление текстуры» ОДНОЙ детали (экран «Деталь», любой вид). Пишет
+// mod.grainOverrides[grainKey] — не partOverrides: тот помечает деталь
+// «изменённой вручную» и ограничен OVERRIDABLE_PART_KINDS. Ключ и текущее
+// состояние берутся из ПОСЧИТАННОЙ детали (engine.js applyGrainDirection);
+// обработчик — on('partGrain') в bindPanelEvents. Деталям без правила
+// (задняя стенка, опоры — grainKey нет) поле не показывается.
+function partGrainField(part) {
+  if (!part || part.grainKey === undefined) return '';
+  const hasPattern = !!part.grainAxis;
+  const cur = part.grainOverride || '';
+  const groupText = part.grainGroupMode === 'across' ? 'Поперёк' : 'Авто';
+  const opt = (v, text) => `<option value="${v}" ${cur === v ? 'selected' : ''}>${text}</option>`;
+  return `
+    <div class="field">
+      <label>Направление текстуры</label>
+      <select id="partGrain" data-key="${esc(part.grainKey)}" ${hasPattern ? '' : 'disabled'}>
+        ${opt('', 'Как у группы: ' + groupText)}
+        ${opt('along', 'Вдоль длины')}
+        ${opt('across', 'Поперёк')}
+      </select>
+      <div class="hint">${hasPattern
+        ? 'Текстура идёт вдоль первой цифры (Длина) в деталировке; «Поперёк» меняет цифры местами.'
+        : 'У этого декора нет рисунка — направление текстуры не применяется.'}</div>
+    </div>`;
+}
+
+// «Деталь не найдена» — общий ответ partBlock/partKindPlaceholderBlock.
+function partNotFoundBlock(kindTitle) {
+  return `
+      ${backLinkBlock()}
+      <h3>${esc(kindTitle)}</h3>
+      <div class="hint">Деталь не найдена в текущей модели — возможно, она объединена
+      с соседним модулем (например, цоколь идёт сквозной планкой на весь ряд) или
+      параметры модуля изменились. Закройте фокус и выберите деталь заново.</div>`;
+}
+
 // Экран «Деталь»: открывается пунктом «Редактировать» контекстного меню
 // фокуса (см. showFocusMenu/openPartEditor ниже), которое, в свою очередь,
 // открывается кликом по детали внутри изолированного в 3D модуля
 // (viewer.onSelectPart). Полноценные поля (толщина/материал/доп. отверстия,
 // см. OVERRIDABLE_PART_KINDS выше) — для боковины, дна, крыши, задней стенки
-// и цоколя; для остальных видов деталей по-прежнему показывается заглушка
-// partKindPlaceholderBlock (см. renderParamsPanel). Для боковины показывается
+// и цоколя; для остальных видов деталей — partKindPlaceholderBlock (только
+// направление текстуры, см. renderParamsPanel). Для боковины показывается
 // ещё и «Конструктив» — тот же самый инпут, что и в общих параметрах модуля
 // (id m-leftSide/m-rightSide): существующий обработчик в bindPanelEvents()
 // слушает эти id и продолжает работать без изменений, где бы они ни были
@@ -9954,14 +10032,7 @@ function partBlock(mod) {
   const kindTitle = PART_KIND_TITLES[kind] || 'Деталь';
   const { candidates, chosenIdx, chosen } = resolveSelectedPart(mod);
 
-  if (!chosen) {
-    return `
-      ${backLinkBlock()}
-      <h3>${esc(kindTitle)}</h3>
-      <div class="hint">Деталь не найдена в текущей модели — возможно, она объединена
-      с соседним модулем (например, цоколь идёт сквозной планкой на весь ряд) или
-      параметры модуля изменились. Закройте фокус и выберите деталь заново.</div>`;
-  }
+  if (!chosen) return partNotFoundBlock(kindTitle);
 
   const part = chosen.part;
   const ov = (mod.partOverrides && mod.partOverrides[chosen.key]) || {};
@@ -10002,17 +10073,10 @@ function partBlock(mod) {
     kindSpecific = `<h3>${esc(part.name || kindTitle)}</h3>`;
   }
 
-  // Единственный случай больше одной детали одного вида в модуле — крыша из
-  // двух планок (topType: 'rails'/'railsEdge'). Клик в 3D не даёт различить,
-  // по какой именно планке кликнули (viewer.js передаёт только kind, не
-  // индекс — см. onSelectPart), поэтому даём выбрать деталь селектором.
-  const subIndexBlock = candidates.length > 1 ? `
-    <div class="field">
-      <label>Какая деталь</label>
-      <select id="partSubIndex">
-        ${candidates.map((c, i) => `<option value="${i}" ${i === chosenIdx ? 'selected' : ''}>${esc(c.part.name || (kindTitle + ' ' + (i + 1)))}</option>`).join('')}
-      </select>
-    </div>` : '';
+  // Больше одной детали одного вида в модуле — крыша из двух планок, обе
+  // боковины. Кликнутую деталь определяет partKey (см. resolveSelectedPart),
+  // но выбрать другую можно и селектором.
+  const subIndexBlock = partPickerBlock(candidates, chosenIdx, kindTitle);
 
   return `
     ${backLinkBlock()}
@@ -10028,6 +10092,7 @@ function partBlock(mod) {
         <label>Материал / декор</label>
         <select id="partMaterial">${decorList.map(d => `<option value="${d.code}" ${d.code === part.material ? 'selected' : ''}>${esc(d.name)}</option>`).join('')}</select>
       </div>
+      ${partGrainField(part)}
 
       <h4 class="mat-sub">Дополнительные отверстия</h4>
       <div class="hint">Координаты — в системе координат самой детали: начало в левом
@@ -10062,23 +10127,37 @@ function partPlaceholderBlock() {
     <h3>Деталь</h3>
     <div class="hint">Чтобы отредактировать деталь: дважды кликните по модулю в 3D-сцене,
     кликните по нужной детали, затем выберите «Редактировать» в открывшемся меню
-    (полноценный экран есть для боковины, дна, крыши, задней стенки и цоколя).</div>`;
+    (толщина, материал и отверстия — у боковины, дна, крыши, задней стенки и цоколя;
+    направление текстуры — у любой детали с рисунком).</div>`;
 }
 
-// Заглушка экрана «Деталь» для видов деталей, у которых ещё нет полноценного
-// экрана (сейчас поддерживаются боковина/дно/крыша/задняя стенка/цоколь —
-// см. OVERRIDABLE_PART_KINDS и partBlock выше). Открывается через
-// «Редактировать» в контекстном меню фокуса (openPartEditor), когда
-// выбранная деталь — из остальных видов (полка, фасад, перегородка и т.п.).
-// Когда появится общий редактор геометрии детали — эта функция и есть точка,
-// которую нужно будет заменить/расширить, вызывающий код (openPartEditor)
-// менять не придётся.
-function partKindPlaceholderBlock(kind) {
-  const title = PART_KIND_TITLES[kind] || kind;
-  return `
+// Экран «Деталь» для видов деталей, у которых ещё нет полноценного экрана
+// (сейчас он есть у боковины/дна/крыши/задней стенки/цоколя — см.
+// OVERRIDABLE_PART_KINDS и partBlock выше). Открывается через «Редактировать»
+// в контекстном меню фокуса (openPartEditor), когда выбранная деталь — из
+// остальных видов (полка, фасад, стойка, детали ящика и т.п.). Пока здесь одно
+// рабочее поле — «Направление текстуры» (не зависит от OVERRIDABLE_PART_KINDS,
+// пишет в mod.grainOverrides). Когда появится общий редактор геометрии детали
+// — эта функция и есть точка, которую нужно будет заменить/расширить,
+// вызывающий код (openPartEditor) менять не придётся.
+function partKindPlaceholderBlock(mod) {
+  const kind = state.selectedPart.kind;
+  const kindTitle = PART_KIND_TITLES[kind] || kind;
+  const { candidates, chosenIdx, chosen } = resolveSelectedPart(mod);
+  // Деталь в модели не нашлась (у вида нет строк в partsRaw) — прежняя заглушка.
+  if (!chosen) {
+    return `
     ${backLinkBlock()}
     <h3>Деталь</h3>
-    <div class="hint">Редактор для этого вида детали (${esc(title)}) появится отдельным этапом.</div>`;
+    <div class="hint">Редактор для этого вида детали (${esc(kindTitle)}) появится отдельным этапом.</div>`;
+  }
+  return `
+    ${backLinkBlock()}
+    <h3>${esc(chosen.part.name || kindTitle)}</h3>
+    ${partPickerBlock(candidates, chosenIdx, kindTitle)}
+    ${partGrainField(chosen.part)}
+    <div class="hint">Остальные поля (толщина, материал, присадка) для этого вида
+    детали появятся отдельным этапом.</div>`;
 }
 
 // Компактный редактор ОДНОГО отсека — открывается пунктом «Редактировать
@@ -10144,9 +10223,12 @@ function doorZoneEditorScreen(mod, sectionIndex, zoneIndex) {
 // правок), менять нужно будет только то, ЧТО показывается на экране «part»
 // (partBlock/partKindPlaceholderBlock и renderParamsPanel ниже), саму точку
 // вызова из меню — не нужно.
-function openPartEditor(module, kind, side, sectionIndex, zoneIndex, asPart) {
+function openPartEditor(module, kind, side, sectionIndex, zoneIndex, asPart, partKey) {
   state.selectedPart = {
     module, kind, side, subIndex: 0,
+    // engine.js grainKey кликнутой детали (viewer.onSelectPart) — по нему
+    // resolveSelectedPart находит ровно её. null — открыто без клика по детали.
+    partKey: partKey || null,
     // У фасадов (kind:'door'/'drawerFront') — числовой индекс секции/отсека
     // фасада, по которому кликнули в 3D (см. viewer.js
     // userData.sectionIndex/zoneIndex). Undefined для остальных видов
@@ -10289,6 +10371,36 @@ function materialsBlock() {
       <select id="p-back">${BACK_MATERIALS.map(d => `<option value="${d.code}" ${d.code === state.backCode ? 'selected' : ''}>${esc(d.name)}</option>`).join('')}</select>
       ${materialPickActionsHtml('back')}
     </div>`;
+}
+
+// Блок «Направление текстуры» под материалами: настройка ГРУППЫ деталей на
+// весь проект (state.grainGroups → proj.grainGroups в движке). Список групп
+// берётся из engine.GRAIN_GROUPS, чтобы не расходиться с правилами движка.
+// Обработчики — on('p-grain-<id>') в bindPanelEvents. Настройка отдельной
+// детали — на экране «Деталь» (partGrainField) и приоритетнее группы.
+function grainGroupsBlock() {
+  const groups = window.Modul3D.engine.GRAIN_GROUPS || [];
+  const cur = state.grainGroups || {};
+  const field = (g) => `
+      <div class="field">
+        <label>${esc(g.label)}</label>
+        <select id="p-grain-${esc(g.id)}">
+          <option value="auto" ${cur[g.id] === 'across' ? '' : 'selected'}>Авто</option>
+          <option value="across" ${cur[g.id] === 'across' ? 'selected' : ''}>Поперёк</option>
+        </select>
+      </div>`;
+  let rows = '';
+  for (let i = 0; i < groups.length; i += 2) {
+    rows += `<div class="field-row">${field(groups[i])}${groups[i + 1] ? field(groups[i + 1]) : ''}</div>`;
+  }
+  return `
+    <h3>Направление текстуры</h3>
+    ${rows}
+    <div class="hint">Только для декоров с рисунком. «Авто»: вертикальные детали
+    (боковины, стойки, двери) — вдоль высоты, горизонтальные (дно, крыша, полки) —
+    вдоль ширины шкафа, ящики и цоколь — вдоль большей стороны. «Поперёк» поворачивает
+    текстуру на 90° у всех деталей группы. Отдельную деталь можно переопределить:
+    режим фокуса → «Редактировать деталь».</div>`;
 }
 
 // «+ Добавить материал» (см. materialPickActionsHtml) — переключает
@@ -10473,7 +10585,7 @@ function renderParamsPanel() {
   if (!mod) {
     screen = emptyProjectBlock();
   } else if (state.panelView === 'materials') {
-    screen = materialsBackLinkBlock() + materialsBlock();
+    screen = materialsBackLinkBlock() + materialsBlock() + grainGroupsBlock();
   } else if (state.panelView === 'drawers') {
     screen = drawersPanelBlock(mod, state.drawersSectionIndex);
   } else if (state.panelView === 'part') {
@@ -10484,7 +10596,7 @@ function renderParamsPanel() {
     } else if (OVERRIDABLE_PART_KINDS.has(state.selectedPart.kind)) {
       screen = partBlock(mod);
     } else {
-      screen = partKindPlaceholderBlock(state.selectedPart.kind);
+      screen = partKindPlaceholderBlock(mod);
     }
   } else {
     // 'module' (и любое неизвестное/начальное значение)
@@ -11866,6 +11978,15 @@ function bindPanelEvents() {
   });
   on('p-bodyThickness', 'change', (e) => { state.bodyThickness = Number(e.target.value); recompute(); });
   on('p-facadeThickness', 'change', (e) => { state.facadeThickness = Number(e.target.value); recompute(); });
+  // «Направление текстуры» по группам (grainGroupsBlock): 'across' пишем,
+  // 'auto' — удаляем ключ (нет ключа = «Авто», как ждёт движок).
+  (window.Modul3D.engine.GRAIN_GROUPS || []).forEach((g) => {
+    on('p-grain-' + g.id, 'change', (e) => {
+      state.grainGroups = state.grainGroups || {};
+      if (e.target.value === 'across') state.grainGroups[g.id] = 'across'; else delete state.grainGroups[g.id];
+      recompute();
+    });
+  });
 
   // «+ Добавить материал»/«Удалить материал» под Материал корпуса/Материал
   // фасада/Задняя стенка (см. materialPickActionsHtml) — три пары кнопок,
@@ -11898,7 +12019,28 @@ function bindPanelEvents() {
   // overridablePartCandidates. Смена выбора ничего не меняет в проекте,
   // только какая деталь сейчас редактируется — recompute() не нужен.
   on('partSubIndex', 'change', (e) => {
-    if (state.selectedPart) state.selectedPart.subIndex = Number(e.target.value) || 0;
+    const sp = state.selectedPart;
+    if (!sp) return;
+    sp.subIndex = Number(e.target.value) || 0;
+    // Выбор в списке главнее ключа кликнутой детали: подменяем его ключом
+    // выбранной, иначе resolveSelectedPart (partKey первым) вернул бы прежнюю.
+    const cand = resolveSelectedPart(mod).candidates[sp.subIndex];
+    if (cand) { sp.partKey = cand.key; sp.side = cand.side || sp.side; }
+    renderParamsPanel();
+    // Подсветка в 3D идёт за выбранной деталью (viewOpts → resolveSelectedPart).
+    if (viewer && currentModel) viewer.render(currentModel, viewOpts());
+  });
+
+  // Экран «Деталь» → «Направление текстуры» ОДНОЙ детали (partGrainField).
+  // Пишем в mod.grainOverrides по ключу детали из data-key; пустое значение —
+  // «как у группы», ключ удаляется. recompute() запишет и историю (Undo).
+  on('partGrain', 'change', (e) => {
+    const key = e.target.dataset.key;
+    if (!key) return;
+    const v = e.target.value;
+    mod.grainOverrides = mod.grainOverrides || {};
+    if (v === 'along' || v === 'across') mod.grainOverrides[key] = v; else delete mod.grainOverrides[key];
+    recompute();
     renderParamsPanel();
   });
 
@@ -12078,6 +12220,9 @@ function recompute(isRetry) {
     // Способ соединения столешниц на угловом стыке — общий на проект (панель
     // «Столешница»), читает joinCountertopSeams() в engine.js.
     countertopCornerJoint: state.countertopCornerJoint,
+    // Направление текстуры по группам деталей (блок «Направление текстуры»
+    // на экране параметров) — читает applyGrainDirection() в engine.js.
+    grainGroups: state.grainGroups,
     modules: state.modules.map(m => ({
       name: m.name, width: m.width, height: m.height, depth: m.depth,
       rotation: m.rotation || 0, corner: !!m.corner, family: m.family || 'custom',
@@ -12094,6 +12239,10 @@ function recompute(isRetry) {
       // см. applyPartOverrides() в engine.js и partBlock()/bindPanelEvents()
       // выше, где этот объект заполняется с экрана «Деталь».
       partOverrides: m.partOverrides || {},
+      // Направление текстуры отдельных деталей модуля (поле на экране «Деталь»):
+      // { [grainKey]: 'along' | 'across' }. Отдельно от partOverrides — оно не
+      // должно помечать деталь «изменённой вручную».
+      grainOverrides: m.grainOverrides || {},
       // Столешница модуля (панель «Столешница», см. countertopPanelBlock) —
       // читает buildModuleParts() в engine.js как p.countertop.
       countertop: m.countertop,
@@ -12673,12 +12822,18 @@ const DETAIL_COLUMNS = [
 let detailRowsCache = [];
 
 function detailRowValues(r) {
+  // Длина/Ширина/кромки — в порядке деталировки (первая цифра — вдоль текстуры,
+  // при «Поперёк» цифры и кромки L↔S переставлены движком: cutLength/cutWidth/
+  // cutEdging). У деталей без направления они равны length/width/edging.
+  // Фильтр и сортировка столбцов работают по этим же значениям (vals).
+  const edg = r.cutEdging || r.edging || {};
   return [
     String(r.num), r.module || '', r.name, r.section,
     `${materialName(r.material)}, ${r.thickness} мм`,
-    String(r.length), String(r.width), String(r.qty),
-    r.edging.long1 || '—', r.edging.long2 || '—', r.edging.short1 || '—', r.edging.short2 || '—',
-    r.grainDirection ? 'да' : 'нет', r.note || '',
+    String(r.cutLength != null ? r.cutLength : r.length),
+    String(r.cutWidth != null ? r.cutWidth : r.width), String(r.qty),
+    edg.long1 || '—', edg.long2 || '—', edg.short1 || '—', edg.short2 || '—',
+    r.grainLabel || (r.grainDirection ? 'да' : 'нет'), r.note || '',
   ];
 }
 
@@ -13181,15 +13336,16 @@ function initHeaderControls() {
     // отсек (разбиение по высоте, редактор отсека) сюда больше не входят —
     // они переехали в viewer.onSelectZone ниже, который работает только ВНЕ
     // изоляции (см. комментарий там).
-    viewer.onSelectPart = ({ module, kind, side, sectionIndex, zoneIndex, clientX, clientY }) => {
+    viewer.onSelectPart = ({ module, kind, side, sectionIndex, zoneIndex, partKey, clientX, clientY }) => {
       // Деталь подсвечивается в 3D СРАЗУ по клику — ещё до того, как открыто
       // само меню и тем более выбран его пункт (см. viewOpts/viewer.render
       // ниже). panelView здесь НЕ трогаем — панель «Деталь» по-прежнему
       // открывается только явным выбором пункта меню (openPartEditor).
-      state.selectedPart = { module, kind, side, subIndex: 0, sectionIndex, zoneIndex, asPart: false };
+      // partKey — ключ именно кликнутой детали (у деталей без ключа null).
+      state.selectedPart = { module, kind, side, subIndex: 0, sectionIndex, zoneIndex, partKey: partKey || null, asPart: false };
       viewer.render(currentModel, viewOpts());
       showFocusMenu(clientX, clientY, [
-        { label: 'Редактировать деталь', action: () => openPartEditor(module, kind, side, sectionIndex, zoneIndex, true) },
+        { label: 'Редактировать деталь', action: () => openPartEditor(module, kind, side, sectionIndex, zoneIndex, true, partKey) },
         { label: 'Выйти из фокуса', action: exitFocusMode },
       ]);
     };

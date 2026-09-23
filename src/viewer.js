@@ -107,16 +107,59 @@ function rotateYVec(v, rad) {
 // локальному UV детали (см. buildSlabGeometry), оно превращает его в
 // координату, единую для всего корпуса: соседние детали продолжают узор
 // друг друга, а не начинают его заново от своего угла.
-function woodUvOrigin(box, rotDeg, planeIsX, planeIsY) {
+//
+// swapUv — волокно детали идёт вдоль v (см. grainRunsAlongV): UV её геометрии
+// тогда переставлены местами (spec.uvSwap в buildSlabGeometry), и смещение
+// фазы обязано получить ту же перестановку. Иначе фаза по каждой оси считалась
+// бы от чужой координаты, и шов на стыке деталей вернулся бы. Поля u/v в
+// результате — это компоненты смещения В ТЕКСТУРНЫХ координатах (x и y плитки).
+function woodUvOrigin(box, rotDeg, planeIsX, planeIsY, swapUv) {
   const dirs = planeAxisDirs(planeIsX, planeIsY);
   const rad = ((rotDeg || 0) * Math.PI) / 180;
   const wu = rotateYVec(dirs.u, rad);
   const wv = rotateYVec(dirs.v, rad);
   const bx = box.x * MM, by = box.y * MM, bz = box.z * MM;
-  return {
-    u: bx * wu[0] + by * wu[1] + bz * wu[2],
-    v: bx * wv[0] + by * wv[1] + bz * wv[2],
-  };
+  const ou = bx * wu[0] + by * wu[1] + bz * wu[2];
+  const ov = bx * wv[0] + by * wv[1] + bz * wv[2];
+  return swapUv ? { u: ov, v: ou } : { u: ou, v: ov };
+}
+
+// НАПРАВЛЕНИЕ ВОЛОКНА. Движок (engine.js) кладёт в деталь с рисунком поле
+// grainAxis — 'x' | 'y' | 'z': ось СИСТЕМЫ МОДУЛЯ (x — ширина, y — высота,
+// z — глубина, до общего поворота детали), вдоль которой идёт волокно. Линии
+// на woodTexture() идут вдоль её оси x, а UV слэба кладутся так, что x
+// текстуры = u пласти (см. planeAxisDirs). Значит:
+//   grainAxis совпала с осью u пласти — ничего не делаем (как было);
+//   совпала с осью v — волокно надо повернуть на 90° (true из этой функции);
+//   не задана / ось толщины / что-то непонятное — «без изменений» (false).
+// Детали без рисунка (белый/чёрный декор, МДФ, стекло) поля grainAxis не
+// имеют — для них поведение прежнее.
+function grainAxisIndex(grainAxis) {
+  return grainAxis === 'x' ? 0 : (grainAxis === 'y' ? 1 : (grainAxis === 'z' ? 2 : -1));
+}
+function grainRunsAlongV(grainAxis, planeIsX, planeIsY) {
+  const idx = grainAxisIndex(grainAxis);
+  if (idx < 0) return false;
+  return planeAxisDirs(planeIsX, planeIsY).v[idx] === 1;
+}
+
+// То же для BoxGeometry (миниатюры в renderThumbnail): её родные UV — 0..1 на
+// каждую грань, без привязки к метрам и к направлению. Переписываем их в метры
+// детали (как у слэба основной сцены), причём для КАЖДОЙ грани по её нормали:
+// грань ⟂X — u=Z, v=Y; ⟂Y — u=X, v=Z; ⟂Z — u=X, v=Y (те же planeAxisDirs).
+// Если волокно идёт вдоль v грани — u и v меняются местами; торцы, в плоскости
+// которых оси волокна нет, остаются как есть.
+function applyGrainBoxUv(geo, grainAxis) {
+  const idx = grainAxisIndex(grainAxis);
+  const pos = geo.attributes.position, nor = geo.attributes.normal, uv = geo.attributes.uv;
+  if (idx < 0 || !pos || !nor || !uv) return;
+  for (let i = 0; i < pos.count; i++) {
+    const p = [pos.getX(i), pos.getY(i), pos.getZ(i)];
+    const dirs = planeAxisDirs(Math.abs(nor.getX(i)) > 0.5, Math.abs(nor.getY(i)) > 0.5);
+    const iu = dirs.u.indexOf(1), iv = dirs.v.indexOf(1);
+    if (idx === iv) uv.setXY(i, p[iv], p[iu]); else uv.setXY(i, p[iu], p[iv]);
+  }
+  uv.needsUpdate = true;
 }
 
 // Цвет детали по её МАТЕРИАЛУ: белый корпус должен быть белым и в 3D, а не
@@ -534,7 +577,11 @@ function slabBoxOutline(U, V, T) {
 //               dir = +1/−1 — с какой пласти сверлят;
 //   edgeHoles — отверстия в торец: {alongU, uPos, vPos, len, r, N}
 //               (координаты от центра детали, как их отдаёт edgeDrill);
-//   grooves   — пазы: {u0, u1, v0, v1, depth, dir}.
+//   grooves   — пазы: {u0, u1, v0, v1, depth, dir};
+//   uv        — нужны ли UV для текстуры «под древесину»;
+//   uvSwap    — (только вместе с uv) поменять u и v местами в UV: волокно
+//               текстуры идёт вдоль её оси x, так что при uvSwap оно ляжет
+//               вдоль v пласти, а не вдоль u (см. grainRunsAlongV).
 // Возвращает готовую BufferGeometry и позиции линий контура (в метрах).
 // ---------------------------------------------------------------------------
 function buildSlabGeometry(spec) {
@@ -737,11 +784,16 @@ function buildSlabGeometry(spec) {
     // результате булева вычитания), тогда густота волокна одинакова у любой
     // детали. На стенках вырезов это плоская проекция — они узкие и почти
     // не видны, для древесного узора не критично.
+    // Линии волокна на самой текстуре идут вдоль её оси x. Если у детали
+    // волокно должно идти вдоль v (spec.uvSwap), просто меняем координаты
+    // местами: транспонированная бесшовная плитка остаётся бесшовной, а
+    // поворачивать саму текстуру (map.rotation) не нужно.
     const n = mesh.pos.length / 3;
     const uv = new Float32Array(n * 2);
+    const iu = spec.uvSwap ? 1 : 0, iv = spec.uvSwap ? 0 : 1;
     for (let i = 0; i < n; i++) {
-      uv[i * 2] = mesh.pos[i * 3];
-      uv[i * 2 + 1] = mesh.pos[i * 3 + 1];
+      uv[i * 2] = mesh.pos[i * 3 + iu];
+      uv[i * 2 + 1] = mesh.pos[i * 3 + iv];
     }
     geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
   }
@@ -2023,9 +2075,11 @@ class Viewer3D {
     this.onIsolateModule = null;
     // Клик по ЛЮБОЙ детали (боковина, полка, дно, фасад и т.д. — любой
     // userData.kind) ВНУТРИ изолированного модуля. Колбэк получает
-    // { module, kind, side, clientX, clientY } — side есть только у боковины,
-    // у остальных деталей будет undefined. Координаты клика — чтобы app.js
-    // мог поставить контекстное меню в точку клика.
+    // { module, kind, side, sectionIndex, zoneIndex, partKey, clientX,
+    // clientY } — side есть только у боковины, у остальных деталей будет
+    // undefined; partKey — engine.js grainKey кликнутой детали (или null).
+    // Координаты клика — чтобы app.js мог поставить контекстное меню в точку
+    // клика.
     this.onSelectPart = null;
     // Клик по ОТСЕКУ (секция +, если она разбита по высоте, конкретная зона)
     // ВНЕ изоляции — в обычном режиме, где видны все модули сразу. Раньше
@@ -2099,6 +2153,9 @@ class Viewer3D {
               side: kindOwner.userData.side,
               sectionIndex: kindOwner.userData.sectionIndex,
               zoneIndex: kindOwner.userData.zoneIndex,
+              // Ключ кликнутой детали (engine.js grainKey) — точнее, чем
+              // kind/sectionIndex; null у деталей без ключа.
+              partKey: kindOwner.userData.partKey || null,
               clientX: e.clientX,
               clientY: e.clientY,
             });
@@ -2616,6 +2673,27 @@ class Viewer3D {
     // Рисуем из несклеенного списка: у него каждая деталь знает свой модуль,
     // поэтому активный модуль можно подсветить отдельным цветом.
     const source = model.partsRaw || model.parts;
+    // КЛЮЧ ДЕТАЛИ ДЛЯ КЛИКА (mesh.userData.partKey). engine.js кладёт каждой
+    // детали строковый grainKey (уникален в пределах модуля) — по нему
+    // app.js открывает экран «Деталь» ровно для кликнутой детали, а не для
+    // «первой полки/ящика подходящего вида». Но у СКЛЕЕННЫХ строк model.parts
+    // grainKey принадлежит только первой склеенной детали, поэтому берём его
+    // из несклеенного partsRaw. Связь — сам объект box: и partsRaw, и склейка
+    // хранят ту же ссылку (engine.js: boxes: [part.box] / _boxes.push(part.box)),
+    // мы строим меш именно по этому box. Карта строится один раз за рендер.
+    // Обычный случай (source === partsRaw) — строка и есть «сырая», её ключ
+    // берётся напрямую; карта нужна только запасному пути на model.parts.
+    const rawByBox = new Map();
+    if (model.partsRaw) {
+      for (const r of model.partsRaw) {
+        const b = (r.boxes && r.boxes[0]) || r.box;
+        if (b) rawByBox.set(b, r);
+      }
+    }
+    const partKeyOf = (row, box) => {
+      const raw = rawByBox.get(box) || (source === model.partsRaw ? row : null);
+      return (raw && raw.grainKey) || null;
+    };
     // targetZoneIndex не зависит от конкретной детали (row) — вынесен из
     // цикла ниже (раньше пересчитывался на каждой строке одинаково).
     const targetZoneIndex = sectionHi && Number.isFinite(sectionHi.zoneIndex) ? sectionHi.zoneIndex : null;
@@ -2787,7 +2865,12 @@ class Viewer3D {
       // брусков и вставки — так он и выглядит на самом деле.
       if (framed) {
         for (const box of row.boxes) {
-          this.group.add(makeFramedFacade(box, row, isActive, ghostLike, hiCyan));
+          const framedMesh = makeFramedFacade(box, row, isActive, ghostLike, hiCyan);
+          // partKey — как у обычных деталей ниже. userData.kind у рамочного
+          // фасада нет (так было и раньше), поэтому клик по нему в изоляции
+          // пока идёт в onFocusMiss, а не в onSelectPart; ключ лежит «про запас».
+          framedMesh.userData.partKey = partKeyOf(row, box);
+          this.group.add(framedMesh);
         }
         continue;
       }
@@ -2824,6 +2907,11 @@ class Viewer3D {
       // деталь, открытая на экране «Деталь», красим её бирюзовым и никакую
       // текстуру/другой оттенок сверху не кладём.
       const tex = (ldspLike && !isActive && !hiCyan) ? woodTexture() : null;
+      // Волокно вдоль v пласти (а не вдоль u, как рисует woodTexture) — тогда
+      // UV геометрии переставляются (uvSwap ниже), а offset в цикле по boxes
+      // получает ту же перестановку. Без grainAxis (белый/МДФ/стекло и т.п.)
+      // остаётся false — всё как раньше.
+      const grainV = !!tex && grainRunsAlongV(row.grainAxis, planeIsX, planeIsY);
       const mat = new THREE.MeshStandardMaterial({
         color: hiCyan ? SECTION_HI_COLOR
           : (glassFacade ? GLASS4_COLOR : (glass ? 0xbfe3ea : (isMdf ? (isActive ? 0x7fb0d8 : 0xf2efe9) : color))),
@@ -2868,7 +2956,10 @@ class Viewer3D {
         .concat(edgeHoles.map((h) => `e${h.alongU ? 1 : 0}${h.atStart ? 's' : 'e'},${h.uPos.toFixed(2)},${h.vPos.toFixed(2)},${h.r.toFixed(2)},${h.len.toFixed(2)}`))
         .concat(slabGrooves.map((g) => `g${g.u0.toFixed(2)},${g.v0.toFixed(2)},${g.u1.toFixed(2)},${g.v1.toFixed(2)},${g.depth.toFixed(2)},${g.dir}`))
         .sort().join('|');
-      const geoKey = `${orientKey}|${uSize.toFixed(2)}|${vSize.toFixed(2)}|${tSize.toFixed(2)}|${cutsKey}|tex:${tex ? 1 : 0}`;
+      // Направление волокна входит в ключ: от него зависит UV геометрии
+      // (u↔v), и две детали одного размера с разным волокном не должны
+      // делить одну геометрию.
+      const geoKey = `${orientKey}|${uSize.toFixed(2)}|${vSize.toFixed(2)}|${tSize.toFixed(2)}|${cutsKey}|tex:${tex ? (grainV ? 2 : 1) : 0}`;
       const cachedGeo = this._partGeoCache.get(geoKey);
       let partGeos, cutEdgeGeos, outlineEdges;
       if (cachedGeo) {
@@ -2886,7 +2977,7 @@ class Viewer3D {
           const built = buildSlabGeometry({
             uSize, vSize, tSize,
             holes: faceHoles, edgeHoles, grooves: slabGrooves,
-            uv: !!tex,
+            uv: !!tex, uvSwap: grainV,
           });
           if (built.geometry.attributes.position.count) {
             finalGeo = built.geometry;
@@ -2949,7 +3040,8 @@ class Viewer3D {
         // фаза только последней по циклу детали.
         let boxMat = mat;
         if (tex) {
-          const origin = woodUvOrigin(box, rotDeg, planeIsX, planeIsY);
+          // grainV — те же перестановка u↔v, что и в UV геометрии (иначе шов).
+          const origin = woodUvOrigin(box, rotDeg, planeIsX, planeIsY, grainV);
           if (row.boxes.length > 1) {
             boxMat = mat.clone();
             boxMat.map = mat.map.clone();
@@ -2968,6 +3060,9 @@ class Viewer3D {
         // ('Боковина левая'/'Боковина правая') — engine.js уже даёт понятные
         // русские названия, отдельного поля не заводим.
         mesh.userData.kind = row.kind;
+        // Ключ именно ЭТОЙ детали (см. rawByBox в начале render): kind+section
+        // не различают две полки/два ящика одного вида, а ключ — да.
+        mesh.userData.partKey = partKeyOf(row, box);
         if (row.kind === 'side') {
           mesh.userData.side = sideOfPartName(row.name);
         }
@@ -3312,7 +3407,18 @@ function renderThumbnail(model, opts) {
         mat.map.needsUpdate = true;
         mat.map.wrapS = THREE.RepeatWrapping;
         mat.map.wrapT = THREE.RepeatWrapping;
-        mat.map.repeat.set(Math.max(locW * MM, 0.01) / WOOD_TILE_M, Math.max(box.h * MM, 0.01) / WOOD_TILE_M);
+        if (grainAxisIndex(row.grainAxis) >= 0) {
+          // У детали задано направление волокна (engine.js, row.grainAxis).
+          // UV BoxGeometry «0..1 на грань» его выразить не могут (и на боковине
+          // растягивали бы текстуру по тонкому размеру), поэтому переписываем
+          // UV в метры по каждой грани (см. applyGrainBoxUv) и кладём общий
+          // repeat = 1 тайл на WOOD_TILE_M — как в основной сцене. Фазу узора
+          // между деталями (woodUvOrigin) на иконке не выравниваем — она мелкая.
+          applyGrainBoxUv(geo, row.grainAxis);
+          mat.map.repeat.set(1 / WOOD_TILE_M, 1 / WOOD_TILE_M);
+        } else {
+          mat.map.repeat.set(Math.max(locW * MM, 0.01) / WOOD_TILE_M, Math.max(box.h * MM, 0.01) / WOOD_TILE_M);
+        }
       }
       geoms.push(geo); mats.push(mat);
 

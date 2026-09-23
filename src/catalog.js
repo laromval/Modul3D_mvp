@@ -1266,6 +1266,26 @@
     return (COUNTERTOP_MATERIALS || []).find((m) => m.code === code) || null;
   }
 
+  // Есть ли у декора рисунок (волокно), у которого вообще бывает направление.
+  // Белый/чёрный ЛДСП, камень, МДФ в плёнке/эмали — гладкие, направления у них
+  // нет. Тот же разбор названия, что decorLook() во viewer.js (поле wood):
+  // 3D рисует текстуру ровно там, где деталировка считает, что направление
+  // есть. Меняешь одно — меняй оба места. Материал не найден в каталоге —
+  // true, как и во viewer.js (неизвестный декор рисуется «под древесину»).
+  function decorHasPattern(code) {
+    const it = findMaterialByCode(code) || findCountertopMaterialByCode(code);
+    const nm = (it && it.name) || '';
+    if (!nm) return true;
+    if (/бел/i.test(nm)) return false;
+    if (/чёрн|черн/i.test(nm)) return false;
+    if (/мрамор|камень|керамика/i.test(nm)) return false;
+    if (/шпон|дуб|сонома|крафт|массив|орех|ясен/i.test(nm)) return true;
+    if (/крашен|эмал|плёнк|пленк|мдф/i.test(nm)) return false;
+    if (/лдсп|дсп/i.test(nm) && !/стенк/i.test(nm)) return true;
+    if (/компакт-плит/i.test(nm)) return true;
+    return true;
+  }
+
   // Категории фурнитуры для вкладки «Фурнитура» панели «Библиотека» —
   // группировка полностью покрывает HARDWARE_PRICES + HANDLES + LIFTS + FASTENER_PRICES.
   const HARDWARE_CATEGORY_LABEL = {
@@ -1290,6 +1310,6 @@
     FACADE_TYPES, FACADE_TYPE_ORDER, FACADE_MATERIALS,
     HANDLES, HANDLE_ORDER, HANDLE_HOLE_D, LIFTS, LIFT_ORDER,
     HARDWARE_CATEGORY_LABEL, HARDWARE_CATEGORY_ORDER,
-    findMaterialByCode, findCountertopMaterialByCode,
+    findMaterialByCode, findCountertopMaterialByCode, decorHasPattern,
   };
 })();
