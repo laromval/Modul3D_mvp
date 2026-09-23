@@ -639,7 +639,11 @@ function buildModuleDrawing(model, mod, scale) {
     if (seen[row.num]) seen[row.num].qty += 1;
     else {
       seen[row.num] = { num: row.num, name: row.name, material: row.material,
-        size: `${row.length}×${row.width}`, th: row.thickness, qty: 1 };
+        // Размер — в порядке деталировки (первой цифрой размер вдоль текстуры,
+        // engine.js cutLength/cutWidth): под одним номером позиции чертёж и
+        // деталировка не должны показывать разные цифры.
+        size: `${row.cutLength != null ? row.cutLength : row.length}×${row.cutWidth != null ? row.cutWidth : row.width}`,
+        th: row.thickness, qty: 1 };
       rows.push(seen[row.num]);
     }
   }
@@ -1108,7 +1112,8 @@ function buildPartsTable(model) {
   const rows = model.parts.filter(p => !p.hardware).map(p =>
     `<tr><td>${p.num}</td><td>${esc(p.module || '')}</td><td>${esc(p.name)}</td>`
     + `<td>${esc(p.section)}</td><td>${esc(materialLabel(model, p.material))}</td>`
-    + `<td>${p.length}×${p.width}</td><td>${p.thickness}</td><td>${p.qty}</td>`
+    + `<td>${p.cutLength != null ? p.cutLength : p.length}×${p.cutWidth != null ? p.cutWidth : p.width}</td>`
+    + `<td>${p.thickness}</td><td>${p.qty}</td>`
     + `<td>${esc(edgeLabel(p))}</td></tr>`
   ).join('');
   return `<table class="dw-legend dw-wide">
@@ -1119,7 +1124,8 @@ function buildPartsTable(model) {
 
 // Кромка коротко: какие стороны кромятся и чем. «—» — без кромки.
 function edgeLabel(p) {
-  const e = p.edging || {};
+  // Кромки — в порядке деталировки (cutEdging: дл1/дл2 — вдоль первой цифры).
+  const e = p.cutEdging || p.edging || {};
   const parts = [];
   const add = (label, v) => { if (v) parts.push(`${label} ${v}`); };
   add('дл1', e.long1); add('дл2', e.long2); add('кор1', e.short1); add('кор2', e.short2);
