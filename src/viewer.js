@@ -3172,6 +3172,14 @@ function renderThumbnail(model, opts) {
     // кадр, и в bounding box камеры (кухонная тумба «висела бы в воздухе»
     // без них на иконке).
     const realistic = !!(opts && opts.realistic);
+
+    // След модели на плане (проекция боксов на плоскость XZ, без учёта Y) —
+    // собираем попутно с основным циклом ниже. Нужен только для того, чтобы
+    // определить ракурс камеры для угловых (Г-образных) сборок — см.
+    // комментарий у missing-corner detection перед камерой ниже.
+    let footMinX = Infinity, footMaxX = -Infinity, footMinZ = Infinity, footMaxZ = -Infinity;
+    const footRects = [];
+
     for (const row of source) {
       // Фурнитуру (опоры/ручки/штанги/полкодержатели/фланцы) для маленькой
       // иконки обычно не рисуем — силуэт модуля определяют только листовые
@@ -3198,6 +3206,21 @@ function renderThumbnail(model, opts) {
       const box = row.box;
       if (!box || !(box.w > 0) || !(box.h > 0) || !(box.d > 0)) continue;
 
+      // Накапливаем след детали на плане (XZ) для missing-corner detection
+      // ниже. box.w/box.d здесь — уже МИРОВЫЕ (не локальные) габариты по
+      // осям X/Z: engine.js меняет их местами для деталей перпендикулярного
+      // прогона до того, как деталь попадёт сюда (см. комментарий про
+      // swapped/rotDeg ниже) — поэтому box.x/z/w/d достаточно взять как
+      // есть, без учёта row.rot.
+      footRects.push({
+        x0: box.x - box.w / 2, x1: box.x + box.w / 2,
+        z0: box.z - box.d / 2, z1: box.z + box.d / 2,
+      });
+      if (box.x - box.w / 2 < footMinX) footMinX = box.x - box.w / 2;
+      if (box.x + box.w / 2 > footMaxX) footMaxX = box.x + box.w / 2;
+      if (box.z - box.d / 2 < footMinZ) footMinZ = box.z - box.d / 2;
+      if (box.z + box.d / 2 > footMaxZ) footMaxZ = box.z + box.d / 2;
+
       // Цвет — по материалу детали (тот же decorLook/KIND_COLOR, что и в
       // основной сцене). В нейтральном режиме (opts.neutral) реальный декор
       // игнорируем — все детали красим одним светлым тоном, а силуэт
@@ -3219,8 +3242,25 @@ function renderThumbnail(model, opts) {
       const ldspLike = !row.glass && !isMdf && (look ? look.wood : true);
       const tex = (realistic && ldspLike) ? woodTexture() : null;
 
+      // Разворот детали (row.rot, 0/90/180/270°) — тот же приём, что и в
+      // основной сцене (Viewer3D.render, см. locW/locD там): у детали
+      // перпендикулярного прогона (угловая секция — второй ряд модулей под
+      // 90°) engine.js уже ЗАМЕНИЛ местами box.w/box.d, чтобы прямоугольник
+      // лежал по мировым осям X/Z. Если строить геометрию сразу по этим
+      // мировым box.w/box.d и ПОВЕРХ ЕЩЁ развернуть mesh на rotDeg — размеры
+      // повернутся второй раз и деталь встанет с перепутанными шириной/
+      // глубиной поперёк своего места (визуально — «каша» из налезающих друг
+      // на друга деталей на миниатюре угловых комплектов). Поэтому здесь, как
+      // и в основной сцене, геометрию строим в ЛОКАЛЬНЫХ (до разворота)
+      // размерах — при swapped возвращаем w/d обратно, — а сам разворот целиком
+      // делает mesh.rotation.y ниже.
+      const rotDeg = row.rot || 0;
+      const swapped = rotDeg === 90 || rotDeg === 270;
+      const locW = swapped ? box.d : box.w;
+      const locD = swapped ? box.w : box.d;
+
       const geo = new THREE.BoxGeometry(
-        Math.max(box.w * MM, 0.001), Math.max(box.h * MM, 0.001), Math.max(box.d * MM, 0.001));
+        Math.max(locW * MM, 0.001), Math.max(box.h * MM, 0.001), Math.max(locD * MM, 0.001));
       const mat = new THREE.MeshStandardMaterial({
         color: glassFacade ? GLASS4_COLOR : (row.glass ? 0xbfe3ea : (neutral ? 0xf1efe8 : color)),
         roughness: 0.7, metalness: 0.03,
@@ -3230,21 +3270,22 @@ function renderThumbnail(model, opts) {
         // BoxGeometry (не аналитическая пласть buildSlabGeometry) даёт UV
         // 0..1 на каждую грань — переводим repeat в те же метры детали, что
         // и в основной сцене (WOOD_TILE_M), чтобы густота волокна на иконке
-        // не «плыла» от размера детали.
+        // не «плыла» от размера детали. locW/box.h — те же локальные размеры,
+        // что и у geo выше, а не мировые box.w (см. комментарий про swapped).
         mat.map = tex.clone();
         mat.map.needsUpdate = true;
         mat.map.wrapS = THREE.RepeatWrapping;
         mat.map.wrapT = THREE.RepeatWrapping;
-        mat.map.repeat.set(Math.max(box.w * MM, 0.01) / WOOD_TILE_M, Math.max(box.h * MM, 0.01) / WOOD_TILE_M);
+        mat.map.repeat.set(Math.max(locW * MM, 0.01) / WOOD_TILE_M, Math.max(box.h * MM, 0.01) / WOOD_TILE_M);
       }
       geoms.push(geo); mats.push(mat);
 
       const mesh = new THREE.Mesh(geo, mat);
-      // Позиция и поворот — те же поля box.x/y/z и rot, что даёт engine.js
-      // и что использует Viewer3D.render (row.box уже в системе координат
-      // модуля, mesh.rotation.y довершает разворот целиком).
+      // Позиция — мировые box.x/y/z из engine.js как есть; поворот
+      // (mesh.rotation.y) довершает разворот детали из ЛОКАЛЬНЫХ размеров
+      // (locW/locD выше) в её мировое место — см. комментарий выше.
       mesh.position.set(box.x * MM, box.y * MM, box.z * MM);
-      mesh.rotation.y = ((row.rot || 0) * Math.PI) / 180;
+      mesh.rotation.y = (rotDeg * Math.PI) / 180;
 
       // Контур детали — та же техника, что и в основном 3D-виде
       // (Viewer3D.render): EdgesGeometry поверх боксовой геометрии, тем же
@@ -3280,6 +3321,59 @@ function renderThumbnail(model, opts) {
 
     if (!group.children.length) return null;   // нечего показывать
 
+    // Азимут камеры (theta) для Г-образных (угловых) сборок: НЕ мировая
+    // константа, а направление, вычисленное по фактическому следу деталей
+    // на плане XZ (footRects/footMin*/footMax*, накоплены в цикле выше).
+    //
+    // Идея: у одиночного прямоугольного модуля след на плане — сплошной
+    // прямоугольник, и все 4 угла его ограничивающего бокса накрыты
+    // какой-нибудь деталью (дно/крышка тянутся на весь габарит). У сборки
+    // из двух крыльев под 90° (угловая кухня) один угол ограничивающего
+    // прямоугольника — ДИАГОНАЛЬНО противоположный стыку крыльев — всегда
+    // остаётся пустым: тот же разбор, что и в задаче: если фасад крыла 1
+    // смотрит на +Z, а фасад крыла 2 (после поворота прогона на 90°) — на
+    // -X, то оба фасада «раскрываются» как раз в сторону пустующего угла
+    // (+Z/-X), и камера, поставленная по диагонали С ЭТОЙ стороны, видит
+    // фасады обоих крыльев одновременно. Это верно независимо от того, в
+    // какую сторону мира повёрнута вся сборка целиком (m.rotation
+    // проекта), потому что направление считается ОТНОСИТЕЛЬНО самого следа
+    // деталей, а не как фиксированный мировой угол.
+    //
+    // Пробуем точку с отступом 12% от габарита внутрь от каждого угла — так
+    // стык двух деталей ровно по границе угла не даёт ложного «угол пуст»
+    // из-за округления координат (engine.js использует round1, 0.1 мм).
+    // Реагируем только если пустует РОВНО один угол — однозначный признак
+    // сборки из двух крыльев. Если пусто 0 (обычный прямоугольный модуль,
+    // в т.ч. просто длинный прямой ряд из нескольких модулей) или больше 1
+    // (сложная форма — П-образная кухня из трёх крыльев и т.п.) — оставляем
+    // прежний фиксированный ракурс, не гадая: для таких форм наша простая
+    // эвристика не даёт однозначного ответа, а фиксированный ракурс — это
+    // ровно то поведение, что было раньше (без регресса).
+    let theta = Math.PI / 4;   // дефолт — тот же фиксированный ракурс, что и раньше
+    if (footRects.length && footMaxX > footMinX && footMaxZ > footMinZ) {
+      const insetX = (footMaxX - footMinX) * 0.12;
+      const insetZ = (footMaxZ - footMinZ) * 0.12;
+      const EPS = 0.5;   // мм, запас на округление (round1 в engine.js)
+      const cornerDefs = [
+        { x: footMinX, z: footMinZ, px: footMinX + insetX, pz: footMinZ + insetZ },
+        { x: footMaxX, z: footMinZ, px: footMaxX - insetX, pz: footMinZ + insetZ },
+        { x: footMinX, z: footMaxZ, px: footMinX + insetX, pz: footMaxZ - insetZ },
+        { x: footMaxX, z: footMaxZ, px: footMaxX - insetX, pz: footMaxZ - insetZ },
+      ];
+      const missing = cornerDefs.filter((c) => !footRects.some((r) =>
+        c.px >= r.x0 - EPS && c.px <= r.x1 + EPS && c.pz >= r.z0 - EPS && c.pz <= r.z1 + EPS));
+      if (missing.length === 1) {
+        const mc = missing[0];
+        const footCenterX = (footMinX + footMaxX) / 2;
+        const footCenterZ = (footMinZ + footMaxZ) / 2;
+        // atan2(dx, dz) — та же формула, что и в camera.position.set() ниже
+        // (x ~ sin(theta), z ~ cos(theta)): при дефолтном theta=PI/4 это в
+        // точности направление (+X,+Z), что и подтверждает эквивалентность
+        // старому фиксированному ракурсу для обычных модулей.
+        theta = Math.atan2(mc.x - footCenterX, mc.z - footCenterZ);
+      }
+    }
+
     // Bounding box всей модели — под него подгоняем камеру так, чтобы модуль
     // был виден целиком с небольшим отступом по краям.
     const box3 = new THREE.Box3().setFromObject(group);
@@ -3288,9 +3382,9 @@ function renderThumbnail(model, opts) {
     const center = sphere.center;
     const radius = Math.max(sphere.radius, 0.05);
 
-    // Изометрический ракурс — тот же угол, что и вид «3D» по умолчанию в
-    // основном вьювере (см. SimpleOrbitControl: theta=PI/4, phi=PI/2.6).
-    const theta = Math.PI / 4;
+    // Изометрический ракурс — тот же полярный угол, что и вид «3D» по
+    // умолчанию в основном вьювере (см. SimpleOrbitControl: phi=PI/2.6);
+    // азимут (theta) для угловых сборок переопределён выше по следу деталей.
     const phi = Math.PI / 2.6;
     const fovDeg = 35;
     // Расстояние, на котором вся ограничивающая сфера модели укладывается

@@ -14,7 +14,7 @@
 (function () {
 // Версия сборки — показывается во вкладке браузера и в шапке.
 // При выпуске новой версии меняется только эта строка.
-const APP_VERSION = 'v299';
+const APP_VERSION = 'v300';
 
 // Номер версии выводим ПЕРВЫМ делом: если дальше что-то упадёт, по нему сразу
 // видно, какая сборка открыта.
@@ -1563,6 +1563,11 @@ function libModCustomThumbDataUrl(p) {
       ? p.kit.map((k) => k.params)
       : (p.params ? [p.params] : []);
     const project = Object.assign({}, thumbBase, {
+      // Способ соединения столешниц на угловом стыке — тот же проектный
+      // параметр, что и в recompute()/libModSaveProjectAsKit (не влияет на
+      // геометрию joinCountertopSeams, только на подбор крепежа, но для
+      // полноты проекта должен быть тем же, что видит пользователь).
+      countertopCornerJoint: state.countertopCornerJoint,
       modules: srcMods.map((m) => libModProjectModuleOf(m)),
     });
     const model = buildModel(project);
@@ -1619,9 +1624,9 @@ function libraryBlock() {
     <h3>База модулей</h3>
     <div class="lib-link-refresh-bar">
       <button type="button" class="btn" data-lib-save-project="1" title="Сохранить текущий проект в «Базу модулей»">Добавить модуль</button>
+      ${libAddCatTileHtml('modules')}
     </div>
     ${catsHtml}
-    <div class="lib-link-refresh-bar">${libAddCatTileHtml('modules')}</div>
     <div class="hint">Раскройте категорию и нажмите на модуль — он добавится в проект. Правая кнопка мыши на модуле — переименовать/скопировать/переместить/удалить карточку (сам пресет при этом не меняется); перетащите миниатюру на строку категории, чтобы перенести её. «Добавить модуль» выше сохраняет текущий проект в библиотеку: один модуль — обычной карточкой, несколько — карточкой-комплектом.</div>`;
 }
 
@@ -1822,6 +1827,38 @@ function libModCloneModuleParams(mod) {
   return clone;
 }
 
+// Категория, СЕЙЧАС выделенная (сфокусирован лист) в дереве «Базы модулей» —
+// та, что пользователь только что раскрыл кликом по строке листа (см.
+// state.libActiveLeaf/libTopCategoryHtml: в этом режиме дерево категории
+// прячется, а на экране только хлебные крошки + грид карточек этого листа —
+// с точки зрения пользователя это и есть «открытая» категория). Новая
+// карточка при первом сохранении модуля/комплекта должна уходить именно сюда
+// — раньше это выделение игнорировалось (см. libModOriginTarget/
+// libModDefaultTarget ниже).
+// Перебираем ВСЕ top-коды вкладки 'modules' через libTabTopCodes — не только
+// корневые группы, но и свои категории, вложенные в другие через
+// state.libTopParent.modules (см. libTabChildCodes/libTopParentOf): активный
+// лист может быть у любого из них, а не только у корня. Активных листов
+// одновременно может оказаться несколько (state.libActiveLeaf — независимый
+// ключ на КАЖДЫЙ topCode) — приоритет отдаём тому, с которым пользователь
+// работал последним (state.libLastFocusedTop['modules'] — тот же сигнал
+// «последний тронутый раздел», что и у libPlaceNewTopAfterFocused). Ключ
+// вкладки берём ФИКСИРОВАННЫМ, а не state.libraryTab — эта функция вызывается
+// и из контекстного меню модуля в 3D-сцене (см. showModuleMenu), где текущая
+// открытая вкладка Библиотеки может быть вообще не «Базой модулей» (баг
+// нашёл code-reviewer 2026-09-22: state.libLastFocusedTop[state.libraryTab]
+// на вкладке «Материалы»/«Фурнитура» искал топ-код среди activeCodes (все
+// вида 'mod:...') и не находил, тай-брейк молча падал на activeCodes[0]).
+// null, если ни одна категория сейчас не сфокусирована.
+function libModActiveCategoryTarget() {
+  const activeCodes = libTabTopCodes('modules').filter((c) => state.libActiveLeaf[c]);
+  if (!activeCodes.length) return null;
+  const lastTop = state.libLastFocusedTop.modules;
+  const code = activeCodes.indexOf(lastTop) >= 0 ? lastTop : activeCodes[0];
+  const path = String(state.libActiveLeaf[code]).split('::');
+  return { group: code.slice(4), categoryPath: path };
+}
+
 // Где сейчас лежит карточка-происхождение модуля (mod.libOrigin) — группа и
 // путь категории, куда ляжет ЗАМЕНЯЮЩАЯ её карточка (см. libModSaveModule)
 // или новая карточка «Сохранить как…», унаследовавшая место старой. null,
@@ -1888,14 +1925,17 @@ function libModSaveModule(mod) {
 }
 
 // «Сохранить как…» — спрашивает название и добавляет НОВУЮ карточку с
-// текущими параметрами модуля, не трогая старую (если она была). Новое
-// место в дереве — там же, где лежит карточка-происхождение модуля, если она
+// текущими параметрами модуля, не трогая старую (если она была). Новое место
+// в дереве — сначала категория, сейчас выделенная (сфокусированный лист) в
+// дереве «Базы модулей» (см. libModActiveCategoryTarget — пользователь явно
+// её раскрыл, значит туда и ждёт карточку); если сейчас ничего не
+// сфокусировано — там же, где лежит карточка-происхождение модуля, если она
 // есть (логично класть рядом с «родителем»), иначе — свой дефолт по семейству
 // (см. libModDefaultTarget). Модуль в сцене получает libOrigin НОВОЙ
 // карточки — «Сохранить» сразу следом доступно и пишет уже в неё.
 function libModSaveModuleAs(mod) {
   if (!requireLibraryEditAuth()) return;
-  const target = libModOriginTarget(mod) || libModDefaultTarget(mod);
+  const target = libModActiveCategoryTarget() || libModOriginTarget(mod) || libModDefaultTarget(mod);
   const raw = window.prompt('Название модуля в «Базе модулей»:', mod.name || 'Модуль');
   if (raw == null) return;
   const name = String(raw).trim() || (mod.name || 'Модуль');
@@ -1911,7 +1951,12 @@ function libModSaveModuleAs(mod) {
 
 // «Добавить модуль» в шапке «Базы модулей» (см. libraryBlock) — сохраняет
 // ВЕСЬ текущий проект: один модуль ведёт себя как обычное «Сохранить как…»
-// (libModSaveModuleAs), несколько — одной карточкой-комплектом (p.kit).
+// (libModSaveModuleAs), несколько — одной карточкой-комплектом (p.kit). Место
+// в дереве — та же логика приоритета, что и у «Сохранить как…»: сначала
+// сейчас выделенная категория (см. libModActiveCategoryTarget), иначе дефолт
+// по семейству ПЕРВОГО модуля комплекта (см. libModDefaultTarget) — у
+// комплекта, в отличие от одного модуля, нет единого mod.libOrigin, поэтому
+// карточку-происхождение здесь не ищем.
 // x/z каждого элемента — только СПРАВОЧНОЕ смещение относительно первого
 // модуля комплекта на момент сохранения (для самодостаточности данных карты);
 // сама вставка комплекта в проект (addLibModCardToProject/insertModulesBatch)
@@ -1925,7 +1970,7 @@ function libModSaveProjectAsKit() {
   if (raw == null) return;
   const name = String(raw).trim();
   if (!name) { window.alert('Введите название комплекта.'); return; }
-  const target = libModDefaultTarget(state.modules[0]);
+  const target = libModActiveCategoryTarget() || libModDefaultTarget(state.modules[0]);
   const kitProject = Object.assign({}, libModThumbBase(), {
     countertopCornerJoint: state.countertopCornerJoint,
     modules: state.modules.map((m) => libModProjectModuleOf(m)),
