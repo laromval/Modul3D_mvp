@@ -771,7 +771,15 @@ for (const id of Array.from(registry.keys())) {
   for (const groupId of modGroupRows().map((r) => r.dataset.top.slice(4))) {
     toggleModGroup(modGroupRow(groupId));          // открыть категорию
     const items = modGridItems(groupId);
-    if (!items.length) { fails.push('база: список вариантов пуст для mod:' + groupId); continue; }
+    // Своя категория (state.libModCustomGroups, ключ 'modcustom-…') создаётся
+    // пустой кнопкой «Добавить категорию» и может оставаться пустой в
+    // опубликованном каталоге — это не поломка. Встроенные группы PRESETS
+    // пустыми быть не должны.
+    if (!items.length) {
+      if (groupId.indexOf('modcustom-') !== 0) fails.push('база: список вариантов пуст для mod:' + groupId);
+      toggleModGroup(modGroupRow(groupId));        // закрыть категорию перед следующей
+      continue;
+    }
     for (const it of items) {
       const n = tabsCount();
       it.click();
