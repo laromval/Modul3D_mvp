@@ -914,6 +914,11 @@ input[type='number'] { font-family: var(--ff-mono); }
 .field-row-wide-action { grid-template-columns: 0.5fr 1.5fr; }
 .field-row3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
 .field-row3 .field input { padding: 7px 6px; text-align: center; }
+/* Поля паза задней стенки (backMountBlock в app.js): подписи длинные и в узкой
+   колонке переносятся на 2 строки по-разному — прижимаем поля к низу ячейки,
+   чтобы три поля стояли на одной линии. */
+.back-groove-row .field { display: flex; flex-direction: column; justify-content: flex-end; }
+.back-groove-warn { color: var(--warn); }
 /* Свесы столешницы (панель «Столешница»): 4 узких числовых поля в один ряд —
    тот же приём, что и .field-row3 выше, только на 4 колонки. */
 .field-row4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }

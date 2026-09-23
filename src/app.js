@@ -14,7 +14,7 @@
 (function () {
 // Версия сборки — показывается во вкладке браузера и в шапке.
 // При выпуске новой версии меняется только эта строка.
-const APP_VERSION = 'v300';
+const APP_VERSION = 'v301';
 
 // Номер версии выводим ПЕРВЫМ делом: если дальше что-то упадёт, по нему сразу
 // видно, какая сборка открыта.
@@ -1955,6 +1955,7 @@ function libModThumbDataUrl(groupId, it) {
         name: m.name, width: m.width, height: m.height, depth: m.depth,
         rotation: m.rotation || 0, corner: !!m.corner, family: m.family || 'custom',
         topType: m.topType, railWidth: m.railWidth, noBack: !!m.noBack,
+        backMount: m.backMount, backGroove: m.backGroove, wallHung: m.wallHung,
         blindPanel: !!m.blindPanel, blindStrip: m.blindStrip,
         leftSide: m.leftSide, rightSide: m.rightSide,
         base: m.baseType === 'plinth'
@@ -2004,6 +2005,7 @@ function libModProjectModuleOf(m) {
     name: m.name, width: m.width, height: m.height, depth: m.depth,
     rotation: m.rotation || 0, corner: !!m.corner, family: m.family || 'custom',
     topType: m.topType, railWidth: m.railWidth, noBack: !!m.noBack,
+    backMount: m.backMount, backGroove: m.backGroove, wallHung: m.wallHung,
     blindPanel: !!m.blindPanel, blindStrip: m.blindStrip,
     leftSide: m.leftSide, rightSide: m.rightSide,
     base: m.baseType === 'plinth'
@@ -9738,8 +9740,123 @@ function moduleFieldsBlock(mod) {
         </select>
       </div>
     </div>` : ''}
+    ${backMountBlock(mod)}
 
     <div id="sectionsList"></div>`;
+}
+
+// Дефолты паза под заднюю стенку берём из движка (engine.js,
+// BACK_GROOVE_DEFAULTS — те же числа, что в resolveBackMount), своих чисел
+// здесь нет. Читаем лениво, при отрисовке: engine.js грузится раньше app.js.
+function backGrooveDefaults() {
+  // Без экспорта (рассинхрон версий файлов) — пустые поля вместо падения
+  // всей панели модуля; своих чисел не подставляем.
+  return window.Modul3D.engine.BACK_GROOVE_DEFAULTS || { offset: '', depth: '', entry: '' };
+}
+
+// Текущие настройки паза модуля с подставленными дефолтами (для формы).
+function backGrooveOf(mod) {
+  const def = backGrooveDefaults();
+  const g = mod.backGroove || {};
+  const gp = g.parts || {};
+  const val = (v, d) => (v === undefined || v === null || v === '' ? d : v);
+  return {
+    offset: val(g.offset, def.offset),
+    depth: val(g.depth, def.depth),
+    entry: val(g.entry, def.entry),
+    parts: { left: gp.left !== false, right: gp.right !== false,
+      top: gp.top !== false, bottom: gp.bottom !== false },
+  };
+}
+
+// Порог высоты «шкаф / тумба» для режима «Авто» (некухонный модуль выше
+// порога — шкаф: паз только в боковинах, крыша без паза). Число — только из
+// engine.js, своего здесь нет; пока экспорта нет — null, и подсказка
+// остаётся как у тумбы. Используется только для текста подсказки.
+function backGrooveTallCabinetMinHeight() {
+  const v = Number(window.Modul3D.engine.BACK_GROOVE_TALL_H);
+  return Number.isFinite(v) && v > 0 ? v : null;
+}
+
+// Навесной модуль — тот же признак, что isWallHung() в engine.js: явное
+// поле wallHung главнее, без него — кухонный на «цоколе» нулевой высоты.
+// Здесь только для выбора текста подсказки, в расчёт не идёт.
+function moduleIsWallHung(mod) {
+  if (mod.wallHung === true || mod.wallHung === false) return mod.wallHung;
+  return mod.family === 'kitchen' && mod.baseType === 'plinth' && !(Number(mod.plinthHeight) > 0);
+}
+
+// Почему паз в крыше недоступен (движок его всё равно отбросит, см.
+// resolveBackMount: topIsPanel). null — крыша цельная, паз возможен.
+// «Крыши нет» (под толстой столешницей) не вычисляем сами, а смотрим по
+// последней модели: у модуля нет ни одной детали вида 'top'.
+function backGrooveTopBlockedReason(mod) {
+  if (mod.topType === 'rails' || mod.topType === 'railsEdge') return 'верх — планки';
+  const rows = (currentModel && currentModel.partsRaw) || [];
+  const own = rows.filter((r) => r.module === mod.name);
+  if (own.length && !own.some((r) => r.kind === 'top')) return 'крыши нет';
+  return null;
+}
+
+// Есть ли хоть одна деталь с пазом (с учётом недоступной крыши) — если нет,
+// движок сделает стенку накладной.
+function backGrooveHasAnyPart(parts, topBlocked) {
+  return !!(parts.left || parts.right || (parts.top && !topBlocked) || parts.bottom);
+}
+
+// Подсказка к «Авто» — что именно выберет движок для этого модуля
+// (правило — resolveBackMount в engine.js). Зависит от высоты, поэтому
+// обработчик m-height обновляет её текст без перерисовки панели.
+function backMountAutoHintText(mod) {
+  const hung = moduleIsWallHung(mod);
+  if (mod.family === 'kitchen' && !hung) return 'Накладная, как у кухонных тумб.';
+  if (hung) return 'Паз в боковинах до пола/сбоку дна и в дне.';
+  const tallMin = backGrooveTallCabinetMinHeight();
+  if (tallMin !== null && Number(mod.height) > tallMin) {
+    return 'Паз в боковинах до пола/сбоку дна, крыша упирается в стенку.';
+  }
+  return 'Паз в боковинах до пола/сбоку дна и в крыше.';
+}
+
+// Блок «Задняя стенка» экрана «Конструктив модуля»: режим крепления
+// (m.backMount: 'auto' | 'overlay' | 'groove') и, при «В паз», параметры
+// паза (m.backGroove). Сам режим решает engine.js → resolveBackMount().
+// У модуля без задней стенки (noBack — мойка) блок не показывается.
+function backMountBlock(mod) {
+  if (mod.noBack) return '';
+  const mode = (mod.backMount === 'overlay' || mod.backMount === 'groove') ? mod.backMount : 'auto';
+  const g = backGrooveOf(mod);
+  const topBlocked = backGrooveTopBlockedReason(mod);
+  const chk = (key, label, blocked) => `<label class="checkbox-inline"><input type="checkbox" data-back-groove-part="${key}" ${g.parts[key] && !blocked ? 'checked' : ''} ${blocked ? 'disabled' : ''}> ${label}${blocked ? ` <span class="dim">(${blocked})</span>` : ''}</label>`;
+  // Подсказка к «Авто» — что именно выберет движок для этого модуля.
+  return `
+    <div class="field-row">
+      <div class="field">
+        <label>Задняя стенка</label>
+        <select id="m-backMount">
+          <option value="auto" ${mode === 'auto' ? 'selected' : ''}>Авто</option>
+          <option value="overlay" ${mode === 'overlay' ? 'selected' : ''}>Накладная</option>
+          <option value="groove" ${mode === 'groove' ? 'selected' : ''}>В паз</option>
+        </select>
+      </div>
+    </div>
+    ${mode === 'auto' ? `<div class="hint" id="backMountAutoHint">${backMountAutoHintText(mod)}</div>` : ''}
+    ${mode === 'groove' ? `
+    <div class="field-row3 back-groove-row">
+      <div class="field"><label>Отступ от края, мм</label><input id="m-grooveOffset" type="number" min="0" step="1" value="${g.offset}"></div>
+      <div class="field"><label>Глубина паза, мм</label><input id="m-grooveDepth" type="number" min="1" step="1" value="${g.depth}"></div>
+      <div class="field"><label>Заход стенки, мм</label><input id="m-grooveEntry" type="number" min="0" step="1" value="${g.entry}"></div>
+    </div>
+    <div class="field">
+      <label>Паз в:</label>
+      <div class="field-row">
+        ${chk('left', 'левая боковина')}
+        ${chk('right', 'правая боковина')}
+        ${chk('top', 'крыша', topBlocked)}
+        ${chk('bottom', 'дно')}
+      </div>
+      <div class="hint back-groove-warn" id="backGrooveNoneWarn" ${backGrooveHasAnyPart(g.parts, topBlocked) ? 'hidden' : ''}>Паз не выбран ни в одной детали — стенка будет накладной.</div>
+    </div>` : ''}`;
 }
 
 // Виды деталей, для которых движок (engine.js, applyPartOverrides) умеет
@@ -11663,10 +11780,53 @@ function bindPanelEvents() {
   updateHistoryButtons();
 
   on('m-width', 'change', (e) => { mod.width = Number(e.target.value); recompute(); });
-  on('m-height', 'change', (e) => { mod.height = Number(e.target.value); recompute(); });
+  on('m-height', 'change', (e) => {
+    mod.height = Number(e.target.value);
+    // Подсказка «Авто» у задней стенки зависит от высоты (шкаф/тумба).
+    const autoHint = document.getElementById('backMountAutoHint');
+    if (autoHint) autoHint.textContent = backMountAutoHintText(mod);
+    recompute();
+  });
   on('m-depth', 'change', (e) => { mod.depth = Number(e.target.value); recompute(); });
   on('m-leftSide', 'change', (e) => { mod.leftSide = e.target.value; recompute(); });
   on('m-rightSide', 'change', (e) => { mod.rightSide = e.target.value; recompute(); });
+  // Блок «Задняя стенка» (backMountBlock): режим крепления и параметры паза.
+  // Смена режима перерисовывает панель — поля паза видны только при «В паз».
+  on('m-backMount', 'change', (e) => {
+    const v = e.target.value;
+    if (v === 'overlay' || v === 'groove') mod.backMount = v; else delete mod.backMount;
+    // Поля паза заводим сразу с дефолтами — чтобы сохранённый модуль/проект
+    // нёс явные числа, которые видит пользователь, а не «пусто».
+    if (v === 'groove' && !mod.backGroove) mod.backGroove = backGrooveOf(mod);
+    renderParamsPanel();
+    recompute();
+  });
+  // Числа паза: пустое/отрицательное (у глубины — нулевое) значение не
+  // пропускаем в движок — возвращаем в поле прежнее значение.
+  const bindGrooveNum = (id, key, minExclusive) => {
+    on(id, 'change', (e) => {
+      const g = mod.backGroove = backGrooveOf(mod);
+      const raw = String(e.target.value).trim();
+      const x = Number(raw);
+      const ok = raw !== '' && Number.isFinite(x) && (minExclusive ? x > 0 : x >= 0);
+      if (!ok) { e.target.value = g[key]; return; }
+      g[key] = x;
+      recompute();
+    });
+  };
+  bindGrooveNum('m-grooveOffset', 'offset', false);
+  bindGrooveNum('m-grooveDepth', 'depth', true);
+  bindGrooveNum('m-grooveEntry', 'entry', false);
+  document.querySelectorAll('[data-back-groove-part]').forEach((cb) => {
+    cb.addEventListener('change', () => {
+      const g = mod.backGroove = backGrooveOf(mod);
+      g.parts[cb.dataset.backGroovePart] = cb.checked;
+      // Предупреждение «паз не выбран» — без перерисовки панели.
+      const warn = document.getElementById('backGrooveNoneWarn');
+      if (warn) warn.hidden = backGrooveHasAnyPart(g.parts, backGrooveTopBlockedReason(mod));
+      recompute();
+    });
+  });
   on('m-baseType', 'change', (e) => {
     mod.baseType = e.target.value;
     // «Опоры с цоколем» держит цоколь клипсой только кухонная опора — у
@@ -11922,6 +12082,7 @@ function recompute(isRetry) {
       name: m.name, width: m.width, height: m.height, depth: m.depth,
       rotation: m.rotation || 0, corner: !!m.corner, family: m.family || 'custom',
       topType: m.topType, railWidth: m.railWidth, noBack: !!m.noBack,
+      backMount: m.backMount, backGroove: m.backGroove, wallHung: m.wallHung,
       blindPanel: !!m.blindPanel, blindStrip: m.blindStrip,
       leftSide: m.leftSide, rightSide: m.rightSide,
       base: m.baseType === 'plinth'

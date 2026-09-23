@@ -3300,11 +3300,15 @@ for (const glass of [false, true]) {
     if (xs[1] === undefined || Math.abs(xs[1] - expectRight) > 1) {
       problems.push(`столешница-растикс: правая группа на x=${xs[1]}, ожидалось ~${expectRight}`);
     }
+    // Глубина БОКОВИНЫ, а не корпуса: у тумбы с боковинами «до пола» задняя
+    // стенка по умолчанию В ПАЗ, и боковина удлинена назад на отступ паза +
+    // его ширину (resolveBackMount в engine.js) — растиксы идут по ней.
+    const sideDepth = sidePanels.length ? sidePanels[0].width : D;
     for (const x of xs) {
       const ys = (byX.get(x) || []).sort((a, b) => a - b);
       if (ys.length !== 2) problems.push(`столешница-растикс: у группы x=${x} ${ys.length} точек вместо 2`);
-      else if (Math.abs(ys[1] - ys[0] - (D - 100)) > 1) {
-        problems.push(`столешница-растикс: у группы x=${x} расстояние между точками ${ys[1] - ys[0]}, ожидалось ${D - 100} (глубина минус 2×50мм)`);
+      else if (Math.abs(ys[1] - ys[0] - (sideDepth - 100)) > 1) {
+        problems.push(`столешница-растикс: у группы x=${x} расстояние между точками ${ys[1] - ys[0]}, ожидалось ${sideDepth - 100} (глубина боковины минус 2×50мм)`);
       }
     }
   }

@@ -250,9 +250,17 @@ function buildSpecification(model) {
   }
   const jointType = proj.jointType || 'confirmat';
 
-  const backCount = parts.filter(r => r.kind === 'back' || r.name === 'Задняя стенка').reduce((s, r) => s + r.qty, 0);
-  const screwsPerBack = 10;
-  if (backCount > 0) fasteners.push(fRow(FASTENER_PRICES.backPanelScrew, backCount * screwsPerBack));
+  // Шурупы задней стенки: число на каждую стенку считает engine.js
+  // (part.screws — шаг 150 мм по каждой линии контакта, см. «Шурупы задней
+  // стенки» в buildModuleParts). Берём НЕсклеенный partsRaw: две одинаковые
+  // по размеру стенки могут крепиться разным числом шурупов (стойки,
+  // несъёмные полки), а в склеенной строке деталировки осталось бы число
+  // только первой. Старая модель без поля screws — прежние 10 на стенку.
+  const SCREWS_PER_BACK_FALLBACK = 10;
+  const isBack = (r) => r.kind === 'back' || r.name === 'Задняя стенка';
+  const backScrews = (model.partsRaw || parts).filter(isBack).reduce((s, r) => s
+    + (Number.isFinite(r.screws) ? r.screws : SCREWS_PER_BACK_FALLBACK) * (r.qty || 1), 0);
+  if (backScrews > 0) fasteners.push(fRow(FASTENER_PRICES.backPanelScrew, backScrews));
 
   // ---------- Столешница: крепёж ----------
   // Шаг расчёта количества (ширина/400, минимум 2) намеренно повторяет

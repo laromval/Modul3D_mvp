@@ -1479,6 +1479,165 @@ function applyPartOverrides(parts, partOverrides, warnings) {
   }
 }
 
+// Резолвер материала столешницы модуля (вынесен из buildModuleParts, чтобы
+// тем же правилом пользоваться и в buildModel — см. skipTopPanelOf/resolveBackMount).
+function countertopMatOf(ct) {
+  const cat = window.Modul3D.catalog;
+  // 1) готовая позиция каталога столешниц (CTOP-...) — СВОЙ резолвер,
+  //    отдельно от общего findMaterialByCode() (см. catalog.js) — карточки
+  //    столешниц не должны быть доступны там, где ожидается обычный лист
+  //    декора корпуса/фасада, и наоборот. Проверяется ПЕРВОЙ, независимо
+  //    от ct.double — готовая позиция каталога (ЛДСП38 постформинг/
+  //    компакт-плита) уже готовый товар фиксированной конструкции,
+  //    «сдвоение» для неё конструктивно бессмысленно и всегда
+  //    игнорируется (isDouble всегда false для этой ветки), даже если
+  //    галочка «Сдвоенная» случайно осталась включённой с прошлого выбора
+  //    материала (юзер сначала поставил галочку у декора, потом сменил
+  //    материал на готовую позицию, не сняв галочку) — подтверждено
+  //    владельцем-мебельщиком 2026-09-07.
+  const ctCat = ct.decorCode ? cat.findCountertopMaterialByCode(ct.decorCode) : null;
+  if (ctCat) {
+    return { found: true, code: ctCat.code, name: ctCat.name,
+      isDouble: false, thickness: ctCat.thickness, depth: ctCat.depth, maxLength: ctCat.maxLength || null };
+  }
+  // 2) обычный лист декора из общей библиотеки материалов — DECORS,
+  //    FACADE_MATERIALS (объект, не массив) или BACK_MATERIALS, БЕЗ
+  //    копирования между ними (см. app.js: libPickMaterial/
+  //    findAnyMaterialByCode — та же тройка, что уже ищет specification.js
+  //    для листовых материалов, см. там `known`). Толщина — строго из
+  //    каталожной записи (dec.thickness), поле «Толщина» на панели
+  //    столешницы убрано ещё 2026-09-06.
+  const dec = ct.decorCode ? cat.findMaterialByCode(ct.decorCode) : null;
+  if (!dec) return { found: false, reason: 'noDecor' };
+  const th = Number(dec.thickness) || 0;
+  if (!(th > 0)) return { found: false, reason: 'noThickness' };
+  if (ct.double) {
+    // «Сдвоенная» — два склеенных листа ИМЕННО этого декора (dec,
+    // резолвнутого из ct.decorCode выше) — того, что пользователь выбрал
+    // кнопкой «Изменить» на панели столешницы, а НЕ общий декор корпуса
+    // всего проекта (p.decor/decor). Исправлено 2026-09-07 по замечанию
+    // владельца-мебельщика: раньше здесь ошибочно брались decor.code/
+    // decor.name/decor.sheetW (декор корпуса), из-за чего название,
+    // толщина и максимальная длина цельного куска не совпадали с реально
+    // выбранным на панели материалом. thickness — толщина ОДНОГО листа
+    // этого декора (число, не null, как было раньше) — ctResolvedThickness/
+    // ctThickness ниже читают именно её (2×thickness), а не 2×t (толщину
+    // корпуса). depth: null, как и у «своего материала» ниже — это не
+    // готовая позиция каталога фиксированной глубины, глубина столешницы
+    // считается от глубины корпуса модуля D (см. ctWidth ниже по файлу).
+    return { found: true, code: dec.code, name: `${dec.name} (сдвоенное 2×, столешница)`,
+      isDouble: true, thickness: th, depth: null, maxLength: dec.sheetW || null };
+  }
+  // Толщина ≤18мм (не толще стандартной корпусной ЛДСП) технически строится
+  // — клеится по всей площади к цельной крышке корпуса (см. skipTopPanel
+  // ниже, растикс в торец боковины только при >18). Способ крепления уже
+  // однозначно указан в note самой детали «Столешница» ниже (клей vs
+  // растикс) — отдельного предупреждения тут нет.
+  return { found: true, code: dec.code, name: `${dec.name} (столешница, ${th} мм)`,
+    isDouble: false, thickness: th, depth: null, maxLength: dec.sheetW || null };
+}
+
+// Эффективная толщина резолвнутой столешницы: «сдвоенная» — два листа.
+function countertopThicknessOf(r) {
+  return (r && r.found)
+    ? (r.isDouble ? 2 * Number(r.thickness) : (Number(r.thickness) || 0)) : 0;
+}
+
+// Убирается ли цельная крышка корпуса под столешницей (толщина >18 мм —
+// растикс в торец боковины, см. подробный комментарий у skipTopPanel в
+// buildModuleParts). Одно правило и для buildModuleParts, и для buildModel
+// (resolveBackMount → раскладка ряда), чтобы они не разошлись.
+function skipTopPanelOf(p) {
+  const bt = p.base && p.base.type;
+  const floorStanding = bt === 'plinth' || bt === 'legsPlinth' || bt === 'legs';
+  if (!floorStanding || !(p.countertop && p.countertop.enabled)) return false;
+  if (p.topType === 'rails' || p.topType === 'railsEdge') return false;
+  return countertopThicknessOf(countertopMatOf(p.countertop)) > 18;
+}
+
+// НАВЕСНОЙ модуль (верхний кухонный). Явное поле wallHung главнее; без него
+// — кухонный модуль на «цоколе» нулевой высоты (так заведены верхние
+// пресеты: plinthHeight 0, основания нет — висит на стене).
+function isWallHung(p) {
+  if (p.wallHung === true || p.wallHung === false) return p.wallHung;
+  const b = p.base || {};
+  return p.family === 'kitchen' && b.type === 'plinth' && !(Number(b.plinthHeight) > 0);
+}
+
+// ЗАДНЯЯ СТЕНКА: НАКЛАДНАЯ ИЛИ В ПАЗ (ПРАВИЛА-КОНСТРУИРОВАНИЯ.md, раздел 2,
+// «Задняя стенка: накладная или в паз»). Все числа подтверждены
+// пользователем 2026-09-23: паз шириной tb+0,5, глубиной 10, отступ 15 от
+// заднего края детали, заход стенки в паз 8.
+const BACK_GROOVE_DEFAULTS = { offset: 15, depth: 10, entry: 8 };
+// ШКАФ в авто-режиме задней стенки — некухонный модуль выше этой высоты, мм
+// (подтверждено пользователем 2026-09-23). У шкафа крыша БЕЗ паза (прежней
+// глубины, стенка упирается в неё): он выше уровня глаз, зазор сзади сверху
+// не виден. У модулей не выше (тумбы) паз и в крыше.
+const BACK_GROOVE_TALL_H = 1600;
+
+// Единственное место, где решается режим задней стенки модуля — его зовут и
+// buildModuleParts (геометрия деталей), и buildModel (задний выступ модуля
+// в раскладке ряда). Возвращает:
+//   { mode: 'none' }                 — стенки нет (мойка, noBack);
+//   { mode: 'overlay' }              — накладная, как было (включая паз
+//                                      видимой боковины крайнего кухонного);
+//   { mode: 'groove', parts, offset, depth, entry, w, E, manual }
+//     parts — {left,right,top,bottom}: в каких деталях паз;
+//     E = offset + w — насколько детали с пазом удлиняются НАЗАД.
+// p — параметры модуля (поля те же, что у buildModuleParts), sides —
+// normalizeSides(p), tb — толщина задней стенки.
+// ВАЖНО: buildModel зовёт эту функцию ещё и из extent() (backOut) со своим
+// набором полей модуля. Поля, которые здесь читаются (noBack, backMount,
+// backGroove, wallHung, family, base, topType, countertop, height, а через
+// normalizeSides — leftSide/rightSide/scheme), должны совпадать с тем, что
+// buildModel передаёт в buildModuleParts, — иначе раскладка ряда и
+// геометрия модуля разойдутся.
+function resolveBackMount(p, sides, tb) {
+  if (p.noBack) return { mode: 'none', E: 0 };
+  const overlay = { mode: 'overlay', E: 0 };
+  const mount = (p.backMount === 'overlay' || p.backMount === 'groove') ? p.backMount : 'auto';
+  if (mount === 'overlay') return overlay;
+  const hung = isWallHung(p);
+  let offset, depth, entry, parts;
+  if (mount === 'auto') {
+    // Нижняя кухня (тумбы, пенал) — прежнее поведение без изменений.
+    if (p.family === 'kitchen' && !hung) return overlay;
+    // Паз режется только в боковине, чья пласть открыта наружу целиком:
+    // «до пола» или «сбоку дна». Боковины «на дно» — накладная стенка.
+    const q = (v) => v === 'floor' || v === 'besideBottom';
+    if (!q(sides.left) && !q(sides.right)) return overlay;
+    offset = BACK_GROOVE_DEFAULTS.offset;
+    depth = BACK_GROOVE_DEFAULTS.depth;
+    entry = BACK_GROOVE_DEFAULTS.entry;
+    // Тумба — паз ещё и в крыше (дно прежней глубины, стенка набивается на
+    // его торец); ШКАФ (выше BACK_GROOVE_TALL_H) — паз только в боковинах,
+    // крыша прежней глубины; навесной — паз в дне, крыша прежней глубины.
+    const tall = Number(p.height) > BACK_GROOVE_TALL_H;
+    parts = { left: q(sides.left), right: q(sides.right), top: !hung && !tall, bottom: hung };
+  } else {
+    const g = p.backGroove || {};
+    const num = (v, def, ok) => {
+      const x = Number(v);
+      return (v !== '' && v !== null && v !== undefined && Number.isFinite(x) && ok(x)) ? x : def;
+    };
+    offset = num(g.offset, BACK_GROOVE_DEFAULTS.offset, (x) => x >= 0);
+    depth = num(g.depth, BACK_GROOVE_DEFAULTS.depth, (x) => x > 0);
+    entry = num(g.entry, BACK_GROOVE_DEFAULTS.entry, (x) => x >= 0);
+    const gp = g.parts || {};
+    parts = { left: gp.left !== false, right: gp.right !== false,
+      top: gp.top !== false, bottom: gp.bottom !== false };
+  }
+  // Паз в крыше — только если крыша реально цельная панель: у планок
+  // (rails/railsEdge) и у корпуса без крыши под толстой столешницей верх
+  // считается «без паза».
+  const topIsPanel = !(p.topType === 'rails' || p.topType === 'railsEdge') && !skipTopPanelOf(p);
+  if (!topIsPanel) parts.top = false;
+  if (!parts.left && !parts.right && !parts.top && !parts.bottom) return overlay;
+  const w = round1(Number(tb) + 0.5);
+  return { mode: 'groove', manual: mount === 'groove', parts, offset, depth, entry, w,
+    E: round1(offset + w) };
+}
+
 /**
  * @param {object} p
  * p.width, p.height, p.depth       — габариты ИЗДЕЛИЯ, мм (глубина — по корпусу)
@@ -1522,6 +1681,20 @@ function buildModuleParts(p) {
   // корпуса левая боковина до пола, а правая уже стоит на дне; у среднего обе
   // на дне; у крайнего правого — правая до пола, левая на дне.
   const sides = normalizeSides(p);
+  // Режим задней стенки (накладная / в паз) — см. resolveBackMount(). Детали
+  // с пазом (bm.parts) удлиняются НАЗАД на bm.E: передний край на месте,
+  // задний уходит на -D/2 - E. Внутренние размеры корпуса не меняются —
+  // полки, стойки, ящики, опоры считаются от прежней глубины D.
+  const bm = resolveBackMount(p, sides, tb);
+  const inGroove = (key) => bm.mode === 'groove' && !!bm.parts[key];
+  // Глубина детали с пазом: не меньше D + E (уже более глубокую видимую
+  // боковину кухни не трогаем — паз встаёт по той же абсолютной позиции).
+  const grooveDepth = (key, d0) => (inGroove(key) ? Math.max(d0, round1(D + bm.E)) : d0);
+  // Центр удлинённой детали — БЕЗ округления: makePart округляет box.z до
+  // 0,1 мм, а у глубины D + 18,5 центр лежит на 0,05 мм (-9,25 → -9,2), и
+  // вся присадка, считаемая от box.z (полкодержатели, крепёж корпуса),
+  // съезжала бы на 0,1 мм от переднего края. Передний край ровно на +D/2.
+  const exactFrontZ = (part) => { part.box.z = D / 2 - part.box.d / 2; };
   // Дно ВКЛАДНОЕ с той стороны, где боковина не стоит на нём:
   // и «до пола», и «сбоку дна» упираются торцом дна в свою внутреннюю грань.
   const leftInset = sides.left !== 'onBottom';
@@ -1633,7 +1806,6 @@ function buildModuleParts(p) {
     ? (D / 2 + (p.facadeThicknessHint || p.facadeThickness || t) + WORKTOP_OVERHANG) - worktop
     : -D / 2;
   const sideDepth = Math.max(D, round1(D / 2 - Math.min(wallZ, -D / 2)));
-  const sideZ = round1(D / 2 - sideDepth / 2);   // растёт назад, к стене
 
   for (const s of [
     { nm: 'Боковина левая', x: -sideX, v: sides.left, sec: sections[0] },
@@ -1644,6 +1816,9 @@ function buildModuleParts(p) {
     const visible = p.visibleSides !== false
       && (s.v === 'floor' || s.v === 'besideBottom');
     const vm = visible ? visibleSideMat() : null;
+    // Глубина боковины: видимая кухонная может быть глубже корпуса (до
+    // стены), боковина с пазом под заднюю стенку — удлинена назад на E.
+    const sDepth = grooveDepth(s.x < 0 ? 'left' : 'right', visible ? sideDepth : D);
     // Передний торец виден, только если он не закрыт фасадом секции (или
     // фасад стеклянный) — см. sectionFrontHidden. Флаг visible выше — про
     // ДРУГОЕ: открытую наружу ПЛАСТЬ крайней боковины (материал в тон
@@ -1654,7 +1829,7 @@ function buildModuleParts(p) {
     parts.push(makePart({
       name: s.nm + (visible ? ' (видимая)' : ''), section: 'Корпус',
       material: vm ? vm.code : decor.code, thickness: t,
-      length: h, width: visible ? sideDepth : D, qty: 1, grain: true, kind: 'side',
+      length: h, width: sDepth, qty: 1, grain: true, kind: 'side',
       facadeType: vm ? 'sidePanel' : null,
       note: sideNote(s.v) + (vm ? `; видимая — в материале фасада (${vm.name})` : ''),
       // Передний торец — 2мм, если реально виден (открыт или за стеклом),
@@ -1663,9 +1838,11 @@ function buildModuleParts(p) {
       // дна/крыши — по требованию: весь корпус кромится по периметру, без
       // исключения для стыков).
       edging: { long1: frontHidden ? EDGE_BACK : EDGE_FRONT, long2: EDGE_BACK, short1: EDGE_BACK, short2: EDGE_BACK },
-      x: s.x, y: (sideTop + bottomY) / 2, z: visible ? sideZ : 0,
-      dims: { w: t, h, d: visible ? sideDepth : D },
+      // Передний край всегда на +D/2, более глубокая боковина растёт назад.
+      x: s.x, y: (sideTop + bottomY) / 2, z: round1(D / 2 - sDepth / 2),
+      dims: { w: t, h, d: sDepth },
     }));
+    if (inGroove(s.x < 0 ? 'left' : 'right')) exactFrontZ(parts[parts.length - 1]);
   }
   const hasVisibleSide = p.visibleSides !== false
     && (sides.left === 'floor' || sides.left === 'besideBottom'
@@ -1689,13 +1866,16 @@ function buildModuleParts(p) {
   const bodyFrontHidden = sections.every(
     (sec) => sectionFrontHidden(sec, decor, t, p.facadeDecor, p.facadeThickness));
 
+  // Дно с пазом под заднюю стенку удлинено назад на E (передний край на месте).
+  const bottomD = grooveDepth('bottom', D);
   parts.push(makePart({
     name: 'Дно', section: 'Корпус', material: decor.code, thickness: t,
-    length: bottomLen, width: D, qty: 1, kind: 'bottom', note: bottomNote,
+    length: bottomLen, width: bottomD, qty: 1, kind: 'bottom', note: bottomNote,
     edging: { long1: bodyFrontHidden ? EDGE_BACK : EDGE_FRONT, long2: EDGE_BACK, short1: EDGE_BACK, short2: EDGE_BACK },
-    x: (bottomLeft + bottomRight) / 2, y: baseH + t / 2, z: 0,
-    dims: { w: bottomLen, h: t, d: D },
+    x: (bottomLeft + bottomRight) / 2, y: baseH + t / 2, z: round1(D / 2 - bottomD / 2),
+    dims: { w: bottomLen, h: t, d: bottomD },
   }));
+  if (inGroove('bottom')) exactFrontZ(parts[parts.length - 1]);
   // Верх модуля: либо цельная крышка, либо две планки (царги), либо —
   // у обычной (не кухонной) тумбы со столешницей — вообще ничего.
   // У кухонных нижних тумб цельной крышки не делают: ставят переднюю и заднюю
@@ -1730,69 +1910,12 @@ function buildModuleParts(p) {
   // крыши корпуса (skipTopPanel решает, убирать ли цельную крышку), и снова
   // ниже при постройке самой детали «Столешница» — единый источник, чтобы
   // решение «крышка есть/нет» и фактическая деталь не могли разойтись.
-  const countertopMat = (ct) => {
-    const cat = window.Modul3D.catalog;
-    // 1) готовая позиция каталога столешниц (CTOP-...) — СВОЙ резолвер,
-    //    отдельно от общего findMaterialByCode() (см. catalog.js) — карточки
-    //    столешниц не должны быть доступны там, где ожидается обычный лист
-    //    декора корпуса/фасада, и наоборот. Проверяется ПЕРВОЙ, независимо
-    //    от ct.double — готовая позиция каталога (ЛДСП38 постформинг/
-    //    компакт-плита) уже готовый товар фиксированной конструкции,
-    //    «сдвоение» для неё конструктивно бессмысленно и всегда
-    //    игнорируется (isDouble всегда false для этой ветки), даже если
-    //    галочка «Сдвоенная» случайно осталась включённой с прошлого выбора
-    //    материала (юзер сначала поставил галочку у декора, потом сменил
-    //    материал на готовую позицию, не сняв галочку) — подтверждено
-    //    владельцем-мебельщиком 2026-09-07.
-    const ctCat = ct.decorCode ? cat.findCountertopMaterialByCode(ct.decorCode) : null;
-    if (ctCat) {
-      return { found: true, code: ctCat.code, name: ctCat.name,
-        isDouble: false, thickness: ctCat.thickness, depth: ctCat.depth, maxLength: ctCat.maxLength || null };
-    }
-    // 2) обычный лист декора из общей библиотеки материалов — DECORS,
-    //    FACADE_MATERIALS (объект, не массив) или BACK_MATERIALS, БЕЗ
-    //    копирования между ними (см. app.js: libPickMaterial/
-    //    findAnyMaterialByCode — та же тройка, что уже ищет specification.js
-    //    для листовых материалов, см. там `known`). Толщина — строго из
-    //    каталожной записи (dec.thickness), поле «Толщина» на панели
-    //    столешницы убрано ещё 2026-09-06.
-    const dec = ct.decorCode ? cat.findMaterialByCode(ct.decorCode) : null;
-    if (!dec) return { found: false, reason: 'noDecor' };
-    const th = Number(dec.thickness) || 0;
-    if (!(th > 0)) return { found: false, reason: 'noThickness' };
-    if (ct.double) {
-      // «Сдвоенная» — два склеенных листа ИМЕННО этого декора (dec,
-      // резолвнутого из ct.decorCode выше) — того, что пользователь выбрал
-      // кнопкой «Изменить» на панели столешницы, а НЕ общий декор корпуса
-      // всего проекта (p.decor/decor). Исправлено 2026-09-07 по замечанию
-      // владельца-мебельщика: раньше здесь ошибочно брались decor.code/
-      // decor.name/decor.sheetW (декор корпуса), из-за чего название,
-      // толщина и максимальная длина цельного куска не совпадали с реально
-      // выбранным на панели материалом. thickness — толщина ОДНОГО листа
-      // этого декора (число, не null, как было раньше) — ctResolvedThickness/
-      // ctThickness ниже читают именно её (2×thickness), а не 2×t (толщину
-      // корпуса). depth: null, как и у «своего материала» ниже — это не
-      // готовая позиция каталога фиксированной глубины, глубина столешницы
-      // считается от глубины корпуса модуля D (см. ctWidth ниже по файлу).
-      return { found: true, code: dec.code, name: `${dec.name} (сдвоенное 2×, столешница)`,
-        isDouble: true, thickness: th, depth: null, maxLength: dec.sheetW || null };
-    }
-    // Толщина ≤18мм (не толще стандартной корпусной ЛДСП) технически строится
-    // — клеится по всей площади к цельной крышке корпуса (см. skipTopPanel
-    // ниже, растикс в торец боковины только при >18). Способ крепления уже
-    // однозначно указан в note самой детали «Столешница» ниже (клей vs
-    // растикс) — отдельного предупреждения тут нет.
-    return { found: true, code: dec.code, name: `${dec.name} (столешница, ${th} мм)`,
-      isDouble: false, thickness: th, depth: null, maxLength: dec.sheetW || null };
-  };
+  const countertopMat = countertopMatOf;
   const ctEnabled = !!(p.countertop && p.countertop.enabled);
   const ctResolved = ctEnabled ? countertopMat(p.countertop) : null;
-  // Эффективная толщина резолвнутого материала — «сдвоенная» это всегда 2
-  // листа ИМЕННО выбранного на панели декора столешницы (ctResolved.thickness
-  // хранит толщину ОДНОГО листа, см. countertopMat() выше), а не толщина
-  // корпуса (t) и не decor корпуса проекта — исправлено 2026-09-07.
-  const ctResolvedThickness = (ctResolved && ctResolved.found)
-    ? (ctResolved.isDouble ? 2 * Number(ctResolved.thickness) : (Number(ctResolved.thickness) || 0)) : 0;
+  // Эффективная толщина резолвнутого материала (countertopThicknessOf) —
+  // «сдвоенная» это всегда 2 листа ИМЕННО выбранного на панели декора
+  // столешницы, а не толщина корпуса (t) — исправлено 2026-09-07.
   // У обычной мебели (не кухня — там верх всегда планки-царги, см. выше)
   // цельная крышка под включённой столешницей — лишняя деталь ТОЛЬКО если
   // РЕАЛЬНАЯ толщина резолвнутого материала БОЛЬШЕ 18 мм (стандартной
@@ -1805,9 +1928,9 @@ function buildModuleParts(p) {
   // КАКАЯ это конкретно позиция каталога/декора). Материал ещё не выбран/не
   // найден (пустое поле, старый/битый проект) — безопасный дефолт: крышку
   // НЕ убираем (лучше лишняя деталь, чем корпус без опоры сверху).
-  const skipTopPanel = isFloorStandingBase && ctEnabled
-    && !(p.topType === 'rails' || p.topType === 'railsEdge')
-    && ctResolvedThickness > 18;
+  // Само правило — в skipTopPanelOf() (верх файла): им же пользуется
+  // resolveBackMount(), решая, может ли крыша быть с пазом.
+  const skipTopPanel = skipTopPanelOf(p);
   if (skipTopPanel) {
     // Деталь верха корпуса не строится.
   } else if (p.topType === 'rails' || p.topType === 'railsEdge') {
@@ -1847,15 +1970,18 @@ function buildModuleParts(p) {
       }));
     }
   } else {
-    // Крышка всегда вкладная между боковинами
+    // Крышка всегда вкладная между боковинами. С пазом под заднюю стенку —
+    // удлинена назад на E (передний край на месте).
+    const topD = grooveDepth('top', D);
     parts.push(makePart({
       name: 'Крыша (топ)', section: 'Корпус', material: decor.code, thickness: t,
-      length: Wi, width: D, qty: 1, kind: 'top',
+      length: Wi, width: topD, qty: 1, kind: 'top',
       note: 'Вкладная между боковинами',
       edging: { long1: bodyFrontHidden ? EDGE_BACK : EDGE_FRONT, long2: EDGE_BACK, short1: EDGE_BACK, short2: EDGE_BACK },
-      x: 0, y: H - t / 2, z: 0,
-      dims: { w: Wi, h: t, d: D },
+      x: 0, y: H - t / 2, z: round1(D / 2 - topD / 2),
+      dims: { w: Wi, h: t, d: topD },
     }));
+    if (inGroove('top')) exactFrontZ(parts[parts.length - 1]);
   }
 
   // ---------- Столешница ----------
@@ -1910,9 +2036,10 @@ function buildModuleParts(p) {
       // там свес сзади автоматически дотягивает глубину столешницы точно до
       // глубины купленного листа (реальная стена), это уже верно и без
       // поправки на ХДФ — трогать не нужно (подтверждено пользователем).
-      // Врезная (в паз) задняя стенка у тумб сейчас не встречается — если
-      // появится отдельной задачей, тут будет 0 и для неё.
-      const backPanelExtra = (p.noBack || p.family === 'kitchen') ? 0 : tb;
+      // Стенка В ПАЗ (resolveBackMount): детали с пазом удлинены назад на E
+      // = отступ паза + его ширина — столешница закрывает их целиком, +E.
+      const backPanelExtra = (p.noBack || p.family === 'kitchen') ? 0
+        : (bm.mode === 'groove' ? bm.E : tb);
       // «Свес сзади» по умолчанию зависит от типа мебели, а не только от
       // материала:
       //  - КУХНЯ (family==='kitchen'): корпус нижней тумбы намеренно мельче
@@ -2223,6 +2350,9 @@ function buildModuleParts(p) {
 
     const LEG_HOLE_SPACING = 52;   // шаг крепёжных отверстий площадки, мм
     const bottomPart = parts.find((pt) => pt.kind === 'bottom');
+    // y присадки в дне — от ЕГО задней кромки (у дна с пазом под заднюю
+    // стенку она на E дальше -D/2).
+    const bottomBackZ = bottomPart ? bottomPart.box.z - bottomPart.box.d / 2 : -D / 2;
     const plinthPart = parts.find((pt) => pt.kind === 'plinth');
     // Высота, на которой клипса держит цоколь (по образцу опора с клипсой):
     // примерно на середине высоты опоры, чуть ниже монтажной площадки.
@@ -2267,7 +2397,7 @@ function buildModuleParts(p) {
               const rad = ang * Math.PI / 180;
               bottomPart.holes.push({
                 x: round1((x + r * Math.cos(rad)) - bottomLeft),
-                y: round1((z + r * Math.sin(rad)) + D / 2),
+                y: round1((z + r * Math.sin(rad)) - bottomBackZ),
                 d: KITCHEN_HOLE_D, depth: 12, through: false, side: 'back', kind: 'legFix',
               });
             }
@@ -2276,7 +2406,7 @@ function buildModuleParts(p) {
               for (const sz of [-1, 1]) {
                 bottomPart.holes.push({
                   x: round1((x + sx * LEG_HOLE_SPACING / 2) - bottomLeft),
-                  y: round1((z + sz * LEG_HOLE_SPACING / 2) + D / 2),
+                  y: round1((z + sz * LEG_HOLE_SPACING / 2) - bottomBackZ),
                   d: 2, depth: 12, through: false, side: 'back', kind: 'legFix',
                 });
               }
@@ -2303,72 +2433,142 @@ function buildModuleParts(p) {
   }
 
   // ---------- Задняя стенка ----------
-  // Одна цельная накладная панель ХДФ на весь корпус сзади (набивается на
-  // задние торцы боковин, дна и крыши). Это стандарт для эконом-сборки.
-  // Модуль под мойку идёт БЕЗ задней стенки: сзади проходят коммуникации —
-  // сифон, гибкая подводка, а часто и розетки.
-  // У КРАЙНЕГО МОДУЛЯ задняя стенка идёт В ПАЗ, а не набивается на торцы:
-  // видимая боковина глубже корпуса и накладную стенку было бы видно с торца,
-  // да и паз жёстче держит геометрию.
-  // Глубина паза под заднюю стенку. 8 мм — производственный стандарт:
-  // жёстче держит стенку и прощает погрешность раскроя (4 мм — минимум).
-  const PAZ_D = Number(p.backGrooveDepth) || 8;
-  // Паз нужен НЕ у любой «до пола»/«сбоку дна» боковины, а только когда она
-  // реально глубже корпуса (см. sideDepth выше — растёт только когда есть
-  // столешница с свесом до стены, т.е. это кухонный крайний модуль ряда).
-  // У одиночного шкафа (обе боковины «до пола», без столешницы) sideDepth
-  // равен D, накладную стенку не видно с торца — она набивается на торцы,
-  // как в height-формуле (BACK_PLAY), без паза. Раньше это условие проверяло
-  // только тип боковины и накладную стенку резало ýже по ПАЗ-формуле даже
-  // без реального выступа — отсюда лишние -12 мм на сторону по ширине при
-  // корректных -1 мм по высоте.
-  const hasOverhang = sideDepth > D;
-  const leftVisible = p.visibleSides !== false && hasOverhang
-    && (sides.left === 'floor' || sides.left === 'besideBottom');
-  const rightVisible = p.visibleSides !== false && hasOverhang
-    && (sides.right === 'floor' || sides.right === 'besideBottom');
-  // Стенка остаётся НАКЛАДНОЙ на задней плоскости корпуса. Разница лишь в
-  // краях: обычную боковину она перекрывает по торцу, а видимую (она глубже
-  // корпуса и идёт до стены) перекрыть нельзя — там стенка заходит В ПАЗ.
-  // ДОПУСК В ПАЗУ. Стенка режется на 2 мм короче полного захода: иначе она
-  // упирается в дно паза и корпус не стягивается по диагонали. Допуск даётся
-  // только с той стороны, где стенка ВХОДИТ В ПАЗ.
-  const PAZ_PLAY = 2;
-  // Накладная стенка тоже режется с запасом: по 1 мм с каждой стороны, то
-  // есть на 2 мм меньше по ширине и на 2 мм по высоте. Строго «в размер»
-  // она цепляется за кромку и мешает выставить корпус по диагонали.
+  // Режим решает resolveBackMount() (см. верх файла и
+  // ПРАВИЛА-КОНСТРУИРОВАНИЯ.md, «Задняя стенка: накладная или в паз»):
+  //   • НАКЛАДНАЯ — одна цельная панель ХДФ набивается на задние торцы
+  //     боковин, дна и крыши (стандарт эконом-сборки, нижняя кухня);
+  //   • В ПАЗ — стенка заходит в пазы боковин/крыши/дна (тумбы, шкафы,
+  //     навесные модули), детали с пазом удлинены назад на E;
+  //   • без стенки — модуль под мойку: сзади коммуникации — сифон, гибкая
+  //     подводка, а часто и розетки.
+  // Накладная стенка режется с запасом: по 1 мм с каждой стороны, то есть на
+  // 2 мм меньше по ширине и на 2 мм по высоте. Строго «в размер» она
+  // цепляется за кромку и мешает выставить корпус по диагонали. Этот же
+  // зазор 1 мм — у стенки в паз по краям, где паза нет.
   const BACK_PLAY = 1;
-  const leftEdge = leftVisible ? -(W / 2 - t + PAZ_D - PAZ_PLAY) : -(W / 2 - BACK_PLAY);
-  const rightEdge = rightVisible ? (W / 2 - t + PAZ_D - PAZ_PLAY) : (W / 2 - BACK_PLAY);
-  const backW = round1(rightEdge - leftEdge);
-  const backHgt = round1(H - baseH - 2 * BACK_PLAY);
-  const grooved = leftVisible || rightVisible;
-  // Паз под заднюю стенку режется в ВИДИМОЙ боковине: стенка не может
-  // перекрыть её торец, потому что боковина глубже корпуса.
-  if (!p.noBack && grooved) {
-    const backZ = -D / 2 - tb / 2;
-    for (const sp of parts.filter((q) => q.kind === 'side')) {
-      const vis = (sp.box.x < 0 ? leftVisible : rightVisible);
-      if (!vis) continue;
-      const yPaz = round1(backZ - (sp.box.z - sp.box.d / 2));   // от задней кромки панели
-      sp.grooves.push({
-        kind: 'backGroove', x0: 0, y0: yPaz, x1: round1(sp.length), y1: yPaz,
-        w: round1(tb + 0.5), depth: PAZ_D, side: 'inner',
+  let leftEdge, rightEdge, backBottomY, backTopY, backNote;
+  if (bm.mode === 'groove') {
+    // СТЕНКА В ПАЗ. Паз шириной w = tb + 0,5 занимает по Z интервал
+    // [-D/2 - w, -D/2]: его передняя сторона — задняя плоскость корпуса
+    // (-D/2), от нового заднего края детали с пазом — отступ bm.offset.
+    // Стенка прижата к передней стороне паза: z центра = -D/2 - tb/2, как
+    // у накладной. Паз сквозной по всей длине детали.
+    const grooveAxisZ = -D / 2 - bm.w / 2;
+    const sidePartAt = (sgn) => parts.filter((q) => q.kind === 'side'
+      && Math.sign(q.box.x) === sgn)[0];
+    const grooveTargets = {
+      left: sidePartAt(-1),
+      right: sidePartAt(1),
+      // Крыша с пазом — только цельная панель (планки/отсутствие крыши
+      // resolveBackMount уже отсёк).
+      top: parts.filter((q) => q.kind === 'top' && q.name === 'Крыша (топ)')[0],
+      bottom: parts.filter((q) => q.kind === 'bottom')[0],
+    };
+    const partNames = { left: 'лев. боковина', right: 'прав. боковина', top: 'крыша', bottom: 'дно' };
+    const grooveList = [];
+    for (const key of ['left', 'right', 'top', 'bottom']) {
+      const gp = grooveTargets[key];
+      if (!bm.parts[key] || !gp) continue;
+      // y — ось паза от ЗАДНЕЙ кромки детали, как у паза видимой боковины.
+      // Задняя кромка — от переднего края (+D/2) на ширину детали: так без
+      // накопленной ошибки округления box.z (у D + 18,5 центр на 0,05 мм).
+      const yPaz = round1(grooveAxisZ - (D / 2 - gp.width));
+      gp.grooves.push({
+        kind: 'backGroove', x0: 0, y0: yPaz, x1: round1(gp.length), y1: yPaz,
+        w: bm.w, depth: bm.depth, side: 'inner',
         note: 'Паз под заднюю стенку',
       });
+      grooveList.push(partNames[key]);
     }
-  }
-  if (!p.noBack) parts.push(makePart({
-    name: 'Задняя стенка', section: 'Корпус', material: back.code, thickness: tb,
-    length: backW, width: backHgt, qty: 1, kind: 'back',
-    note: grooved
+    // Край без паза: зазор 1 мм от наружной грани. Но если боковина БЕЗ паза
+    // глубже корпуса (видимая кухонная, ручной режим с её снятой галочкой) —
+    // её торец не на задней плоскости, стенка встаёт между боковинами, чтобы
+    // не врезаться в её тело.
+    const plainSideEdge = (sp) => ((sp && sp.box.z - sp.box.d / 2 < -D / 2 - 0.5)
+      ? (W / 2 - t - BACK_PLAY) : (W / 2 - BACK_PLAY));
+    leftEdge = bm.parts.left ? -(W / 2 - t + bm.entry) : -plainSideEdge(grooveTargets.left);
+    rightEdge = bm.parts.right ? (W / 2 - t + bm.entry) : plainSideEdge(grooveTargets.right);
+    // Верх дна — baseH + t, низ крыши — H - t (см. их y выше).
+    backBottomY = bm.parts.bottom ? (baseH + t) - bm.entry : baseH + BACK_PLAY;
+    backTopY = bm.parts.top ? (H - t) + bm.entry : H - BACK_PLAY;
+    backNote = `В паз ${bm.w}×${bm.depth} мм, отступ ${bm.offset} мм, заход ${bm.entry} мм`
+      + (grooveList.length ? ` (${grooveList.join(', ')})` : '');
+    // Нижний кухонный модуль в ручном режиме «в паз»: плоскость стены задаёт
+    // столешница (sideDepth > D — видимая боковина доходит ровно до стены).
+    // Удлинённая назад деталь может упереться в стену — размеры не подгоняем,
+    // только предупреждаем.
+    if (sideDepth > D && D + bm.E > sideDepth + 0.05) {
+      const over = Math.round((D + bm.E - sideDepth) * 10) / 10;
+      warnings.push(`Задняя стенка в паз: корпус выходит за стену на ${over} мм — уменьшите глубину модуля.`);
+    }
+    if (bm.entry >= bm.depth) {
+      warnings.push(`Задняя стенка: заход в паз ${bm.entry} мм не меньше глубины паза ${bm.depth} мм — стенка упрётся в дно паза.`);
+    }
+    if (bm.depth >= t) {
+      warnings.push(`Задняя стенка: глубина паза ${bm.depth} мм не меньше толщины корпуса ${t} мм — паз прорежет деталь насквозь.`);
+    }
+  } else {
+    // НАКЛАДНАЯ. У КРАЙНЕГО кухонного модуля видимая боковина глубже корпуса
+    // (идёт до стены) — перекрыть её торец нельзя, туда стенка заходит В ПАЗ.
+    // Глубина этого паза — 8 мм, производственный стандарт: жёстче держит
+    // стенку и прощает погрешность раскроя (4 мм — минимум).
+    const PAZ_D = 8;
+    // Паз нужен НЕ у любой «до пола»/«сбоку дна» боковины, а только когда она
+    // реально глубже корпуса (см. sideDepth выше — растёт только когда есть
+    // столешница с свесом до стены, т.е. это кухонный крайний модуль ряда).
+    // У одиночного шкафа (обе боковины «до пола», без столешницы) sideDepth
+    // равен D, накладную стенку не видно с торца — она набивается на торцы,
+    // как в height-формуле (BACK_PLAY), без паза. Раньше это условие проверяло
+    // только тип боковины и накладную стенку резало ýже по ПАЗ-формуле даже
+    // без реального выступа — отсюда лишние -12 мм на сторону по ширине при
+    // корректных -1 мм по высоте.
+    const hasOverhang = sideDepth > D;
+    const leftVisible = p.visibleSides !== false && hasOverhang
+      && (sides.left === 'floor' || sides.left === 'besideBottom');
+    const rightVisible = p.visibleSides !== false && hasOverhang
+      && (sides.right === 'floor' || sides.right === 'besideBottom');
+    // ДОПУСК В ПАЗУ. Стенка режется на 2 мм короче полного захода: иначе она
+    // упирается в дно паза и корпус не стягивается по диагонали. Допуск даётся
+    // только с той стороны, где стенка ВХОДИТ В ПАЗ.
+    const PAZ_PLAY = 2;
+    leftEdge = leftVisible ? -(W / 2 - t + PAZ_D - PAZ_PLAY) : -(W / 2 - BACK_PLAY);
+    rightEdge = rightVisible ? (W / 2 - t + PAZ_D - PAZ_PLAY) : (W / 2 - BACK_PLAY);
+    // Положение по высоте — как было исторически (низ стенки на уровне
+    // низа дна, высота H - baseH - 2): режим «накладная» не меняется.
+    backBottomY = baseH;
+    backTopY = H - 2 * BACK_PLAY;
+    const grooved = leftVisible || rightVisible;
+    // Паз под заднюю стенку режется в ВИДИМОЙ боковине: стенка не может
+    // перекрыть её торец, потому что боковина глубже корпуса.
+    if (bm.mode !== 'none' && grooved) {
+      const backZ = -D / 2 - tb / 2;
+      for (const sp of parts.filter((q) => q.kind === 'side')) {
+        const vis = (sp.box.x < 0 ? leftVisible : rightVisible);
+        if (!vis) continue;
+        const yPaz = round1(backZ - (sp.box.z - sp.box.d / 2));   // от задней кромки панели
+        sp.grooves.push({
+          kind: 'backGroove', x0: 0, y0: yPaz, x1: round1(sp.length), y1: yPaz,
+          w: round1(tb + 0.5), depth: PAZ_D, side: 'inner',
+          note: 'Паз под заднюю стенку',
+        });
+      }
+    }
+    backNote = grooved
       ? `Накладная; в видимую боковину входит В ПАЗ ${tb + 0.5}×${PAZ_D} мм, `
         + `допуск ${PAZ_PLAY} мм на сторону`
-      : 'Накладная, крепится на задние торцы корпуса',
+      : 'Накладная, крепится на задние торцы корпуса';
+  }
+  const backW = round1(rightEdge - leftEdge);
+  const backHgt = round1(backTopY - backBottomY);
+  const backPart = (bm.mode === 'none') ? null : makePart({
+    name: 'Задняя стенка', section: 'Корпус', material: back.code, thickness: tb,
+    length: backW, width: backHgt, qty: 1, kind: 'back',
+    note: backNote,
     edging: { long1: null, long2: null, short1: null, short2: null },
-    x: round1((leftEdge + rightEdge) / 2), y: baseH + backHgt / 2, z: -D / 2 - tb / 2,
+    x: round1((leftEdge + rightEdge) / 2), y: backBottomY + backHgt / 2, z: -D / 2 - tb / 2,
     dims: { w: backW, h: backHgt, d: tb },
-  }));
+  });
+  if (backPart) parts.push(backPart);
 
   // ---------- Секции: стойки, полки ----------
   const drawerHardware = [];
@@ -2399,11 +2599,15 @@ function buildModuleParts(p) {
         && sectionFrontHidden(sections[i + 1], decor, t, p.facadeDecor, p.facadeThickness);
       parts.push(makePart({
         name: 'Стойка вертикальная', section: 'Корпус', material: decor.code, thickness: t,
-        length: innerH, width: D - tb, qty: 1, kind: 'divider',
+        // Стойка во всю глубину корпуса D: передний край на +D/2, задний —
+        // на задней плоскости корпуса (-D/2), вплотную к задней стенке (её
+        // передняя пласть во всех режимах на -D/2). Требование пользователя
+        // 2026-09-23; раньше была D - tb и не доходила до стенки на tb.
+        length: innerH, width: D, qty: 1, kind: 'divider',
         note: `Вкладная между дном и крышей, отступ слева ${Math.round(secX0 + secW + Wi / 2)} мм`,
         edging: { long1: dividerHidden ? EDGE_BACK : EDGE_FRONT, long2: EDGE_BACK, short1: EDGE_BACK, short2: EDGE_BACK },
-        x: secX0 + secW + t / 2, y: innerBottomY + innerH / 2, z: tb / 2,
-        dims: { w: t, h: innerH, d: D - tb },
+        x: secX0 + secW + t / 2, y: innerBottomY + innerH / 2, z: 0,
+        dims: { w: t, h: innerH, d: D },
       }));
     }
 
@@ -2457,8 +2661,12 @@ function buildModuleParts(p) {
       if (infoRowBox) infoRowBox.boxes = boxInfo;
     }
 
-    // ----- Полки: вкладные, с отступом от переднего края и от задней стенки -----
-    const shelfDepth = D - tb - SHELF_SETBACK;
+    // ----- Полки: вкладные, с отступом от переднего края, сзади до задней стенки -----
+    // Съёмная полка: отступ SHELF_SETBACK от переднего края, задний край —
+    // на задней плоскости корпуса (-D/2), вплотную к задней стенке (её
+    // передняя пласть во всех режимах на -D/2). Требование пользователя
+    // 2026-09-23; раньше было D - tb - SHELF_SETBACK (не доходила на tb).
+    const shelfDepth = D - SHELF_SETBACK;
     // Полки идут выше ящиков, отсчёт от ВЕРХНЕГО КРАЯ ФАСАДА верхнего ящика
     // (фасады стоят от низа секции, поэтому это baseH + суммарная высота).
     const facadeTopY = baseH + drawerZoneH;
@@ -2645,6 +2853,48 @@ function buildModuleParts(p) {
     }
   }
 
+  // ---------- Шурупы задней стенки ----------
+  // Правило (подтверждено пользователем 2026-09-23, для ВСЕХ режимов):
+  // шаг 150 мм; шурупы идут в каждую деталь, с которой стенка соприкасается,
+  // КРОМЕ съёмных полок и деталей с пазом — то есть в боковины без паза,
+  // крышу/дно без паза, заднюю планку (царгу), несъёмные полки и стойки.
+  // На каждую линию контакта длиной L: n = ceil(L / 150) + 1. L — перекрытие
+  // детали со стенкой: у вертикальных — по высоте, у горизонтальных — по
+  // ширине. Итог — backPart.screws, specification.js берёт его оттуда.
+  if (backPart) {
+    const BACK_SCREW_STEP = 150;
+    const bb = backPart.box;
+    const bx0 = bb.x - bb.w / 2, bx1 = bb.x + bb.w / 2;
+    const by0 = bb.y - bb.h / 2, by1 = bb.y + bb.h / 2;
+    const ovl = (a0, a1, b0, b1) => Math.max(0, Math.min(a1, b1) - Math.max(a0, b0));
+    const hasBackGroove = (q) => (q.grooves || []).some((g) => g.kind === 'backGroove');
+    // Торец детали на задней плоскости корпуса (-D/2) — к нему и прижата
+    // стенка. Передняя планка, более глубокая видимая боковина — не касаются.
+    const atBackPlane = (q) => Math.abs((q.box.z - q.box.d / 2) + D / 2) < 0.6;
+    let screws = 0;
+    for (const q of parts) {
+      if (q === backPart || q.hardware || hasBackGroove(q)) continue;
+      const b = q.box;
+      const x0 = b.x - b.w / 2, x1 = b.x + b.w / 2, y0 = b.y - b.h / 2, y1 = b.y + b.h / 2;
+      let L = 0;
+      if (q.kind === 'side') {
+        if (!atBackPlane(q) || ovl(x0, x1, bx0, bx1) <= 0) continue;
+        L = ovl(y0, y1, by0, by1);
+      } else if (q.kind === 'divider') {
+        // Стойка во всю глубину корпуса, торец на задней плоскости.
+        if (!atBackPlane(q)) continue;
+        L = ovl(y0, y1, by0, by1);
+      } else if (q.kind === 'top' || q.kind === 'bottom' || (q.kind === 'shelf' && q.fixed)) {
+        if (!atBackPlane(q) || ovl(y0, y1, by0, by1) <= 0) continue;
+        L = ovl(x0, x1, bx0, bx1);
+      } else {
+        continue;
+      }
+      if (L > 0.5) screws += Math.ceil(L / BACK_SCREW_STEP) + 1;
+    }
+    backPart.screws = screws;
+  }
+
   // ---------- Присадка крепежа корпуса ----------
   // В каждом углу одна деталь перекрывает торец другой. Сверлится ПЛАСТЬ
   // перекрывающей детали и ТОРЕЦ перекрываемой:
@@ -2716,7 +2966,17 @@ function buildModuleParts(p) {
         // width — это её ширина-стойка (100 мм, идёт в деталировку раскроя),
         // а реальная глубина в сборке — толщина плиты (обычно 18 мм). Взять
         // здесь width вместо box.d уводило точку крепежа за пределы детали.
-        const pts = jointPoints(hp.box.d);
+        // Крыша/дно С ПАЗОМ под заднюю стенку удлинены назад на E, но крепёж
+        // к боковине расставляется по прежней глубине корпуса D от переднего
+        // края (как у детали без паза): задний крепёж остаётся в 50 мм от
+        // задней плоскости корпуса и не приближается к пазу, а расстояния
+        // от переднего края не меняются. y считается от ЗАДНЕЙ кромки, поэтому
+        // точки сдвигаются на удлинение.
+        const grooveExtra = (hp.grooves || []).some((g) => g.kind === 'backGroove')
+          ? Math.max(0, hp.box.d - D) : 0;
+        const pts = grooveExtra
+          ? jointPoints(D).map((v) => round1(v + grooveExtra))
+          : jointPoints(hp.box.d);
         // Кто кого перекрывает
         const bottomOverlays = (hp.kind === 'bottom') && (mode === 'onBottom');
 
@@ -3495,13 +3755,25 @@ function buildModel(project) {
   // ВПЕРЁД на толщину ЛДСП, задняя стенка — НАЗАД на толщину ХДФ. У повёрнутого
   // модуля этот выступ приходится на соседа по ряду, поэтому раскладка ведётся
   // по полному занимаемому месту, иначе корпуса налезают друг на друга.
+  // Задний выступ модуля за корпус: у накладной стенки — её толщина, у стенки
+  // В ПАЗ — удлинение деталей с пазом E (resolveBackMount — то же решение,
+  // что и в buildModuleParts, поля модуля те же).
+  const backOut = (m) => {
+    const bmm = resolveBackMount({
+      noBack: !!m.noBack, backMount: m.backMount, backGroove: m.backGroove,
+      wallHung: m.wallHung, family: m.family, base: m.base,
+      topType: m.topType, countertop: m.countertop, height: m.height,
+    }, normalizeSides({ leftSide: m.leftSide, rightSide: m.rightSide, scheme: m.scheme }), tBack);
+    return bmm.mode === 'groove' ? bmm.E : tBack;
+  };
   const extent = (m) => {
     const W = Number(m.width || 0), D = Number(m.depth || 0);
+    const tOut = backOut(m);
     switch (rotOf(m)) {
-      case 90:  return { x0: -D / 2 - tBack, x1: D / 2 + tBody, z0: -W / 2, z1: W / 2 };
-      case 180: return { x0: -W / 2, x1: W / 2, z0: -D / 2 - tBody, z1: D / 2 + tBack };
-      case 270: return { x0: -D / 2 - tBody, x1: D / 2 + tBack, z0: -W / 2, z1: W / 2 };
-      default:  return { x0: -W / 2, x1: W / 2, z0: -D / 2 - tBack, z1: D / 2 + tBody };
+      case 90:  return { x0: -D / 2 - tOut, x1: D / 2 + tBody, z0: -W / 2, z1: W / 2 };
+      case 180: return { x0: -W / 2, x1: W / 2, z0: -D / 2 - tBody, z1: D / 2 + tOut };
+      case 270: return { x0: -D / 2 - tBody, x1: D / 2 + tOut, z0: -W / 2, z1: W / 2 };
+      default:  return { x0: -W / 2, x1: W / 2, z0: -D / 2 - tOut, z1: D / 2 + tBody };
     }
   };
   // Габарит по КОРПУСУ (без выступа фасада) — для размеров на чертежах.
@@ -3583,8 +3855,14 @@ function buildModel(project) {
         drawerDecor: proj.drawerDecor, drawerThickness: proj.drawerThickness,
         base: m.base, legType: m.legType, leftSide: m.leftSide, rightSide: m.rightSide,
         topType: m.topType, railWidth: m.railWidth, noBack: !!m.noBack,
+        // Задняя стенка: накладная / в паз (см. resolveBackMount) и признак
+        // навесного модуля. Нет полей — 'auto' и правило по умолчанию.
+        backMount: m.backMount, backGroove: m.backGroove, wallHung: m.wallHung,
         countertop: m.countertop,
-        worktopDepth: m.family === 'kitchen' ? Number(proj.worktopDepth || 0) : 0,
+        // Навесному (верхнему) модулю столешница не положена: иначе его
+        // видимая боковина «дотягивается до стены» по глубине столешницы
+        // нижнего ряда (у верхнего 300 → 562 мм).
+        worktopDepth: (m.family === 'kitchen' && !isWallHung(m)) ? Number(proj.worktopDepth || 0) : 0,
         family: m.family,
         blindPanel: !!m.blindPanel, blindStrip: m.blindStrip,
         // Ширина заглушки = ГЛУБИНА СОСЕДНЕГО модуля: к ней он и стыкуется.
@@ -4125,6 +4403,7 @@ function toSingleModuleProject(p) {
       name: 'Изделие', width: p.width, height: p.height, depth: p.depth,
       scheme: p.scheme, leftSide: p.leftSide, rightSide: p.rightSide,
       base: p.base, sections: p.sections,
+      backMount: p.backMount, backGroove: p.backGroove, wallHung: p.wallHung,
     }],
   };
 }
@@ -4770,6 +5049,11 @@ function mergeEqualParts(parts) {
 window.Modul3D = window.Modul3D || {};
 window.Modul3D.engine = {
   buildModel, buildModuleParts, EDGE_FRONT, EDGE_BACK, EDGE_MID, SIDE_LABEL, sidesLabel,
+  // Числа паза под заднюю стенку по умолчанию — UI берёт их отсюда, чтобы
+  // не дублировать (см. resolveBackMount).
+  BACK_GROOVE_DEFAULTS,
+  // Высота, выше которой некухонный модуль — «шкаф» (крыша без паза в авто).
+  BACK_GROOVE_TALL_H,
   // Чистая функция раскладки вертикальных зон фасада — переиспользуется в
   // app.js (контекстное «Разделить на секции» из 3D), чтобы не дублировать
   // формулу стыков между зонами.

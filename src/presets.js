@@ -262,7 +262,7 @@ const PRESETS = [
         note: '600×720×300 · дверь и полка, без цоколя',
         make: () => mod({
           family: 'kitchen',
-          name: 'Верхний 600', width: 600, height: 720, depth: 300, plinthHeight: 0,
+          name: 'Верхний 600', width: 600, height: 720, depth: 300, plinthHeight: 0, wallHung: true,
           sections: [sec({ handle: 'bow160', facade: 'doorLeft', shelves: 1 })],
         }),
       },
@@ -273,7 +273,7 @@ const PRESETS = [
         note: '800×720×300 · две двери, полка под сушку над мойкой',
         make: () => mod({
           family: 'kitchen',
-          name: 'Верхний 800', width: 800, height: 720, depth: 300, plinthHeight: 0,
+          name: 'Верхний 800', width: 800, height: 720, depth: 300, plinthHeight: 0, wallHung: true,
           sections: [sec({ handle: 'bow160', facade: 'doors2', shelves: 1 })],
         }),
       },
@@ -285,7 +285,7 @@ const PRESETS = [
         make: () => mod({
           family: 'kitchen',
           name: 'Угловой верхний', width: 600, height: 720, depth: 300,
-          plinthHeight: 0, corner: true,
+          plinthHeight: 0, corner: true, wallHung: true,
           sections: [sec({ handle: 'bow160', facade: 'doorLeft', facadeWidth: 300, shelves: 1 })],
         }),
       },
