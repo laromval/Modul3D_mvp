@@ -33,7 +33,8 @@
     "categoryPath": [
       "ДСП",
       "Egger"
-    ]
+    ],
+    "categoryPathEdited": true
   },
   {
     "code": "U702ST9",
@@ -48,7 +49,8 @@
     "categoryPath": [
       "ДСП",
       "Egger"
-    ]
+    ],
+    "categoryPathEdited": true
   },
   {
     "code": "H3450ST22",
@@ -63,7 +65,8 @@
     "categoryPath": [
       "ДСП",
       "Egger"
-    ]
+    ],
+    "categoryPathEdited": true
   },
   {
     "code": "U999ST7",
@@ -78,20 +81,8 @@
     "categoryPath": [
       "ДСП",
       "Egger"
-    ]
-  },
-  {
-    "code": "NEW-1790013912016",
-    "name": "Новый материал",
-    "unit": "лист",
-    "image": null,
-    "sheetH": 1830,
-    "sheetW": 2750,
-    "sheetPrice": 0,
-    "categoryPath": [
-      "ДСП",
-      "Egger"
-    ]
+    ],
+    "categoryPathEdited": true
   },
   {
     "code": "LINK-1790014004794",
@@ -111,7 +102,8 @@
       "Egger"
     ],
     "sourceSiteId": "mobilierMd",
-    "sourceArticle": ""
+    "sourceArticle": "",
+    "categoryPathEdited": true
   },
   {
     "code": "FAC-LINK-1790026940937",
@@ -127,6 +119,27 @@
       "МДФ-плита",
       "Egger"
     ]
+  },
+  {
+    "code": "LINK-1790200284959",
+    "name": "8681 SM Белый бриллиант",
+    "unit": "м²",
+    "image": "https://mobilier.md/image/cache/catalog/products/18991/8526b8dd515310160ceca6c00fb308ab-768x1090.png",
+    "sheetH": 2070,
+    "sheetW": 2800,
+    "article": "",
+    "sourceUrl": "https://mobilier.md/ru/plitnye-materialy/dsp/kronospan/dsp-laminirovanny-8681-sm-belyy-brilliant-16-2800x2070-ku.html",
+    "thickness": 16,
+    "sheetPrice": 173,
+    "sourceName": "Дсп ламинированны 8681 SM Белый бриллиант (16) 2800x2070 (KU)",
+    "verifiedAt": "2026-09-23T21:51:24.959Z",
+    "categoryPath": [
+      "ДСП",
+      "Kronospan"
+    ],
+    "sourceSiteId": "mobilierMd",
+    "sourceArticle": "",
+    "categoryPathEdited": true
   }
 ];
 
@@ -377,7 +390,7 @@
   },
   "FAC-LDSP": {
     "code": "FAC-LDSP",
-    "name": "ЛДСП 18 мм (фасад)",
+    "name": "W1000 ST9 Белый Премиум",
     "unit": "лист",
     "image": "https://mobilier.md/image/cache/catalog/products/24677/59fa523e0348a50dba8422059f9fe9d6-250x250.png",
     "sheetH": 2070,
@@ -388,17 +401,18 @@
     "categoryPath": [
       "ДСП",
       "Egger"
-    ]
+    ],
+    "categoryPathEdited": true
   },
   "FAC-VENEER": {
     "code": "FAC-VENEER",
-    "name": "МДФ шпонированный 18 мм (видимая боковина)",
+    "name": "МДФ Шпон Дуб Натур",
     "unit": "лист",
     "image": "https://mobilier.md/image/cache/catalog/products/30073/8bb6eb475f7e6ca545558881176cacf4-1400x1400.png",
     "sheetH": 2070,
     "sheetW": 2800,
     "sourceUrl": "https://mobilier.md/ru/plitnye-materialy/shponirovannye-plity/df-shpon-dub-natur-19-2800x2070-mk-avstriya.html",
-    "thickness": 18,
+    "thickness": 19,
     "sheetPrice": 5796,
     "categoryPath": [
       "МДФ-плита",
@@ -433,6 +447,46 @@
       "Массив",
       "ARAMA"
     ]
+  },
+  "FAC-LINK-1790202402674": {
+    "code": "FAC-LINK-1790202402674",
+    "name": "МДФ Шпон Ясень Элегант РАДИАЛЬНЫЙ",
+    "unit": "м²",
+    "image": "https://mobilier.md/image/cache/catalog/products/30030/a01cd7b9f928b1c9e7d72fb7f70e2729-1400x1400.png",
+    "sheetH": 2070,
+    "sheetW": 2800,
+    "article": "",
+    "sourceUrl": "https://mobilier.md/ru/plitnye-materialy/shponirovannye-plity/df-shpon-yasen-elegant-19-2800x2070-mk-avstriya.html",
+    "thickness": 19,
+    "sheetPrice": 900,
+    "sourceName": "МДФ Шпон Ясень Элегант (19) 2800X2070 (MK) АВСТРИЯ",
+    "verifiedAt": "2026-09-23T22:26:42.674Z",
+    "categoryPath": [
+      "МДФ-плита",
+      "Шпонированные плиты"
+    ],
+    "sourceSiteId": "mobilierMd",
+    "sourceArticle": ""
+  },
+  "FAC-LINK-1790202592343": {
+    "code": "FAC-LINK-1790202592343",
+    "name": "Ясень Натур ТАНГЕНЦАЛЬНЫЙ",
+    "unit": "м²",
+    "image": "https://mobilier.md/image/cache/catalog/products/30033/82187546b512a1b79ac71c4e60e1b28e-1400x1400.png",
+    "sheetH": 2070,
+    "sheetW": 2800,
+    "article": "",
+    "sourceUrl": "https://mobilier.md/ru/plitnye-materialy/shponirovannye-plity/df-shpon-yasen-natur-19-2800x2070-mk-avstriya.html",
+    "thickness": 19,
+    "sheetPrice": 900,
+    "sourceName": "МДФ Шпон Ясень Натур (19) 2800X2070 (MK) АВСТРИЯ",
+    "verifiedAt": "2026-09-23T22:29:52.343Z",
+    "categoryPath": [
+      "МДФ-плита",
+      "Шпонированные плиты"
+    ],
+    "sourceSiteId": "mobilierMd",
+    "sourceArticle": ""
   }
 };
 

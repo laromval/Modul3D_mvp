@@ -211,7 +211,12 @@ const state = {
   libExtraNodes: {
   "edge": [],
   "glass": [],
-  "sheet": [],
+  "sheet": [
+    [
+      "ДСП",
+      "Egger"
+    ]
+  ],
   "facade": [],
   "hw:hinge": [
     [
@@ -259,6 +264,10 @@ const state = {
   // и переживает перезагрузку, как libExtraNodes/libHwCatLabels.
   libNodeOrder: {
   "sheet": {
+    "ДСП": [
+      "Egger",
+      "Kronospan"
+    ],
     "МДФ-плита": [
       "Egger",
       "Шпонированные плиты"
