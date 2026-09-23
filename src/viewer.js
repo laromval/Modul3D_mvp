@@ -694,6 +694,7 @@ function buildSlabGeometry(spec) {
   // --- 3. Торцы (четыре кромки детали) ---
   // У каждой кромки своя 2D-система: x идёт вдоль кромки, y — поперёк
   // толщины (0…T); map переводит её в координаты детали.
+  const edgeFaces = [];   // {from, to, alongIdx} — вершины торца и ось вдоль кромки (0=x, 1=y)
   const sides = [
     { id: 'u0', W: V, H: T, n: [-1, 0, 0], ax: [1, 0, 0], ex: [0, 1, 0], ey: [0, 0, 1], map: (p) => [-hu, p[0] - hv, p[1] - ht] },
     { id: 'u1', W: V, H: T, n: [1, 0, 0], ax: [-1, 0, 0], ex: [0, 1, 0], ey: [0, 0, 1], map: (p) => [hu, p[0] - hv, p[1] - ht] },
@@ -736,7 +737,10 @@ function buildSlabGeometry(spec) {
         y1: g.dir > 0 ? T : g.depth,
       });
     }
+    const from = mesh.pos.length / 3;
     mesh.plane(layoutFace(sd.W, sd.H, circles, bands, false), sd.map, sd.n);
+    // Диапазон вершин торца — для UV ниже (волокно кромки идёт ВДОЛЬ кромки).
+    edgeFaces.push({ from, to: mesh.pos.length / 3, alongIdx: sd.ex[0] === 1 ? 0 : 1 });
   }
 
   // --- 4. Стенки и дно отверстий в торец ---
@@ -794,6 +798,17 @@ function buildSlabGeometry(spec) {
     for (let i = 0; i < n; i++) {
       uv[i * 2] = mesh.pos[i * 3 + iu];
       uv[i * 2 + 1] = mesh.pos[i * 3 + iv];
+    }
+    // ТОРЦЫ (кромка). Плоская проекция пласти на торец вырождается: одна из
+    // координат постоянна на всей грани, и рисунок идёт поперёк кромки.
+    // Кромка — лента, у неё волокно всегда вдоль длины: x текстуры — вдоль
+    // кромки, y — поперёк толщины (z), независимо от направления волокна
+    // самой пласти (uvSwap).
+    for (const ef of edgeFaces) {
+      for (let i = ef.from; i < ef.to; i++) {
+        uv[i * 2] = mesh.pos[i * 3 + ef.alongIdx];
+        uv[i * 2 + 1] = mesh.pos[i * 3 + 2];
+      }
     }
     geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
   }
