@@ -36,7 +36,19 @@
   --rail-w: 52px;
   --drawer-w: 340px;
   --sheet-h: 40px;
+
+  /* навигационная гизма видов в правом нижнем углу 3D-сцены (canvas
+     .view-gizmo, рисует viewer.js: ViewGizmo). Отступы/размер читает сама
+     гизма; .warnings/.access-gate ниже по ним же держатся от неё подальше. */
+  --gizmo-right: 12px;
+  --gizmo-bottom: 12px;
+  --gizmo-size: 110px;
 }
+
+/* На случай рейки панелей в правом нижнем углу (data-rail-pos="bottom-right"
+   на <html>, горизонтальная рейка высотой ~56px с отступом --sp-3): гизма
+   поднимается над рейкой, чтобы не прятаться под ней. */
+[data-rail-pos='bottom-right'] { --gizmo-bottom: calc(56px + var(--sp-3) * 2); }
 
 /* --- Studio Light (по умолчанию) --- */
 :root,
@@ -211,8 +223,7 @@ body {
 .mod-tab,
 .mod-add,
 .sec-tab,
-.sec-add,
-.view-btn {
+.sec-add {
   font-family: inherit;
   font-size: var(--fs-sm);
   font-weight: 500;
@@ -233,8 +244,7 @@ body {
 .mod-tab:hover,
 .mod-add:hover,
 .sec-tab:hover,
-.sec-add:hover,
-.view-btn:hover {
+.sec-add:hover {
   color: var(--text);
   border-color: var(--border-strong);
   background: var(--surface-2);
@@ -268,8 +278,7 @@ body {
 .mod-tab:active,
 .mod-add:active,
 .sec-tab:active,
-.sec-add:active,
-.view-btn:active {
+.sec-add:active {
   /* «вжимание»: кнопка чуть опускается, свечение тускнеет и сжимается */
   transform: translateY(1px);
   box-shadow: var(--shadow-1);
@@ -279,7 +288,6 @@ body {
 .btn-header:focus-visible,
 .icon-btn:focus-visible,
 .rail-btn:focus-visible,
-.view-btn:focus-visible,
 input:focus-visible,
 select:focus-visible {
   outline: 2px solid var(--accent);
@@ -316,8 +324,7 @@ select:focus-visible {
 .btn-header.active,
 .btn.active,
 .mod-tab.active,
-.sec-tab.active,
-.view-btn.active {
+.sec-tab.active {
   background: var(--accent-soft);
   border-color: var(--accent);
   color: var(--accent);
@@ -363,28 +370,6 @@ select:focus-visible {
 .icon-btn.active { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
 .icon-btn.active:hover { box-shadow: 0 4px 12px -4px var(--accent-glow); }
 
-/* сегментированный переключатель видов */
-.view-btns {
-  display: inline-flex;
-  padding: 3px;
-  gap: 2px;
-  background: var(--surface-2);
-  border: 1px solid var(--border);
-  border-radius: var(--r-md);
-}
-.view-btn {
-  border: none; background: transparent; padding: 6px 12px; border-radius: 7px;
-  font-size: var(--fs-sm);
-}
-.view-btn:hover { background: var(--surface-3); }
-.view-btn.active {
-  background: var(--surface-solid);
-  color: var(--accent);
-  border: none;
-  box-shadow: var(--shadow-1);
-}
-[data-theme='dark'] .view-btn.active { background: var(--accent-soft); }
-
 .project-btns { display: flex; gap: var(--sp-1); }
 
 /* ---------- 5. СЦЕНА (3D во весь экран) ---------------------------------- */
@@ -426,13 +411,14 @@ select:focus-visible {
 }
 .ov-inner { font-size: 10px; }
 
-/* предупреждения — плавающая плашка снизу по центру. bottom/z-index
-   подняты над панелью видов .stage-dock (bottom: var(--sp-4), z-index: 28)
-   тем же значением, что и у .access-gate ниже — иначе многострочное
-   предупреждение перекрывается кнопками «Спереди/Сбоку/Сверху/3D». */
+/* предупреждения — плавающая плашка снизу по центру. Нижней панели видов
+   больше нет (виды — гизмой в правом нижнем углу), поэтому плашка лежит у
+   самого низа сцены. Ширина ограничена так, чтобы при центровке плашка не
+   доставала до гизмы справа (и симметрично слева). */
 .warnings {
-  position: absolute; left: 50%; bottom: 78px; transform: translateX(-50%);
-  z-index: 29; max-width: min(680px, 82vw);
+  position: absolute; left: 50%; bottom: var(--sp-4); transform: translateX(-50%);
+  z-index: 29;
+  max-width: min(680px, 82vw, calc(100% - 2 * (var(--gizmo-right) + var(--gizmo-size) + var(--sp-3))));
   font-size: var(--fs-sm); line-height: 1.45; color: var(--danger);
   background: var(--surface);
   -webkit-backdrop-filter: var(--blur); backdrop-filter: var(--blur);
@@ -447,12 +433,12 @@ select:focus-visible {
 /* гейт доступа (401/402 при экспорте, "нужна подписка") — плашка того же
    типа, что и .warnings выше, но акцентная, а не «опасная»: это призыв к
    действию (войти/оплатить), а не ошибка геометрии проекта. Тот же bottom/
-   z-index, что и у .warnings — обе подняты над нижней плавающей панелью
-   видов .stage-dock (bottom: var(--sp-4), z-index: 28), там как раз лежит
-   кликабельная кнопка действия, её нельзя перекрывать. */
+   z-index и то же ограничение ширины, что и у .warnings — чтобы плашка с
+   кнопкой действия не заезжала на гизму видов в правом нижнем углу. */
 .access-gate {
-  position: absolute; left: 50%; bottom: 78px; transform: translateX(-50%);
-  z-index: 29; max-width: min(680px, 82vw);
+  position: absolute; left: 50%; bottom: var(--sp-4); transform: translateX(-50%);
+  z-index: 29;
+  max-width: min(680px, 82vw, calc(100% - 2 * (var(--gizmo-right) + var(--gizmo-size) + var(--sp-3))));
   display: flex; align-items: center; gap: var(--sp-3);
   font-size: var(--fs-sm); line-height: 1.45; color: var(--text);
   background: var(--surface);
@@ -540,21 +526,6 @@ select:focus-visible {
 .lib-item.tip:hover::after { transition-delay: 0s; }
 .tip.tip-down::after { left: 50%; top: calc(100% + 8px); transform: translateX(-50%) scale(.96); }
 .tip.tip-down:hover::after { transform: translateX(-50%) scale(1); }
-
-/* нижняя плавающая панель видов */
-.stage-dock {
-  position: absolute; left: 50%; bottom: var(--sp-4); transform: translateX(-50%);
-  z-index: 28;
-  display: flex; align-items: center; gap: var(--sp-2);
-  padding: 6px;
-  border-radius: var(--r-xl);
-  background: var(--surface);
-  -webkit-backdrop-filter: var(--blur); backdrop-filter: var(--blur);
-  border: 1px solid var(--border);
-  box-shadow: var(--shadow-2);
-  transition: opacity var(--dur-slow) var(--ease);
-}
-.stage-dock .view-btns { background: transparent; border: none; padding: 0; }
 
 /* ---------- 7. ВЫДВИЖНЫЕ ПАНЕЛИ (off-canvas) ----------------------------- */
 
@@ -1901,7 +1872,6 @@ body.lib-dragging .drawer-body { touch-action: none; }
 
 body.is-focus .topbar,
 body.is-focus .rail,
-body.is-focus .stage-dock,
 body.is-focus .drawer,
 body.is-focus .hud,
 body.is-focus .warnings,
@@ -1931,8 +1901,10 @@ body.is-focus .scrim { opacity: 0 !important; }
 
   .rail { display: none; }
   .scrim { display: block; }
-  .stage-dock { bottom: calc(var(--sheet-h) + 10px); padding: 4px; }
-  .stage-dock .view-btn { padding: 6px 10px; }
+  /* гизма видов — над нижней шторкой и поменьше. [data-rail-pos] тоже
+     перекрываем: на мобильном рейки нет (.rail скрыта выше). */
+  :root,
+  [data-rail-pos='bottom-right'] { --gizmo-bottom: calc(var(--sheet-h) + 10px); --gizmo-size: 88px; }
 
   /* нижняя шторка 40 px — открывается свайпом вверх или тапом */
   .mobile-sheet-bar {
@@ -1977,8 +1949,13 @@ body.is-focus .scrim { opacity: 0 !important; }
      свёрнутых характеристиках — уменьшить высоту именно этого листа */
   #drawer-library.lib-wide.lib-chars-collapsed { height: 58vh; }
   .drawer-head { padding-top: 18px; }
-  .warnings { bottom: calc(var(--sheet-h) + 56px); max-width: 92vw; }
-  .access-gate { bottom: calc(var(--sheet-h) + 116px); max-width: 92vw; flex-wrap: wrap; }
+  /* предупреждения — у низа, слева от гизмы (по центру на узком экране им
+     не хватило бы ширины); гейт с кнопками — над гизмой, по центру */
+  .warnings {
+    left: var(--sp-3); right: calc(var(--gizmo-right) + var(--gizmo-size) + var(--sp-2));
+    bottom: var(--gizmo-bottom); transform: none; max-width: none;
+  }
+  .access-gate { bottom: calc(var(--gizmo-bottom) + var(--gizmo-size) + var(--sp-2)); max-width: 92vw; flex-wrap: wrap; }
   .hud { width: 232px; }
 }
 
@@ -1996,7 +1973,7 @@ body.is-focus .scrim { opacity: 0 !important; }
 }
 
 @media print {
-  .topbar, .rail, .stage-dock, .drawer-head, .tabs, .scrim, .mobile-sheet-bar, .hud, .part-editor-overlay, .confirm-modal-scrim { display: none !important; }
+  .topbar, .rail, .view-gizmo, .drawer-head, .tabs, .scrim, .mobile-sheet-bar, .hud, .part-editor-overlay, .confirm-modal-scrim { display: none !important; }
   .stage { overflow: visible; }
   body { overflow: visible; }
 }

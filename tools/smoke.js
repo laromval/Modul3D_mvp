@@ -357,8 +357,10 @@ for (const f of SRC_ORDER) {
 // try/catch и обязано работать даже без 3D.
 sandbox.Modul3D.viewer = {
   Viewer3D: class {
-    constructor() { this.onSelectModule = null; }
-    render() {} setView() {} dispose() {}
+    // viewName/onViewChange — как у настоящего Viewer3D (гизма видов):
+    // экземпляр запоминаем, чтобы проверить переключение видов ниже.
+    constructor() { this.onSelectModule = null; this.onViewChange = null; this.viewName = 'iso'; sandbox.__viewer = this; }
+    render() {} setView(name) { this.viewName = name; } dispose() {}
     project() { return { x: 0, y: 0 }; }
     canvasSize() { return { w: 900, h: 600 }; }
   },
@@ -1008,9 +1010,44 @@ for (const id of ['hideFacades', 'addModule', 'saveProjectBtn', 'openProjectBtn'
   const el = document.getElementById(id);
   if (el) check('клик ' + id, () => { el.click(); return true; });
 }
-for (const el of document.querySelectorAll('.view-btn')) {
-  check('вид: ' + (el.dataset.view || el.id), () => { el.click(); return true; });
-}
+// Виды камеры: нижней панели кнопок больше нет — вид переключает гизма в
+// 3D (viewer.js, здесь заглушка), горячие клавиши 1–4 (ui-shell.js) и мост
+// window.Modul3D.app.setView (app.js: applyView).
+(function viewSwitchScenario() {
+  const app = sandbox.Modul3D.app;
+  const v = sandbox.__viewer;
+  check('вид: есть app.setView/getView', () => typeof app.setView === 'function' && typeof app.getView === 'function');
+  for (const name of ['front', 'side', 'left', 'back', 'top', 'bottom', 'iso']) {
+    check('вид: ' + name, () => {
+      app.setView(name);
+      return app.getView() === name && (!v || v.viewName === name);
+    });
+  }
+  // Горячие клавиши вешает uiShell.start() (его зовёт inline-скрипт index.html
+  // после app.js) — здесь поднимаем его явно, иначе keydown некому ловить.
+  check('вид: uiShell.start() в заглушке DOM', () => { sandbox.Modul3D.uiShell.start(); return true; });
+  const keys = { Digit1: 'front', Digit2: 'side', Digit3: 'top', Digit4: 'iso' };
+  app.setView('back');   // стартуем не с iso, чтобы Digit4 проверялся честно
+  for (const code of Object.keys(keys)) {
+    check('вид: клавиша ' + code + ' → ' + keys[code], () => {
+      document.dispatch('keydown', { code: code, key: code.slice(-1), target: document.body, preventDefault() {} });
+      return app.getView() === keys[code] && (!v || v.viewName === keys[code]);
+    });
+  }
+  // Жест на гизме: viewer сам сменил вид и дёрнул onViewChange — app только
+  // синхронизирует state.view, повторно setView не зовёт.
+  check('вид: гизма → onViewChange синхронизирует состояние', () => {
+    if (!v || typeof v.onViewChange !== 'function') return false;
+    let calls = 0;
+    const orig = v.setView;
+    v.setView = function (n) { calls++; return orig.call(this, n); };
+    v.viewName = 'back';
+    v.onViewChange('back');
+    v.setView = orig;
+    return app.getView() === 'back' && calls === 0;
+  });
+  app.setView('iso');
+})();
 for (const el of document.querySelectorAll('.tab-btn')) {
   check('вкладка: ' + (el.dataset.tab || el.id), () => { el.click(); return true; });
 }
