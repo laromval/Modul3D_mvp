@@ -49,11 +49,6 @@
   --gizmo-size: 110px;
 }
 
-/* На случай рейки панелей в правом нижнем углу (data-rail-pos="bottom-right"
-   на <html>, горизонтальная рейка высотой ~56px с отступом --sp-3): гизма
-   поднимается над рейкой, чтобы не прятаться под ней. */
-[data-rail-pos='bottom-right'] { --gizmo-bottom: calc(56px + var(--sp-3) * 2); }
-
 /* --- Studio Light (по умолчанию) --- */
 :root,
 [data-theme='light'] {
@@ -500,9 +495,9 @@ select:focus-visible {
 /* Ручка перетаскивания рейки (см. ui-shell.js: initRailPosition, положения
    рейки — раздел 7б). Тянуть можно только за неё: клики по кнопкам рейки
    остаются кликами. В DOM ручка и её разделитель стоят ПОСЛЕДНИМИ — в
-   горизонтальной строке (flex-direction: row-reverse) это самый левый, дальний
-   от угла конец. В столбике поднимаем их наверх через order (в горизонтальных
-   положениях order сбрасывается, см. 7б). Вдоль рейки ручка узкая (20px),
+   угловой строке на сцене это дальний от угла конец (справа сверху, row-
+   reverse, — левый; слева снизу, row, — правый). В столбике и в шапке
+   ставим их в начало через order (в угловых строках order сбрасывается, см. 7б). Вдоль рейки ручка узкая (20px),
    поперёк — во всю толщину рейки (растягивается сама). Точки-«хват» в SVG
    нарисованы столбцами (⋮⋮), в столбике их поворачиваем в строки (⋯). */
 .rail-grip {
@@ -677,12 +672,13 @@ body.has-modal-drawer .scrim { opacity: 1; pointer-events: auto; }
   transform: translateY(calc(100% + var(--sp-4)));
 }
 
-/* ---------- 7б. ПОЛОЖЕНИЕ РЕЙКИ (слева / в шапке / справа сверху / справа снизу) */
+/* ---------- 7б. ПОЛОЖЕНИЕ РЕЙКИ (в шапке / слева / справа сверху / слева снизу) */
 /* Положение задаёт атрибут data-rail-pos на <html> (left | header-start |
-   header-end | top-right | bottom-right; по умолчанию left — всё, что выше, как было). Атрибут ставит
-   ui-shell.js: initRailPosition (перетаскивание за ручку .rail-grip и
+   header-end | top-right | bottom-left; по умолчанию header-end — в шапке
+   после логотипа; left — столбик, всё, что выше в разделах 6–7). Атрибут
+   ставит ui-shell.js: initRailPosition (перетаскивание за ручку .rail-grip и
    переключатель в шестерёнке), а до первой отрисовки — короткий скрипт в
-   <head> index.html, чтобы рейка не мигала слева → справа при загрузке.
+   <head> index.html, чтобы рейка не мигала при загрузке.
 
    Всё внутри @media not all and (max-width: 820px) — точное «не мобильная
    раскладка». На телефоне рейки нет (.rail { display: none }), панели —
@@ -691,80 +687,113 @@ body.has-modal-drawer .scrim { opacity: 1; pointer-events: auto; }
    (min-width: 821px), чтобы у дробной ширины окна не было щели между двумя
    раскладками.
 
-   [data-rail-pos$='-right'] — «значение заканчивается на -right», то есть
-   оба правых положения сразу (top-right и bottom-right). */
+   Две «угловые строки» на сцене — справа сверху (top-right) и слева снизу
+   (bottom-left) — общее у них собрано под :is(...), различия — ниже по
+   отдельности. Справа снизу рейки нет: там навигационная гизма видов. */
 @media not all and (max-width: 820px) {
 
-  /* --- сама рейка: горизонтальная строка в правом углу --- */
-  /* row-reverse: то, что в столбике сверху (Библиотека), становится самым
-     правым, дальше влево по порядку; ручка (последняя в DOM) — на левом конце */
-  [data-rail-pos$='-right'] .rail {
-    flex-direction: row-reverse;
-    left: auto; right: var(--sp-3);
+  /* --- общее для горизонтальных строк в углу сцены --- */
+  :is([data-rail-pos='top-right'], [data-rail-pos='bottom-left']) .rail {
     transform: none;                       /* центровка translateY(-50%) нужна только столбику */
   }
-  /* верх — под шапкой: .topbar лежит выше .stage, поэтому top считается уже
-     от нижнего края шапки, --topbar-h тут прибавлять не нужно */
-  [data-rail-pos='top-right'] .rail { top: var(--sp-3); bottom: auto; }
-  [data-rail-pos='bottom-right'] .rail { top: auto; bottom: var(--sp-3); }
-
-  [data-rail-pos$='-right'] .rail-sep { width: 1px; height: auto; margin: 8px 2px; }
-  [data-rail-pos$='-right'] .rail-grip { order: 0; height: auto; width: 20px; }
-  [data-rail-pos$='-right'] .rail-grip svg { transform: none; }
-  [data-rail-pos$='-right'] .rail-sep-grip { order: 0; }
+  :is([data-rail-pos='top-right'], [data-rail-pos='bottom-left']) .rail-sep { width: 1px; height: auto; margin: 8px 2px; }
+  :is([data-rail-pos='top-right'], [data-rail-pos='bottom-left']) .rail-grip { order: 0; height: auto; width: 20px; }
+  :is([data-rail-pos='top-right'], [data-rail-pos='bottom-left']) .rail-grip svg { transform: none; }
+  :is([data-rail-pos='top-right'], [data-rail-pos='bottom-left']) .rail-sep-grip { order: 0; }
 
   /* индикатор активной кнопки: полоска не слева, а на краю, обращённом к
      раскрывшейся панели (рейка сверху — панель под ней, снизу — над ней) */
-  [data-rail-pos$='-right'] .rail .rail-btn.active::before {
+  :is([data-rail-pos='top-right'], [data-rail-pos='bottom-left']) .rail .rail-btn.active::before {
     left: 50%; top: auto; transform: translateX(-50%);
     width: 20px; height: 3px;
   }
-  [data-rail-pos='top-right'] .rail .rail-btn.active::before { bottom: -6px; }
-  [data-rail-pos='bottom-right'] .rail .rail-btn.active::before { top: -6px; }
 
-  /* подсказки: не вправо от кнопки (там край окна), а под (рейка сверху) или
-     над (рейка снизу) кнопкой, по центру. Только у .rail — остальные .tip на
-     странице не трогаем. Отдельное правило для :hover нужно, потому что
-     специфичность правил выше, чем у общего .tip:hover::after */
-  [data-rail-pos$='-right'] .rail .tip::after {
+  /* подсказки: под (рейка сверху) или над (рейка снизу) кнопкой, по центру.
+     Только у .rail — остальные .tip на странице не трогаем. Отдельное
+     правило для :hover нужно, потому что специфичность правил выше, чем у
+     общего .tip:hover::after */
+  :is([data-rail-pos='top-right'], [data-rail-pos='bottom-left']) .rail .tip::after {
     left: 50%; top: calc(100% + 10px);
     width: max-content;                    /* иначе рвётся по слову: кнопка всего 42px */
     transform: translateX(-50%) scale(.96);
   }
-  [data-rail-pos$='-right'] .rail .tip:hover::after { transform: translateX(-50%) scale(1); }
-  [data-rail-pos='bottom-right'] .rail .tip::after { top: auto; bottom: calc(100% + 10px); }
+  :is([data-rail-pos='top-right'], [data-rail-pos='bottom-left']) .rail .tip:hover::after { transform: translateX(-50%) scale(1); }
+
+  /* «Документы» — нижний лист: слева столбика рейки нет, отступ под него не нужен */
+  :is([data-rail-pos='top-right'], [data-rail-pos='bottom-left']) .drawer-bottom { left: var(--sp-3); }
+
+  /* ===== СПРАВА СВЕРХУ (top-right) ===== */
+  /* row-reverse: то, что в столбике сверху (Библиотека), становится самым
+     правым, дальше влево по порядку; ручка (последняя в DOM) — на левом конце.
+     Верх — под шапкой: .topbar лежит выше .stage, поэтому top считается уже
+     от нижнего края шапки, --topbar-h тут прибавлять не нужно */
+  [data-rail-pos='top-right'] .rail {
+    flex-direction: row-reverse;
+    left: auto; right: var(--sp-3);
+    top: var(--sp-3); bottom: auto;
+  }
+  [data-rail-pos='top-right'] .rail .rail-btn.active::before { bottom: -6px; }
   /* самая правая кнопка стоит в 40px от края окна: подсказка по центру
      вылезла бы за него — прижимаем её правым краем к правому краю кнопки */
-  [data-rail-pos$='-right'] .rail > .rail-btn:first-child::after {
+  [data-rail-pos='top-right'] .rail > .rail-btn:first-child::after {
     left: auto; right: 0;
     transform: scale(.96);
   }
-  [data-rail-pos$='-right'] .rail > .rail-btn:first-child:hover::after { transform: scale(1); }
+  [data-rail-pos='top-right'] .rail > .rail-btn:first-child:hover::after { transform: scale(1); }
 
-  /* --- панели: зеркально, у правого края --- */
-  [data-rail-pos$='-right'] .drawer-left {
+  /* панели — зеркально, у правого края, верх ниже строки рейки (на её
+     толщину и по зазору --sp-3 с каждой стороны) */
+  [data-rail-pos='top-right'] .drawer-left {
     left: auto; right: var(--sp-3);
+    top: calc(var(--sp-3) + var(--rail-h) + var(--sp-3));
     margin-left: 0;                        /* слева рейки больше нет */
     /* закрытая панель уезжает за ПРАВЫЙ край окна */
     transform: translateX(calc(100% + var(--sp-3) + var(--sp-4)));
   }
-  /* по вертикали панели не наезжают на строку рейки: верх ниже неё (рейка
-     сверху) или низ выше неё (рейка снизу) — на толщину рейки и по зазору
-     --sp-3 с каждой стороны */
-  [data-rail-pos='top-right'] .drawer-left { top: calc(var(--sp-3) + var(--rail-h) + var(--sp-3)); }
-  [data-rail-pos='bottom-right'] .drawer-left { bottom: calc(var(--sp-3) + var(--rail-h) + var(--sp-3)); }
 
-  /* «Документы» — нижний лист на всю ширину: слева рейки нет, отступ от
-     неё не нужен; с рейкой внизу справа лист стоит над её строкой */
-  [data-rail-pos$='-right'] .drawer-bottom { left: var(--sp-3); }
-  [data-rail-pos='bottom-right'] .drawer-bottom {
+  /* ===== СЛЕВА СНИЗУ (bottom-left) ===== */
+  /* Обычный row: Библиотека (первая в DOM) — у самого угла, дальше вправо по
+     порядку, ручка ⋮⋮ (последняя в DOM) — на правом, дальнем от угла конце.
+     left: var(--sp-3) — из базового правила .rail (раздел 6). */
+  [data-rail-pos='bottom-left'] .rail {
+    flex-direction: row;
+    top: auto; bottom: var(--sp-3);
+  }
+  [data-rail-pos='bottom-left'] .rail .rail-btn.active::before { top: -6px; }
+  [data-rail-pos='bottom-left'] .rail .tip::after { top: auto; bottom: calc(100% + 10px); }
+  /* самая левая кнопка стоит у левого края сцены (overflow: clip): подсказка
+     по центру обрезалась бы — прижимаем её левым краем к левому краю кнопки */
+  [data-rail-pos='bottom-left'] .rail > .rail-btn:first-child::after {
+    left: 0;
+    transform: scale(.96);
+  }
+  [data-rail-pos='bottom-left'] .rail > .rail-btn:first-child:hover::after { transform: scale(1); }
+
+  /* панели — от левого края (отступ под столбик рейки не нужен), низ — над
+     строкой рейки (её толщина плюс зазор --sp-3 с каждой стороны) */
+  [data-rail-pos='bottom-left'] .drawer-left {
+    left: var(--sp-3);
+    bottom: calc(var(--sp-3) + var(--rail-h) + var(--sp-3));
+    margin-left: 0;
+    transform: translateX(calc(-100% - var(--sp-3) - var(--sp-4)));
+  }
+  /* «Документы» — над строкой рейки; закрытый лист уезжает за нижний край
+     с учётом того, что поднят на высоту строки */
+  [data-rail-pos='bottom-left'] .drawer-bottom {
     bottom: calc(var(--sp-3) + var(--rail-h) + var(--sp-3));
     transform: translateY(calc(100% + var(--rail-h) + var(--sp-3) + var(--sp-4)));
   }
+  /* Плашки предупреждений и гейта доступа (снизу по центру) — над строкой
+     рейки: при узкой сцене центрированная плашка доставала бы до неё. */
+  [data-rail-pos='bottom-left'] .warnings,
+  [data-rail-pos='bottom-left'] .access-gate {
+    bottom: calc(var(--sp-3) + var(--rail-h) + var(--sp-3));
+  }
+
   /* Открытая панель — без сдвига. Нужно именно здесь: правила выше для
      закрытого состояния имеют ту же специфичность, что и .drawer.open, и
      стоят позже — без этой строки открытая панель осталась бы за экраном. */
-  [data-rail-pos$='-right'] .drawer.open { transform: none; }
+  :is([data-rail-pos='top-right'], [data-rail-pos='bottom-left']) .drawer.open { transform: none; }
 
   /* ===== В ШАПКЕ: header-start (перед логотипом) и header-end (после) ===== */
   /* Рейка физически переносится в #topbar (ui-shell.js: placeRailDom, до
@@ -2007,8 +2036,15 @@ body.lib-dragging .drawer-body { touch-action: none; }
    Сетка в три равные колонки (3 + 2 кнопки): в окне настроек шириной 230px
    пять в ряд не помещаются без горизонтальной прокрутки. Длинные подписи
    («Справа сверху», «Шапка, после лого») переносятся — это нормально. */
+/* как у валюты: подпись над кнопкой, в кнопке (.currency-collapse-toggle)
+   текущий вариант — схема + название — и стрелка */
 .rail-pos-label { display: block; margin-bottom: var(--sp-2); }
-.rail-pos-seg { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+.rail-pos-collapse-toggle { gap: var(--sp-2); text-align: left; }
+.rail-pos-collapse-toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.rail-pos-current { display: inline-flex; align-items: center; gap: 8px; min-width: 0; white-space: nowrap; }
+.rail-pos-current-icon { display: inline-flex; color: var(--accent); }
+.rail-pos-current-icon svg { width: 21px; height: 15px; }
+.rail-pos-seg { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-top: var(--sp-3); }
 .rail-pos-opt {
   display: flex; flex-direction: column; align-items: center; justify-content: flex-start; gap: 5px;
   padding: 7px 4px 6px;
@@ -2178,10 +2214,8 @@ body.is-focus .scrim { opacity: 0 !important; }
 
   .rail { display: none; }
   .scrim { display: block; }
-  /* гизма видов — над нижней шторкой и поменьше. [data-rail-pos] тоже
-     перекрываем: на мобильном рейки нет (.rail скрыта выше). */
-  :root,
-  [data-rail-pos='bottom-right'] { --gizmo-bottom: calc(var(--sheet-h) + 10px); --gizmo-size: 88px; }
+  /* гизма видов — над нижней шторкой и поменьше */
+  :root { --gizmo-bottom: calc(var(--sheet-h) + 10px); --gizmo-size: 88px; }
 
   /* нижняя шторка 40 px — открывается свайпом вверх или тапом */
   .mobile-sheet-bar {

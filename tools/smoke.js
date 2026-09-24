@@ -88,6 +88,16 @@ class El {
   // приложение убрало за собой временный элемент (например, «призрак»
   // перетаскивания), было нечем.
   appendChild(c) { this.children.push(c); if (c) c._parent = this; if (c && c.id) registry.set(c.id, c); return c; }
+  // С v308 рейка по умолчанию живёт в шапке (data-rail-pos="header-end"):
+  // ui-shell.js: placeRailDom переносит её туда через insertBefore.
+  insertBefore(c, ref) {
+    if (c && c._parent) c._parent.children = c._parent.children.filter((x) => x !== c);
+    const i = ref ? this.children.indexOf(ref) : -1;
+    if (i >= 0) this.children.splice(i, 0, c); else this.children.push(c);
+    if (c) c._parent = this;
+    if (c && c.id) registry.set(c.id, c);
+    return c;
+  }
   removeChild(c) { this.children = this.children.filter((x) => x !== c); if (c) c._parent = null; }
   contains() { return false; }
   getContext() { return null; }

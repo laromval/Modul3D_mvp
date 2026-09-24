@@ -1,7 +1,7 @@
 /* =========================================================================
    Modul3D — UI Shell
    Слой интерфейса: темы, выдвижные панели, положение рейки панелей
-   (слева / в шапке / справа сверху / справа снизу), Focus Mode, HUD на модели,
+   (в шапке / слева / справа сверху / слева снизу), Focus Mode, HUD на модели,
    поиск по параметрам, горячие клавиши, мобильная шторка.
 
    ВАЖНО: файл не трогает параметрическое ядро. Он только:
@@ -20,7 +20,9 @@ var CURRENCY_KEY = 'modul3d.currency';
 // Положение рейки панелей. Тот же ключ и те же значения читает короткий
 // скрипт в <head> index.html (раннее чтение, чтобы не мигало) — менять вместе.
 var RAIL_POS_KEY = 'modul3d.railPos';
-var RAIL_POSITIONS = ['left', 'header-start', 'header-end', 'top-right', 'bottom-right'];
+// По умолчанию — 'header-end' (в шапке после логотипа), см. normalizeRailPos.
+var RAIL_POSITIONS = ['left', 'header-start', 'header-end', 'top-right', 'bottom-left'];
+var RAIL_POS_DEFAULT = 'header-end';
 
 var viewerInstance = null;
 var lastPointer = { x: 0, y: 0 };
@@ -33,7 +35,7 @@ var hudSplitOpen = false;
 var syncingDocs = false;
 // Положение рейки панелей (см. раздел 3б) — одно из RAIL_POSITIONS; и текущий
 // перелёт рейки (WAAPI-анимация), чтобы новый не накладывался на идущий.
-var railPos = 'left';
+var railPos = RAIL_POS_DEFAULT;
 var railAnim = null;
 
 /* ---------------------------------------------------------------------------
@@ -158,7 +160,7 @@ function initCurrency() {
     pop.style.display = willOpen ? 'block' : 'none';
     // Панель настроек всегда открывается со свёрнутыми списком валют и
     // горячими клавишами — сама валюта видна и так, в заголовке блока.
-    if (willOpen) { collapseCurrency(); collapseHotkeys(); }
+    if (willOpen) { collapseCurrency(); collapseHotkeys(); collapseRailPos(); }
   });
   pop.addEventListener('click', function (e) { e.stopPropagation(); });
   document.addEventListener('click', function (e) {
@@ -429,8 +431,8 @@ function restoreUI() {
 }
 
 /* ---------------------------------------------------------------------------
-   3б. Положение рейки триггеров: слева / в шапке (перед логотипом или после
-   него) / справа сверху / справа снизу
+   3б. Положение рейки триггеров: в шапке (перед логотипом или после
+   него — по умолчанию) / слева / справа сверху / слева снизу
    Вся раскладка (где рейка, куда выезжают панели, подсказки, индикатор
    активной кнопки) — в CSS по атрибуту data-rail-pos на <html> (style.css,
    раздел 7б). Здесь только: выставить и запомнить атрибут, переставить саму
@@ -453,7 +455,7 @@ var RAIL_DRAG_THRESHOLD = 4;
 var railGhost = null;
 
 function normalizeRailPos(v) {
-  return RAIL_POSITIONS.indexOf(v) >= 0 ? v : 'left';
+  return RAIL_POSITIONS.indexOf(v) >= 0 ? v : RAIL_POS_DEFAULT;
 }
 
 // Положения, в которых рейка живёт в шапке (#topbar), а не на сцене
@@ -464,6 +466,10 @@ function isHeaderRailPos(p) {
 function loadRailPos() {
   var saved = null;
   try { saved = localStorage.getItem(RAIL_POS_KEY); } catch (e) { /* нет доступа */ }
+  // Положения «справа снизу» больше нет (v308: там навигационная гизма) —
+  // сохранённое старое значение переезжает «слева снизу» и запоминается.
+  // То же делает ранний скрипт в <head> index.html — менять вместе.
+  if (saved === 'bottom-right') { saved = 'bottom-left'; saveRailPos(saved); }
   return normalizeRailPos(saved);
 }
 
@@ -485,7 +491,7 @@ function railMargin() {
 // Физически переставляет рейку туда, где она должна жить при положении pos:
 //   header-start — в шапку перед блоком логотипа (.brand);
 //   header-end   — в шапку сразу после него;
-//   остальные    — на сцену (#stage), перед панелью видов, как в разметке.
+//   остальные    — на сцену (#stage), в конец, как в разметке.
 // В шапке рейка — обычный элемент flex-строки: логотип сдвигается сам, а
 // кнопки справа не перекрываются (им место отдаёт margin-left: auto, см.
 // style.css 7б). Тот же перенос до первой отрисовки делает короткий скрипт
@@ -515,8 +521,32 @@ function syncRailPosButtons() {
     var on = btns[i].getAttribute('data-rail-set') === railPos;
     btns[i].classList.toggle('active', on);
     btns[i].setAttribute('aria-checked', on ? 'true' : 'false');
+    // Строка-заголовок свёрнутого блока (#railPosCollapseToggle) — та же
+    // схема и подпись, что у выбранной миниатюры
+    if (on) {
+      var lbl = document.getElementById('railPosCollapseLabel');
+      var icon = document.getElementById('railPosCurrentIcon');
+      var txt = btns[i].querySelector('span');
+      var svg = btns[i].querySelector('svg');
+      if (lbl && txt) lbl.textContent = txt.textContent;
+      if (icon && svg) icon.innerHTML = svg.outerHTML;
+    }
   }
 }
+
+// Сворачивание блока «Положение панели» в шестерёнке — по образцу валюты
+// (initCurrency: collapseCurrency/expandCurrency). Свёрнут при каждом
+// открытии настроек и после выбора миниатюры.
+function setRailPosExpanded(open) {
+  var seg = document.getElementById('railPosSeg');
+  var t = document.getElementById('railPosCollapseToggle');
+  var arrow = t ? t.querySelector('.currency-collapse-arrow') : null;
+  if (seg) seg.style.display = open ? 'grid' : 'none';
+  if (t) t.setAttribute('aria-expanded', open ? 'true' : 'false');
+  if (arrow) arrow.textContent = open ? '▴' : '▾';
+}
+function collapseRailPos() { setRailPosExpanded(false); }
+function expandRailPos() { setRailPosExpanded(true); }
 
 // Плавный перелёт рейки из прежнего места на новое (приём FLIP): положение уже
 // поменял CSS, здесь только «отматываем» рейку на старое место через transform
@@ -554,7 +584,7 @@ function replayOpenDrawer() {
   var el = drawerOf(openPanel);
   if (!el || !el.animate) return;
   var from = el.classList.contains('drawer-bottom') ? 'translateY(24px)'
-    : (/-right$/.test(railPos) ? 'translateX(24px)' : 'translateX(-24px)');
+    : (railPos === 'top-right' ? 'translateX(24px)' : 'translateX(-24px)');
   el.animate([{ opacity: 0, transform: from }, { opacity: 1, transform: 'none' }],
     { duration: RAIL_FLY_MS, easing: RAIL_EASE });
 }
@@ -619,8 +649,8 @@ function setRailPos(pos, opts) {
 // «Якоря» — прямоугольники (в координатах окна), где рейка стояла бы в
 // каждом из пяти положений. По ним рисуются контуры .rail-zone и ищется
 // ближайшее положение при перетаскивании.
-//   size.stage  — рейка-«плашка» на сцене: {w, h} столбика (строка справа —
-//                 тот же прямоугольник, повёрнутый на 90°);
+//   size.stage  — рейка-«плашка» на сцене: {w, h} столбика (строка справа
+//                 сверху / слева снизу — тот же прямоугольник, повёрнутый на 90°);
 //   size.header — плоская строка в шапке: {w, h}.
 // Место в шапке: header-start — от левого края шапки (её левый отступ),
 // header-end — сразу за логотипом, каким он виден СЕЙЧАС (плюс зазор
@@ -640,7 +670,7 @@ function railAnchors(size, m) {
     var lo = Math.min(size.stage.w, size.stage.h), hi = Math.max(size.stage.w, size.stage.h);
     out['left'] = { x: sr.left + m, y: sr.top + (sr.height - hi) / 2, w: lo, h: hi };
     out['top-right'] = { x: sr.right - m - hi, y: sr.top + m, w: hi, h: lo };
-    out['bottom-right'] = { x: sr.right - m - hi, y: sr.bottom - m - lo, w: hi, h: lo };
+    out['bottom-left'] = { x: sr.left + m, y: sr.bottom - m - lo, w: hi, h: lo };
   }
   if (bar && brand) {
     var tr = bar.getBoundingClientRect();
@@ -672,7 +702,7 @@ function initRailPosition() {
   var rail = document.getElementById('rail');
   var grip = document.getElementById('railGrip');
 
-  // Сохранённое положение (невалидное → left). Обычно атрибут уже выставлен
+  // Сохранённое положение (невалидное или пустое → header-end). Обычно атрибут уже выставлен
   // скриптом в <head>, а рейка уже перенесена в шапку скриптом после </nav>;
   // здесь — то же самое ещё раз, для синхронизации railPos и кнопок в настройках.
   railPos = loadRailPos();
@@ -684,7 +714,17 @@ function initRailPosition() {
   var seg = document.getElementById('railPosSeg');
   if (seg) seg.addEventListener('click', function (e) {
     var b = e.target.closest && e.target.closest('[data-rail-set]');
-    if (b) setRailPos(b.getAttribute('data-rail-set'));
+    if (!b) return;
+    setRailPos(b.getAttribute('data-rail-set'));
+    collapseRailPos();
+    // выбранная кнопка скрылась вместе с сеткой — фокус на строку, а не в <body>
+    var t = document.getElementById('railPosCollapseToggle');
+    if (t) t.focus();
+  });
+  var railPosToggle = document.getElementById('railPosCollapseToggle');
+  if (railPosToggle) railPosToggle.addEventListener('click', function () {
+    if (railPosToggle.getAttribute('aria-expanded') === 'true') collapseRailPos();
+    else expandRailPos();
   });
 
   if (!rail || !grip) return;
@@ -861,12 +901,12 @@ function initRailPosition() {
   // отмена, иначе рейка «залипла» бы в руке. Без перетаскивания finish ничего
   // не делает, поэтому слушатель постоянный.
   window.addEventListener('blur', function () { finish(false); });
-  // Двойной клик по ручке — вернуть рейку на место (слева)
+  // Двойной клик по ручке — вернуть рейку на место (в шапку после логотипа)
   // Сразу после перетаскивания (например, отменённого по Esc) браузер может
   // склеить его с быстрым кликом в двойной — такой dblclick не считаем.
   grip.addEventListener('dblclick', function () {
     if (Date.now() - dragEndedAt < 500) return;
-    setRailPos('left');
+    setRailPos(RAIL_POS_DEFAULT);
   });
 }
 
@@ -1023,14 +1063,14 @@ function placeHud() {
   var y = lastPointer.y - r.top + 14;
   x = Math.max(8, Math.min(x, r.width - w - 8));
   y = Math.max(8, Math.min(y, r.height - h - 8));
-  // Горизонтальная рейка справа сверху/снизу лежит ПОВЕРХ HUD (z-index 38
-  // против 32): если HUD ставится под курсор у правого края, заголовок или
-  // кнопки оказались бы под ней. Сдвигаем HUD за край рейки — вниз от неё
+  // Горизонтальная рейка справа сверху / слева снизу лежит ПОВЕРХ HUD
+  // (z-index 38 против 32): если HUD ставится под курсор у её угла, заголовок
+  // или кнопки оказались бы под ней. Сдвигаем HUD за край рейки — вниз от неё
   // (рейка сверху) или вверх (снизу). Столбику слева это не нужно: HUD и
   // раньше не мешал ему — оставляем прежнее поведение. Рейка в шапке
   // (header-start/header-end) лежит над сценой и HUD не перекрывает вовсе.
   var rail = document.getElementById('rail');
-  if (rail && rail.offsetWidth && /-right$/.test(railPos)) {
+  if (rail && rail.offsetWidth && (railPos === 'top-right' || railPos === 'bottom-left')) {
     var rr = rail.getBoundingClientRect();
     var gap = 8;
     var rl = rr.left - r.left, rt = rr.top - r.top, rrt = rr.right - r.left, rb = rr.bottom - r.top;
