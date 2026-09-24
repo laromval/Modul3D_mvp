@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="ru" data-theme="light">
+<html lang="ru" data-theme="light" data-rail-pos="left">
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
@@ -7,9 +7,24 @@
 <title>Modul3D — параметрический конструктор корпусной мебели</title>
 
 <link rel="icon" type="image/svg+xml" href="favicon.svg" />
-<link rel="stylesheet" href="style.css?v305" />
+<link rel="stylesheet" href="style.css?v306" />
 
-<script src="src/errorBanner.js?v305"></script>
+<!-- Положение рейки панелей (data-rail-pos на <html>: left | header-start |
+     header-end | top-right | bottom-right) ставим ДО первой отрисовки — иначе
+     при сохранённом «справа»/«в шапке» рейка на миг мелькала бы слева. Перенос
+     самой рейки в шапку — второй короткий скрипт сразу после </nav>. Ключ localStorage и список значений
+     дублируют ui-shell.js (RAIL_POS_KEY, RAIL_POSITIONS): там настоящая логика
+     (перетаскивание, переключатель в настройках), здесь только раннее чтение. -->
+<script>
+(function () {
+  try {
+    var p = localStorage.getItem('modul3d.railPos');
+    if (p === 'header-start' || p === 'header-end' || p === 'top-right' || p === 'bottom-right') document.documentElement.setAttribute('data-rail-pos', p);
+  } catch (e) { /* приватный режим — остаётся left */ }
+})();
+</script>
+
+<script src="src/errorBanner.js?v306"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <!-- Paddle.js — оверлей оплаты подписки (см. app.js: requestCheckout/initPaddle).
      Обычный скрипт без defer, как остальные CDN-подключения выше. -->
@@ -27,7 +42,6 @@
     </svg>
     <span class="brand-name">Modul<b>3D</b></span>
     <span class="ver" id="appVersion"></span>
-    <span class="brand-sub">параметрический конструктор корпусной мебели</span>
   </div>
 
   <div class="header-actions">
@@ -90,6 +104,57 @@
             </svg>
           </button>
           <span class="settings-row-label">Тема</span>
+        </div>
+
+        <!-- Положение рейки панелей: слева / в шапке перед логотипом / в шапке
+             после логотипа / справа сверху / справа снизу. Иконки — схема
+             окна с полоской рейки на нужном месте (у шапочных — верхняя
+             полоса окна и квадратик-логотип). Кнопка
+             «Слева» заодно «вернуть на место». См. ui-shell.js:
+             initRailPosition. На мобильном блок скрыт стилем (.rail-pos-block). -->
+        <div class="settings-block rail-pos-block">
+          <div class="settings-row-label rail-pos-label" id="railPosLabel">Положение панели</div>
+          <div class="rail-pos-seg" id="railPosSeg" role="radiogroup" aria-labelledby="railPosLabel">
+            <button type="button" class="rail-pos-opt" data-rail-set="left" role="radio" aria-checked="true" aria-label="Панель слева">
+              <svg viewBox="0 0 28 20" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true">
+                <rect x="1" y="1" width="26" height="18" rx="2.5" opacity=".55"/>
+                <rect x="4" y="5.5" width="3" height="9" rx="1.2" fill="currentColor" stroke="none"/>
+              </svg>
+              <span>Слева</span>
+            </button>
+            <button type="button" class="rail-pos-opt" data-rail-set="header-start" role="radio" aria-checked="false" aria-label="Панель в шапке перед логотипом">
+              <svg viewBox="0 0 28 20" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true">
+                <rect x="1" y="1" width="26" height="18" rx="2.5" opacity=".55"/>
+                <path d="M1.7 7h24.6" opacity=".55"/>
+                <rect x="3.5" y="2.8" width="8" height="2.6" rx="1.1" fill="currentColor" stroke="none"/>
+                <rect x="13.2" y="2.8" width="2.6" height="2.6" rx=".6" fill="currentColor" stroke="none" opacity=".5"/>
+              </svg>
+              <span>Шапка, слева</span>
+            </button>
+            <button type="button" class="rail-pos-opt" data-rail-set="header-end" role="radio" aria-checked="false" aria-label="Панель в шапке после логотипа">
+              <svg viewBox="0 0 28 20" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true">
+                <rect x="1" y="1" width="26" height="18" rx="2.5" opacity=".55"/>
+                <path d="M1.7 7h24.6" opacity=".55"/>
+                <rect x="3.5" y="2.8" width="2.6" height="2.6" rx=".6" fill="currentColor" stroke="none" opacity=".5"/>
+                <rect x="7.5" y="2.8" width="8" height="2.6" rx="1.1" fill="currentColor" stroke="none"/>
+              </svg>
+              <span>Шапка, после лого</span>
+            </button>
+            <button type="button" class="rail-pos-opt" data-rail-set="top-right" role="radio" aria-checked="false" aria-label="Панель справа сверху">
+              <svg viewBox="0 0 28 20" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true">
+                <rect x="1" y="1" width="26" height="18" rx="2.5" opacity=".55"/>
+                <rect x="15" y="4" width="9" height="3" rx="1.2" fill="currentColor" stroke="none"/>
+              </svg>
+              <span>Справа сверху</span>
+            </button>
+            <button type="button" class="rail-pos-opt" data-rail-set="bottom-right" role="radio" aria-checked="false" aria-label="Панель справа снизу">
+              <svg viewBox="0 0 28 20" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true">
+                <rect x="1" y="1" width="26" height="18" rx="2.5" opacity=".55"/>
+                <rect x="15" y="13" width="9" height="3" rx="1.2" fill="currentColor" stroke="none"/>
+              </svg>
+              <span>Справа снизу</span>
+            </button>
+          </div>
         </div>
 
         <div class="settings-block">
@@ -293,7 +358,35 @@
         <path d="M6 2.5h8l4 4V21a.5.5 0 0 1-.5.5h-11A.5.5 0 0 1 6 21z"/><path d="M14 2.5V7h4"/><path d="M9 12h6M9 15.5h6M9 8.5h2"/>
       </svg>
     </button>
+
+    <!-- Ручка перетаскивания рейки (ui-shell.js: initRailPosition). Намеренно
+         последняя в DOM: в горизонтальной строке (row-reverse) это левый,
+         дальний конец, в столбике её поднимает наверх CSS (order). Не кнопка
+         и без data-panel: клик по ней ничего не открывает, двойной клик —
+         вернуть рейку влево; с клавиатуры положение меняют в настройках. -->
+    <div class="rail-sep rail-sep-grip"></div>
+    <div class="rail-grip tip" id="railGrip" data-tip="Перетащить панель (двойной клик — вернуть влево)" aria-hidden="true">
+      <svg viewBox="0 0 24 24" fill="currentColor" stroke="none">
+        <circle cx="9" cy="6" r="1.6"/><circle cx="15" cy="6" r="1.6"/>
+        <circle cx="9" cy="12" r="1.6"/><circle cx="15" cy="12" r="1.6"/>
+        <circle cx="9" cy="18" r="1.6"/><circle cx="15" cy="18" r="1.6"/>
+      </svg>
+    </div>
   </nav>
+  <!-- Рейка «в шапке» (header-start — перед логотипом, header-end — после
+       него) физически живёт в #topbar. Переносим её здесь, сразу как она
+       разобрана, — до первой отрисовки, чтобы не мигала на сцене. Та же
+       логика — ui-shell.js: placeRailDom (менять вместе). -->
+  <script>
+  (function () {
+    var p = document.documentElement.getAttribute('data-rail-pos');
+    if (p !== 'header-start' && p !== 'header-end') return;
+    var rail = document.getElementById('rail');
+    var bar = document.getElementById('topbar');
+    var brand = bar && bar.querySelector('.brand');
+    if (rail && brand) bar.insertBefore(rail, p === 'header-start' ? brand : brand.nextElementSibling);
+  })();
+  </script>
 
   <!-- Нижняя плавающая панель: виды камеры -->
   <div class="stage-dock" id="stageDock">
@@ -511,19 +604,19 @@
 
 </main>
 
-<script src="src/catalog.js?v305"></script>
-<script src="src/presets.js?v305"></script>
-<script src="src/engine.js?v305"></script>
-<script src="src/specification.js?v305"></script>
-<script src="src/legMeshes.js?v305"></script>
-<script src="src/csg.js?v305"></script>
-<script src="src/viewer.js?v305"></script>
-<script src="src/ui-shell.js?v305"></script>
-<script src="src/drawings.js?v305"></script>
-<script src="src/export.js?v305"></script>
-<script src="src/cnc.js?v305"></script>
-<script src="src/sketchAI.js?v305"></script>
-<script src="src/app.js?v305"></script>
+<script src="src/catalog.js?v306"></script>
+<script src="src/presets.js?v306"></script>
+<script src="src/engine.js?v306"></script>
+<script src="src/specification.js?v306"></script>
+<script src="src/legMeshes.js?v306"></script>
+<script src="src/csg.js?v306"></script>
+<script src="src/viewer.js?v306"></script>
+<script src="src/ui-shell.js?v306"></script>
+<script src="src/drawings.js?v306"></script>
+<script src="src/export.js?v306"></script>
+<script src="src/cnc.js?v306"></script>
+<script src="src/sketchAI.js?v306"></script>
+<script src="src/app.js?v306"></script>
 <script>if (window.Modul3D && window.Modul3D.uiShell) window.Modul3D.uiShell.start();</script>
 </body>
 </html>

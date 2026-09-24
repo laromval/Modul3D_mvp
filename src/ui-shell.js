@@ -1,6 +1,7 @@
 /* =========================================================================
    Modul3D — UI Shell
-   Слой интерфейса: темы, выдвижные панели, Focus Mode, HUD на модели,
+   Слой интерфейса: темы, выдвижные панели, положение рейки панелей
+   (слева / в шапке / справа сверху / справа снизу), Focus Mode, HUD на модели,
    поиск по параметрам, горячие клавиши, мобильная шторка.
 
    ВАЖНО: файл не трогает параметрическое ядро. Он только:
@@ -16,6 +17,10 @@
 var THEME_KEY = 'modul3d.theme';
 var STATE_KEY = 'modul3d.ui';
 var CURRENCY_KEY = 'modul3d.currency';
+// Положение рейки панелей. Тот же ключ и те же значения читает короткий
+// скрипт в <head> index.html (раннее чтение, чтобы не мигало) — менять вместе.
+var RAIL_POS_KEY = 'modul3d.railPos';
+var RAIL_POSITIONS = ['left', 'header-start', 'header-end', 'top-right', 'bottom-right'];
 
 var viewerInstance = null;
 var lastPointer = { x: 0, y: 0 };
@@ -26,6 +31,10 @@ var hudModule = null;
 // развёрнутым при переключении на другой модуль.
 var hudSplitOpen = false;
 var syncingDocs = false;
+// Положение рейки панелей (см. раздел 3б) — одно из RAIL_POSITIONS; и текущий
+// перелёт рейки (WAAPI-анимация), чтобы новый не накладывался на идущий.
+var railPos = 'left';
+var railAnim = null;
 
 /* ---------------------------------------------------------------------------
    0. Валюта проекта — единое глобальное состояние (window.Modul3D.currency).
@@ -420,6 +429,449 @@ function restoreUI() {
 }
 
 /* ---------------------------------------------------------------------------
+   3б. Положение рейки триггеров: слева / в шапке (перед логотипом или после
+   него) / справа сверху / справа снизу
+   Вся раскладка (где рейка, куда выезжают панели, подсказки, индикатор
+   активной кнопки) — в CSS по атрибуту data-rail-pos на <html> (style.css,
+   раздел 7б). Здесь только: выставить и запомнить атрибут, переставить саму
+   рейку в DOM (в шапку или обратно на сцену — placeRailDom), плавно
+   «перелететь» на новое место и обработать перетаскивание за ручку
+   #railGrip. Поэтому новые положения не ломают openDrawer/closeDrawer —
+   они про класс .open, а не про координаты; клики по кнопкам рейки ловит
+   делегированный обработчик на document (initDrawers), так что перенос
+   рейки в другой контейнер их не теряет.
+--------------------------------------------------------------------------- */
+// Кривая и длительность перелёта — те же, что --ease и --dur в style.css:
+// Web Animations API не понимает var(), поэтому продублированы значением.
+var RAIL_EASE = 'cubic-bezier(.22, .61, .36, 1)';
+var RAIL_FLY_MS = 320;
+// Сдвиг в px, с которого нажатие на ручку считается перетаскиванием. Меньше —
+// это клик (или первая половина двойного клика), рейку не трогаем.
+var RAIL_DRAG_THRESHOLD = 4;
+// Пустышка на месте рейки в шапке, пока рейку тянут (см. initRailPosition:
+// begin) — чтобы логотип не прыгал в момент, когда рейку «взяли в руки».
+var railGhost = null;
+
+function normalizeRailPos(v) {
+  return RAIL_POSITIONS.indexOf(v) >= 0 ? v : 'left';
+}
+
+// Положения, в которых рейка живёт в шапке (#topbar), а не на сцене
+function isHeaderRailPos(p) {
+  return p === 'header-start' || p === 'header-end';
+}
+
+function loadRailPos() {
+  var saved = null;
+  try { saved = localStorage.getItem(RAIL_POS_KEY); } catch (e) { /* нет доступа */ }
+  return normalizeRailPos(saved);
+}
+
+function saveRailPos(pos) {
+  try { localStorage.setItem(RAIL_POS_KEY, pos); } catch (e) { /* приватный режим */ }
+}
+
+function prefersReducedMotion() {
+  return !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+}
+
+// Отступ рейки от краёв сцены — тот же --sp-3, что в CSS (left/right/top/bottom
+// у .rail), чтобы «якоря» перетаскивания совпадали с настоящими местами рейки.
+function railMargin() {
+  var v = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--sp-3'));
+  return isNaN(v) ? 12 : v;
+}
+
+// Физически переставляет рейку туда, где она должна жить при положении pos:
+//   header-start — в шапку перед блоком логотипа (.brand);
+//   header-end   — в шапку сразу после него;
+//   остальные    — на сцену (#stage), перед панелью видов, как в разметке.
+// В шапке рейка — обычный элемент flex-строки: логотип сдвигается сам, а
+// кнопки справа не перекрываются (им место отдаёт margin-left: auto, см.
+// style.css 7б). Тот же перенос до первой отрисовки делает короткий скрипт
+// сразу после </nav> в index.html — менять вместе.
+function placeRailDom(rail, pos) {
+  if (!rail) return;
+  if (isHeaderRailPos(pos)) {
+    var bar = document.getElementById('topbar');
+    var brand = bar && bar.querySelector('.brand');
+    if (!brand) return;
+    var ref = pos === 'header-start' ? brand : brand.nextElementSibling;
+    if (ref === rail) return;
+    if (pos === 'header-start' && rail.parentNode === bar && rail.nextElementSibling === brand) return;
+    bar.insertBefore(rail, ref);
+  } else {
+    var stage = document.getElementById('stage');
+    if (!stage || rail.parentNode === stage) return;
+    var dock = document.getElementById('stageDock');
+    stage.insertBefore(rail, dock && dock.parentNode === stage ? dock : null);
+  }
+}
+
+// Подсветка активного положения в настройках (шестерёнка) — при любом способе
+// смены: клик по кнопке, перетаскивание, двойной клик по ручке.
+function syncRailPosButtons() {
+  var btns = document.querySelectorAll('[data-rail-set]');
+  for (var i = 0; i < btns.length; i++) {
+    var on = btns[i].getAttribute('data-rail-set') === railPos;
+    btns[i].classList.toggle('active', on);
+    btns[i].setAttribute('aria-checked', on ? 'true' : 'false');
+  }
+}
+
+// Плавный перелёт рейки из прежнего места на новое (приём FLIP): положение уже
+// поменял CSS, здесь только «отматываем» рейку на старое место через transform
+// и отпускаем. Рейка при смене положения меняет и форму (столбик ↔ строка),
+// поэтому совмещаем ЦЕНТРЫ старого и нового прямоугольника — форма меняется
+// «на месте», дальше рейка едет к углу.
+//   fade — рейка сменила контейнер (шапка ↔ сцена): сцена обрезает всё, что
+//   за её краем (overflow: clip), и кусок пути над шапкой не был бы виден —
+//   поэтому такой перелёт ещё и проявляется из прозрачности, без «рывка».
+function flyRail(rail, first, fade) {
+  if (!rail.animate || prefersReducedMotion()) return;
+  var last = rail.getBoundingClientRect();
+  var dx = (first.left + first.width / 2) - (last.left + last.width / 2);
+  var dy = (first.top + first.height / 2) - (last.top + last.height / 2);
+  if (Math.abs(dx) < 1 && Math.abs(dy) < 1) return;
+  // WAAPI подменяет transform целиком, а у рейки слева он свой (translateY(-50%)
+  // — центровка по высоте), поэтому «до» и «после» строим от него
+  var base = getComputedStyle(rail).transform;
+  if (!base || base === 'none') base = '';
+  var from = { transform: 'translate(' + dx + 'px, ' + dy + 'px) ' + base };
+  var to = { transform: base || 'none' };
+  // проявление — до обычной прозрачности рейки в новом месте (на сцене в
+  // покое она бледнее), иначе в конце анимации был бы рывок
+  if (fade) { from.opacity = 0; to.opacity = getComputedStyle(rail).opacity; }
+  var a = rail.animate([from, to], { duration: RAIL_FLY_MS, easing: RAIL_EASE });
+  railAnim = a;
+  a.onfinish = a.oncancel = function () { if (railAnim === a) railAnim = null; };
+}
+
+// Открытая панель при смене положения перескакивает на другую сторону (CSS
+// переставляет её мгновенно, см. body.rail-moving) — чтобы это не выглядело
+// как «моргнуло», короткое появление с небольшим сдвигом от нового края.
+function replayOpenDrawer() {
+  if (!openPanel || prefersReducedMotion()) return;
+  var el = drawerOf(openPanel);
+  if (!el || !el.animate) return;
+  var from = el.classList.contains('drawer-bottom') ? 'translateY(24px)'
+    : (/-right$/.test(railPos) ? 'translateX(24px)' : 'translateX(-24px)');
+  el.animate([{ opacity: 0, transform: from }, { opacity: 1, transform: 'none' }],
+    { duration: RAIL_FLY_MS, easing: RAIL_EASE });
+}
+
+// Единая точка смены положения: и для кликов в настройках, и для конца
+// перетаскивания, и для двойного клика по ручке.
+//   opts.fromDrag — рейка сейчас в руках у пользователя (висит в <body> с
+//   классом .rail-floating, стоят inline-координаты и body.rail-dragging):
+//   их надо снять и вернуть рейку в её контейнер, даже если положение то же
+//   (отмена по Esc, отпустили возле прежнего места).
+function setRailPos(pos, opts) {
+  opts = opts || {};
+  pos = normalizeRailPos(pos);
+  var prev = railPos;
+  var changed = pos !== prev;
+  if (!changed && !opts.fromDrag) { syncRailPosButtons(); return; }
+
+  var rail = document.getElementById('rail');
+  var root = document.documentElement;
+  // Откуда лететь: где рейка на экране прямо сейчас (в конце перетаскивания —
+  // там, где её отпустили; при идущем перелёте — с учётом его transform).
+  // Снимаем ДО любых изменений. Нулевая ширина — рейки нет (мобильная раскладка).
+  var first = (rail && rail.offsetWidth) ? rail.getBoundingClientRect() : null;
+  if (railAnim) { railAnim.cancel(); railAnim = null; }
+  if (rail) {
+    // координаты, которые ставило перетаскивание, — долой: дальше место
+    // рейки задаёт только CSS по data-rail-pos
+    rail.style.left = ''; rail.style.top = '';
+    rail.style.right = ''; rail.style.bottom = '';
+    rail.style.transform = '';
+    rail.classList.remove('rail-floating');
+  }
+  if (railGhost) { if (railGhost.parentNode) railGhost.parentNode.removeChild(railGhost); railGhost = null; }
+  document.body.classList.remove('rail-dragging');
+
+  // Перенос в DOM и смена атрибута — при отключённых переходах панелей
+  // (body.rail-moving); пересчёт стилей (offsetWidth) форсируем до снятия
+  // класса — тогда панели встают на новые места сразу, а не «переезжают»
+  // через весь экран.
+  document.body.classList.add('rail-moving');
+  placeRailDom(rail, pos);
+  if (changed) {
+    root.setAttribute('data-rail-pos', pos);
+    railPos = pos;
+    saveRailPos(pos);
+  }
+  void root.offsetWidth;
+  document.body.classList.remove('rail-moving');
+  syncRailPosButtons();
+
+  // HUD запомнил, где его поставили, и мог оказаться под рейкой на новом месте.
+  // До flyRail: после запуска перелёта рейка на первом кадре ещё на старом
+  // месте, и placeHud мерил бы пересечение не с тем прямоугольником.
+  if (changed && hudModule) placeHud();
+  // После перетаскивания рейка летит из <body> (поверх всего) — обрезать
+  // нечего; переключение в настройках между шапкой и сценой — с проявлением.
+  var fade = !opts.fromDrag && isHeaderRailPos(prev) !== isHeaderRailPos(pos);
+  if (first && rail && rail.offsetWidth) flyRail(rail, first, fade);
+  if (changed && first) replayOpenDrawer();
+}
+
+// «Якоря» — прямоугольники (в координатах окна), где рейка стояла бы в
+// каждом из пяти положений. По ним рисуются контуры .rail-zone и ищется
+// ближайшее положение при перетаскивании.
+//   size.stage  — рейка-«плашка» на сцене: {w, h} столбика (строка справа —
+//                 тот же прямоугольник, повёрнутый на 90°);
+//   size.header — плоская строка в шапке: {w, h}.
+// Место в шапке: header-start — от левого края шапки (её левый отступ),
+// header-end — сразу за логотипом, каким он виден СЕЙЧАС (плюс зазор
+// flex-строки). Рейка в этот момент «в руках», а в шапке на её месте стоит
+// пустышка, так что логотип не сдвинут: если рейку взяли из header-start,
+// контур «после логотипа» и получается правее логотипа, не наезжая на
+// контур «перед логотипом». Если рейку тянут со сцены, логотип стоит у
+// левого края, и два контура в шапке частично перекрываются — ближайший
+// всё равно определяется однозначно, по центрам.
+function railAnchors(size, m) {
+  var stage = document.getElementById('stage');
+  var bar = document.getElementById('topbar');
+  var brand = bar && bar.querySelector('.brand');
+  var out = {};
+  if (stage) {
+    var sr = stage.getBoundingClientRect();
+    var lo = Math.min(size.stage.w, size.stage.h), hi = Math.max(size.stage.w, size.stage.h);
+    out['left'] = { x: sr.left + m, y: sr.top + (sr.height - hi) / 2, w: lo, h: hi };
+    out['top-right'] = { x: sr.right - m - hi, y: sr.top + m, w: hi, h: lo };
+    out['bottom-right'] = { x: sr.right - m - hi, y: sr.bottom - m - lo, w: hi, h: lo };
+  }
+  if (bar && brand) {
+    var tr = bar.getBoundingClientRect();
+    var cs = getComputedStyle(bar);
+    var pad = parseFloat(cs.paddingLeft) || 0;
+    var gap = parseFloat(cs.columnGap) || 0;
+    var hw = size.header.w, hh = size.header.h;
+    var y = tr.top + (tr.height - hh) / 2;
+    out['header-start'] = { x: tr.left + pad, y: y, w: hw, h: hh };
+    out['header-end'] = { x: brand.getBoundingClientRect().right + gap, y: y, w: hw, h: hh };
+  }
+  return out;
+}
+
+// Ближайшее к центру рейки (cx, cy — в координатах окна) положение из якорей
+function nearestRailPos(cx, cy, anchors, fallback) {
+  var best = fallback, bestD = Infinity;
+  for (var p in anchors) {
+    if (!Object.prototype.hasOwnProperty.call(anchors, p)) continue;
+    var a = anchors[p];
+    var dx = a.x + a.w / 2 - cx, dy = a.y + a.h / 2 - cy;
+    var d = dx * dx + dy * dy;
+    if (d < bestD) { bestD = d; best = p; }
+  }
+  return best;
+}
+
+function initRailPosition() {
+  var rail = document.getElementById('rail');
+  var grip = document.getElementById('railGrip');
+
+  // Сохранённое положение (невалидное → left). Обычно атрибут уже выставлен
+  // скриптом в <head>, а рейка уже перенесена в шапку скриптом после </nav>;
+  // здесь — то же самое ещё раз, для синхронизации railPos и кнопок в настройках.
+  railPos = loadRailPos();
+  document.documentElement.setAttribute('data-rail-pos', railPos);
+  placeRailDom(rail, railPos);
+  syncRailPosButtons();
+
+  // Переключатель в шестерёнке: то же самое, что и после перетаскивания
+  var seg = document.getElementById('railPosSeg');
+  if (seg) seg.addEventListener('click', function (e) {
+    var b = e.target.closest && e.target.closest('[data-rail-set]');
+    if (b) setRailPos(b.getAttribute('data-rail-set'));
+  });
+
+  if (!rail || !grip) return;
+
+  var drag = null;     // { id, from, active, offX, offY, w, h, anchors, target } пока ручка зажата
+  var dragEndedAt = 0; // когда закончилось последнее перетаскивание — см. dblclick ниже
+  var zones = null;    // пять контуров-«магнитов», создаются при первом перетаскивании
+
+  function ensureZones() {
+    if (zones) return zones;
+    zones = {};
+    RAIL_POSITIONS.forEach(function (p) {
+      var z = document.createElement('div');
+      z.className = 'rail-zone';
+      z.setAttribute('data-zone', p);
+      z.setAttribute('aria-hidden', 'true');
+      document.body.appendChild(z);
+      zones[p] = z;
+    });
+    return zones;
+  }
+
+  function markTarget() {
+    RAIL_POSITIONS.forEach(function (p) { zones[p].classList.toggle('is-target', p === drag.target); });
+  }
+
+  // Размеры рейки в двух её обликах: «плашка» на сцене и плоская строка в
+  // шапке. Текущий облик мерим как есть, второй — на мгновение переключив
+  // атрибут (в одном кадре, без отрисовки; переходы панелей и рейки в этот
+  // момент выключены классами rail-moving/rail-dragging).
+  function measureShapes() {
+    var root = document.documentElement;
+    var cur = root.getAttribute('data-rail-pos');
+    var out = {};
+    document.body.classList.add('rail-moving');
+    root.setAttribute('data-rail-pos', 'left');
+    out.stage = { w: rail.offsetWidth, h: rail.offsetHeight };
+    root.setAttribute('data-rail-pos', 'header-start');
+    out.header = { w: rail.offsetWidth, h: rail.offsetHeight };
+    root.setAttribute('data-rail-pos', cur);
+    void root.offsetWidth;
+    document.body.classList.remove('rail-moving');
+    return out;
+  }
+
+  // Esc во время перетаскивания — отмена. Слушатель в фазе перехвата и с
+  // stopPropagation: иначе тот же Esc закрыл бы ещё и открытую панель/HUD
+  // (см. initHotkeys) или окно настроек.
+  function onKey(e) {
+    if (e.key !== 'Escape') return;
+    e.stopPropagation();
+    e.preventDefault();
+    finish(false);
+  }
+  function blockSelect(e) { e.preventDefault(); }
+
+  // Первое заметное движение при зажатой ручке — рейка «берётся в руки»:
+  // переезжает в <body> (класс .rail-floating — position: fixed поверх всего),
+  // иначе её не вытащить ни из шапки, ни за край сцены (у сцены overflow: clip).
+  function begin() {
+    var r0 = rail.getBoundingClientRect();     // где рейка сейчас (в т.ч. с идущим перелётом)
+    if (railAnim) { railAnim.cancel(); railAnim = null; }
+    drag.active = true;
+    drag.target = drag.from;
+
+    // В шапке на месте рейки остаётся пустышка того же размера — логотип и
+    // кнопки не прыгают, пока рейку несут
+    if (rail.parentNode && rail.parentNode.id === 'topbar') {
+      railGhost = document.createElement('div');
+      railGhost.className = 'rail-ghost';
+      railGhost.style.width = r0.width + 'px';
+      railGhost.style.height = r0.height + 'px';
+      rail.parentNode.insertBefore(railGhost, rail);
+    }
+    document.body.classList.add('rail-dragging');
+    rail.classList.add('rail-floating');
+    document.body.appendChild(rail);
+    rail.style.left = r0.left + 'px';
+    rail.style.top = r0.top + 'px';
+    rail.style.right = 'auto';
+    rail.style.bottom = 'auto';
+    rail.style.transform = 'none';
+
+    var size = measureShapes();
+    drag.w = rail.offsetWidth; drag.h = rail.offsetHeight;
+    drag.anchors = railAnchors(size, railMargin());
+
+    // Контуры — ровно по якорям
+    var z = ensureZones();
+    RAIL_POSITIONS.forEach(function (p) {
+      var a = drag.anchors[p];
+      z[p].style.display = a ? '' : 'none';
+      if (!a) return;
+      z[p].style.left = a.x + 'px'; z[p].style.top = a.y + 'px';
+      z[p].style.width = a.w + 'px'; z[p].style.height = a.h + 'px';
+    });
+    markTarget();
+    document.addEventListener('keydown', onKey, true);
+    document.addEventListener('selectstart', blockSelect, true);
+  }
+
+  function move(e) {
+    // рейка идёт за курсором, но не выходит за границы окна (clamp) — так её
+    // можно дотащить и до шапки, и до любого угла сцены
+    var vw = document.documentElement.clientWidth, vh = document.documentElement.clientHeight;
+    var left = Math.max(0, Math.min(e.clientX - drag.offX, vw - drag.w));
+    var top = Math.max(0, Math.min(e.clientY - drag.offY, vh - drag.h));
+    rail.style.left = left + 'px';
+    rail.style.top = top + 'px';
+    var target = nearestRailPos(left + drag.w / 2, top + drag.h / 2, drag.anchors, drag.from);
+    if (target !== drag.target) { drag.target = target; markTarget(); }
+  }
+
+  // Движение и отпускание слушаем на document, а не захватом указателя на
+  // ручке: в начале перетаскивания рейка переезжает в <body>, а перенос узла
+  // в DOM снимает захват указателя (и прислал бы lostpointercapture).
+  function onMove(e) {
+    if (!drag || e.pointerId !== drag.id) return;
+    // кнопку отпустили за пределами окна (pointerup не пришёл) — считаем,
+    // что отпустили здесь
+    if (e.pointerType === 'mouse' && e.buttons === 0) { finish(drag.active); return; }
+    if (!drag.active) {
+      if (Math.abs(e.clientX - drag.sx) + Math.abs(e.clientY - drag.sy) < RAIL_DRAG_THRESHOLD) return;
+      begin();
+    }
+    e.preventDefault();
+    move(e);
+  }
+  function onUp(e) { if (drag && e.pointerId === drag.id) finish(true); }
+  function onCancel(e) { if (drag && e.pointerId === drag.id) finish(false); }
+
+  // commit=true — отпустили: прилипаем к ближайшему положению;
+  // false — отмена (Esc, pointercancel): возвращаемся в прежнее
+  function finish(commit) {
+    if (!drag) return;
+    var d = drag;
+    drag = null;
+    document.removeEventListener('pointermove', onMove, true);
+    document.removeEventListener('pointerup', onUp, true);
+    document.removeEventListener('pointercancel', onCancel, true);
+    document.removeEventListener('keydown', onKey, true);
+    document.removeEventListener('selectstart', blockSelect, true);
+    if (!d.active) return;       // нажали и отпустили без движения — ничего не делаем
+    dragEndedAt = Date.now();
+    setRailPos(commit ? d.target : d.from, { fromDrag: true });
+  }
+
+  grip.addEventListener('pointerdown', function (e) {
+    if (e.button !== 0) return;
+    // Второй палец при уже идущем перетаскивании — игнорируем; а «залипшее»
+    // перетаскивание того же указателя (потерянный pointerup) — сбрасываем
+    if (drag) {
+      if (drag.id !== e.pointerId) return;
+      finish(false);
+    }
+    // рейка скрыта (мобильная раскладка, печать) — перетаскивать нечего
+    if (!rail.offsetWidth) return;
+    // Где именно за рейку схватились (offX/offY) — запоминаем сразу, при
+    // нажатии: к моменту первого заметного движения курсор мог уже уйти
+    // (быстрый рывок), и рейка «прыгала» бы, а не оставалась под рукой.
+    var r0 = rail.getBoundingClientRect();
+    drag = {
+      id: e.pointerId, from: railPos, active: false,
+      sx: e.clientX, sy: e.clientY,
+      offX: e.clientX - r0.left, offY: e.clientY - r0.top
+    };
+    // Нажатие не должно дойти до холста 3D или начать выделение текста
+    e.preventDefault();
+    document.addEventListener('pointermove', onMove, true);
+    document.addEventListener('pointerup', onUp, true);
+    document.addEventListener('pointercancel', onCancel, true);
+  });
+  // Окно потеряло фокус посреди перетаскивания (Alt+Tab, системный диалог) —
+  // отмена, иначе рейка «залипла» бы в руке. Без перетаскивания finish ничего
+  // не делает, поэтому слушатель постоянный.
+  window.addEventListener('blur', function () { finish(false); });
+  // Двойной клик по ручке — вернуть рейку на место (слева)
+  // Сразу после перетаскивания (например, отменённого по Esc) браузер может
+  // склеить его с быстрым кликом в двойной — такой dblclick не считаем.
+  grip.addEventListener('dblclick', function () {
+    if (Date.now() - dragEndedAt < 500) return;
+    setRailPos('left');
+  });
+}
+
+/* ---------------------------------------------------------------------------
    4. Focus Mode — при работе с моделью интерфейс растворяется
 --------------------------------------------------------------------------- */
 function initFocusMode() {
@@ -572,6 +1024,22 @@ function placeHud() {
   var y = lastPointer.y - r.top + 14;
   x = Math.max(8, Math.min(x, r.width - w - 8));
   y = Math.max(8, Math.min(y, r.height - h - 8));
+  // Горизонтальная рейка справа сверху/снизу лежит ПОВЕРХ HUD (z-index 38
+  // против 32): если HUD ставится под курсор у правого края, заголовок или
+  // кнопки оказались бы под ней. Сдвигаем HUD за край рейки — вниз от неё
+  // (рейка сверху) или вверх (снизу). Столбику слева это не нужно: HUD и
+  // раньше не мешал ему — оставляем прежнее поведение. Рейка в шапке
+  // (header-start/header-end) лежит над сценой и HUD не перекрывает вовсе.
+  var rail = document.getElementById('rail');
+  if (rail && rail.offsetWidth && /-right$/.test(railPos)) {
+    var rr = rail.getBoundingClientRect();
+    var gap = 8;
+    var rl = rr.left - r.left, rt = rr.top - r.top, rrt = rr.right - r.left, rb = rr.bottom - r.top;
+    if (x < rrt + gap && x + w > rl - gap && y < rb + gap && y + h > rt - gap) {
+      y = railPos === 'top-right' ? rb + gap : rt - gap - h;
+      y = Math.max(gap, Math.min(y, r.height - h - gap));
+    }
+  }
   box.style.left = x + 'px';
   box.style.top = y + 'px';
 }
@@ -806,6 +1274,7 @@ function start() {
   initTheme();
   initCurrency();
   initDrawers();
+  initRailPosition();
   watchResults();
   initFocusMode();
   initHud();
@@ -827,6 +1296,8 @@ window.Modul3D.uiShell = {
   start: start,
   setTheme: setTheme,
   openDrawer: openDrawer,
-  closeDrawer: closeDrawer
+  closeDrawer: closeDrawer,
+  setRailPos: setRailPos,
+  getRailPos: function () { return railPos; }
 };
 })();
