@@ -14,7 +14,7 @@
 (function () {
 // Версия сборки — показывается во вкладке браузера и в шапке.
 // При выпуске новой версии меняется только эта строка.
-const APP_VERSION = 'v308';
+const APP_VERSION = 'v309';
 
 // Номер версии выводим ПЕРВЫМ делом: если дальше что-то упадёт, по нему сразу
 // видно, какая сборка открыта.
@@ -6593,7 +6593,9 @@ function libLinkConfirmHtml(form) {
   const itemStockHidden = !!libLinkVariantStockInfo(variantChosen).text;
   const stockHtml = draft.inStock === true ? `<p class="hint lib-link-stock" ${itemStockHidden ? 'hidden' : ''}>На странице: товар в наличии.</p>`
     : draft.inStock === false ? `<p class="hint lib-link-warning lib-link-stock" ${itemStockHidden ? 'hidden' : ''}>На странице указано: товара нет в наличии — уточните перед сохранением.</p>` : '';
-  const unitDefault = fv('unit', draft.unit || (isHw ? 'шт' : 'лист'));
+  // Листовые материалы магазины продают с ценой за м² — это и умолчание, если
+  // сайт единицу не отдал (см. libLinkSheetPriceFromSite).
+  const unitDefault = fv('unit', isHw ? (draft.unit || 'шт') : (draft.unit === 'лист' || draft.unit === 'пог.м' ? draft.unit : 'м²'));
   // У фурнитуры свой список единиц (LIB_HW_UNIT_OPTIONS: шт/пара/уп/пог.м) —
   // «лист»/«м²» материалов ей не подходят, зато нужны «пара» и «уп», которых
   // в общем списке нет. Раньше единицу можно было доправить прямо в таблице
@@ -6776,6 +6778,21 @@ function libLinkRevalidate(panel) {
   }
 }
 
+// Цена листового материала с сайта -> sheetPrice (цена ЗА ЛИСТ, её делит на
+// площадь libPricePerM2 и умножает на число листов specification.js).
+// Магазины (mobilier.md и др.) показывают цену ЛДСП/МДФ за м², поэтому по
+// умолчанию умножаем на площадь листа; как есть берём, только если единица
+// явно «лист» («шт» не считаем: парсеры сервера ставят «шт» и тогда, когда
+// сайт единицу не указал вовсе). Раньше цена за м² писалась в sheetPrice напрямую — и
+// колонка «за м²» делила её на площадь второй раз (v309).
+function libLinkSheetPriceFromSite(price, unit, sheetW, sheetH) {
+  if (price == null || !Number.isFinite(Number(price))) return price;
+  if (unit === 'лист') return Number(price);
+  const area = (Number(sheetW) / 1000) * (Number(sheetH) / 1000);
+  if (!(area > 0)) return Number(price);
+  return Math.round(Number(price) * area * 100) / 100;
+}
+
 // Сохранение материала «по ссылке» — та же ветвь по group, что и в libAddRow,
 // только значения берутся из формы (values/categoryPath), а не из дефолтов
 // «Новый материал», плюс sourceUrl/sourceSiteId/verifiedAt (п.1.7/5 ТЗ).
@@ -6797,7 +6814,7 @@ function libLinkSaveMaterial(form, values, categoryPath) {
   const group = form.top === 'sheet' ? (SHEET_ADD_GROUP_MAP[categoryPath[0]] || form.group || 'decors') : form.group;
   const name = values.name.trim();
   const price = Number(values.price);
-  const unit = values.unit || 'лист';
+  const unit = values.unit || 'м²';
   const article = (values.article || '').trim();
   const brand = (values.brand || '').trim();
   // Фото комбинации, если у выбранного варианта оно своё (см.
@@ -6826,17 +6843,20 @@ function libLinkSaveMaterial(form, values, categoryPath) {
   // это лишь защита от гонки (как и проверка cat.EDGE_PRICES[name] у edge
   // ниже), а не рабочий путь.
   if (group === 'decors') {
-    DECORS.push(Object.assign({ code: 'LINK-' + Date.now(), name, sheetPrice: price,
-      sheetW: numOr(values.sheetW, 2750), sheetH: numOr(values.sheetH, 1830),
+    const sheetW = numOr(values.sheetW, 2750), sheetH = numOr(values.sheetH, 1830);
+    DECORS.push(Object.assign({ code: 'LINK-' + Date.now(), name,
+      sheetPrice: libLinkSheetPriceFromSite(price, unit, sheetW, sheetH), sheetW, sheetH,
       thickness: numOrNull(values.thickness), unit, image, article, categoryPath }, common));
   } else if (group === 'back') {
-    BACK_MATERIALS.push(Object.assign({ code: 'LINK-' + Date.now(), name, sheetPrice: price,
-      sheetW: numOr(values.sheetW, 2440), sheetH: numOr(values.sheetH, 1220),
+    const sheetW = numOr(values.sheetW, 2440), sheetH = numOr(values.sheetH, 1220);
+    BACK_MATERIALS.push(Object.assign({ code: 'LINK-' + Date.now(), name,
+      sheetPrice: libLinkSheetPriceFromSite(price, unit, sheetW, sheetH), sheetW, sheetH,
       thickness: numOr(values.thickness, 3), unit, image, article, categoryPath }, common));
   } else if (group === 'facade') {
     const code = 'FAC-LINK-' + Date.now();
-    cat.FACADE_MATERIALS[code] = Object.assign({ code, name, sheetPrice: price,
-      sheetW: numOr(values.sheetW, 2750), sheetH: numOr(values.sheetH, 1830),
+    const sheetW = numOr(values.sheetW, 2750), sheetH = numOr(values.sheetH, 1830);
+    cat.FACADE_MATERIALS[code] = Object.assign({ code, name,
+      sheetPrice: libLinkSheetPriceFromSite(price, unit, sheetW, sheetH), sheetW, sheetH,
       thickness: numOrNull(values.thickness), unit, image, article, categoryPath }, common);
   } else if (group === 'edge') {
     if (cat.EDGE_PRICES[name]) return; // защита от гонки — кнопка и так должна была быть disabled
@@ -7034,8 +7054,17 @@ function libLinkApplyRefreshedDraft(it, d, siteId) {
   libLinkApplyIfUntouched(it, 'name', 'sourceName', freshName);
   libLinkApplyIfUntouched(it, 'article', 'sourceArticle', freshArticle);
   if (price != null) {
-    if (it.sheetPrice !== undefined) it.sheetPrice = price;
-    else if (it.pricePerMeter !== undefined) it.pricePerMeter = price;
+    if (it.sheetPrice !== undefined) {
+      // customOrder (стекло/массив под заказ) хранит в sheetPrice цену за м²
+      // сам по себе — пересчёт в лист только у обычных листов (см.
+      // libLinkSheetPriceFromSite).
+      if (it.customOrder || !it.sheetW || !it.sheetH) it.sheetPrice = price;
+      else {
+        const siteUnit = d.unit === 'лист' ? 'лист' : 'м²';
+        it.sheetPrice = libLinkSheetPriceFromSite(price, siteUnit, it.sheetW, it.sheetH);
+        it.unit = siteUnit;
+      }
+    } else if (it.pricePerMeter !== undefined) it.pricePerMeter = price;
     else it.price = price;
   }
   // Пометку о неточной цене (item.priceNote) обновление НИКОГДА не ставит
