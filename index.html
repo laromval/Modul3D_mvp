@@ -7,7 +7,7 @@
 <title>Modul3D — параметрический конструктор корпусной мебели</title>
 
 <link rel="icon" type="image/svg+xml" href="favicon.svg" />
-<link rel="stylesheet" href="style.css?v306" />
+<link rel="stylesheet" href="style.css?v307" />
 
 <!-- Положение рейки панелей (data-rail-pos на <html>: left | header-start |
      header-end | top-right | bottom-right) ставим ДО первой отрисовки — иначе
@@ -24,7 +24,7 @@
 })();
 </script>
 
-<script src="src/errorBanner.js?v306"></script>
+<script src="src/errorBanner.js?v307"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <!-- Paddle.js — оверлей оплаты подписки (см. app.js: requestCheckout/initPaddle).
      Обычный скрипт без defer, как остальные CDN-подключения выше. -->
@@ -388,15 +388,8 @@
   })();
   </script>
 
-  <!-- Нижняя плавающая панель: виды камеры -->
-  <div class="stage-dock" id="stageDock">
-    <div class="view-btns" id="viewBtns">
-      <button class="view-btn" data-view="front" type="button">Спереди</button>
-      <button class="view-btn" data-view="side" type="button">Сбоку</button>
-      <button class="view-btn" data-view="top" type="button">Сверху</button>
-      <button class="view-btn active" data-view="iso" type="button">3D</button>
-    </div>
-  </div>
+  <!-- Виды камеры переключает навигационная гизма в правом нижнем углу
+       3D-сцены: её создаёт viewer.js (canvas.view-gizmo рядом с #viewer3d, в .stage). -->
 
   <!-- ---------- Панель: Библиотека (база модулей / материалы / фурнитура) ---------- -->
   <aside class="drawer drawer-left" id="drawer-library" data-drawer-panel="library" aria-hidden="true">
@@ -604,19 +597,19 @@
 
 </main>
 
-<script src="src/catalog.js?v306"></script>
-<script src="src/presets.js?v306"></script>
-<script src="src/engine.js?v306"></script>
-<script src="src/specification.js?v306"></script>
-<script src="src/legMeshes.js?v306"></script>
-<script src="src/csg.js?v306"></script>
-<script src="src/viewer.js?v306"></script>
-<script src="src/ui-shell.js?v306"></script>
-<script src="src/drawings.js?v306"></script>
-<script src="src/export.js?v306"></script>
-<script src="src/cnc.js?v306"></script>
-<script src="src/sketchAI.js?v306"></script>
-<script src="src/app.js?v306"></script>
+<script src="src/catalog.js?v307"></script>
+<script src="src/presets.js?v307"></script>
+<script src="src/engine.js?v307"></script>
+<script src="src/specification.js?v307"></script>
+<script src="src/legMeshes.js?v307"></script>
+<script src="src/csg.js?v307"></script>
+<script src="src/viewer.js?v307"></script>
+<script src="src/ui-shell.js?v307"></script>
+<script src="src/drawings.js?v307"></script>
+<script src="src/export.js?v307"></script>
+<script src="src/cnc.js?v307"></script>
+<script src="src/sketchAI.js?v307"></script>
+<script src="src/app.js?v307"></script>
 <script>if (window.Modul3D && window.Modul3D.uiShell) window.Modul3D.uiShell.start();</script>
 </body>
 </html>

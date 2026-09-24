@@ -503,8 +503,7 @@ function placeRailDom(rail, pos) {
   } else {
     var stage = document.getElementById('stage');
     if (!stage || rail.parentNode === stage) return;
-    var dock = document.getElementById('stageDock');
-    stage.insertBefore(rail, dock && dock.parentNode === stage ? dock : null);
+    stage.appendChild(rail);
   }
 }
 
@@ -1247,8 +1246,10 @@ function initHotkeys() {
 
     var views = { Digit1: 'front', Digit2: 'side', Digit3: 'top', Digit4: 'iso' };
     if (views[e.code]) {
-      var b = document.querySelector('.view-btn[data-view="' + views[e.code] + '"]');
-      if (b) { e.preventDefault(); b.click(); }
+      // Нижней панели видов больше нет — вид переключается гизмой в углу
+      // 3D-сцены (viewer.js) или напрямую через app.setView (app.js: applyView).
+      var app = window.Modul3D.app;
+      if (app && typeof app.setView === 'function') { e.preventDefault(); app.setView(views[e.code]); }
       return;
     }
     if (e.code === 'KeyP') { e.preventDefault(); toggleDrawer('params'); }

@@ -14,7 +14,7 @@
 (function () {
 // Версия сборки — показывается во вкладке браузера и в шапке.
 // При выпуске новой версии меняется только эта строка.
-const APP_VERSION = 'v306';
+const APP_VERSION = 'v307';
 
 // Номер версии выводим ПЕРВЫМ делом: если дальше что-то упадёт, по нему сразу
 // видно, какая сборка открыта.
@@ -12305,10 +12305,14 @@ function recompute(isRetry) {
 // прозрачным SVG-слоем поверх неё. Координаты берутся проецированием точек
 // модели через камеру (viewer.project), поэтому размеры точно ложатся на
 // изделие в любом виде и при любом зуме.
+const OVERLAY_VIEWS = ['front', 'side', 'top'];
 function renderViewOverlay() {
   const el = document.getElementById('viewOverlay');
   if (!el) return;
-  if (!viewer || state.view === 'iso' || !currentModel || !currentModel.modules.length) {
+  // Размеры поверх сцены умеем рисовать только для видов спереди/справа/
+  // сверху. Остальные плоские виды гизмы (слева/сзади/снизу) — без размеров:
+  // иначе ветка «сверху» легла бы на изделие с неверной стороны.
+  if (!viewer || OVERLAY_VIEWS.indexOf(state.view) < 0 || !currentModel || !currentModel.modules.length) {
     el.style.display = 'none'; el.innerHTML = ''; return;
   }
   try {
@@ -12367,7 +12371,7 @@ function buildOverlayDims() {
     g += hDim(P(xEdge, 0, -d.D / 2), P(xEdge, 0, d.D / 2), 46, `${Math.round(d.D)}`);
     g += vDim(P(xEdge, 0, zf), P(xEdge, d.H, zf), -46, `${Math.round(d.H)}`);
     if (state.hideFacades) g += innerHeightDims(P, zf);
-  } else {
+  } else if (state.view === 'top') {
     // Вид сверху. Размеры ведём по КРАЯМ изделия, а не через его середину —
     // иначе линии ложатся поверх модели и вид превращается в кашу.
     // Смотрим вниз: перёд (z = +D/2) оказывается внизу экрана, левый край
@@ -13228,7 +13232,21 @@ document.getElementById('printDrawings').addEventListener('click', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Кнопки шапки: виды камеры и скрытие фасадов
+// Вид камеры: 'front' | 'side' (справа) | 'left' | 'back' | 'top' | 'bottom' |
+// 'iso'. Единая точка программного переключения вида (горячие клавиши в
+// ui-shell.js, dev-прогон tools/smoke.js). Жесты на гизме идут мимо —
+// через viewer.onViewChange (см. initHeaderControls).
+// ---------------------------------------------------------------------------
+const VIEW_NAMES = ['front', 'side', 'left', 'back', 'top', 'bottom', 'iso'];
+function applyView(name) {
+  if (VIEW_NAMES.indexOf(name) < 0) name = 'iso';
+  state.view = name;
+  if (viewer) viewer.setView(name);
+  renderViewOverlay();
+}
+
+// ---------------------------------------------------------------------------
+// Кнопки шапки: скрытие фасадов, отмена/повтор; синхронизация вида с гизмой
 // ---------------------------------------------------------------------------
 function initHeaderControls() {
   // Отменить/Вернуть/Удалить модуль — статичные иконки в шапке (index.html),
@@ -13243,15 +13261,18 @@ function initHeaderControls() {
   const delBtn = document.getElementById('delModule');
   if (delBtn) delBtn.addEventListener('click', () => deleteModule(state.activeModule));
 
-  document.querySelectorAll('.view-btn').forEach((b) => {
-    b.addEventListener('click', () => {
-      document.querySelectorAll('.view-btn').forEach(x => x.classList.remove('active'));
-      b.classList.add('active');
-      state.view = b.dataset.view;
-      if (viewer) viewer.setView(state.view);
+  // Виды камеры переключаются навигационной гизмой в углу 3D-сцены (её
+  // рисует viewer.js, см. ViewGizmo) и горячими клавишами 1–4 (ui-shell.js
+  // через window.Modul3D.app.setView → applyView). Гизма сама уже повернула
+  // камеру, поэтому здесь только синхронизируем state.view и размеры поверх
+  // сцены — без повторного viewer.setView (иначе сбился бы ракурс, с которого
+  // пользователь потянул гизму в 3D).
+  if (viewer) {
+    viewer.onViewChange = (name) => {
+      state.view = name;
       renderViewOverlay();
-    });
-  });
+    };
+  }
 
   // Оверлей размеров пересчитываем при любом движении камеры
   if (viewer) {
@@ -14476,6 +14497,9 @@ function refreshCurrency() {
 // или Focus Mode (см. renderHud/initHud в ui-shell.js).
 window.Modul3D.app = {
   setPanelView: setPanelView,
+  // Переключить вид камеры (горячие клавиши 1–4 в ui-shell.js) — см. applyView.
+  setView: applyView,
+  getView: function () { return state.view; },
   refreshCurrency: refreshCurrency,
   // ui-shell.js зовёт при ЛЮБОМ закрытии панели «Библиотека» (крестик, скрим,
   // Escape, свайп, открытие другой панели поверх) — без этого «Выбрать» у

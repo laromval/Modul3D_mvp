@@ -1745,6 +1745,11 @@ function makeKitchenLeg(box, moduleName, isActive, hasClip, dimmed, rot) {
 // разными жестами пользователя, а не посреди текущего, так что запас по
 // времени тут ничего не портит и лучше перестраховаться.
 const STALE_TOUCH_POINTER_MS = 3000;
+// Сдвиг (px, сумма |dx|+|dy| за жест), после которого нажатие на сцене — уже
+// протяжка, а не клик. То же число проверяет выбор модуля/детали кликом
+// (pointerup в Viewer3D: `controls.moved > SCENE_DRAG_PX`), поэтому клик,
+// выбирающий модуль, никогда не переключит плоский вид в 3D.
+const SCENE_DRAG_PX = 6;
 
 class SimpleOrbitControl {
   constructor(camera, domElement) {
@@ -1775,6 +1780,17 @@ class SimpleOrbitControl {
     // в момент создания контрола, до того как Viewer3D его подключит) —
     // ведём себя как раньше и всегда вращаем.
     this.hitTestProvider = null;
+
+    // Ставит снаружи Viewer3D: вызывается ОДИН раз за жест, когда вращение
+    // сцены в плоском (ортографическом) виде переросло клик. Там вьювер
+    // переходит в 3D-перспективу с теми же углами. Возвращает true, если
+    // переход случился (см. ветку 'rotate' в pointermove).
+    this.onOrthoRotateStart = null;
+    // Сдвиг, накопленный в плоском виде, пока жест ещё похож на клик: камеру
+    // не крутим (иначе вид «спереди» слегка перекосится, оставаясь «спереди»),
+    // а после порога отдаём весь накопленный сдвиг одним шагом — без рывка.
+    this._orthoPendX = 0;
+    this._orthoPendY = 0;
 
     // Контекстное меню по ПКМ отключаем — правая кнопка занята вращением
     this.dom.addEventListener('contextmenu', (e) => e.preventDefault());
@@ -1826,6 +1842,7 @@ class SimpleOrbitControl {
         }
         this._pointers.set(e.pointerId, { x: e.clientX, y: e.clientY, t: now });
         this.moved = 0;
+        this._orthoPendX = this._orthoPendY = 0;
         if (this._pointers.size === 1) {
           // Первый палец: если попал на саму модель — вращаем сцену вокруг
           // цели, если мимо (пустое место/сетка) — панорамируем. Без
@@ -1854,6 +1871,7 @@ class SimpleOrbitControl {
       this._dragging = true;
       this.mode = (e.button === 2) ? 'rotate' : 'pan';
       this.moved = 0;
+      this._orthoPendX = this._orthoPendY = 0;
       this._lastX = e.clientX;
       this._lastY = e.clientY;
     });
@@ -1916,8 +1934,23 @@ class SimpleOrbitControl {
       this._lastX = e.clientX;
       this._lastY = e.clientY;
       if (this.mode === 'rotate') {
-        this.theta -= dx * 0.006;
-        this.phi = Math.min(Math.PI - 0.03, Math.max(0.03, this.phi - dy * 0.006));
+        let stepX = dx, stepY = dy;
+        // Вращение в плоском виде («спереди», «сверху»…): пока сдвиг не
+        // перерос клик — копим его и камеру не трогаем. После порога просим
+        // вьювер перейти в 3D с теми же углами (как при протяжке гизмы) и
+        // сразу применяем весь накопленный сдвиг — сцена идёт за курсором.
+        // Панорамирование и зум (колесо/пинч) вид не меняют.
+        if (this.camera.isOrthographicCamera && this.onOrthoRotateStart) {
+          this._orthoPendX += dx;
+          this._orthoPendY += dy;
+          if (this.moved <= SCENE_DRAG_PX) return;   // ещё похоже на клик
+          stepX = this._orthoPendX;
+          stepY = this._orthoPendY;
+          this._orthoPendX = this._orthoPendY = 0;
+          this.onOrthoRotateStart();   // меняет this.camera на перспективную
+        }
+        this.theta -= stepX * 0.006;
+        this.phi = Math.min(Math.PI - 0.03, Math.max(0.03, this.phi - stepY * 0.006));
       } else {
         this.pan(dx, dy);
       }
@@ -2014,14 +2047,21 @@ class SimpleOrbitControl {
     this.update();
   }
 
-  /** Ортогональные предустановки камеры: спереди / сбоку / сверху / 3D. */
+  /**
+   * Предустановки камеры: спереди / справа ('side') / слева / сзади / сверху /
+   * снизу — и 3D ('iso'). Сцена: перёд изделия = +Z, право = +X, верх = +Y.
+   */
   setView(name) {
-    if (name === 'front')      { this.theta = 0;            this.phi = Math.PI / 2; }
-    else if (name === 'side')  { this.theta = Math.PI / 2;  this.phi = Math.PI / 2; }
+    if (name === 'front')       { this.theta = 0;             this.phi = Math.PI / 2; }
+    else if (name === 'side')   { this.theta = Math.PI / 2;   this.phi = Math.PI / 2; }   // камера на +X
+    else if (name === 'left')   { this.theta = -Math.PI / 2;  this.phi = Math.PI / 2; }   // камера на -X
+    else if (name === 'back')   { this.theta = Math.PI;       this.phi = Math.PI / 2; }   // камера на -Z
     // Вид сверху — строго вертикально (phi = 0). Наклона быть не должно,
     // иначе получается аксонометрия и виден передний торец.
-    else if (name === 'top')   { this.theta = 0;            this.phi = 0; }
-    else                       { this.theta = Math.PI / 4;  this.phi = Math.PI / 2.6; }
+    else if (name === 'top')    { this.theta = 0;             this.phi = 0; }
+    // Вид снизу — так же строго вертикально, камера под изделием (phi = π).
+    else if (name === 'bottom') { this.theta = 0;             this.phi = Math.PI; }
+    else                        { this.theta = Math.PI / 4;   this.phi = Math.PI / 2.6; }
     this.update();
   }
 
@@ -2044,6 +2084,9 @@ class SimpleOrbitControl {
   }
 }
 
+// Плоские (ортографические) виды. Всё, чего нет в списке, — 3D ('iso').
+const FLAT_VIEWS = ['front', 'side', 'left', 'back', 'top', 'bottom'];
+
 class Viewer3D {
   constructor(container) {
     if (!THREE) {
@@ -2063,6 +2106,15 @@ class Viewer3D {
     this.ortho = new THREE.OrthographicCamera(-1, 1, 1, -1, -100, 100);
     this.camera = this.persp;
     this.isOrtho = false;
+    // Текущий вид: 'front' | 'side' | 'left' | 'back' | 'top' | 'bottom' | 'iso'.
+    // По умолчанию камера стоит в 3D-ракурсе (углы SimpleOrbitControl).
+    this.viewName = 'iso';
+    // Колбэк «вид сменили ЖЕСТОМ на навигационной гизме» (name) — его ставит
+    // app.js, чтобы синхронизировать своё состояние/кнопки. Сам setView()
+    // его НЕ вызывает (иначе при вызове из app.js/горячих клавиш получился
+    // бы цикл) — только жесты пользователя: ViewGizmo (клик/протяжка гизмы)
+    // и вращение самой сцены из плоского вида (см. onOrthoRotateStart).
+    this.onViewChange = null;
     this.renderer = new THREE.WebGLRenderer({ antialias: true });
     this.renderer.setPixelRatio(window.devicePixelRatio || 1);
     container.appendChild(this.renderer.domElement);
@@ -2142,7 +2194,7 @@ class Viewer3D {
       this._raycaster.params.Line.threshold = 0.0005;
     }
     this.renderer.domElement.addEventListener('pointerup', (e) => {
-      if (this.controls.moved > 6) return;
+      if (this.controls.moved > SCENE_DRAG_PX) return;
       if (!this.onSelectModule && !this.onSelectPart && !this.onFocusMiss && !this.onSelectZone) return;
       // Деталь теперь собирается из нескольких слоёв внутри группы, поэтому
       // луч пускаем РЕКУРСИВНО, а имя модуля ищем вверх по родителям.
@@ -2214,7 +2266,7 @@ class Viewer3D {
     // у render()). Та же защита от срабатывания во время вращения камеры,
     // что и у одиночного клика: moved > 6 — вращали, клик не считается.
     this.renderer.domElement.addEventListener('dblclick', (e) => {
-      if (!this.onIsolateModule || this.controls.moved > 6) return;
+      if (!this.onIsolateModule || this.controls.moved > SCENE_DRAG_PX) return;
       // Гасим отложенный одиночный клик от pointerup (см. выше) — иначе он
       // выстрелит следом за изоляцией и собьёт состояние (лишний
       // select/deselect после того, как модуль уже изолирован).
@@ -2248,8 +2300,24 @@ class Viewer3D {
     // (палец мимо, по пустому месту).
     this.controls.hitTestProvider = (e) => this._hitTestAt(e).length > 0;
 
+    // Пользователь начал вращать САМУ СЦЕНУ, стоя в плоском виде: переходим
+    // в 3D с теми же углами и сообщаем интерфейсу — ровно как при протяжке
+    // гизмы (иначе камера крутилась бы, а гизма и размеры показывали бы
+    // «спереди»). Клик для выбора модуля сюда не доходит — порог SCENE_DRAG_PX.
+    this.controls.onOrthoRotateStart = () => {
+      if (!this._enterPerspectiveKeepAngles()) return false;
+      this._notifyViewChange('iso');
+      return true;
+    };
+
     this._addLights();
     this._addGrid();
+
+    // Навигационная гизма (круг с осями в углу окна 3D). Создаётся до первого
+    // _resize()/_animate(), чтобы те могли её подстроить/перерисовать. Если
+    // 2D-канвы нет (тестовая среда tools/) — гизма молча остаётся null.
+    this.gizmo = ViewGizmo.create(this);
+
     this._resize();
     window.addEventListener('resize', () => this._resize());
 
@@ -2540,6 +2608,7 @@ class Viewer3D {
 
     const grid = new THREE.GridHelper(14, 56, 0xa8a8a8, 0xc8c8c8);
     this.scene.add(grid);
+    this._grid = grid;                  // в виде «снизу» прячем (см. _updateFloorVisibility)
   }
 
   // Публичный пересчёт размера: нужен, когда меняется высота контейнера
@@ -2554,6 +2623,7 @@ class Viewer3D {
     this.persp.updateProjectionMatrix();
     this.renderer.setSize(w, h);
     this._fitOrtho();
+    if (this.gizmo) this.gizmo.resize();
   }
 
   _animate() {
@@ -2561,6 +2631,14 @@ class Viewer3D {
     requestAnimationFrame(() => this._animate());
     this._updateFloorVisibility();
     this.renderer.render(this.scene, this.camera);
+    // Гизма перерисовывается только если что-то изменилось (поворот камеры,
+    // наведение, текущий вид, тема) — проверка внутри update().
+    if (this.gizmo) this.gizmo.update();
+  }
+
+  /** Показать/скрыть навигационную гизму (display:none). */
+  setGizmoVisible(visible) {
+    if (this.gizmo) this.gizmo.setVisible(!!visible);
   }
 
   // Пол прозрачный, если включена проверка присадки ИЛИ камера ушла ниже
@@ -2569,7 +2647,13 @@ class Viewer3D {
   // порог (не 0) — чтобы не мерцало ровно на границе при взгляде почти сбоку.
   _updateFloorVisibility() {
     if (!this._floor || !this._floor.material) return;
-    const below = this.camera && this.camera.position.y < -0.05;
+    // Плоский вид «снизу» — тоже «из-под пола», независимо от радиуса камеры:
+    // у ортокамеры зум меняет радиус, и при сильном приближении её позиция
+    // может оказаться выше -0.05, а сплошной пол закрыл бы изделие снизу.
+    // Сетку в этом виде прячем — линии сетки легли бы поверх днища.
+    const flatBottom = this.viewName === 'bottom';
+    if (this._grid) this._grid.visible = !flatBottom;
+    const below = flatBottom || (this.camera && this.camera.position.y < -0.05);
     const wantTransparent = !!this._drillCheck || below;
     const mat = this._floor.material;
     const targetOpacity = this._drillCheck ? 0.12 : (below ? 0.1 : 1);
@@ -2609,9 +2693,15 @@ class Viewer3D {
     return { x: (v.x + 1) / 2 * el.clientWidth, y: (-v.y + 1) / 2 * el.clientHeight };
   }
 
-  /** Предустановка камеры: 'front' | 'side' | 'top' | 'iso'. */
+  /**
+   * Предустановка камеры: 'front' (спереди) | 'side' (справа) | 'left' (слева) |
+   * 'back' (сзади) | 'top' (сверху) | 'bottom' (снизу) | 'iso' (3D, перспектива).
+   * Все, кроме 'iso', — ортографические. Неизвестное имя = 'iso'.
+   * Колбэк onViewChange отсюда НЕ вызывается (см. комментарий у поля).
+   */
   setView(name) {
     if (this._broken) return;
+    if (name !== 'iso' && FLAT_VIEWS.indexOf(name) < 0) name = 'iso';
     this.isOrtho = (name !== 'iso');
     this.viewName = name;
     this.camera = this.isOrtho ? this.ortho : this.persp;
@@ -2621,8 +2711,34 @@ class Viewer3D {
     this._resize();
   }
 
+  /**
+   * Единая точка уведомления интерфейса о смене вида ЖЕСТОМ пользователя
+   * (гизма или вращение сцены из плоского вида). setView() её не зовёт.
+   */
+  _notifyViewChange(name) {
+    if (typeof this.onViewChange === 'function') this.onViewChange(name);
+  }
+
+  /**
+   * Переход из плоского (ортографического) вида в 3D-перспективу БЕЗ сброса
+   * углов камеры — нужен гизме и вращению сцены: пользователь потянул из вида «спереди», и
+   * сцена должна плавно поехать от текущего ракурса, а не прыгнуть в 'iso'.
+   * Возвращает true, если переключение действительно произошло.
+   */
+  _enterPerspectiveKeepAngles() {
+    if (this._broken || !this.isOrtho) return false;
+    this.isOrtho = false;
+    this.viewName = 'iso';
+    this.camera = this.persp;
+    this.controls.camera = this.persp;
+    this.controls.update();   // ставит позицию/up/lookAt перспективной камеры по тем же theta/phi
+    this._resize();
+    return true;
+  }
+
   // Подгоняет рамку ортокамеры под габарит изделия В ТЕКУЩЕМ виде:
-  // спереди — ширина×высота, сбоку — глубина×высота, сверху — ширина×глубина.
+  // спереди/сзади — ширина×высота, справа/слева — глубина×высота,
+  // сверху/снизу — ширина×глубина.
   // По наибольшему габариту считать нельзя: план высокого шкафа выходил мелким.
   _fitOrtho() {
     if (!this._lastDims) return;
@@ -2633,8 +2749,9 @@ class Viewer3D {
     const D = this._lastDims.D || 1000;
     const el = this.renderer.domElement;
     const aspect = (el.clientWidth || 1) / (el.clientHeight || 1);
-    const ext = this.viewName === 'side' ? { w: D, h: H }
-              : this.viewName === 'top'  ? { w: W, h: D }
+    const vn = this.viewName;
+    const ext = (vn === 'side' || vn === 'left')  ? { w: D, h: H }
+              : (vn === 'top'  || vn === 'bottom') ? { w: W, h: D }
               : { w: W, h: H };
     // рамку берём по большей из потребностей с учётом пропорций окна
     const need = Math.max(ext.h, ext.w / Math.max(aspect, 0.01));
@@ -3270,6 +3387,552 @@ class Viewer3D {
       this._fitKey = key;
       const maxDim = Math.max(W, H, D, 1000) * MM;
       this.controls.setFromDistance(maxDim * 1.6, Math.max(H, 800) * MM * 0.45);
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// НАВИГАЦИОННАЯ ГИЗМА (как View Gizmo в Blender)
+// ---------------------------------------------------------------------------
+// Маленький круг с осями в углу окна 3D. Рисуется на СВОЁМ 2D-канвасе поверх
+// WebGL-канваса и управляет камерой:
+//   • клик по шарику оси — плоский вид с этой стороны;
+//   • клик по фону круга — из плоского вида обратно в 3D;
+//   • зажать и двигать внутри круга — вращать сцену вокруг центра.
+// ОТОБРАЖЕНИЕ ОСЕЙ (решение пользователя): гизма показывает РЕАЛЬНОЕ
+// положение мебели — X = право сцены (+X), Y = сторона фасада («перёд», это
+// +Z сцены), Z = верх (+Y сцены). Зелёный Y смотрит в сторону фасада.
+// Гизме нужно только ВРАЩЕНИЕ камеры, поэтому в перспективе и в ортографике
+// она выглядит одинаково.
+const GIZMO_SIZE = 110;    // CSS-размер круга по умолчанию, px (переопределяется --gizmo-size)
+const GIZMO_ARM = 36;      // расстояние от центра до шарика оси при size = 110, px
+const GIZMO_DRAG_PX = 4;   // суммарный сдвиг, после которого «клик» считается протяжкой
+const GIZMO_TAU = Math.PI * 2;
+// Половина ребра кубика-логотипа в центре гизмы при size = 110, px (ребро 24 px).
+// Масштабируется вместе с гизмой. Подобрано так, чтобы на плоском виде квадрат
+// выступал за кольцо активного шарика в центре (иначе его не видно), а в
+// 3D-ракурсе кубик лишь касался шариков осей (ближние шарики рисуются поверх).
+const GIZMO_CUBE_HALF = 12;
+
+// Шесть шариков: сначала три положительные оси (с буквой), потом три
+// отрицательные (пустые кружки). dir — направление оси В СЦЕНЕ Three.js
+// (Y вверх, перёд = +Z); view — плоский вид, который включает клик по шарику
+// (тот же вид «активен», когда камера в нём стоит); rgb — цвет оси.
+const GIZMO_AXES = [
+  { label: 'X', pos: true,  dir: [1, 0, 0],  view: 'side',   rgb: [226, 62, 87] },
+  { label: 'X', pos: false, dir: [-1, 0, 0], view: 'left',   rgb: [226, 62, 87] },
+  { label: 'Y', pos: true,  dir: [0, 0, 1],  view: 'front',  rgb: [50, 152, 56] },
+  { label: 'Y', pos: false, dir: [0, 0, -1], view: 'back',   rgb: [50, 152, 56] },
+  { label: 'Z', pos: true,  dir: [0, 1, 0],  view: 'top',    rgb: [46, 124, 230] },
+  { label: 'Z', pos: false, dir: [0, -1, 0], view: 'bottom', rgb: [46, 124, 230] },
+];
+
+class ViewGizmo {
+  /** Создаёт гизму или возвращает null, если её негде нарисовать (нет DOM/2D-канвы). */
+  static create(viewer) {
+    try {
+      const g = new ViewGizmo(viewer);
+      return g.ctx ? g : null;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  constructor(viewer) {
+    this.viewer = viewer;
+    this.canvas = null;
+    this.ctx = null;
+    this.visible = true;
+    this._size = GIZMO_SIZE;    // текущий CSS-размер, px
+    this._dpr = 1;              // devicePixelRatio, с которым выставлен размер канвы
+    this._sizeKnown = false;    // узнали ли реальный размер из вёрстки
+    this._hover = -1;           // индекс шарика (в GIZMO_AXES) под курсором, -1 — нет
+    this._hoverDisc = false;    // курсор над кругом гизмы (диск проявляется)
+    this._drag = null;          // состояние текущего жеста, см. pointerdown
+    this._cursor = 'grab';
+    this._drawn = null;         // параметры последней отрисовки (чтобы не рисовать зря)
+
+    // Тестовая среда tools/ (заглушка DOM) — нет document или 2D-контекста:
+    // гизмы просто нет, без исключений.
+    if (typeof document === 'undefined' || !document.createElement) return;
+    const host = viewer.container;
+    if (!host || typeof host.appendChild !== 'function') return;
+    const canvas = document.createElement('canvas');
+    const ctx = canvas && canvas.getContext ? canvas.getContext('2d') : null;
+    if (!ctx || typeof canvas.addEventListener !== 'function') return;
+
+    canvas.className = 'view-gizmo';
+    canvas.title = 'Клик по оси — вид с этой стороны, перетаскивание — вращение';
+    // Минимум стиля прямо здесь — чтобы гизма работала и без правок style.css.
+    // Отступы и размер интерфейсный слой может менять через CSS-переменные
+    // --gizmo-right / --gizmo-bottom / --gizmo-size (например, на мобильном).
+    // border-radius: 50% — чтобы и клики ловились только внутри круга, а не
+    // по углам квадратного канваса (там должна работать обычная сцена).
+    canvas.style.cssText =
+      'position:absolute;right:var(--gizmo-right,12px);bottom:var(--gizmo-bottom,12px);' +
+      'width:var(--gizmo-size,110px);height:var(--gizmo-size,110px);z-index:5;' +
+      'touch-action:none;user-select:none;-webkit-user-select:none;' +
+      '-webkit-tap-highlight-color:transparent;border-radius:50%;cursor:grab;';
+
+    // --- жесты -------------------------------------------------------------
+    canvas.addEventListener('pointerdown', (e) => {
+      if (e.pointerType === 'mouse' && e.button !== 0) return;   // только ЛКМ
+      // События гизмы не должны уходить дальше по дереву (панели, закрытие
+      // меню по клику вне и т.п.). В SimpleOrbitControl они и так не попадут —
+      // тот слушает соседний канвас рендерера.
+      e.stopPropagation();
+      if (this._drag) return;               // уже идёт жест другим пальцем
+      try { canvas.setPointerCapture(e.pointerId); } catch (err) { /* не критично */ }
+      this._drag = {
+        id: e.pointerId,
+        sx: e.clientX, sy: e.clientY,       // точка нажатия
+        lx: e.clientX, ly: e.clientY,       // предыдущая точка
+        moved: 0,                           // суммарный сдвиг — отличает клик от протяжки
+        rotating: false,
+      };
+      this._hover = -1;
+      this._hoverDisc = true;
+    });
+
+    canvas.addEventListener('pointermove', (e) => {
+      const d = this._drag;
+      if (d) {
+        if (e.pointerId !== d.id) return;
+        // Кнопку отпустили, а pointerup потерялся (бывает при потере capture) —
+        // жест закончился, иначе сцена «прилипла» бы к курсору.
+        if (e.pointerType !== 'touch' && e.buttons === 0) { this._finish(e, true); return; }
+        this._dragMove(e, d);
+        return;
+      }
+      if (e.pointerType === 'touch') return;   // у пальца наведения нет
+      this._updateHover(this._local(e));
+    });
+
+    canvas.addEventListener('pointerup', (e) => this._finish(e, false));
+    canvas.addEventListener('pointercancel', (e) => this._finish(e, true));
+
+    canvas.addEventListener('pointerleave', () => {
+      if (this._drag) return;   // во время протяжки указатель захвачен — не сбрасываем
+      this._hover = -1;
+      this._hoverDisc = false;
+      this._setCursor('grab');
+    });
+
+    // Колесо над гизмой не должно прокручивать страницу.
+    canvas.addEventListener('wheel', (e) => { e.preventDefault(); e.stopPropagation(); }, { passive: false });
+    canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+
+    // Канвас гизмы кладём НЕ внутрь контейнера сцены (#viewer3d), а рядом с
+    // ним — в его родителя (.stage). У #viewer3d свой слой (z-index: 1), и
+    // всё, что внутри него, рисуется ПОД соседним оверлеем размеров
+    // (.view-overlay, z-index: 4) — размерные линии ложились поверх гизмы.
+    // В родителе z-index: 5 ставит гизму над оверлеем, но ниже плашек
+    // предупреждений (29), HUD (32), панелей (36) и модалок. #viewer3d
+    // растянут на весь родитель (inset: 0), поэтому угол остаётся тем же.
+    // Если родителя нет (нестандартная вёрстка) — как раньше, внутрь сцены.
+    const mount = (host.parentNode && typeof host.parentNode.appendChild === 'function')
+      ? host.parentNode : host;
+    mount.appendChild(canvas);
+    this.canvas = canvas;
+    this.ctx = ctx;
+    this.resize();
+  }
+
+  // --- размеры и видимость ---------------------------------------------------
+
+  /** Подгоняет внутренний размер канвы под CSS-размер и devicePixelRatio. */
+  resize() {
+    if (!this.canvas) return;
+    const raw = this.canvas.clientWidth;
+    const css = raw || GIZMO_SIZE;
+    const dpr = (typeof window !== 'undefined' && window.devicePixelRatio) || 1;
+    const px = Math.max(1, Math.round(css * dpr));
+    if (this.canvas.width !== px || this.canvas.height !== px) {
+      this.canvas.width = px;
+      this.canvas.height = px;
+    }
+    this._size = css;
+    this._dpr = dpr;
+    this._sizeKnown = raw > 0;
+    this._drawn = null;   // канва очистилась/размер сменился — рисуем заново
+  }
+
+  /** Показать/скрыть гизму (display:none). */
+  setVisible(visible) {
+    this.visible = !!visible;
+    if (!this.canvas || !this.ctx) return;
+    this.canvas.style.display = this.visible ? 'block' : 'none';
+    if (this.visible) {
+      this.resize();
+    } else {
+      this._drag = null;
+      this._hover = -1;
+      this._hoverDisc = false;
+    }
+  }
+
+  // --- отрисовка -------------------------------------------------------------
+
+  /** Вызывается каждый кадр из Viewer3D._animate(): рисует, только если что-то изменилось. */
+  update() {
+    if (!this.ctx || !this.visible) return;
+    try {
+      const dpr = (typeof window !== 'undefined' && window.devicePixelRatio) || 1;
+      // Размер мог быть ещё не известен (контейнер был скрыт) или ДПИ сменился
+      // (окно перетащили на другой монитор) — пересчитываем.
+      if (dpr !== this._dpr || (!this._sizeKnown && this.canvas.clientWidth > 0)) this.resize();
+
+      const v = this.viewer;
+      const q = v.camera.quaternion;
+      const dark = this._isDark();
+      const disc = this._hoverDisc || !!this._drag;
+      const D = this._drawn;
+      if (D && D.qx === q.x && D.qy === q.y && D.qz === q.z && D.qw === q.w
+          && D.view === v.viewName && D.hover === this._hover && D.disc === disc && D.dark === dark) {
+        return;
+      }
+      this._draw(dark, disc);
+      this._drawn = { qx: q.x, qy: q.y, qz: q.z, qw: q.w, view: v.viewName, hover: this._hover, disc, dark };
+    } catch (e) {
+      // Гизма — вспомогательный виджет: при любой ошибке отрисовки отключаем
+      // её, а не ломаем цикл рендера сцены (иначе ошибка повторялась бы каждый кадр).
+      this.ctx = null;
+      if (this.canvas) this.canvas.style.display = 'none';
+      if (typeof console !== 'undefined' && console.warn) console.warn('Навигационная гизма отключена:', e);
+    }
+  }
+
+  /** Тёмная ли тема интерфейса (ui-shell.js ставит data-theme на <html>). */
+  _isDark() {
+    try {
+      return document.documentElement.getAttribute('data-theme') === 'dark';
+    } catch (e) {
+      return false;
+    }
+  }
+
+  /** Индекс шарика, чей вид сейчас включён (в 'iso' — нет активного, -1). */
+  _activeIndex() {
+    const vn = this.viewer.viewName;
+    for (let i = 0; i < GIZMO_AXES.length; i++) {
+      if (GIZMO_AXES[i].view === vn) return i;
+    }
+    return -1;
+  }
+
+  /**
+   * Экранные позиции всех шести шариков для ТЕКУЩЕГО поворота камеры,
+   * отсортированные от дальних к ближним. Оси сцены проецируются только
+   * вращением камеры: экранный x = проекция на «вправо» камеры, экранный y =
+   * минус проекция на «вверх» (у канвы ось y идёт вниз), глубина z =
+   * проекция на «на камеру» (больше — ближе).
+   */
+  _layout() {
+    const q = this.viewer.camera.quaternion;
+    const right = new THREE.Vector3(1, 0, 0).applyQuaternion(q);
+    const up = new THREE.Vector3(0, 1, 0).applyQuaternion(q);
+    const back = new THREE.Vector3(0, 0, 1).applyQuaternion(q);
+    const k = this._size / GIZMO_SIZE;
+    const c = this._size / 2;
+    const items = [];
+    for (let i = 0; i < GIZMO_AXES.length; i++) {
+      const a = GIZMO_AXES[i];
+      const d = a.dir;
+      const sx = right.x * d[0] + right.y * d[1] + right.z * d[2];
+      const sy = up.x * d[0] + up.y * d[1] + up.z * d[2];
+      const sz = back.x * d[0] + back.y * d[1] + back.z * d[2];
+      const t = (sz + 1) / 2;                       // 0 — дальний, 1 — ближний
+      items.push({
+        i, a, z: sz, t,
+        x: c + sx * GIZMO_ARM * k,
+        y: c - sy * GIZMO_ARM * k,
+        // дальние шарики чуть меньше; у отрицательных базовый радиус меньше
+        r: (a.pos ? 10 : 8) * k * (0.8 + 0.2 * t),
+      });
+    }
+    items.sort((p, s) => p.z - s.z);
+    return items;
+  }
+
+  _draw(dark, disc) {
+    const ctx = this.ctx;
+    const S = this._size;
+    const k = S / GIZMO_SIZE;
+    const c = S / 2;
+    const scale = this.canvas.width / S;   // внутренних пикселей на CSS-пиксель
+    ctx.setTransform(scale, 0, 0, scale, 0, 0);
+    ctx.clearRect(0, 0, S, S);
+
+    // Фон: лёгкий круг, который заметно проявляется при наведении.
+    ctx.beginPath();
+    ctx.arc(c, c, c - 0.5, 0, GIZMO_TAU);
+    ctx.fillStyle = dark
+      ? (disc ? 'rgba(255,255,255,0.14)' : 'rgba(255,255,255,0.05)')
+      : (disc ? 'rgba(15,23,42,0.13)' : 'rgba(15,23,42,0.05)');
+    ctx.fill();
+
+    const items = this._layout();
+    const active = this._activeIndex();
+    const baseFill = dark ? '#2b2f37' : '#eef0f3';   // непрозрачная подложка пустых шариков
+    ctx.font = 'bold ' + Math.round(11 * k) + 'px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+
+    // Белое кольцо с тонкой тёмной подложкой — читается и на светлой, и на тёмной теме.
+    const ring = (x, y, r) => {
+      ctx.beginPath();
+      ctx.arc(x, y, r, 0, GIZMO_TAU);
+      ctx.lineWidth = 3.6 * k;
+      ctx.strokeStyle = 'rgba(0,0,0,0.35)';
+      ctx.stroke();
+      ctx.lineWidth = 1.8 * k;
+      ctx.strokeStyle = '#fff';
+      ctx.stroke();
+    };
+
+    // От дальних к ближним — ближние перекрывают дальние. Кубик-логотип стоит
+    // в центре гизмы, то есть «на глубине 0»: рисуем его между шариками
+    // позади (z < 0) и шариками впереди (z >= 0) — дальние оси уходят под
+    // кубик, ближние шарики с буквами ложатся поверх него и не закрываются.
+    let cubeDone = false;
+    for (const it of items) {
+      if (!cubeDone && it.z >= 0) { this._drawCube(dark); cubeDone = true; }
+      const a = it.a;
+      const col = a.rgb;
+      const rgba = (al) => 'rgba(' + col[0] + ',' + col[1] + ',' + col[2] + ',' + al + ')';
+      const isHover = it.i === this._hover;
+      const isActive = it.i === active;
+      const rad = it.r * (isHover ? 1.15 : 1);
+
+      if (a.pos) {
+        // Стержень от центра до края шарика.
+        const dx = it.x - c, dy = it.y - c;
+        const len = Math.hypot(dx, dy);
+        if (len > rad) {
+          const f = (len - rad + 0.5 * k) / len;
+          ctx.beginPath();
+          ctx.moveTo(c, c);
+          ctx.lineTo(c + dx * f, c + dy * f);
+          ctx.lineWidth = 2.4 * k;
+          ctx.lineCap = 'butt';
+          ctx.strokeStyle = rgba(0.7 + 0.3 * it.t);
+          ctx.stroke();
+        }
+        // Цветной шарик с буквой.
+        ctx.beginPath();
+        ctx.arc(it.x, it.y, rad, 0, GIZMO_TAU);
+        ctx.fillStyle = rgba(0.75 + 0.25 * it.t);
+        ctx.fill();
+        ctx.fillStyle = '#fff';
+        ctx.fillText(a.label, it.x, it.y + 0.5 * k);
+      } else {
+        // Пустой кружок приглушённого тона: непрозрачная подложка (чтобы
+        // дальний шарик не просвечивал сквозь него), полупрозрачная заливка
+        // цветом оси и цветная обводка.
+        const lit = isHover || isActive;
+        ctx.beginPath();
+        ctx.arc(it.x, it.y, rad, 0, GIZMO_TAU);
+        ctx.fillStyle = baseFill;
+        ctx.fill();
+        ctx.fillStyle = rgba(lit ? 0.75 : 0.24 + 0.12 * it.t);
+        ctx.fill();
+        ctx.lineWidth = 1.5 * k;
+        ctx.strokeStyle = rgba(0.6 + 0.4 * it.t);
+        ctx.stroke();
+      }
+
+      if (isHover) ring(it.x, it.y, rad);
+      if (isActive) ring(it.x, it.y, rad + 3 * k);   // постоянная подсветка текущего вида
+    }
+    if (!cubeDone) this._drawCube(dark);
+  }
+
+  /**
+   * Маленький 3D-кубик в центре гизмы в стиле логотипа (favicon.svg):
+   * голубые рёбра со скруглёнными углами и одна грань с лёгкой заливкой.
+   * Это настоящий куб, оси которого совпадают с осями сцены, и проецируется
+   * он тем же поворотом камеры, что и лучи осей, — поэтому его рёбра всегда
+   * параллельны лучам X/Y/Z. Рисуются только видимые грани (нормаль смотрит
+   * на камеру): в стандартном 3D-ракурсе это контур-шестиугольник и «Y» от
+   * ближнего угла, как на логотипе; на плоском виде — квадрат.
+   * Кубик — только картинка: в хит-тест он не входит, клик по нему = клик по
+   * фону круга, протяжка = вращение.
+   */
+  _drawCube(dark) {
+    const ctx = this.ctx;
+    const q = this.viewer.camera.quaternion;
+    const right = new THREE.Vector3(1, 0, 0).applyQuaternion(q);
+    const up = new THREE.Vector3(0, 1, 0).applyQuaternion(q);
+    const back = new THREE.Vector3(0, 0, 1).applyQuaternion(q);
+    const k = this._size / GIZMO_SIZE;
+    const c = this._size / 2;
+    const h = GIZMO_CUBE_HALF * k;   // половина ребра куба, px
+
+    // Точка сцены (в долях половины ребра) -> экранные координаты канвы.
+    const proj = (p) => ({
+      x: c + (right.x * p[0] + right.y * p[1] + right.z * p[2]) * h,
+      y: c - (up.x * p[0] + up.y * p[1] + up.z * p[2]) * h,
+    });
+
+    // Шесть граней: нормаль вдоль оси ax со знаком s. Вершины грани обходим
+    // по кругу по двум другим осям.
+    const faces = [];
+    const loop = [[-1, -1], [1, -1], [1, 1], [-1, 1]];
+    for (let ax = 0; ax < 3; ax++) {
+      for (const s of [1, -1]) {
+        const n = [0, 0, 0];
+        n[ax] = s;
+        // Насколько грань повёрнута к камере (>0 — видна) и вправо на экране.
+        const nz = back.x * n[0] + back.y * n[1] + back.z * n[2];
+        if (nz <= 0.02) continue;   // невидимая или «ребром» к камере — не рисуем
+        const nx = right.x * n[0] + right.y * n[1] + right.z * n[2];
+        const b = (ax + 1) % 3, d = (ax + 2) % 3;
+        const pts = loop.map((uv) => {
+          const p = [0, 0, 0];
+          p[ax] = s; p[b] = uv[0]; p[d] = uv[1];
+          return proj(p);
+        });
+        faces.push({ pts, nx, nz });
+      }
+    }
+    if (!faces.length) return;
+
+    // Фирменный голубой; в светлой теме чуть темнее — для контраста на светлом фоне.
+    const col = dark ? '56,189,248' : '14,165,233';   // #38bdf8 / #0ea5e9
+
+    // Заливка (как в логотипе) — у одной грани: самой правой на экране из
+    // видимых. В стандартном ракурсе это грань +X (правая боковая), как в
+    // favicon; на плоском виде — единственная видимая грань.
+    let fillFace = faces[0];
+    for (const f of faces) {
+      if (f.nx + 0.001 * f.nz > fillFace.nx + 0.001 * fillFace.nz) fillFace = f;
+    }
+    const path = (pts) => {
+      ctx.beginPath();
+      ctx.moveTo(pts[0].x, pts[0].y);
+      for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
+      ctx.closePath();
+    };
+    path(fillFace.pts);
+    ctx.fillStyle = 'rgba(' + col + ',0.18)';
+    ctx.fill();
+
+    // Контуры всех видимых граней: вместе они дают внешний контур и рёбра
+    // между видимыми гранями (общие рёбра рисуются дважды одним непрозрачным
+    // цветом — на вид не отличается).
+    ctx.lineWidth = 1.6 * k;
+    ctx.lineJoin = 'round';
+    ctx.lineCap = 'round';
+    ctx.strokeStyle = 'rgb(' + col + ')';
+    for (const f of faces) {
+      path(f.pts);
+      ctx.stroke();
+    }
+    ctx.lineCap = 'butt';
+  }
+
+  // --- вспомогательное для жестов ----------------------------------------------
+
+  /** Координаты события в «логических» пикселях круга (0..size). */
+  _local(e) {
+    const r = this.canvas.getBoundingClientRect();
+    const k = r.width ? this._size / r.width : 1;
+    return { x: (e.clientX - r.left) * k, y: (e.clientY - r.top) * k };
+  }
+
+  /** Шарик под точкой (радиус попадания = радиус + 3 px); при наложении — ближний к камере. */
+  _hitTest(px, py) {
+    const pad = 3 * (this._size / GIZMO_SIZE);
+    let best = null;
+    for (const it of this._layout()) {           // порядок «дальние → ближние»
+      if (Math.hypot(px - it.x, py - it.y) <= it.r + pad) best = it;   // последний = ближний
+    }
+    return best;
+  }
+
+  _setCursor(cur) {
+    if (this._cursor === cur) return;
+    this._cursor = cur;
+    this.canvas.style.cursor = cur;
+  }
+
+  /** Наведение мыши: подсветка шарика/диска и курсор. */
+  _updateHover(p) {
+    const c = this._size / 2;
+    const inside = Math.hypot(p.x - c, p.y - c) <= c;
+    const hit = inside ? this._hitTest(p.x, p.y) : null;
+    this._hoverDisc = inside;
+    this._hover = hit ? hit.i : -1;
+    this._setCursor(hit ? 'pointer' : 'grab');
+  }
+
+  /** Сообщаем интерфейсному слою (app.js), что вид сменили жестом гизмы. */
+  _notify(name) {
+    this.viewer._notifyViewChange(name);
+  }
+
+  /** Шаг протяжки: после порога 4 px вращаем сцену вокруг центра (target). */
+  _dragMove(e, d) {
+    const dx = e.clientX - d.lx;
+    const dy = e.clientY - d.ly;
+    d.lx = e.clientX;
+    d.ly = e.clientY;
+    d.moved += Math.abs(dx) + Math.abs(dy);
+    let stepX = dx, stepY = dy;
+    if (!d.rotating) {
+      if (d.moved <= GIZMO_DRAG_PX) return;   // ещё похоже на клик
+      d.rotating = true;
+      this._setCursor('grabbing');
+      // Из плоского вида уходим в перспективу БЕЗ сброса углов и продолжаем
+      // с текущего ракурса; интерфейсу сообщаем, что теперь это 3D.
+      if (this.viewer._enterPerspectiveKeepAngles()) this._notify('iso');
+      // Первый шаг — сразу всё смещение от точки нажатия, чтобы сцена шла за
+      // курсором без «мёртвой зоны» в 4 px.
+      stepX = e.clientX - d.sx;
+      stepY = e.clientY - d.sy;
+    }
+    // Углы меняем так же, как SimpleOrbitControl при вращении.
+    const ctl = this.viewer.controls;
+    ctl.theta -= stepX * 0.006;
+    ctl.phi = Math.min(Math.PI - 0.03, Math.max(0.03, ctl.phi - stepY * 0.006));
+    ctl.update();
+  }
+
+  /** Конец жеста (pointerup/pointercancel): клик или окончание протяжки. */
+  _finish(e, cancelled) {
+    const d = this._drag;
+    if (!d || e.pointerId !== d.id) return;
+    this._drag = null;
+    try {
+      if (this.canvas.hasPointerCapture && this.canvas.hasPointerCapture(e.pointerId)) {
+        this.canvas.releasePointerCapture(e.pointerId);
+      }
+    } catch (err) { /* не критично */ }
+
+    const p = this._local(e);
+    if (!cancelled && !d.rotating) {
+      // Клик без протяжки. Попали в шарик — плоский вид с этой стороны.
+      // Мимо шарика (фон круга, стержень): из плоского вида — назад в 3D; если
+      // уже 3D — ничего не делаем, чтобы случайный клик не сбрасывал ракурс.
+      const hit = this._hitTest(p.x, p.y);
+      const v = this.viewer;
+      if (hit) {
+        v.setView(hit.a.view);
+        this._notify(hit.a.view);
+      } else if (v.isOrtho) {
+        v.setView('iso');
+        this._notify('iso');
+      }
+    }
+
+    // Возвращаем наведение (мышь; шарики уже могли переехать после смены вида)
+    // или сбрасываем его (палец, отмена жеста).
+    if (e.pointerType === 'touch' || cancelled) {
+      this._hover = -1;
+      this._hoverDisc = false;
+      this._setCursor('grab');
+    } else {
+      this._updateHover(p);
     }
   }
 }
