@@ -887,6 +887,184 @@ body.has-modal-drawer .scrim { opacity: 1; pointer-events: auto; }
   }
 }
 
+/* ---------- 6в. ПАНЕЛЬ РЕЖИМОВ 3D-ВИДА (#viewToolbar) --------------------- */
+/* Три иконки-переключателя: прозрачный режим / скрыть фасады / проверка
+   присадки (клики — app.js: toggleXray/toggleHideFacades/toggleDrillCheck).
+   Положение — атрибут data-vt-pos на <html>: bottom-center (по умолчанию),
+   bottom-left, bottom-right, header; ставит ui-shell.js (раздел 3в), до
+   первой отрисовки — скрипт в <head>. Панель всегда строка.
+
+   Чтобы не наезжать на соседей, панель считает «занятые» края сцены через
+   свои переменные (задаются ниже по положению рейки и открытой панели):
+     --vt-l — сколько занято слева (столбик рейки / открытая левая панель);
+     --vt-r — сколько занято справа (открытая панель при рейке справа);
+     --vt-b — отступ снизу (строка рейки слева снизу / лист «Документы»).
+   Открытую панель видно селектором «.drawer.open ~ .view-toolbar»: в
+   разметке #viewToolbar стоит после всех .drawer (index.html). Гизма видов
+   справа снизу учитывается прямо в формулах left/right. */
+.view-toolbar {
+  --vt-l: 0px;
+  --vt-r: 0px;
+  --vt-b: var(--sp-3);
+  --vt-dls: var(--sp-3);          /* левый край левой панели */
+  --vt-dw: var(--drawer-w);        /* ширина открытой левой панели */
+  position: absolute;
+  z-index: 30;                     /* над гизмой (5) и плашками (29), под HUD (32) и панелями (36) */
+  display: flex; align-items: center; gap: 2px;
+  padding: 5px;
+  border-radius: var(--r-lg);
+  background: var(--surface);
+  -webkit-backdrop-filter: var(--blur); backdrop-filter: var(--blur);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-2);
+  /* плавно отъезжает, когда выезжает панель (те же --dur/--ease, что у .drawer) */
+  transition: left var(--dur) var(--ease), right var(--dur) var(--ease),
+              bottom var(--dur) var(--ease), opacity var(--dur-slow) var(--ease);
+}
+.vt-btn {
+  width: 38px; height: 38px; flex: none;
+  display: flex; align-items: center; justify-content: center;
+  padding: 0;
+  border: none; border-radius: var(--r-md);
+  background: transparent; color: var(--text-2);
+  cursor: pointer;
+  transition: background var(--dur) var(--ease), color var(--dur) var(--ease),
+              box-shadow var(--dur) var(--ease);
+}
+.vt-btn svg { width: 22px; height: 22px; pointer-events: none; }
+.vt-btn:hover { background: var(--surface-2); color: var(--text); }
+.vt-btn.active { background: var(--accent-soft); color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+.vt-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.vt-sep { width: 1px; height: 22px; margin: 0 3px; background: var(--border); flex: none; }
+.vt-grip {
+  flex: none;
+  width: 16px; height: 38px;
+  display: flex; align-items: center; justify-content: center;
+  border-radius: var(--r-sm);
+  color: var(--muted);
+  cursor: grab;
+  touch-action: none;
+  -webkit-user-select: none; user-select: none;
+  transition: background var(--dur) var(--ease), color var(--dur) var(--ease);
+}
+.vt-grip svg { width: 14px; height: 14px; pointer-events: none; }
+.vt-grip:hover { background: var(--surface-2); color: var(--text); }
+
+/* «Магниты» мест при перетаскивании — как у рейки (.rail-zone) */
+.vt-zone {
+  position: fixed; z-index: 44; pointer-events: none;
+  border: 2px dashed var(--accent);
+  border-radius: var(--r-lg);
+  background: var(--accent-soft);
+  opacity: 0; visibility: hidden;
+  transition: opacity var(--dur) var(--ease), box-shadow var(--dur) var(--ease),
+              visibility 0s linear var(--dur);
+}
+.vt-zone[data-zone='header-vt'] { border-radius: var(--r-md); }
+body.vt-dragging .vt-zone { opacity: .5; visibility: visible; transition-delay: 0s; }
+body.vt-dragging .vt-zone.is-target {
+  opacity: 1; border-style: solid;
+  box-shadow: 0 0 0 4px var(--accent-soft), 0 10px 28px -10px var(--accent-glow);
+}
+.view-toolbar.vt-floating { position: fixed; z-index: 45; }
+.vt-ghost { flex: none; }
+body.vt-dragging { -webkit-user-select: none; user-select: none; cursor: grabbing; }
+body.vt-dragging .view-toolbar { transition: none; box-shadow: var(--shadow-3); }
+body.vt-dragging .vt-grip { cursor: grabbing; }
+body.vt-moving .view-toolbar { transition: none !important; }
+
+@media not all and (max-width: 820px) {
+  /* --- занятые края --- */
+  [data-rail-pos='left'] .view-toolbar { --vt-l: calc(var(--rail-w) + var(--sp-3)); --vt-dls: calc(var(--rail-w) + var(--sp-3)); }
+  [data-rail-pos='bottom-left'][data-vt-pos='bottom-left'] .view-toolbar {
+    --vt-b: calc(var(--sp-3) + var(--rail-h) + var(--sp-3));   /* над строкой рейки */
+  }
+  #drawer-library.lib-wide.open ~ .view-toolbar { --vt-dw: min(640px, 92vw); }
+  #drawer-library.lib-wide.lib-chars-collapsed.open ~ .view-toolbar { --vt-dw: 420px; }
+  .drawer-left.open ~ .view-toolbar { --vt-l: calc(var(--vt-dls) + var(--vt-dw)); }
+  /* рейка справа сверху — левые панели выезжают справа */
+  [data-rail-pos='top-right'] .drawer-left.open ~ .view-toolbar {
+    --vt-l: 0px; --vt-r: calc(var(--sp-3) + var(--vt-dw));
+  }
+  /* «Документы» — нижний лист во всю ширину: панель режимов над ним */
+  .drawer-bottom.open ~ .view-toolbar { --vt-b: calc(var(--sp-3) + min(62vh, 560px) + var(--sp-3)); }
+  [data-rail-pos='bottom-left'] .drawer-bottom.open ~ .view-toolbar {
+    --vt-b: calc(var(--sp-3) + var(--rail-h) + var(--sp-3) + min(62vh, 560px) + var(--sp-3));
+  }
+
+  /* --- места на сцене --- */
+  /* по центру свободной части сцены, но не заезжая на гизму справа
+     (82px — половина ширины панели) */
+  [data-vt-pos='bottom-center'] .view-toolbar {
+    left: min(calc(var(--vt-l) + (100% - var(--vt-l) - var(--vt-r)) / 2),
+              calc(100% - var(--gizmo-right) - var(--gizmo-size) - var(--sp-3) - 82px));
+    bottom: var(--vt-b);
+    transform: translateX(-50%);
+  }
+  [data-vt-pos='bottom-left'] .view-toolbar {
+    left: calc(var(--vt-l) + var(--sp-3));
+    bottom: var(--vt-b);
+  }
+  [data-vt-pos='bottom-right'] .view-toolbar {
+    right: calc(max(var(--vt-r), var(--gizmo-right) + var(--gizmo-size)) + var(--sp-3));
+    bottom: var(--vt-b);
+  }
+  /* Строка рейки слева снизу (~330px) на узком окне доставала бы до панели
+     по центру — поднимаем панель над ней */
+  @media (max-width: 900px) {
+    [data-rail-pos='bottom-left'][data-vt-pos='bottom-center'] .view-toolbar {
+      --vt-b: calc(var(--sp-3) + var(--rail-h) + var(--sp-3));
+    }
+    [data-rail-pos='bottom-left'] .drawer-bottom.open ~ .view-toolbar {
+      --vt-b: calc(var(--sp-3) + var(--rail-h) + var(--sp-3) + min(62vh, 560px) + var(--sp-3));
+    }
+  }
+
+  /* Плашки предупреждений и гейта доступа (снизу по центру) — над панелью
+     режимов (50px — её высота), а при рейке слева снизу — ещё и над рейкой */
+  [data-vt-pos^='bottom-'] .warnings,
+  [data-vt-pos^='bottom-'] .access-gate {
+    bottom: calc(var(--sp-3) + 50px + var(--sp-3));
+  }
+  [data-rail-pos='bottom-left'][data-vt-pos^='bottom-'] .warnings,
+  [data-rail-pos='bottom-left'][data-vt-pos^='bottom-'] .access-gate {
+    bottom: calc(var(--sp-3) + var(--rail-h) + var(--sp-3) + 50px + var(--sp-3));
+  }
+
+  /* --- в шапке: перед кнопками справа, плоская строка как кнопки шапки --- */
+  [data-vt-pos='header'] .view-toolbar {
+    position: static;
+    flex: none;
+    margin-left: auto;              /* прижимает панель и .header-actions вправо */
+    margin-right: var(--sp-1);
+    padding: 0; gap: 2px;
+    transform: none;
+    border: none; border-radius: 0;
+    background: transparent;
+    -webkit-backdrop-filter: none; backdrop-filter: none;
+    box-shadow: none;
+  }
+  .topbar > .view-toolbar + .header-actions { margin-left: 0; }
+  [data-vt-pos='header'] .vt-btn { width: 36px; height: 36px; border-radius: var(--r-sm); }
+  [data-vt-pos='header'] .vt-btn svg { width: 20px; height: 20px; }
+  [data-vt-pos='header'] .vt-grip { height: 36px; }
+  /* из шапки панель тянут над сценой — возвращаем подложку */
+  [data-vt-pos='header'] .view-toolbar.vt-floating {
+    background: var(--surface-solid);
+    border-radius: var(--r-md);
+    box-shadow: var(--shadow-3), 0 0 0 1px var(--border);
+  }
+  /* И рейка, и панель режимов в шапке: освобождаем место за счёт бейджа
+     версии и надписи логотипа (уже 1000px панель в шапку не ставится —
+     ui-shell.js: effectiveVtPos, VT_HEADER_MIN_W) */
+  @media (max-width: 1100px) {
+    [data-rail-pos^='header-'][data-vt-pos='header'] .brand .ver { display: none; }
+  }
+  @media (max-width: 1040px) {
+    [data-rail-pos^='header-'][data-vt-pos='header'] .brand-name { display: none; }
+  }
+}
+
 .drawer-head {
   flex: none;
   display: flex; align-items: center; gap: var(--sp-2);
@@ -2059,6 +2237,8 @@ body.lib-dragging .drawer-body { touch-action: none; }
 .rail-pos-opt.active { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
 .rail-pos-opt:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .rail-pos-opt svg { width: 28px; height: 20px; flex: none; }
+/* панель режимов 3D — четыре места, сетка 2×2 */
+.vt-pos-seg { grid-template-columns: repeat(2, 1fr); }
 /* на телефоне рейки нет (см. мобильный блок ниже) — настройка ни на что не
    влияет, не показываем её */
 @media (max-width: 820px) { .rail-pos-block { display: none; } }
@@ -2188,6 +2368,7 @@ body.is-focus .rail,
 body.is-focus .drawer,
 body.is-focus .hud,
 body.is-focus .warnings,
+body.is-focus .view-toolbar,
 body.is-focus .mobile-sheet-bar {
   opacity: 0 !important;
   pointer-events: none !important;
@@ -2268,6 +2449,16 @@ body.is-focus .scrim { opacity: 0 !important; }
   }
   .access-gate { bottom: calc(var(--gizmo-bottom) + var(--gizmo-size) + var(--sp-2)); max-width: 92vw; flex-wrap: wrap; }
   .hud { width: 232px; }
+  /* Панель режимов 3D — одно место: слева внизу над шторкой, на одной высоте
+     с гизмой справа; без ручки (перетаскивать некуда, выбор положения в
+     настройках скрыт — .rail-pos-block). Предупреждения — над ней. */
+  .view-toolbar {
+    left: var(--sp-3); right: auto; bottom: var(--gizmo-bottom);
+    transform: none; padding: 4px;
+  }
+  .view-toolbar .vt-grip, .view-toolbar .vt-sep { display: none; }
+  .vt-btn { width: 40px; height: 40px; }
+  .warnings { bottom: calc(var(--gizmo-bottom) + 50px + var(--sp-2)); }
 }
 
 @media (max-width: 480px) {
@@ -2284,7 +2475,7 @@ body.is-focus .scrim { opacity: 0 !important; }
 }
 
 @media print {
-  .topbar, .rail, .view-gizmo, .drawer-head, .tabs, .scrim, .mobile-sheet-bar, .hud, .part-editor-overlay, .confirm-modal-scrim { display: none !important; }
+  .topbar, .rail, .view-toolbar, .view-gizmo, .drawer-head, .tabs, .scrim, .mobile-sheet-bar, .hud, .part-editor-overlay, .confirm-modal-scrim { display: none !important; }
   .stage { overflow: visible; }
   body { overflow: visible; }
 }

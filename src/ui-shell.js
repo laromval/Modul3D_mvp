@@ -1,7 +1,8 @@
 /* =========================================================================
    Modul3D — UI Shell
    Слой интерфейса: темы, выдвижные панели, положение рейки панелей
-   (в шапке / слева / справа сверху / слева снизу), Focus Mode, HUD на модели,
+   (в шапке / слева / справа сверху / слева снизу), положение панели режимов
+   3D-вида (внизу по центру / слева / справа / в шапке), Focus Mode, HUD на модели,
    поиск по параметрам, горячие клавиши, мобильная шторка.
 
    ВАЖНО: файл не трогает параметрическое ядро. Он только:
@@ -160,7 +161,7 @@ function initCurrency() {
     pop.style.display = willOpen ? 'block' : 'none';
     // Панель настроек всегда открывается со свёрнутыми списком валют и
     // горячими клавишами — сама валюта видна и так, в заголовке блока.
-    if (willOpen) { collapseCurrency(); collapseHotkeys(); collapseRailPos(); }
+    if (willOpen) { collapseCurrency(); collapseHotkeys(); collapseRailPos(); collapseVtPos(); }
   });
   pop.addEventListener('click', function (e) { e.stopPropagation(); });
   document.addEventListener('click', function (e) {
@@ -515,17 +516,41 @@ function placeRailDom(rail, pos) {
 
 // Подсветка активного положения в настройках (шестерёнка) — при любом способе
 // смены: клик по кнопке, перетаскивание, двойной клик по ручке.
+// Строка-заголовок свёрнутого блока (#railPosCollapseToggle) — та же схема и
+// подпись, что у выбранной миниатюры (см. syncPosButtons).
 function syncRailPosButtons() {
-  var btns = document.querySelectorAll('[data-rail-set]');
+  syncPosButtons('data-rail-set', railPos, 'railPosCollapseLabel', 'railPosCurrentIcon');
+}
+
+// Сворачивание блока «Положение панели» в шестерёнке — по образцу валюты
+// (initCurrency: collapseCurrency/expandCurrency). Свёрнут при каждом
+// открытии настроек и после выбора миниатюры.
+// Общая для двух блоков «Положение …» (рейка и панель режимов 3D, см. 3в):
+// сетка миниатюр segId и строка-заголовок toggleId.
+function setPosSegExpanded(segId, toggleId, open) {
+  var seg = document.getElementById(segId);
+  var t = document.getElementById(toggleId);
+  var arrow = t ? t.querySelector('.currency-collapse-arrow') : null;
+  if (seg) seg.style.display = open ? 'grid' : 'none';
+  if (t) t.setAttribute('aria-expanded', open ? 'true' : 'false');
+  if (arrow) arrow.textContent = open ? '▴' : '▾';
+}
+function setRailPosExpanded(open) { setPosSegExpanded('railPosSeg', 'railPosCollapseToggle', open); }
+function collapseRailPos() { setRailPosExpanded(false); }
+function expandRailPos() { setRailPosExpanded(true); }
+
+// Подсветка выбранной миниатюры в блоке «Положение …» и копия её схемы и
+// подписи в строку-заголовок свёрнутого блока. attr — data-атрибут миниатюр
+// (data-rail-set / data-vt-set), value — выбранное положение.
+function syncPosButtons(attr, value, labelId, iconId) {
+  var btns = document.querySelectorAll('[' + attr + ']');
   for (var i = 0; i < btns.length; i++) {
-    var on = btns[i].getAttribute('data-rail-set') === railPos;
+    var on = btns[i].getAttribute(attr) === value;
     btns[i].classList.toggle('active', on);
     btns[i].setAttribute('aria-checked', on ? 'true' : 'false');
-    // Строка-заголовок свёрнутого блока (#railPosCollapseToggle) — та же
-    // схема и подпись, что у выбранной миниатюры
     if (on) {
-      var lbl = document.getElementById('railPosCollapseLabel');
-      var icon = document.getElementById('railPosCurrentIcon');
+      var lbl = document.getElementById(labelId);
+      var icon = document.getElementById(iconId);
       var txt = btns[i].querySelector('span');
       var svg = btns[i].querySelector('svg');
       if (lbl && txt) lbl.textContent = txt.textContent;
@@ -533,20 +558,6 @@ function syncRailPosButtons() {
     }
   }
 }
-
-// Сворачивание блока «Положение панели» в шестерёнке — по образцу валюты
-// (initCurrency: collapseCurrency/expandCurrency). Свёрнут при каждом
-// открытии настроек и после выбора миниатюры.
-function setRailPosExpanded(open) {
-  var seg = document.getElementById('railPosSeg');
-  var t = document.getElementById('railPosCollapseToggle');
-  var arrow = t ? t.querySelector('.currency-collapse-arrow') : null;
-  if (seg) seg.style.display = open ? 'grid' : 'none';
-  if (t) t.setAttribute('aria-expanded', open ? 'true' : 'false');
-  if (arrow) arrow.textContent = open ? '▴' : '▾';
-}
-function collapseRailPos() { setRailPosExpanded(false); }
-function expandRailPos() { setRailPosExpanded(true); }
 
 // Плавный перелёт рейки из прежнего места на новое (приём FLIP): положение уже
 // поменял CSS, здесь только «отматываем» рейку на старое место через transform
@@ -556,22 +567,29 @@ function expandRailPos() { setRailPosExpanded(true); }
 //   fade — рейка сменила контейнер (шапка ↔ сцена): сцена обрезает всё, что
 //   за её краем (overflow: clip), и кусок пути над шапкой не был бы виден —
 //   поэтому такой перелёт ещё и проявляется из прозрачности, без «рывка».
-function flyRail(rail, first, fade) {
-  if (!rail.animate || prefersReducedMotion()) return;
-  var last = rail.getBoundingClientRect();
+// Сам FLIP — общий для рейки и панели режимов 3D (раздел 3в). Возвращает
+// запущенную анимацию или null (нечего анимировать / без анимаций).
+function flipFrom(el, first, fade) {
+  if (!el.animate || prefersReducedMotion()) return null;
+  var last = el.getBoundingClientRect();
   var dx = (first.left + first.width / 2) - (last.left + last.width / 2);
   var dy = (first.top + first.height / 2) - (last.top + last.height / 2);
-  if (Math.abs(dx) < 1 && Math.abs(dy) < 1) return;
+  if (Math.abs(dx) < 1 && Math.abs(dy) < 1) return null;
   // WAAPI подменяет transform целиком, а у рейки слева он свой (translateY(-50%)
   // — центровка по высоте), поэтому «до» и «после» строим от него
-  var base = getComputedStyle(rail).transform;
+  var base = getComputedStyle(el).transform;
   if (!base || base === 'none') base = '';
   var from = { transform: 'translate(' + dx + 'px, ' + dy + 'px) ' + base };
   var to = { transform: base || 'none' };
-  // проявление — до обычной прозрачности рейки в новом месте (на сцене в
-  // покое она бледнее), иначе в конце анимации был бы рывок
-  if (fade) { from.opacity = 0; to.opacity = getComputedStyle(rail).opacity; }
-  var a = rail.animate([from, to], { duration: RAIL_FLY_MS, easing: RAIL_EASE });
+  // проявление — до обычной прозрачности элемента в новом месте (на сцене в
+  // покое рейка бледнее), иначе в конце анимации был бы рывок
+  if (fade) { from.opacity = 0; to.opacity = getComputedStyle(el).opacity; }
+  return el.animate([from, to], { duration: RAIL_FLY_MS, easing: RAIL_EASE });
+}
+
+function flyRail(rail, first, fade) {
+  var a = flipFrom(rail, first, fade);
+  if (!a) return;
   railAnim = a;
   a.onfinish = a.oncancel = function () { if (railAnim === a) railAnim = null; };
 }
@@ -644,6 +662,9 @@ function setRailPos(pos, opts) {
   var fade = !opts.fromDrag && isHeaderRailPos(prev) !== isHeaderRailPos(pos);
   if (first && rail && rail.offsetWidth) flyRail(rail, first, fade);
   if (changed && first) replayOpenDrawer();
+  // Рейка ушла в шапку / из шапки — у панели режимов 3D могло поменяться,
+  // помещается ли она в шапку (см. effectiveVtPos)
+  if (changed) applyVtPlacement({ animate: true });
 }
 
 // «Якоря» — прямоугольники (в координатах окна), где рейка стояла бы в
@@ -911,6 +932,319 @@ function initRailPosition() {
 }
 
 /* ---------------------------------------------------------------------------
+   3в. Панель режимов 3D-вида (#viewToolbar): прозрачный режим / скрыть
+   фасады / проверка присадки. Сами переключатели — в app.js (toggleXray и
+   др.); здесь только ГДЕ стоит панель. Подход тот же, что у рейки (3б):
+   атрибут data-vt-pos на <html> (bottom-center — по умолчанию, bottom-left,
+   bottom-right, header), вся раскладка — в CSS (style.css, раздел 6в);
+   перенос в DOM (шапка ↔ сцена), перелёт FLIP (flipFrom), перетаскивание за
+   ручку #viewToolbarGrip с прилипанием к ближайшему месту, выбор в
+   настройках (сворачиваемый блок #vtPosSeg), запоминание в localStorage.
+   Отличие от рейки: выбор пользователя (vtPos) и место на экране
+   (effectiveVtPos) могут расходиться — «в шапке» на узком окне не
+   помещается, и панель временно встаёт внизу по центру, а выбор остаётся.
+--------------------------------------------------------------------------- */
+// Тот же ключ, значения и правило ширины читает скрипт в <head> index.html
+var VT_POS_KEY = 'modul3d.viewToolbarPos';
+var VT_POSITIONS = ['bottom-center', 'bottom-left', 'bottom-right', 'header'];
+var VT_POS_DEFAULT = 'bottom-center';
+// До этой ширины окна при рейке в шапке панели режимов места в шапке нет
+// (рейка ~270px + логотип + кнопки справа ~385px + панель ~140px)
+var VT_HEADER_MIN_W = 1000;
+var vtPos = VT_POS_DEFAULT;   // выбор пользователя
+var vtAnim = null;            // идущий перелёт панели
+var vtGhost = null;           // пустышка в шапке, пока панель из шапки тянут
+
+function normalizeVtPos(v) {
+  return VT_POSITIONS.indexOf(v) >= 0 ? v : VT_POS_DEFAULT;
+}
+function loadVtPos() {
+  var saved = null;
+  try { saved = localStorage.getItem(VT_POS_KEY); } catch (e) { /* нет доступа */ }
+  return normalizeVtPos(saved);
+}
+function saveVtPos(pos) {
+  try { localStorage.setItem(VT_POS_KEY, pos); } catch (e) { /* приватный режим */ }
+}
+
+// Где панель стоит на самом деле при выборе pos
+function effectiveVtPos(pos) {
+  if (pos !== 'header') return pos;
+  var w = document.documentElement.clientWidth || window.innerWidth;
+  if (w <= 820 || (isHeaderRailPos(railPos) && w <= VT_HEADER_MIN_W)) return VT_POS_DEFAULT;
+  return pos;
+}
+
+// header — в шапку прямо перед кнопками справа (.header-actions); остальные —
+// на сцену, перед HUD: обязательно ПОСЛЕ всех .drawer (CSS отодвигает панель
+// от открытой выдвижной панели селектором «.drawer.open ~ .view-toolbar»).
+// Тот же перенос до первой отрисовки делает скрипт после #viewToolbar в index.html.
+function placeVtDom(tb, pos) {
+  if (!tb) return;
+  if (pos === 'header') {
+    var bar = document.getElementById('topbar');
+    var act = bar && bar.querySelector('.header-actions');
+    if (!act || (tb.parentNode === bar && tb.nextElementSibling === act)) return;
+    bar.insertBefore(tb, act);
+  } else {
+    var stage = document.getElementById('stage');
+    if (!stage || tb.parentNode === stage) return;
+    var hud = document.getElementById('partHud');
+    if (hud && hud.parentNode === stage) stage.insertBefore(tb, hud);
+    else stage.appendChild(tb);
+  }
+}
+
+function syncVtPosButtons() {
+  syncPosButtons('data-vt-set', vtPos, 'vtPosCollapseLabel', 'vtPosCurrentIcon');
+}
+function collapseVtPos() { setPosSegExpanded('vtPosSeg', 'vtPosCollapseToggle', false); }
+function expandVtPos() { setPosSegExpanded('vtPosSeg', 'vtPosCollapseToggle', true); }
+
+// Ставит панель туда, где она должна быть сейчас (effectiveVtPos(vtPos)).
+//   opts.animate  — перелёт со старого места (FLIP);
+//   opts.fromDrag — панель «в руках» (висит в <body>, .vt-floating, inline-
+//                   координаты): снять и вернуть в контейнер даже при том же месте.
+function applyVtPlacement(opts) {
+  opts = opts || {};
+  var tb = document.getElementById('viewToolbar');
+  var root = document.documentElement;
+  var prev = root.getAttribute('data-vt-pos');
+  var eff = effectiveVtPos(vtPos);
+  if (eff === prev && !opts.fromDrag && (!tb || tb.parentNode === (eff === 'header'
+      ? document.getElementById('topbar') : document.getElementById('stage')))) return;
+
+  var first = (opts.animate && tb && tb.offsetWidth) ? tb.getBoundingClientRect() : null;
+  if (vtAnim) { vtAnim.cancel(); vtAnim = null; }
+  if (tb) {
+    tb.style.left = ''; tb.style.top = '';
+    tb.style.right = ''; tb.style.bottom = '';
+    tb.style.transform = '';
+    tb.classList.remove('vt-floating');
+  }
+  if (vtGhost) { if (vtGhost.parentNode) vtGhost.parentNode.removeChild(vtGhost); vtGhost = null; }
+  document.body.classList.remove('vt-dragging');
+
+  // без переходов left/bottom (см. .view-toolbar в style.css) — иначе панель
+  // «доезжала» бы сама поверх перелёта
+  document.body.classList.add('vt-moving');
+  placeVtDom(tb, eff);
+  root.setAttribute('data-vt-pos', eff);
+  void root.offsetWidth;
+  document.body.classList.remove('vt-moving');
+
+  if (hudModule) placeHud();
+  if (first && tb && tb.offsetWidth) {
+    var fade = !opts.fromDrag && ((prev === 'header') !== (eff === 'header'));
+    var a = flipFrom(tb, first, fade);
+    if (a) {
+      vtAnim = a;
+      a.onfinish = a.oncancel = function () { if (vtAnim === a) vtAnim = null; };
+    }
+  }
+}
+
+// Единая точка смены выбора: настройки, конец перетаскивания, двойной клик
+function setVtPos(pos, opts) {
+  opts = opts || {};
+  pos = normalizeVtPos(pos);
+  if (pos !== vtPos) { vtPos = pos; saveVtPos(pos); }
+  applyVtPlacement({ animate: true, fromDrag: !!opts.fromDrag });
+  syncVtPosButtons();
+}
+
+function initViewToolbarPosition() {
+  var tb = document.getElementById('viewToolbar');
+  var grip = document.getElementById('viewToolbarGrip');
+  var root = document.documentElement;
+
+  vtPos = loadVtPos();
+  var eff0 = effectiveVtPos(vtPos);
+  root.setAttribute('data-vt-pos', eff0);
+  placeVtDom(tb, eff0);
+  syncVtPosButtons();
+
+  var seg = document.getElementById('vtPosSeg');
+  if (seg) seg.addEventListener('click', function (e) {
+    var b = e.target.closest && e.target.closest('[data-vt-set]');
+    if (!b) return;
+    setVtPos(b.getAttribute('data-vt-set'));
+    collapseVtPos();
+    var t = document.getElementById('vtPosCollapseToggle');
+    if (t) t.focus();
+  });
+  var toggle = document.getElementById('vtPosCollapseToggle');
+  if (toggle) toggle.addEventListener('click', function () {
+    if (toggle.getAttribute('aria-expanded') === 'true') collapseVtPos();
+    else expandVtPos();
+  });
+
+  var drag = null;     // { id, from, active, sx, sy, offX, offY, w, h, anchors, target }
+
+  // Узкое окно — «в шапке» временно внизу по центру, и обратно
+  window.addEventListener('resize', function () { if (!drag) applyVtPlacement(); });
+
+  if (!tb || !grip) return;
+
+  var dragEndedAt = 0;
+  var zones = null;
+
+  function ensureZones() {
+    if (zones) return zones;
+    zones = {};
+    VT_POSITIONS.forEach(function (p) {
+      var z = document.createElement('div');
+      z.className = 'vt-zone';
+      z.setAttribute('data-zone', p === 'header' ? 'header-vt' : p);
+      z.setAttribute('aria-hidden', 'true');
+      document.body.appendChild(z);
+      zones[p] = z;
+    });
+    return zones;
+  }
+  function markTarget() {
+    VT_POSITIONS.forEach(function (p) { zones[p].classList.toggle('is-target', p === drag.target); });
+  }
+
+  // Якоря — прямоугольники панели во всех доступных местах, в координатах
+  // окна. Мерим честно: ставим панель на каждое место в одном кадре (без
+  // отрисовки и переходов — body.vt-moving) и берём её прямоугольник. Так
+  // учтены и отступы от рейки/гизмы/открытых панелей из CSS (раздел 6в).
+  // После замера панель возвращается ровно туда, где стояла.
+  function measureAnchors() {
+    var cur = root.getAttribute('data-vt-pos');
+    var home = tb.parentNode, homeNext = tb.nextSibling;
+    var out = {};
+    document.body.classList.add('vt-moving');
+    VT_POSITIONS.forEach(function (p) {
+      if (p === 'header' && effectiveVtPos('header') !== 'header') return; // шапке не хватает места
+      placeVtDom(tb, p);
+      root.setAttribute('data-vt-pos', p);
+      var r = tb.getBoundingClientRect();
+      out[p] = { x: r.left, y: r.top, w: r.width, h: r.height };
+    });
+    if (home) home.insertBefore(tb, homeNext);
+    root.setAttribute('data-vt-pos', cur);
+    void root.offsetWidth;
+    document.body.classList.remove('vt-moving');
+    return out;
+  }
+
+  function onKey(e) {
+    if (e.key !== 'Escape') return;
+    e.stopPropagation();
+    e.preventDefault();
+    finish(false);
+  }
+  function blockSelect(e) { e.preventDefault(); }
+
+  function begin() {
+    var r0 = tb.getBoundingClientRect();
+    if (vtAnim) { vtAnim.cancel(); vtAnim = null; }
+    drag.active = true;
+    drag.target = drag.from;
+    // Якоря — ДО пустышки: иначе контур «в шапке» сдвинулся бы на её ширину
+    drag.anchors = measureAnchors();
+
+    // Взяли из шапки — на её месте пустышка того же размера, чтобы кнопки
+    // шапки не прыгали, пока панель несут
+    if (tb.parentNode && tb.parentNode.id === 'topbar') {
+      vtGhost = document.createElement('div');
+      vtGhost.className = 'vt-ghost';
+      vtGhost.style.width = r0.width + 'px';
+      vtGhost.style.height = r0.height + 'px';
+      tb.parentNode.insertBefore(vtGhost, tb);
+    }
+
+    document.body.classList.add('vt-dragging');
+    tb.classList.add('vt-floating');
+    document.body.appendChild(tb);
+    tb.style.left = r0.left + 'px';
+    tb.style.top = r0.top + 'px';
+    tb.style.right = 'auto';
+    tb.style.bottom = 'auto';
+    tb.style.transform = 'none';
+    drag.w = tb.offsetWidth; drag.h = tb.offsetHeight;
+
+    var z = ensureZones();
+    VT_POSITIONS.forEach(function (p) {
+      var a = drag.anchors[p];
+      z[p].style.display = a ? '' : 'none';
+      if (!a) return;
+      z[p].style.left = a.x + 'px'; z[p].style.top = a.y + 'px';
+      z[p].style.width = a.w + 'px'; z[p].style.height = a.h + 'px';
+    });
+    markTarget();
+    document.addEventListener('keydown', onKey, true);
+    document.addEventListener('selectstart', blockSelect, true);
+  }
+
+  function move(e) {
+    var vw = root.clientWidth, vh = root.clientHeight;
+    var left = Math.max(0, Math.min(e.clientX - drag.offX, vw - drag.w));
+    var top = Math.max(0, Math.min(e.clientY - drag.offY, vh - drag.h));
+    tb.style.left = left + 'px';
+    tb.style.top = top + 'px';
+    var target = nearestRailPos(left + drag.w / 2, top + drag.h / 2, drag.anchors, drag.from);
+    if (target !== drag.target) { drag.target = target; markTarget(); }
+  }
+
+  function onMove(e) {
+    if (!drag || e.pointerId !== drag.id) return;
+    if (e.pointerType === 'mouse' && e.buttons === 0) { finish(drag.active); return; }
+    if (!drag.active) {
+      if (Math.abs(e.clientX - drag.sx) + Math.abs(e.clientY - drag.sy) < RAIL_DRAG_THRESHOLD) return;
+      begin();
+    }
+    e.preventDefault();
+    move(e);
+  }
+  function onUp(e) { if (drag && e.pointerId === drag.id) finish(true); }
+  function onCancel(e) { if (drag && e.pointerId === drag.id) finish(false); }
+
+  function finish(commit) {
+    if (!drag) return;
+    var d = drag;
+    drag = null;
+    document.removeEventListener('pointermove', onMove, true);
+    document.removeEventListener('pointerup', onUp, true);
+    document.removeEventListener('pointercancel', onCancel, true);
+    document.removeEventListener('keydown', onKey, true);
+    document.removeEventListener('selectstart', blockSelect, true);
+    if (!d.active) return;
+    dragEndedAt = Date.now();
+    // Отмена — вернуться к прежнему ВЫБОРУ (он мог быть «в шапке», хотя
+    // стояла панель внизу по центру из-за узкого окна)
+    setVtPos(commit ? d.target : vtPos, { fromDrag: true });
+  }
+
+  grip.addEventListener('pointerdown', function (e) {
+    if (e.button !== 0) return;
+    if (drag) {
+      if (drag.id !== e.pointerId) return;
+      finish(false);
+    }
+    if (!tb.offsetWidth || !grip.offsetWidth) return;   // мобильная раскладка — ручки нет
+    var r0 = tb.getBoundingClientRect();
+    drag = {
+      id: e.pointerId, from: root.getAttribute('data-vt-pos') || VT_POS_DEFAULT, active: false,
+      sx: e.clientX, sy: e.clientY,
+      offX: e.clientX - r0.left, offY: e.clientY - r0.top
+    };
+    e.preventDefault();
+    document.addEventListener('pointermove', onMove, true);
+    document.addEventListener('pointerup', onUp, true);
+    document.addEventListener('pointercancel', onCancel, true);
+  });
+  window.addEventListener('blur', function () { finish(false); });
+  // Двойной клик по ручке — вернуть панель на место по умолчанию (внизу по центру)
+  grip.addEventListener('dblclick', function () {
+    if (Date.now() - dragEndedAt < 500) return;
+    setVtPos(VT_POS_DEFAULT);
+  });
+}
+
+/* ---------------------------------------------------------------------------
    4. Focus Mode — при работе с моделью интерфейс растворяется
 --------------------------------------------------------------------------- */
 function initFocusMode() {
@@ -1077,6 +1411,18 @@ function placeHud() {
     if (x < rrt + gap && x + w > rl - gap && y < rb + gap && y + h > rt - gap) {
       y = railPos === 'top-right' ? rb + gap : rt - gap - h;
       y = Math.max(gap, Math.min(y, r.height - h - gap));
+    }
+  }
+  // Панель режимов 3D внизу сцены (раздел 3в) лежит НИЖЕ HUD по z-index
+  // (30 против 32): HUD у нижнего края закрыл бы её иконки — поднимаем HUD
+  // над панелью.
+  var tb = document.getElementById('viewToolbar');
+  if (tb && tb.offsetWidth && tb.parentNode && tb.parentNode.id === 'stage') {
+    var tr = tb.getBoundingClientRect();
+    var g2 = 8;
+    var tl = tr.left - r.left, tt = tr.top - r.top, trr = tr.right - r.left, tbm = tr.bottom - r.top;
+    if (x < trr + g2 && x + w > tl - g2 && y < tbm + g2 && y + h > tt - g2) {
+      y = Math.max(g2, tt - g2 - h);
     }
   }
   box.style.left = x + 'px';
@@ -1316,6 +1662,7 @@ function start() {
   initCurrency();
   initDrawers();
   initRailPosition();
+  initViewToolbarPosition();
   watchResults();
   initFocusMode();
   initHud();
@@ -1339,6 +1686,10 @@ window.Modul3D.uiShell = {
   openDrawer: openDrawer,
   closeDrawer: closeDrawer,
   setRailPos: setRailPos,
-  getRailPos: function () { return railPos; }
+  getRailPos: function () { return railPos; },
+  // Панель режимов 3D: выбор пользователя и где она стоит на самом деле
+  setViewToolbarPos: setVtPos,
+  getViewToolbarPos: function () { return vtPos; },
+  getViewToolbarPlacement: function () { return document.documentElement.getAttribute('data-vt-pos'); }
 };
 })();

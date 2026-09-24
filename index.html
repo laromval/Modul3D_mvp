@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="ru" data-theme="light" data-rail-pos="header-end">
+<html lang="ru" data-theme="light" data-rail-pos="header-end" data-vt-pos="bottom-center">
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
@@ -7,7 +7,7 @@
 <title>Modul3D — параметрический конструктор корпусной мебели</title>
 
 <link rel="icon" type="image/svg+xml" href="favicon.svg" />
-<link rel="stylesheet" href="style.css?v309" />
+<link rel="stylesheet" href="style.css?v310" />
 
 <!-- Положение рейки панелей (data-rail-pos на <html>: left | header-start |
      header-end | top-right | bottom-left; по умолчанию header-end — в шапке
@@ -28,8 +28,27 @@
   } catch (e) { /* приватный режим — остаётся header-end из разметки */ }
 })();
 </script>
+<!-- Положение панели режимов 3D-вида (#viewToolbar; data-vt-pos на <html>:
+     bottom-center — по умолчанию | bottom-left | bottom-right | header) —
+     так же рано, как и рейка. Ключ, значения и правило «в шапке не
+     помещается — внизу по центру» дублируют ui-shell.js (VT_POS_KEY,
+     VT_POSITIONS, effectiveVtPos) — менять вместе. -->
+<script>
+(function () {
+  try {
+    var p = localStorage.getItem('modul3d.viewToolbarPos');
+    if (p !== 'bottom-center' && p !== 'bottom-left' && p !== 'bottom-right' && p !== 'header') return;
+    if (p === 'header') {
+      var w = document.documentElement.clientWidth || window.innerWidth;
+      var rp = document.documentElement.getAttribute('data-rail-pos') || '';
+      if (w <= 820 || (rp.indexOf('header-') === 0 && w <= 1000)) p = 'bottom-center';
+    }
+    document.documentElement.setAttribute('data-vt-pos', p);
+  } catch (e) { /* приватный режим — остаётся bottom-center из разметки */ }
+})();
+</script>
 
-<script src="src/errorBanner.js?v309"></script>
+<script src="src/errorBanner.js?v310"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <!-- Paddle.js — оверлей оплаты подписки (см. app.js: requestCheckout/initPaddle).
      Обычный скрипт без defer, как остальные CDN-подключения выше. -->
@@ -123,7 +142,7 @@
              (схема + название копируются из активной миниатюры, см.
              ui-shell.js: syncRailPosButtons), сетка #railPosSeg — под ней. -->
         <div class="settings-block rail-pos-block">
-          <div class="settings-row-label rail-pos-label" id="railPosLabel">Положение панели</div>
+          <div class="settings-row-label rail-pos-label" id="railPosLabel">Положение панели разделов</div>
           <button type="button" class="currency-collapse-toggle rail-pos-collapse-toggle" id="railPosCollapseToggle"
                   aria-expanded="false" aria-controls="railPosSeg" aria-labelledby="railPosLabel railPosCollapseLabel">
             <span class="rail-pos-current">
@@ -171,6 +190,56 @@
                 <rect x="4" y="13" width="9" height="3" rx="1.2" fill="currentColor" stroke="none"/>
               </svg>
               <span>Слева снизу</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Положение панели режимов 3D-вида (#viewToolbar: прозрачный режим /
+             скрыть фасады / проверка присадки) — тот же сворачиваемый блок,
+             что у рейки выше (те же классы .rail-pos-*), сетка 2×2. См.
+             ui-shell.js: initViewToolbarPosition / syncVtPosButtons. На
+             мобильном скрыт (.vt-pos-block): там у панели одно место. -->
+        <div class="settings-block rail-pos-block vt-pos-block">
+          <div class="settings-row-label rail-pos-label" id="vtPosLabel">Положение панели режимов 3D</div>
+          <button type="button" class="currency-collapse-toggle rail-pos-collapse-toggle" id="vtPosCollapseToggle"
+                  aria-expanded="false" aria-controls="vtPosSeg" aria-labelledby="vtPosLabel vtPosCollapseLabel">
+            <span class="rail-pos-current">
+              <span class="rail-pos-current-icon" id="vtPosCurrentIcon" aria-hidden="true"></span>
+              <span id="vtPosCollapseLabel">Внизу по центру</span>
+            </span>
+            <span class="currency-collapse-arrow" aria-hidden="true">▾</span>
+          </button>
+          <div class="rail-pos-seg vt-pos-seg" id="vtPosSeg" role="radiogroup" aria-labelledby="vtPosLabel" style="display:none">
+            <button type="button" class="rail-pos-opt" data-vt-set="bottom-center" role="radio" aria-checked="true" aria-label="Панель режимов внизу по центру">
+              <svg viewBox="0 0 28 20" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true">
+                <rect x="1" y="1" width="26" height="18" rx="2.5" opacity=".55"/>
+                <rect x="9.5" y="13" width="9" height="3" rx="1.2" fill="currentColor" stroke="none"/>
+              </svg>
+              <span>Внизу по центру</span>
+            </button>
+            <button type="button" class="rail-pos-opt" data-vt-set="header" role="radio" aria-checked="false" aria-label="Панель режимов в шапке">
+              <svg viewBox="0 0 28 20" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true">
+                <rect x="1" y="1" width="26" height="18" rx="2.5" opacity=".55"/>
+                <path d="M1.7 7h24.6" opacity=".55"/>
+                <rect x="3.5" y="2.8" width="2.6" height="2.6" rx=".6" fill="currentColor" stroke="none" opacity=".5"/>
+                <rect x="14" y="2.8" width="8" height="2.6" rx="1.1" fill="currentColor" stroke="none"/>
+              </svg>
+              <span>В шапке</span>
+            </button>
+            <button type="button" class="rail-pos-opt" data-vt-set="bottom-left" role="radio" aria-checked="false" aria-label="Панель режимов внизу слева">
+              <svg viewBox="0 0 28 20" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true">
+                <rect x="1" y="1" width="26" height="18" rx="2.5" opacity=".55"/>
+                <rect x="4" y="13" width="9" height="3" rx="1.2" fill="currentColor" stroke="none"/>
+              </svg>
+              <span>Внизу слева</span>
+            </button>
+            <button type="button" class="rail-pos-opt" data-vt-set="bottom-right" role="radio" aria-checked="false" aria-label="Панель режимов внизу справа">
+              <svg viewBox="0 0 28 20" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true">
+                <rect x="1" y="1" width="26" height="18" rx="2.5" opacity=".55"/>
+                <rect x="11" y="13" width="9" height="3" rx="1.2" fill="currentColor" stroke="none"/>
+                <circle cx="23" cy="14.5" r="2" opacity=".5"/>
+              </svg>
+              <span>Внизу справа</span>
             </button>
           </div>
         </div>
@@ -471,7 +540,12 @@
     </div>
     <div class="drawer-body">
       <h3 class="drawer-section">Отображение</h3>
+      <!-- Те же три режима — иконками на плавающей панели #viewToolbar (на
+           сцене); переключение общее, см. app.js: toggleXray /
+           toggleHideFacades / toggleDrillCheck. -->
       <div class="studio-list">
+        <button id="xrayBtn" class="btn" type="button"
+                title="Все детали полупрозрачные — видно, что внутри">Прозрачный режим</button>
         <button id="hideFacadesBtn" class="btn" type="button">Скрыть фасады</button>
         <button id="drillCheckBtn" class="btn" type="button"
                 title="Полупрозрачный корпус, присадка подсвечена по назначению">Проверка присадки</button>
@@ -536,6 +610,64 @@
       </div>
     </div>
   </section>
+
+  <!-- ---------- Панель режимов 3D-вида ----------
+       Три независимых переключателя (любые сочетания): прозрачный режим,
+       скрыть фасады, проверка присадки. Клики — app.js (toggleXray /
+       toggleHideFacades / toggleDrillCheck, та же логика, что у кнопок
+       «Студии»); положение — ui-shell.js: initViewToolbarPosition
+       (data-vt-pos на <html>, перетаскивание за #viewToolbarGrip).
+       Стоит ПОСЛЕ всех .drawer намеренно: стили отодвигают панель от
+       открытой выдвижной панели через селектор «.drawer.open ~ .view-toolbar»
+       (style.css, раздел 6в). В положении «в шапке» переносится в #topbar
+       перед .header-actions (скрипт ниже и ui-shell.js: placeVtDom). -->
+  <div class="view-toolbar" id="viewToolbar" role="toolbar" aria-label="Режимы 3D-вида">
+    <div class="vt-grip" id="viewToolbarGrip" title="Перетащить панель режимов (двойной клик — вернуть вниз по центру)" aria-hidden="true">
+      <svg viewBox="0 0 24 24" fill="currentColor" stroke="none">
+        <circle cx="9" cy="6" r="1.6"/><circle cx="15" cy="6" r="1.6"/>
+        <circle cx="9" cy="12" r="1.6"/><circle cx="15" cy="12" r="1.6"/>
+        <circle cx="9" cy="18" r="1.6"/><circle cx="15" cy="18" r="1.6"/>
+      </svg>
+    </div>
+    <span class="vt-sep" aria-hidden="true"></span>
+    <button type="button" class="vt-btn" id="vtXrayBtn" data-view-mode="xray"
+            title="Прозрачный режим" aria-label="Прозрачный режим" aria-pressed="false">
+      <!-- каркас шкафа: видимые рёбра сплошные, невидимые (задние) — пунктиром -->
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M4 8h11v12H4z"/><path d="M4 8l5-5h11l-5 5"/><path d="M20 3v12l-5 5"/>
+        <path d="M9 3v12h11M9 15l-5 5" stroke-dasharray="1.4 2.2"/>
+      </svg>
+    </button>
+    <button type="button" class="vt-btn" id="vtHideFacadesBtn" data-view-mode="hideFacades"
+            title="Скрыть фасады" aria-label="Скрыть фасады" aria-pressed="false">
+      <!-- корпус с полками + перечёркнутый кружок с дверкой -->
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="2" y="3" width="9" height="18" rx="1.2"/><path d="M2 9h9M2 15h9"/>
+        <circle cx="17" cy="16" r="5.5"/>
+        <rect x="15" y="13" width="4" height="6" rx=".6"/>
+        <path d="M13.1 12.1l7.8 7.8"/>
+      </svg>
+    </button>
+    <button type="button" class="vt-btn" id="vtDrillCheckBtn" data-view-mode="drillCheck"
+            title="Проверка присадки" aria-label="Проверка присадки" aria-pressed="false">
+      <!-- лупа над чашкой петли + галочка -->
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="10" cy="10.5" r="6.3"/><path d="M14.7 15.2l5.6 5.6" stroke-width="2.2"/>
+        <circle cx="10" cy="10.5" r="2.6"/>
+        <path d="M16.6 5.3l1.7 1.7 3.4-3.6"/>
+      </svg>
+    </button>
+  </div>
+  <!-- «В шапке» — переносим сразу, до первой отрисовки (как рейку выше). -->
+  <script>
+  (function () {
+    if (document.documentElement.getAttribute('data-vt-pos') !== 'header') return;
+    var tb = document.getElementById('viewToolbar');
+    var bar = document.getElementById('topbar');
+    var act = bar && bar.querySelector('.header-actions');
+    if (tb && act) bar.insertBefore(tb, act);
+  })();
+  </script>
 
   <!-- ---------- HUD: контекстное меню прямо на детали ---------- -->
   <div class="hud" id="partHud" aria-hidden="true"></div>
@@ -617,19 +749,19 @@
 
 </main>
 
-<script src="src/catalog.js?v309"></script>
-<script src="src/presets.js?v309"></script>
-<script src="src/engine.js?v309"></script>
-<script src="src/specification.js?v309"></script>
-<script src="src/legMeshes.js?v309"></script>
-<script src="src/csg.js?v309"></script>
-<script src="src/viewer.js?v309"></script>
-<script src="src/ui-shell.js?v309"></script>
-<script src="src/drawings.js?v309"></script>
-<script src="src/export.js?v309"></script>
-<script src="src/cnc.js?v309"></script>
-<script src="src/sketchAI.js?v309"></script>
-<script src="src/app.js?v309"></script>
+<script src="src/catalog.js?v310"></script>
+<script src="src/presets.js?v310"></script>
+<script src="src/engine.js?v310"></script>
+<script src="src/specification.js?v310"></script>
+<script src="src/legMeshes.js?v310"></script>
+<script src="src/csg.js?v310"></script>
+<script src="src/viewer.js?v310"></script>
+<script src="src/ui-shell.js?v310"></script>
+<script src="src/drawings.js?v310"></script>
+<script src="src/export.js?v310"></script>
+<script src="src/cnc.js?v310"></script>
+<script src="src/sketchAI.js?v310"></script>
+<script src="src/app.js?v310"></script>
 <script>if (window.Modul3D && window.Modul3D.uiShell) window.Modul3D.uiShell.start();</script>
 </body>
 </html>

@@ -14,7 +14,7 @@
 (function () {
 // Версия сборки — показывается во вкладке браузера и в шапке.
 // При выпуске новой версии меняется только эта строка.
-const APP_VERSION = 'v309';
+const APP_VERSION = 'v310';
 
 // Номер версии выводим ПЕРВЫМ делом: если дальше что-то упадёт, по нему сразу
 // видно, какая сборка открыта.
@@ -134,6 +134,11 @@ const state = {
   hideFacades: false,
   // Режим проверки присадки: корпус прозрачный, отверстия подсвечены
   drillCheck: false,
+  // «Прозрачный режим»: все детали полупрозрачные (viewer.js, opts.xray).
+  // Три режима вида — xray / hideFacades / drillCheck — независимы и
+  // совмещаются; переключаются только через toggleXray/toggleHideFacades/
+  // toggleDrillCheck (кнопки «Студии» и панели #viewToolbar).
+  xray: false,
   // Показывать метки только одного вида присадки (клик по строке легенды)
   drillFilter: null,
   view: 'iso',
@@ -12537,6 +12542,7 @@ function viewOpts() {
   return {
     hideFacades: state.hideFacades,
     drillCheck: state.drillCheck,
+    xray: state.xray,
     drillFilter: state.drillFilter,
     // Пока идёт изоляция, подсветку синим отключаем — изолированный модуль
     // и так выделен тем, что остальные притушены, а подсветка мешала бы
@@ -12546,6 +12552,57 @@ function viewOpts() {
     axisHintRow,
     highlightSection,
   };
+}
+
+// ---------------------------------------------------------------------------
+// Режимы 3D-вида: «Прозрачный режим» (xray), «Скрыть фасады», «Проверка
+// присадки». Независимы и совмещаются в любых сочетаниях. Две пары кнопок —
+// в панели «Студия» (#xrayBtn/#hideFacadesBtn/#drillCheckBtn) и иконки на
+// плавающей панели (#vtXrayBtn/#vtHideFacadesBtn/#vtDrillCheckBtn) — зовут
+// одни и те же функции, поэтому состояние у них всегда общее. Модель заново
+// не строится: режимы влияют только на то, КАК рисуются уже посчитанные
+// детали (viewer.render с viewOpts), а «Скрыть фасады» — ещё и на чертежи.
+// ---------------------------------------------------------------------------
+function syncViewModeButtons() {
+  const set = (id, on, text) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.classList.toggle('active', !!on);
+    el.setAttribute('aria-pressed', on ? 'true' : 'false');
+    if (text) el.textContent = text;
+  };
+  set('xrayBtn', state.xray);
+  set('vtXrayBtn', state.xray);
+  set('hideFacadesBtn', state.hideFacades, state.hideFacades ? 'Показать фасады' : 'Скрыть фасады');
+  set('vtHideFacadesBtn', state.hideFacades);
+  const vf = document.getElementById('vtHideFacadesBtn');
+  if (vf) vf.title = state.hideFacades ? 'Показать фасады' : 'Скрыть фасады';
+  set('drillCheckBtn', state.drillCheck);
+  set('vtDrillCheckBtn', state.drillCheck);
+}
+
+function rerenderViewModes() {
+  if (viewer && currentModel) viewer.render(currentModel, viewOpts());
+  syncViewModeButtons();
+}
+
+function toggleXray() {
+  state.xray = !state.xray;
+  rerenderViewModes();
+}
+
+function toggleHideFacades() {
+  state.hideFacades = !state.hideFacades;
+  rerenderViewModes();
+  // От «скрыть фасады» зависят только чертежи — помечаем устаревшей одну
+  // эту вкладку; если она открыта, перерисуется тут же, как раньше.
+  invalidateDocsTabs(['drawings']);
+}
+
+function toggleDrillCheck() {
+  state.drillCheck = !state.drillCheck;
+  rerenderViewModes();
+  renderDrillLegend();
 }
 
 // Легенда режима проверки присадки: что за отверстия в проекте, каким
@@ -13310,26 +13367,19 @@ function initHeaderControls() {
       host.addEventListener(ev, () => { if (state.view !== 'iso') renderViewOverlay(); }));
   }
 
-  const hf = document.getElementById('hideFacadesBtn');
-  hf.addEventListener('click', () => {
-    state.hideFacades = !state.hideFacades;
-    hf.classList.toggle('active', state.hideFacades);
-    hf.textContent = state.hideFacades ? 'Показать фасады' : 'Скрыть фасады';
-    if (viewer && currentModel) viewer.render(currentModel, viewOpts());
-    // От «скрыть фасады» зависят только чертежи — помечаем устаревшей одну
-    // эту вкладку; если она открыта, перерисуется тут же, как раньше.
-    invalidateDocsTabs(['drawings']);
-  });
-
-  const dc = document.getElementById('drillCheckBtn');
-  if (dc) {
-    dc.addEventListener('click', () => {
-      state.drillCheck = !state.drillCheck;
-      dc.classList.toggle('active', state.drillCheck);
-      if (viewer && currentModel) viewer.render(currentModel, viewOpts());
-      renderDrillLegend();
-    });
-  }
+  // Режимы 3D-вида: одна и та же функция и для кнопки в «Студии», и для
+  // иконки на плавающей панели #viewToolbar (см. toggleXray и др. ниже).
+  const bindMode = (id, fn) => {
+    const el = document.getElementById(id);
+    if (el) el.addEventListener('click', fn);
+  };
+  bindMode('xrayBtn', toggleXray);
+  bindMode('vtXrayBtn', toggleXray);
+  bindMode('hideFacadesBtn', toggleHideFacades);
+  bindMode('vtHideFacadesBtn', toggleHideFacades);
+  bindMode('drillCheckBtn', toggleDrillCheck);
+  bindMode('vtDrillCheckBtn', toggleDrillCheck);
+  syncViewModeButtons();
 
   // Делает модуль активным в панели по имени — общая логика для обычного
   // выбора кликом (onSelectModule) и для входа в изоляцию двойным кликом
@@ -14530,6 +14580,14 @@ window.Modul3D.app = {
   setView: applyView,
   getView: function () { return state.view; },
   refreshCurrency: refreshCurrency,
+  // Режимы 3D-вида (те же функции, что у кнопок «Студии» и панели
+  // #viewToolbar) и их текущее состояние.
+  toggleXray: toggleXray,
+  toggleHideFacades: toggleHideFacades,
+  toggleDrillCheck: toggleDrillCheck,
+  getViewModes: function () {
+    return { xray: state.xray, hideFacades: state.hideFacades, drillCheck: state.drillCheck };
+  },
   // ui-shell.js зовёт при ЛЮБОМ закрытии панели «Библиотека» (крестик, скрим,
   // Escape, свайп, открытие другой панели поверх) — без этого «Выбрать» у
   // «Листовых материалов» могла остаться включённой до следующего открытия

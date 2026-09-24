@@ -2654,9 +2654,12 @@ class Viewer3D {
     const flatBottom = this.viewName === 'bottom';
     if (this._grid) this._grid.visible = !flatBottom;
     const below = flatBottom || (this.camera && this.camera.position.y < -0.05);
-    const wantTransparent = !!this._drillCheck || below;
+    // «Прозрачный режим» (xray) делает пол прозрачным так же, как проверка
+    // присадки: иначе полупрозрачные детали снизу упирались бы в сплошной пол.
+    const seeThrough = !!this._drillCheck || !!this._xray;
+    const wantTransparent = seeThrough || below;
     const mat = this._floor.material;
-    const targetOpacity = this._drillCheck ? 0.12 : (below ? 0.1 : 1);
+    const targetOpacity = seeThrough ? 0.12 : (below ? 0.1 : 1);
     if (mat.transparent === wantTransparent && mat.opacity === targetOpacity) return;
     mat.transparent = wantTransparent;
     mat.opacity = targetOpacity;
@@ -2783,6 +2786,15 @@ class Viewer3D {
     // здесь, а в _animate(): оно должно пересчитываться каждый кадр при
     // орбите камеры, а не только при пересчёте модели.
     this._drillCheck = drillCheck;
+    // «Прозрачный режим»: ВСЕ детали всех модулей (корпус, фасады, полки,
+    // столешницы, опоры, ручки и т.п.) полупрозрачные — та же прозрачность,
+    // что у корпуса в проверке присадки (0.22, без записи в буфер глубины).
+    // В отличие от drillCheck, метки присадки НЕ показываются — они зависят
+    // только от drillCheck. Материалы создаются заново при каждом render(),
+    // поэтому при выключении режима детали сразу снова непрозрачные; кэш
+    // геометрии (_partGeoCache) от прозрачности не зависит.
+    const xray = !!(opts && opts.xray);
+    this._xray = xray;
     // Подсказка осей (см. блок с opts.axisHintRow ниже) отдаёт мировые
     // координаты наружу — сбрасываем перед пересчётом, иначе после того как
     // деталь убрали с экрана «Деталь», здесь остались бы устаревшие данные.
@@ -2864,7 +2876,9 @@ class Viewer3D {
       // что dimmed всегда false. Оставляем константой, чтобы не переписывать
       // сигнатуры вспомогательных функций (makeLeg/makeHandle/makeRod и т.д.),
       // которые принимают этот флаг для СВОЕЙ, отдельной, полупрозрачности.
-      const dimmed = false;
+      // Теперь этот же флаг включает «Прозрачный режим» (xray) у опор, ручек,
+      // штанг, фланцев и полкодержателей — прозрачность у них та же, 0.22.
+      const dimmed = xray;
       const ghostLike = ghost;
       const glass = !!row.glass;                 // стекло рисуем прозрачным
       // row.glass один и тот же флаг у сплошного стеклянного фасада (GLASS-4,
@@ -2997,7 +3011,8 @@ class Viewer3D {
       // брусков и вставки — так он и выглядит на самом деле.
       if (framed) {
         for (const box of row.boxes) {
-          const framedMesh = makeFramedFacade(box, row, isActive, ghostLike, hiCyan);
+          // xray делает рамочный фасад полупрозрачным так же, как «Скрыть фасады».
+          const framedMesh = makeFramedFacade(box, row, isActive, ghostLike || xray, hiCyan);
           // partKey — как у обычных деталей ниже. userData.kind у рамочного
           // фасада нет (так было и раньше), поэтому клик по нему в изоляции
           // пока идёт в onFocusMiss, а не в onSelectPart; ключ лежит «про запас».
@@ -3051,11 +3066,13 @@ class Viewer3D {
         roughness: glass ? 0.1 : (isMdf ? 0.12 : 0.75),
         metalness: isMdf ? 0.05 : 0.02,
         emissive: hiCyan ? SECTION_HI_EMISSIVE : (isActive ? 0x14314a : 0x000000),
-        transparent: hiCyan || ghostLike || glass || drillCheck || isActive,
+        // xray — та же прозрачность, что и в drillCheck (стекло остаётся
+        // со своей, оно и так прозрачное; подсветка — со своей).
+        transparent: hiCyan || ghostLike || glass || drillCheck || xray || isActive,
         opacity: hiCyan ? SECTION_HI_OPACITY
           : (ghostLike ? 0.22 : (glassFacade ? GLASS4_OPACITY
-            : (glass ? 0.35 : (drillCheck ? 0.22 : (isActive ? ACTIVE_MODULE_OPACITY : 1))))),
-        depthWrite: !(hiCyan || ghostLike || glass || drillCheck || isActive),
+            : (glass ? 0.35 : ((drillCheck || xray) ? 0.22 : (isActive ? ACTIVE_MODULE_OPACITY : 1))))),
+        depthWrite: !(hiCyan || ghostLike || glass || drillCheck || xray || isActive),
       });
       if (tex) {
         mat.map = tex.clone();
@@ -3225,9 +3242,9 @@ class Viewer3D {
             color: hiCyan ? SECTION_HI_COLOR : (isActive ? 0x6fa3cd : 0xe6e2da),
             roughness: 0.14, metalness: 0.05,
             emissive: hiCyan ? SECTION_HI_EMISSIVE : 0x000000,
-            transparent: hiCyan || isActive,
-            opacity: hiCyan ? SECTION_HI_OPACITY : (isActive ? ACTIVE_MODULE_OPACITY : 1),
-            depthWrite: !(hiCyan || isActive),
+            transparent: hiCyan || xray || isActive,
+            opacity: hiCyan ? SECTION_HI_OPACITY : (xray ? 0.22 : (isActive ? ACTIVE_MODULE_OPACITY : 1)),
+            depthWrite: !(hiCyan || xray || isActive),
           });
           const field = new THREE.Mesh(new THREE.BoxGeometry(w, h, depth), fieldMat);
           field.position.z = box.d / 2 * MM - depth / 2;   // утоплено внутрь
