@@ -14,6 +14,7 @@
 const mobilierMd = require('./mobilierMd');
 const daskCentruMd = require('./daskCentruMd');
 const sebasMd = require('./sebasMd');
+const tehmobMd = require('./tehmobMd');
 
 const SITES = [
   {
@@ -39,6 +40,16 @@ const SITES = [
     domain: 'sebas.md',
     browseUrl: 'https://sebas.md/ru/',
     parse: sebasMd.parse,
+  },
+  {
+    id: 'tehmobMd',
+    name: 'tehmob.md',
+    domain: 'tehmob.md',
+    // Нет отдельного стабильного RU-корня, как у mobilier.md — язык
+    // переключается кнопкой на сессии, а не URL-параметром (см. tehmobMd.js),
+    // поэтому просто ссылка на сайт, без иллюзии "сразу русский".
+    browseUrl: 'https://tehmob.md/',
+    parse: tehmobMd.parse,
   },
 ];
 
