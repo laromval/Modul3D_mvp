@@ -68,7 +68,73 @@ function woodTexture() {
   _woodTex = new THREE.CanvasTexture(c);
   _woodTex.wrapS = THREE.RepeatWrapping;
   _woodTex.wrapT = THREE.RepeatWrapping;
+  // Общая на всё приложение: материалы деталей кладут себе её КЛОН
+  // (tex.clone()), а саму её освобождать нельзя никогда.
+  markShared(_woodTex);
   return _woodTex;
+}
+
+// ОСВОБОЖДЕНИЕ ПАМЯТИ ВИДЕОКАРТЫ.
+// Three.js не освобождает память видеокарты сам, когда меш просто убрали из
+// сцены: геометрия, материал и текстура остаются загруженными на GPU, пока
+// у них не вызвали .dispose(). Сцена перестраивается на каждый пересчёт —
+// без очистки память росла с каждой правкой параметра.
+//
+// Но освобождать можно ТОЛЬКО то, что создано именно для этой перестройки.
+// Часть ресурсов общая и живёт всю сессию (текстура «под древесину», кэш
+// геометрии деталей, куски кухонной опоры и клипсы) — её следующая
+// перестройка сразу возьмёт снова. Такие ресурсы помечаем через markShared()
+// в месте создания, и disposeObjectTree() их пропускает.
+// Метка хранится в отдельном WeakSet, а НЕ в userData: material.clone()
+// копирует userData, и клон общего материала/текстуры по ошибке тоже
+// считался бы общим (и никогда не освобождался).
+const SHARED_GPU = new WeakSet();
+function markShared(res) {
+  if (res) SHARED_GPU.add(res);
+  return res;
+}
+function isShared(res) {
+  return !!res && SHARED_GPU.has(res);
+}
+// Все слоты текстур, которые бывают у материалов Three.js r128.
+const MATERIAL_TEXTURE_SLOTS = [
+  'map', 'alphaMap', 'aoMap', 'bumpMap', 'displacementMap', 'emissiveMap',
+  'envMap', 'lightMap', 'metalnessMap', 'normalMap', 'roughnessMap',
+  'specularMap', 'gradientMap', 'clearcoatMap', 'clearcoatNormalMap',
+  'clearcoatRoughnessMap', 'transmissionMap',
+];
+function disposeRes(res) {
+  if (res && typeof res.dispose === 'function') res.dispose();
+}
+// Освобождает геометрию, материалы (в т.ч. массивы материалов) и текстуры
+// внутри материалов у объекта и всех его потомков — кроме общих (markShared).
+// seen — чтобы ресурс, который делят несколько мешей (один материал на все
+// бруски рамочного фасада и т.п.), не обрабатывался повторно.
+function disposeObjectTree(root) {
+  if (!root || typeof root.traverse !== 'function') return;
+  const seen = new Set();
+  root.traverse((o) => {
+    const geo = o.geometry;
+    if (geo && !seen.has(geo)) {
+      seen.add(geo);
+      if (!isShared(geo)) disposeRes(geo);
+    }
+    const mats = Array.isArray(o.material) ? o.material : (o.material ? [o.material] : []);
+    for (const m of mats) {
+      if (!m || seen.has(m)) continue;
+      seen.add(m);
+      if (isShared(m)) continue;   // общий материал — не трогаем и его текстуры
+      for (const slot of MATERIAL_TEXTURE_SLOTS) {
+        const tex = m[slot];
+        if (!tex || seen.has(tex)) continue;
+        seen.add(tex);
+        // Клон общей текстуры (tex.clone()) — отдельная GPU-текстура этой
+        // перестройки, её освобождаем; саму общую — нет.
+        if (!isShared(tex)) disposeRes(tex);
+      }
+      disposeRes(m);
+    }
+  });
 }
 
 // НЕПРЕРЫВНОСТЬ РИСУНКА ВОЛОКНА МЕЖДУ СОСЕДНИМИ ДЕТАЛЯМИ.
@@ -1363,6 +1429,10 @@ function splitKitchenLegParts(kind, THREE) {
   const highGeo = new THREE.BufferGeometry();
   highGeo.setAttribute('position', new THREE.Float32BufferAttribute(highPos, 3));
   highGeo.setAttribute('normal', new THREE.Float32BufferAttribute(highNorm, 3));
+  // Кэш на всю сессию — при перестройке сцены не освобождать (см. markShared).
+  markShared(lowGeo);
+  markShared(highGeo);
+  markShared(full);   // исходный меш из legMeshes.js (у него свой кэш)
 
   const result = {
     lowGeo, highGeo,
@@ -1596,6 +1666,11 @@ function makeClipTabGeo(d, THREE) {
   const holeHalfSpacing = 0.0125 * scale;
   const holeEps = 0.01 * MM; // запас с каждого среза против z-fighting (как в addLegMountPlate)
   const holeGeo = new THREE.CylinderGeometry(holeD / 2, holeD / 2, depth + 2 * holeEps, 12);
+
+  // Кэш на всю сессию — при перестройке сцены не освобождать (см. markShared).
+  markShared(plateGeo);
+  markShared(hoopGeo);
+  markShared(holeGeo);
 
   const geo = {
     plateGeo, hoopGeo, holeGeo,
@@ -2118,6 +2193,10 @@ class Viewer3D {
     this.renderer = new THREE.WebGLRenderer({ antialias: true });
     this.renderer.setPixelRatio(window.devicePixelRatio || 1);
     container.appendChild(this.renderer.domElement);
+    // Ссылка на рабочий вьювер — для отладки из консоли браузера:
+    //   Modul3D.viewer.current.memoryInfo()
+    //   Modul3D.viewer.current.renderer.info.memory
+    if (window.Modul3D && window.Modul3D.viewer) window.Modul3D.viewer.current = this;
 
     this.controls = new SimpleOrbitControl(this.camera, this.renderer.domElement);
 
@@ -2766,6 +2845,37 @@ class Viewer3D {
   }
 
   /**
+   * Сбрасывает кэш геометрии деталей и освобождает её память на видеокарте.
+   * Вызывать ТОЛЬКО когда в сцене нет мешей с этой геометрией (сразу после
+   * очистки группы в render()).
+   */
+  _clearPartGeoCache() {
+    for (const entry of this._partGeoCache.values()) {
+      for (const g of entry.partGeos) disposeRes(g);
+      for (const g of entry.cutEdgeGeos) disposeRes(g);
+      disposeRes(entry.outlineEdges);
+    }
+    this._partGeoCache.clear();
+  }
+
+  /**
+   * Для отладки из консоли браузера: сколько геометрий/текстур сейчас
+   * загружено на видеокарту (renderer.info.memory) и сколько шейдерных
+   * программ. Если после нескольких пересчётов числа растут без конца —
+   * где-то снова утекает память.
+   */
+  memoryInfo() {
+    if (!this.renderer || !this.renderer.info) return null;
+    const info = this.renderer.info;
+    return {
+      geometries: info.memory.geometries,
+      textures: info.memory.textures,
+      programs: info.programs ? info.programs.length : 0,
+      partGeoCache: this._partGeoCache ? this._partGeoCache.size : 0,
+    };
+  }
+
+  /**
    * Перестраивает сцену из parts, вычисленных Parametric Core Engine.
    * @param {object} opts.hideFacades — скрыть двери и фасады ящиков, показав
    *   только корпус (боковины, дно, крыша, стойки, полки, задняя стенка).
@@ -2811,7 +2921,18 @@ class Viewer3D {
     // понять, что клик пришёлся внутрь изолированного модуля.
     const isolateModule = (opts && opts.isolateModule) || null;
     this._isolateModule = isolateModule;
+    // Старую сцену не только убираем из группы, но и освобождаем её память
+    // на видеокарте (геометрия/материалы/клоны текстур этой перестройки).
+    // Общие ресурсы (кэши, текстура «под древесину») disposeObjectTree
+    // пропускает — см. markShared.
+    disposeObjectTree(this.group);
     while (this.group.children.length) this.group.remove(this.group.children[0]);
+    // Кэш геометрии деталей разросся (много разных форм за сессию) —
+    // сбрасываем его ЗДЕСЬ, когда старые меши уже убраны и его геометрию
+    // никто в сцене не использует: тогда её можно честно освободить.
+    // Раньше кэш просто очищался (clear) посреди перестройки — и вся
+    // сброшенная геометрия оставалась висеть на видеокарте.
+    if (this._partGeoCache.size > 300) this._clearPartGeoCache();
 
     const { W, H, D } = model.dims;
     // Рисуем из несклеенного списка: у него каждая деталь знает свой модуль,
@@ -3169,8 +3290,13 @@ class Viewer3D {
         outlineEdges = outlineGeo;
         // Кэш растёт, пока в сессии не наберётся МНОГО разных форм деталей
         // (десятки проектов подряд) — грубая защита от неограниченного роста,
-        // не точная LRU-политика: просто сбрасываем и копим заново.
-        if (this._partGeoCache.size > 300) this._partGeoCache.clear();
+        // не точная LRU-политика: сброс (с освобождением памяти) делается в
+        // начале следующей перестройки, см. _clearPartGeoCache.
+        // Геометрия кэша живёт между перестройками — помечаем её общей,
+        // чтобы очистка сцены её не освобождала.
+        for (const pg of partGeos) markShared(pg);
+        for (const ce of cutEdgeGeos) markShared(ce);
+        markShared(outlineEdges);
         this._partGeoCache.set(geoKey, { partGeos, cutEdgeGeos, outlineEdges });
       }
 
@@ -3975,8 +4101,7 @@ function renderThumbnail(model, opts) {
   if (!source.length) return null;
 
   const size = (opts && opts.size) || 140;
-  const geoms = [];   // всё, что создали здесь, — освобождаем в finally
-  const mats = [];
+  let group = null;   // всё, что создали здесь, — освобождаем в finally
   let renderer = null;
 
   try {
@@ -3990,7 +4115,7 @@ function renderThumbnail(model, opts) {
     dir.position.set(3, 5, 4);
     scene.add(dir);
 
-    const group = new THREE.Group();
+    group = new THREE.Group();
     scene.add(group);
 
     // Режим «в реальном цвете» (для миниатюр Библиотеки, opts.realistic) —
@@ -4017,10 +4142,9 @@ function renderThumbnail(model, opts) {
         if (realistic && row.shape === 'cylinder') {
           const legBoxes = row.boxes || (row.box ? [row.box] : []);
           for (const legBox of legBoxes) {
-            // Геометрию/материалы опоры НЕ добавляем в geoms/mats ниже —
-            // см. пояснение у finally: часть геометрии тут — общий на всё
-            // приложение кэш (kitchenLegSplitCache/clipTabGeoCache), и
-            // диспозить его отсюда нельзя.
+            // Часть геометрии опоры — общий на всё приложение кэш
+            // (kitchenLegSplitCache/clipTabGeoCache); он помечен markShared,
+            // и очистка в finally его не тронет.
             const leg = row.legType === 'kitchen'
               ? makeKitchenLeg(legBox, row.module, false, !!row.hasClip, false, row.rot || 0)
               : makeLeg(legBox, row.module, false, false);
@@ -4115,8 +4239,6 @@ function renderThumbnail(model, opts) {
           mat.map.repeat.set(Math.max(locW * MM, 0.01) / WOOD_TILE_M, Math.max(box.h * MM, 0.01) / WOOD_TILE_M);
         }
       }
-      geoms.push(geo); mats.push(mat);
-
       const mesh = new THREE.Mesh(geo, mat);
       // Позиция — мировые box.x/y/z из engine.js как есть; поворот
       // (mesh.rotation.y) довершает разворот детали из ЛОКАЛЬНЫХ размеров
@@ -4149,7 +4271,6 @@ function renderThumbnail(model, opts) {
       const edgesMat = neutral
         ? new THREE.LineBasicMaterial({ color: 0x33302a })
         : new THREE.LineBasicMaterial({ color: 0x1a1712, transparent: true, opacity: 0.6 });
-      geoms.push(edgesGeo); mats.push(edgesMat);
       const edges = new THREE.LineSegments(edgesGeo, edgesMat);
       mesh.add(edges);
 
@@ -4260,25 +4381,11 @@ function renderThumbnail(model, opts) {
     // одновременных WebGL-контекстов, и дальнейшие иконки перестанут
     // рендериться.
     //
-    // ОПОРЫ (realistic, makeLeg/makeKitchenLeg) — единственное, что сюда
-    // сознательно НЕ попадает. У makeLeg вся геометрия/материалы фреш-
-    // изготовленные (можно было бы диспозить), но у makeKitchenLeg часть
-    // геометрии — ОБЩИЙ на всё приложение кэш (kitchenLegSplitCache —
-    // lowGeo/highGeo, и clipTabGeoCache — plateGeo/hoopGeo/holeGeo клипсы,
-    // см. их у makeClipTabGeo/splitKitchenLegParts выше), который использует
-    // и основная 3D-сцена. Диспозить их отсюда — значит заставить основной
-    // Viewer3D перезаливать эту геометрию на GPU при следующей перерисовке
-    // (не поломка, но лишняя работа на пустом месте), а разбирать группу
-    // опоры руками, чтобы отличить «своё» от «кэшированного», усложнило бы
-    // функцию сильнее, чем стоит эта экономия. GPU-память опоры всё равно
-    // полностью освобождается ниже через renderer.forceContextLoss() — он
-    // целиком уничтожает WebGL-контекст этого разового рендера, независимо
-    // от того, вызывали мы .dispose() на конкретных объектах или нет.
-    for (const g of geoms) g.dispose();
-    // map — клон woodTexture() (см. realistic выше): сам canvas общий
-    // (singleton _woodTex), но каждый клон — отдельная GPU-текстура, и её
-    // нужно закрыть отдельно от материала.
-    for (const m of mats) { if (m.map) m.map.dispose(); m.dispose(); }
+    // Та же очистка, что и в основной сцене (disposeObjectTree): детали,
+    // контуры, клоны текстуры «под древесину» и опоры. Общий кэш опор
+    // (kitchenLegSplitCache/clipTabGeoCache) и саму woodTexture() она
+    // пропускает — их использует и основная 3D-сцена (см. markShared).
+    if (group) disposeObjectTree(group);
     if (renderer) {
       renderer.dispose();
       if (typeof renderer.forceContextLoss === 'function') renderer.forceContextLoss();
@@ -4290,6 +4397,9 @@ window.Modul3D = window.Modul3D || {};
 window.Modul3D.viewer = {
   Viewer3D, lengthAlongU, edgeDrill, DRILL_COLOR, DRILL_TITLE,
   renderThumbnail,
+  // Рабочий экземпляр Viewer3D (выставляет его конструктор) — для отладки
+  // из консоли: Modul3D.viewer.current.memoryInfo().
+  current: null,
   // Сборка геометрии детали — наружу отдаётся для прогонов (tools/) и
   // замеров: по этим функциям можно проверить топологию детали (и то, что
   // её присадка вообще попала в геометрию), не поднимая всю сцену.
