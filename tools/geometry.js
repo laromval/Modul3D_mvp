@@ -2466,6 +2466,31 @@ for (const glass of [false, true]) {
     if ((mo.warnings || []).some((w) => /Боковина левая: толщина переопределена/.test(w))) {
       problems.push('ручная толщина боковины: лишнее предупреждение «стык не пересчитывается»');
     }
+    // Задняя стенка: в списке «Деталь» — только BACK_MATERIALS; ручная
+    // толщина больше паза/проектной — предупреждение, штатная — без него.
+    {
+      const backCodes = (BACK_MATERIALS || []).map((q) => q.code);
+      const bo = window.Modul3D.engine.partMaterialOptions('back');
+      if (!bo.length || bo.some((o) => backCodes.indexOf(o.code) === -1)) {
+        problems.push(`задняя стенка: в списке материалов не только BACK_MATERIALS (${bo.map((o) => o.code).join(',')})`);
+      }
+      const bk = (mode, th) => mk('floor', 'ldsp', null, { backMount: mode,
+        partOverrides: { 'back|Корпус||0': { thicknessOverride: th } } });
+      const g18 = bk('groove', 18);
+      const gb = g18.partsRaw.filter((q) => q.kind === 'back')[0];
+      if (!gb || gb.thickness !== 18) problems.push('задняя стенка: ручная толщина не применилась (ключ back|Корпус||0)');
+      if (!(g18.warnings || []).some((w) => /Задняя стенка: .*больше ширины паза/.test(w))) {
+        problems.push('задняя стенка 18 мм в паз: нет предупреждения');
+      }
+      if (!(bk('overlay', 18).warnings || []).some((w) => /Задняя стенка: толщина переопределена/.test(w))) {
+        problems.push('накладная задняя стенка 18 мм: нет предупреждения');
+      }
+      const g0 = mk('floor', 'ldsp', null, { backMount: 'groove' });
+      const b0 = g0.partsRaw.filter((q) => q.kind === 'back')[0];
+      if (b0 && (bk('groove', b0.thickness).warnings || []).some((w) => /Задняя стенка: толщина/.test(w))) {
+        problems.push('задняя стенка проектной толщины: лишнее предупреждение');
+      }
+    }
     // Лист тоньше 16 мм: из списка выбора исключён, в старом проекте — предупреждение.
     const thin = Object.assign({}, oak, { thickness: 10 });
     const mt = mk('floor', 'ldsp', thin);

@@ -1379,8 +1379,8 @@ function visibleSideMaterialOptions() {
 // детали — решение пользователя 2026-09-26): [{ code, name, thickness }] —
 // листы, которыми можно заменить деталь вида kind (OVERRIDABLE_KINDS).
 // Все листы DECORS (кроме стекла) + ЛДСП/МДФ-панели FACADE_MATERIALS
-// (Библиотека: «Листовые материалы» и «Двери»); задней стенке — ещё
-// BACK_MATERIALS. Только позиции с толщиной в каталоге (она подставляется в
+// (Библиотека: «Листовые материалы» и «Двери»); задней стенке —
+// ТОЛЬКО BACK_MATERIALS. Только позиции с толщиной в каталоге (она подставляется в
 // thicknessOverride детали). Стекло, алюм. профиль и массив на заказ в
 // корпусную деталь не годятся — их нет. Боковине — не тоньше
 // VISIBLE_SIDE_MIN_T (крепёж корпуса в пласть боковины, как у «Видимой боковины»).
@@ -1395,7 +1395,13 @@ function partMaterialOptions(kind) {
     seen[m.code] = true;
     out.push({ code: m.code, name: m.name || m.code, thickness: th });
   };
-  if (kind === 'back') (cat.BACK_MATERIALS || []).forEach(push);
+  // Задней стенке — ТОЛЬКО BACK_MATERIALS (ХДФ/ДВП): лист ЛДСП/МДФ 16–19 мм
+  // не входит в паз под стенку (ширина паза tb+0,5, resolveBackMount) и
+  // залезает внутрь корпуса у накладной стенки.
+  if (kind === 'back') {
+    (cat.BACK_MATERIALS || []).forEach(push);
+    return out;
+  }
   (cat.DECORS || []).forEach(push);
   Object.values(cat.FACADE_MATERIALS || {}).forEach((m) => {
     const k = facadeMaterialKind(m);
@@ -1873,7 +1879,9 @@ function thicknessBoxAxis(part) {
   }
 }
 
-function applyPartOverrides(parts, partOverrides, warnings) {
+// bm — режим задней стенки модуля (resolveBackMount): нужен для проверки
+// толщины задней стенки с ручной правкой против ширины паза.
+function applyPartOverrides(parts, partOverrides, warnings, bm) {
   if (!partOverrides || !Object.keys(partOverrides).length) return;
   const counters = new Map();
   for (const part of parts) {
@@ -1896,6 +1904,21 @@ function applyPartOverrides(parts, partOverrides, warnings) {
         warnings.push(`${part.name}: толщина переопределена вручную на ${ov.thicknessOverride} мм `
           + `(проектная — ${part.thickness} мм) — сопряжение с соседними деталями `
           + `(посадочные места дна/крышки/цоколя) не пересчитывается автоматически, проверьте стык.`);
+      }
+      // Задняя стенка толще проектной: в паз (ширина bm.w = tb+0,5) не
+      // войдёт; накладная — выступит назад/внутрь корпуса сильнее расчётного.
+      if (part.kind === 'back') {
+        const grooved = bm && bm.mode === 'groove';
+        const limit = grooved ? bm.w : part.thickness;
+        if (ov.thicknessOverride > limit) {
+          warnings.push(grooved
+            ? `${part.name}: толщина переопределена вручную на ${ov.thicknessOverride} мм — `
+              + `больше ширины паза под стенку (${limit} мм): стенка в паз не войдёт, `
+              + `выберите материал задней стенки не толще ${part.thickness} мм.`
+            : `${part.name}: толщина переопределена вручную на ${ov.thicknessOverride} мм `
+              + `(проектная — ${limit} мм) — габарит модуля по глубине и посадка стенки `
+              + `не пересчитываются автоматически, проверьте стык.`);
+        }
       }
       part.thickness = ov.thicknessOverride;
       if (axis) part.box[axis] = round1(ov.thicknessOverride);
@@ -4373,7 +4396,7 @@ function buildModuleParts(p) {
   // Ручные правки конкретных деталей — см. applyPartOverrides выше. Строго
   // ПОСЛЕДНИЙ шаг: все формулы корпуса уже отработали, соседние детали
   // пересчитывать не нужно (и не будем).
-  applyPartOverrides(parts, p.partOverrides, warnings);
+  applyPartOverrides(parts, p.partOverrides, warnings, bm);
   // Направление текстуры — тоже постобработка: только помечает детали
   // (см. блок «НАПРАВЛЕНИЕ ТЕКСТУРЫ»), размеров и присадки не трогает.
   applyGrainDirection(parts, p.grainGroups, p.grainOverrides);
@@ -5806,6 +5829,8 @@ window.Modul3D.engine = {
   //     → { code, name, thickness, facadeType }
   //   zoneFacadeSettings(sec, zoneIdx) → копия sec с полями фасада зоны поверх
   facadeMaterialOptions, facadeMaterialOf, zoneFacadeSettings, ZONE_FACADE_KEYS,
+  // Правило умолчания ЛДСП-фасада (миграция старых проектов в app.js).
+  facadeMaterialKind, ldspFacadeDefault,
   // «Видимая боковина» (проектный facadeDecor): ЛДСП/ДСП + фасадные МДФ-панели.
   visibleSideMaterialOptions,
   // Экран «Деталь»: чем можно заменить материал ОДНОЙ детали вида kind.

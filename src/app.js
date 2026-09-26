@@ -14,7 +14,7 @@
 (function () {
 // Версия сборки — показывается во вкладке браузера и в шапке.
 // При выпуске новой версии меняется только эта строка.
-const APP_VERSION = 'v311';
+const APP_VERSION = 'v315';
 
 // Номер версии выводим ПЕРВЫМ делом: если дальше что-то упадёт, по нему сразу
 // видно, какая сборка открыта.
@@ -1658,9 +1658,12 @@ function migrateFacadeMatCode(src) {
   if (!src || src.facadeMatCode) return;
   const engine = window.Modul3D.engine;
   const fd = src.facadeDecorCode ? findAnyMaterialByCode(src.facadeDecorCode) : null;
-  const isLdsp = !!fd && engine && typeof engine.facadeMaterialOptions === 'function'
-    && engine.facadeMaterialOptions('ldsp').some((o) => o.code === fd.code);
-  state.facadeMatCode = isLdsp ? fd.code : (src.decorCode || state.decorCode);
+  // То же правило, что у ядра: ЛДСП-фасадом не режутся только МДФ-панели и
+  // стекло (facadeMaterialKind) — любой другой лист, в т.ч. без категории, годится.
+  const kind = fd && engine && typeof engine.facadeMaterialKind === 'function'
+    ? engine.facadeMaterialKind(fd) : null;
+  const usable = !!fd && kind !== 'mdf' && kind !== 'glass';
+  state.facadeMatCode = usable ? fd.code : (src.decorCode || state.decorCode);
 }
 
 // Применяет сохранённое состояние проекта (из файла или автосохранения).
@@ -12474,7 +12477,37 @@ function aluCtorOuterTarget() {
   if (t.role === 'aluFill') return t.parent || aluFreeTarget();
   return null;
 }
+// Секция без фасада: все двери «открыто» и нет ящиков — та же проверка,
+// что прячет блок «Вид фасада» в «Конструктиве» (renderSections).
+function secIsOpenNoFacade(sec) {
+  return !!sec && secEffectiveFacades(sec).every((f) => f === 'open') && !sec.drawers;
+}
+// Конструктор работает со «свободной» целью (активная секция), а не с целью
+// подбора из секции/поля «Фасад» — см. aluCtorOuterTarget.
+function aluCtorUsesFreeTarget() {
+  const t = state.libPickTarget;
+  return !t || (t.role === 'aluFill' && !t.parent);
+}
+// Почему у свободной цели нечего ставить: 'noModule' | 'noSections' |
+// 'openSection' | null (цель есть).
+function aluFreeBlockReason() {
+  if (!state.modules.length) return 'noModule';
+  const mod = state.modules[state.activeModule];
+  if (!mod || !mod.sections || !mod.sections.length) return 'noSections';
+  const secIdx = Math.max(0, Math.min(Number(mod.activeSection) || 0, mod.sections.length - 1));
+  if (secIsOpenNoFacade(mod.sections[secIdx])) return 'openSection';
+  return null;
+}
+const ALU_FREE_BLOCK_MSG = {
+  noModule: { title: 'Сначала добавьте модуль',
+    hint: 'Сначала добавьте модуль — тогда фасад можно будет поставить в его секцию.' },
+  noSections: { title: 'Сначала добавьте секцию в модуль',
+    hint: 'У модуля нет секций — сначала добавьте секцию, тогда можно поставить алюминиевый фасад.' },
+  openSection: { title: 'Сначала выберите дверь у секции — тогда можно поставить алюминиевый фасад',
+    hint: 'Сначала выберите дверь у секции — тогда можно поставить алюминиевый фасад.' },
+};
 function aluFreeTarget() {
+  if (aluFreeBlockReason()) return null;
   const t = matFacadeTarget();
   if (!t) return null;
   return Object.assign({ role: 'facadeMaterial', returnTo: t.zoneIdx != null ? 'materials' : 'module', setAlu: true }, t);
@@ -12610,8 +12643,11 @@ function aluCtorTargetState() {
     const willSetAlu = info.ftId !== 'alu';
     return { canApply, title: '', hintHtml: `Для: <b>${esc(facadeTargetLabel(info))}</b>${willSetAlu ? '<br>Вид фасада станет «Фасад из алюминиевого профиля».' : ''}` };
   }
-  if (!state.modules.length) {
-    return { canApply, title: 'Сначала добавьте модуль', hintHtml: 'Сначала добавьте модуль — тогда фасад можно будет поставить в его секцию.' };
+  const reason = aluCtorUsesFreeTarget() ? aluFreeBlockReason()
+    : (!state.modules.length ? 'noModule' : null);
+  if (reason) {
+    const m = ALU_FREE_BLOCK_MSG[reason];
+    return { canApply, title: m.title, hintHtml: esc(m.hint) };
   }
   return { canApply, title: 'Сначала откройте конструктор из секции или поля «Фасад»',
     hintHtml: 'Можно посмотреть варианты. Чтобы поставить фасад, нажмите плашку алюминиевого фасада в секции («Конструктив модуля») или в поле «Фасад» («Материалы модуля»).' };
@@ -12745,8 +12781,16 @@ function libAluDraftApply() {
   const setAlu = !!(outer && outer.setAlu);
   const store = info && (info.ftId === 'alu' || setAlu)
     ? (info.zi == null ? info.sec : ensureDoorZone(info.sec, info.zi)) : null;
-  // Модулей нет — кнопка и так неактивна, «цель пропала» тут ни к чему.
-  if (!store && !state.libPickTarget && !state.modules.length) return;
+  // Свободная цель (активная секция) недоступна: модулей/секций нет или
+  // секция открытая — кнопка и так неактивна, «цель пропала» тут ни к чему.
+  const freeReason = !store && aluCtorUsesFreeTarget() ? aluFreeBlockReason() : null;
+  if (freeReason) {
+    if (freeReason !== 'noModule') {
+      libAluStaleNotice = ALU_FREE_BLOCK_MSG[freeReason].hint;
+      renderLibraryPanel();
+    }
+    return;
+  }
   if (!store) {
     state.libPickTarget = null;
     libAluStaleNotice = 'Секция или отсек, для которых открывали конструктор, изменились. Откройте его заново из поля «Фасад».';

@@ -1447,6 +1447,34 @@ for (const id of ['hideFacades', 'addModule', 'saveProjectBtn', 'openProjectBtn'
     return !!l && l.material === left0.material && l.thickness === left0.thickness && snap(model()) === snap(before)
       && !/partMaterialReset/.test(panelHtml());
   });
+  // Задняя стенка: в «Выбрать» только BACK_MATERIALS — лист ЛДСП/МДФ 16–19 мм
+  // в паз под стенку не входит (engine.partMaterialOptions('back')).
+  check('фокус/деталь: у задней стенки «Выбрать» только у BACK_MATERIALS', () => {
+    const backCodes = (cat.BACK_MATERIALS || []).map((m) => m.code);
+    const opts = eng.partMaterialOptions('back').map((o) => o.code);
+    if (!opts.length || !opts.every((c) => backCodes.indexOf(c) !== -1)) return false;
+    if (opts.some((c) => (cat.DECORS || []).some((d) => d.code === c && backCodes.indexOf(c) === -1))) return false;
+    const back0 = (model().partsRaw || []).filter((q) => q.module === name && q.kind === 'back')[0];
+    if (!v || !back0) return false;
+    v.onSelectPart({ module: name, kind: 'back', side: null, partKey: back0.grainKey || null, clientX: 10, clientY: 10 });
+    const menu = document.getElementById('focusMenu');
+    const item = menu && menu.querySelector('[data-i="0"]');
+    if (!item) return false;
+    item.click();
+    const b = document.getElementById('partMaterial');
+    if (!b || !/Задняя стенка/.test(panelHtml())) return false;
+    b.click();
+    const btns = pickBtns();
+    const ok = btns.length > 0 && btns.every((x) => opts.indexOf(x.attrs['data-pick-code']) !== -1);
+    // Подбор не оставляем висеть (дальше по прогону Библиотека нужна обычной):
+    // выбираем прежний материал стенки и сбрасываем правку детали.
+    const same = btns.filter((x) => x.attrs['data-pick-code'] === back0.material)[0] || btns[0];
+    if (same) libPanelEl().dispatch('click', { target: same });
+    const rb = document.getElementById('partMaterialReset');
+    if (rb) rb.click();
+    const b1 = (model().partsRaw || []).filter((q) => q.module === name && q.kind === 'back')[0];
+    return ok && !!b1 && b1.material === back0.material && b1.thickness === back0.thickness;
+  });
   // Библиотеку — обратно на «Базу модулей» (дальше по прогону её ждут там).
   const modTab = Array.from(document.querySelectorAll('.lib-tab-btn')).filter((b) => b.dataset.libtab === 'modules')[0];
   const libTabs = document.getElementById('libTabs');
