@@ -4686,7 +4686,12 @@ function libRowHtml(entry, opts) {
   // (libLeafTableHtml), сама строка своего раздела не знает: у объединённых
   // «Листовых материалов» строки одной таблицы приходят из decors/back/facade
   // одновременно, и group строки разделу не равен.
-  const moveIc = libRowMoveIcHtml(opts.moveTop, group, libEntryKeyOf(entry));
+  const moveIc0 = libRowMoveIcHtml(opts.moveTop, group, libEntryKeyOf(entry));
+  // FAC-ALU «Алюминиевый профиль (рамка)» — не лист, а вход в конструктор
+  // алюминиевого фасада (см. openAluConstructorFromLibrary).
+  const aluCtorBtn = group === 'facade' && key === 'FAC-ALU'
+    ? ' <button type="button" class="link-btn lib-alu-open-ctor" data-alu-open-ctor="1" title="Открыть конструктор алюминиевого фасада для активной секции">Выбрать</button>' : '';
+  const moveIc = moveIc0 + aluCtorBtn;
   const nameCell = group === 'edge'
     ? `<td${moveIc ? ' class="lib-name-cell"' : ''}>${esc(nameDisplay)}${moveIc}</td>`
     : libEditCell(group, key, 'name', 'text', it.name, { displayText: nameDisplay, afterHtml: moveIc, extraClass: moveIc ? 'lib-name-cell' : '' });
@@ -9069,8 +9074,9 @@ function libSelectRow(panel, group, key) {
 // Раздел «Алюминиевые фасады» вкладки «Двери» — свой блок, а не ветка
 // общего дерева категорий (libTopCategoryHtml): у профилей/комплектующих/
 // производителей другие колонки, чем у листовых материалов. Раскрыт ли —
-// чисто UI-состояние вкладки, в проект/каталог не попадает.
-let libAluOpen = false;
+// чисто UI-состояние вкладки, в проект/каталог не попадает. Раскрыт по
+// умолчанию и стоит первым на вкладке — иначе конструктор фасада трудно найти.
+let libAluOpen = true;
 
 const ALU_FILL_TYPE_LABEL = { glass: 'стекло', sheet: 'плита' };
 
@@ -9172,7 +9178,7 @@ function libAluFacadesHtml() {
     const fill = ALU_FILL_TYPE_LABEL[p.fillType] || 'любое';
     const rest = notes.rest[idx];
     return `<tr data-search="${esc([p.name, p.article, p.code, p.supplier].join(' ').toLowerCase())}">
-      <td>${esc(p.name)}<div class="dim">арт. ${esc(p.article || p.code)}${p.sourceUrl ? ` · <a href="${esc(p.sourceUrl)}" target="_blank" rel="noopener">${esc(p.supplier || 'поставщик')}</a>` : (p.supplier ? ` · ${esc(p.supplier)}` : '')}</div>${ALU_KIND_LABEL[p.kind] ? `<div class="dim">Тип: ${esc(ALU_KIND_LABEL[p.kind])} — ${esc(ALU_KIND_HINT[p.kind])}</div>` : ''}<div class="dim">Заполнение: ${esc(fill)}${p.fillThickness ? ` ${esc(p.fillThickness)} мм` : ''}</div>${rest.length ? `<div class="dim">${esc(rest.join('; '))}</div>` : ''}</td>
+      <td>${esc(p.name)} <button type="button" class="link-btn lib-alu-prof-pick" data-alu-pick-profile="${esc(p.code)}" title="Подставить этот профиль в конструктор фасада выше">Выбрать</button><div class="dim">арт. ${esc(p.article || p.code)}${p.sourceUrl ? ` · <a href="${esc(p.sourceUrl)}" target="_blank" rel="noopener">${esc(p.supplier || 'поставщик')}</a>` : (p.supplier ? ` · ${esc(p.supplier)}` : '')}</div>${ALU_KIND_LABEL[p.kind] ? `<div class="dim">Тип: ${esc(ALU_KIND_LABEL[p.kind])} — ${esc(ALU_KIND_HINT[p.kind])}</div>` : ''}<div class="dim">Заполнение: ${esc(fill)}${p.fillThickness ? ` ${esc(p.fillThickness)} мм` : ''}</div>${rest.length ? `<div class="dim">${esc(rest.join('; '))}</div>` : ''}</td>
       <td class="lib-alu-schema-cell">${aluProfileSectionHtml(p, { small: true })}<div class="dim">${known ? `${esc(p.width)}×${esc(p.depth)} мм` : 'по паспорту'}</div>${libAluSectionImageBtnsHtml(p)}</td>
       <td>
         ${libAluNumInput('profile', p.code, 'price', p.price, { title: p.colorPrices ? 'Базовая цена; для части цветов цена своя (задана в каталоге)' : '' })}
@@ -9322,8 +9328,8 @@ function libraryFacadesBlock() {
     <h3>Двери</h3>
     <div class="lib-link-refresh-bar">${libAddCatTileHtml('facades')}</div>
     ${state.libLinkForm && state.libLinkForm.kind === 'materials' ? libLinkFormHtml(state.libLinkForm) : ''}
-    ${catsHtml}
-    ${libAluFacadesHtml()}`;
+    ${libAluFacadesHtml()}
+    ${catsHtml}`;
 }
 
 // Слушатели вешаются один раз (контейнер #libraryPanel и строка вкладок
@@ -9401,6 +9407,12 @@ function initLibraryPanel() {
     if (e.target.closest('[data-alu-draft-fill]')) { openAluFillPicker(); return; }
     const draftApply = e.target.closest('[data-alu-draft-apply]');
     if (draftApply) { if (!draftApply.disabled) libAluDraftApply(); return; }
+    // «Выбрать» в строке таблицы профилей — профиль в черновик конструктора.
+    const profPick = e.target.closest('[data-alu-pick-profile]');
+    if (profPick) { libAluPickProfile(profPick.dataset.aluPickProfile); return; }
+    // Лист FAC-ALU «Алюминиевый профиль (рамка)» дерева «Виды фасадов» —
+    // не листовой материал, а вход в конструктор алюминиевого фасада.
+    if (e.target.closest('[data-alu-open-ctor]')) { openAluConstructorFromLibrary(); return; }
     if (e.target.closest('.lib-alu-body')) return;
     // ⇄ ОДНОЙ ПОЗИЦИИ таблицы (см. libRowMoveIcHtml) — ПЕРВЫМ: значок носит
     // тот же класс .lib-tree-ic ради общего вида, но лежит не в строке
@@ -11038,7 +11050,6 @@ function matFacadeFieldHtml() {
       </div>` : '';
   const secFt = effFacadeTypeId(info.sec);
   const secFtName = (FACADE_TYPES[secFt] || FACADE_TYPES.ldsp).name;
-  const ftName = (FACADE_TYPES[info.ftId] || FACADE_TYPES.ldsp).name;
   let typeHtml;
   if (info.zi != null) {
     const zone = (info.sec.doorZones || [])[info.zi] || {};
@@ -11050,7 +11061,11 @@ function matFacadeFieldHtml() {
         ${FACADE_TYPE_ORDER.map((id) => `<option value="${id}" ${own === id ? 'selected' : ''}>${esc(FACADE_TYPES[id].name)}</option>`).join('')}
       </select>`;
   } else {
-    typeHtml = `<div class="hint">Вид фасада: <b>${esc(ftName)}</b> — меняется в «Конструктиве модуля» (секция ${secNo})</div>`;
+    typeHtml = `
+      <label class="mt6" for="p-secFacadeType">Вид фасада</label>
+      <select id="p-secFacadeType">
+        ${FACADE_TYPE_ORDER.map((id) => `<option value="${id}" ${secFt === id ? 'selected' : ''}>${esc(FACADE_TYPES[id].name)}</option>`).join('')}
+      </select>`;
   }
   let matHtml;
   if (info.ftId === 'alu') {
@@ -12448,12 +12463,47 @@ function aluDraftFromEff(eff) {
 }
 // Цель подбора фасада, к которой относится конструктор: сама цель или, пока
 // идёт подбор заполнения (role 'aluFill'), её родитель.
+// Без цели подбора (конструктор открыт прямо из Библиотеки) — «свободная»
+// цель: активная секция (или выбранный отсек) активного модуля, как у поля
+// «Фасад» (matFacadeTarget); setAlu — «Выбрать» заодно ставит вид фасада
+// «Фасад из алюминиевого профиля».
 function aluCtorOuterTarget() {
   const t = state.libPickTarget;
-  if (!t) return null;
+  if (!t) return aluFreeTarget();
   if (t.role === 'facadeMaterial') return t;
-  if (t.role === 'aluFill') return t.parent || null;
+  if (t.role === 'aluFill') return t.parent || aluFreeTarget();
   return null;
+}
+function aluFreeTarget() {
+  const t = matFacadeTarget();
+  if (!t) return null;
+  return Object.assign({ role: 'facadeMaterial', returnTo: t.zoneIdx != null ? 'materials' : 'module', setAlu: true }, t);
+}
+// «Выбрать» у профиля в таблице «Алюминиевых фасадов»: профиль → черновик
+// конструктора (проект не меняется до «Выбрать» в конструкторе).
+function libAluPickProfile(code) {
+  const profiles = aluCat().ALU_PROFILES || {};
+  if (!profiles[code]) return;
+  aluDraftGet().aluProfile = code;
+  aluDraftNormalize();
+  libAluOpen = true;
+  renderLibraryPanel();
+  const el = document.getElementById('libAluCtor');
+  if (el && el.scrollIntoView) el.scrollIntoView({ block: 'start' });
+}
+// Лист FAC-ALU в «Двери → Виды фасадов»: открыть конструктор. Цель подбора
+// фасада (открыли Библиотеку из поля «Фасад»/секции) сохраняется и получает
+// setAlu; без неё — свободная цель (активная секция).
+function openAluConstructorFromLibrary() {
+  const t = state.libPickTarget;
+  if (t && t.role === 'facadeMaterial' && facadeTargetInfo(t)) {
+    openAluConstructor(Object.assign({}, t, { setAlu: true }));
+    return;
+  }
+  state.libPickTarget = null;
+  const info = facadeTargetInfo(aluFreeTarget());
+  if (info && info.ftId === 'alu') aluDraftFromEff(info.eff);
+  libShowAluConstructor();
 }
 
 // «Заполнение» рамки — не выпадающий список, а плашка с текущим материалом
@@ -12550,9 +12600,37 @@ function aluCtorGlassLoc(info, st) {
   if (cur.profile !== st.profile) return null;
   return { moduleName: info.mod.name, secIdx: info.mod.sections.indexOf(info.sec), zoneIdx: info.zi };
 }
+// Для кого «Выбрать» конструктора: подпись «Для: …» и активна ли кнопка.
+// Без явной цели — активная секция (aluFreeTarget), без модулей — неактивна.
+function aluCtorTargetState() {
+  const outer = aluCtorOuterTarget();
+  const info = facadeTargetInfo(outer);
+  const canApply = !!(info && (info.ftId === 'alu' || (outer && outer.setAlu)));
+  if (canApply) {
+    const willSetAlu = info.ftId !== 'alu';
+    return { canApply, title: '', hintHtml: `Для: <b>${esc(facadeTargetLabel(info))}</b>${willSetAlu ? '<br>Вид фасада станет «Фасад из алюминиевого профиля».' : ''}` };
+  }
+  if (!state.modules.length) {
+    return { canApply, title: 'Сначала добавьте модуль', hintHtml: 'Сначала добавьте модуль — тогда фасад можно будет поставить в его секцию.' };
+  }
+  return { canApply, title: 'Сначала откройте конструктор из секции или поля «Фасад»',
+    hintHtml: 'Можно посмотреть варианты. Чтобы поставить фасад, нажмите плашку алюминиевого фасада в секции («Конструктив модуля») или в поле «Фасад» («Материалы модуля»).' };
+}
+// Активная секция/модуль сменились, пока Библиотека открыта, — подпись «Для:»
+// и кнопку обновляем на месте, не перерисовывая всю Библиотеку.
+function refreshAluCtorTarget() {
+  const hint = document.getElementById('libAluCtorTarget');
+  const btn = document.getElementById('libAluCtorApply');
+  if (!hint || !btn) return;
+  const tgt = aluCtorTargetState();
+  hint.innerHTML = tgt.hintHtml;
+  btn.disabled = !tgt.canApply;
+  btn.title = tgt.canApply ? '' : tgt.title;
+}
 // После recompute() числа размера стекла могли измениться — обновляем только
 // эту строку конструктора, не всю Библиотеку.
 function refreshAluCtorGlassHint() {
+  refreshAluCtorTarget();
   const el = document.getElementById('libAluCtorGlass');
   if (!el || !state.aluDraft) return;
   const st = aluSecSettings(aluDraftSec());
@@ -12577,7 +12655,7 @@ function libAluConstructorHtml() {
   const mOrder = (cat.ALU_MAKER_ORDER || Object.keys(makers)).filter((id) => makers[id]);
   const maker = makers[st.maker] || null;
   const info = facadeTargetInfo(aluCtorOuterTarget());
-  const canApply = !!(info && info.ftId === 'alu');
+  const tgt = aluCtorTargetState();
 
   const profLabel = (p) => [p.name, p.article, p.width ? `${p.width} мм` : ''].filter(Boolean).join(' · ');
   const fillHint = prof && prof.fillType === 'glass' ? 'Этот профиль — только под стекло.'
@@ -12604,7 +12682,7 @@ function libAluConstructorHtml() {
   }
   const glassHtml = st.fillIsGlass
     ? `<br><span id="libAluCtorGlass">${aluSecGlassSizeHtml(sec, aluCtorGlassLoc(info, st))}</span>` : '';
-  const applyAttrs = canApply ? '' : ' disabled title="Сначала откройте конструктор из секции или поля «Фасад»"';
+  const applyAttrs = tgt.canApply ? '' : ` disabled title="${esc(tgt.title)}"`;
   // Подсказка «цель подбора пропала» (libAluDraftApply) — показываем один раз.
   const staleNotice = libAluStaleNotice;
   libAluStaleNotice = '';
@@ -12613,9 +12691,7 @@ function libAluConstructorHtml() {
     <div class="alu-block alu-ctor" id="libAluCtor">
       <div class="lib-alu-sub">Конструктор фасада</div>
       ${staleNotice ? `<div class="hint alu-ask-price" role="status">${esc(staleNotice)}</div>` : ''}
-      <div class="hint alu-ctor-target">${canApply
-        ? `Для: <b>${esc(facadeTargetLabel(info))}</b>`
-        : 'Можно посмотреть варианты. Чтобы поставить фасад, нажмите плашку алюминиевого фасада в секции («Конструктив модуля») или в поле «Фасад» («Материалы модуля»).'}</div>
+      <div class="hint alu-ctor-target" id="libAluCtorTarget">${tgt.hintHtml}</div>
       <label class="mt6">Профиль</label>
       <select data-alu-draft="aluProfile">
         ${pOrder.map((c) => `<option value="${esc(c)}" ${c === st.profile ? 'selected' : ''}>${esc(profLabel(profiles[c]))}</option>`).join('')}
@@ -12641,7 +12717,7 @@ function libAluConstructorHtml() {
       </select>
       ${priceHtml}
       <div class="alu-ctor-actions">
-        <button type="button" class="btn btn-primary" data-alu-draft-apply="1"${applyAttrs}>Выбрать</button>
+        <button type="button" class="btn btn-primary" id="libAluCtorApply" data-alu-draft-apply="1"${applyAttrs}>Выбрать</button>
       </div>
     </div>`;
 }
@@ -12666,8 +12742,11 @@ let libAluStaleNotice = '';
 function libAluDraftApply() {
   const outer = aluCtorOuterTarget();
   const info = facadeTargetInfo(outer);
-  const store = info && info.ftId === 'alu'
+  const setAlu = !!(outer && outer.setAlu);
+  const store = info && (info.ftId === 'alu' || setAlu)
     ? (info.zi == null ? info.sec : ensureDoorZone(info.sec, info.zi)) : null;
+  // Модулей нет — кнопка и так неактивна, «цель пропала» тут ни к чему.
+  if (!store && !state.libPickTarget && !state.modules.length) return;
   if (!store) {
     state.libPickTarget = null;
     libAluStaleNotice = 'Секция или отсек, для которых открывали конструктор, изменились. Откройте его заново из поля «Фасад».';
@@ -12675,6 +12754,10 @@ function libAluDraftApply() {
     return;
   }
   aluDraftNormalize();
+  if (setAlu && info.ftId !== 'alu') {
+    store.facadeType = 'alu';
+    if (info.zi == null) delete store.glass;   // старый флажок не спорит с видом
+  }
   ALU_DRAFT_KEYS.forEach((k) => { store[k] = state.aluDraft[k]; });
   libPickReturnToParams(outer, info);
 }
@@ -12737,6 +12820,9 @@ function renderSectionsList() {
   // тот же принцип, что и у клэмпа state.activeModule в deleteModule().
   if (!Number.isInteger(mod.activeSection)) mod.activeSection = 0;
   mod.activeSection = Math.max(0, Math.min(mod.activeSection, mod.sections.length - 1));
+  // Конструктор алюм. фасада без явной цели ставит фасад в активную секцию —
+  // подпись «Для: …» в Библиотеке должна следовать за переключением секций.
+  refreshAluCtorTarget();
   const activeIdx = mod.activeSection;
 
   const tabsHtml = `
@@ -12758,7 +12844,8 @@ function renderSectionsList() {
   const contentHtml = (() => {
     const ftId = effFacadeTypeId(sec);
     const ftInfo = FACADE_TYPES[ftId] || FACADE_TYPES.ldsp;
-    const glassBlock = (secEffectiveFacades(sec).every((f) => f === 'open') && !sec.drawers) ? '' : `
+    const glassBlock = (secEffectiveFacades(sec).every((f) => f === 'open') && !sec.drawers)
+      ? '<div class="sub"><div class="hint sec-facade-type-hint">Сначала выберите дверь — тогда появится вид фасада.</div></div>' : `
       <div class="sub">
         <label>Вид фасада</label>
         <select data-field="facadeType" data-idx="${i}">
@@ -13547,6 +13634,20 @@ function bindPanelEvents() {
     const v = e.target.value;
     if (v && FACADE_TYPES[v]) zone.facadeType = v; else delete zone.facadeType;
     delete zone.facadeMaterial;
+    recompute();
+    renderParamsPanel();
+    const fld = document.getElementById('matFacadeField');
+    if (fld && fld.scrollIntoView) fld.scrollIntoView({ block: 'center' });
+  });
+  // Вид фасада секции прямо на экране «Материалы модуля» — то же поле
+  // sec.facadeType, что и select «Вид фасада» в «Конструктиве модуля».
+  on('p-secFacadeType', 'change', (e) => {
+    const info = facadeTargetInfo(matFacadeTarget());
+    if (!info || info.zi != null) return;
+    const v = e.target.value;
+    if (!FACADE_TYPES[v]) return;
+    info.sec.facadeType = v;
+    delete info.sec.glass;
     recompute();
     renderParamsPanel();
     const fld = document.getElementById('matFacadeField');

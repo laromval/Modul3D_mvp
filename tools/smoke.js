@@ -743,15 +743,54 @@ check('в списке фасадов есть открывание вверх',
     const b = ctorEl('[data-alu-draft-apply]');
     if (!b) return false;
     libPanelEl().dispatch('click', { target: b });
-    return /data-alu-open="\d+"[\s\S]*LXD-1204 открытый · [^<]+ · Стекло сатин бронз 4 мм/.test(secHtml()) && !/Для: <b>/.test(libHtml());
+    return /data-alu-open="\d+"[\s\S]*LXD-1204 открытый · [^<]+ · Стекло сатин бронз 4 мм/.test(secHtml()) && !/lib-pick-btn/.test(libHtml());
   });
   check('алюм. фасад: в спецификации свой блок, итог помечен неполным', () => {
     const html = String(docsTab('spec').innerHTML || '');
     return /Алюминиевые фасады/.test(html) && /без учёта позиций без цены/.test(html) && !/>null</.test(html);
   });
-  // Конструктор без цели подбора — смотреть можно, «Выбрать» неактивна.
-  check('алюм. фасад: конструктор без цели — «Выбрать» неактивна', () =>
-    /id="libAluCtor"/.test(libHtml()) && /data-alu-draft-apply="1" disabled/.test(libHtml()));
+  // Конструктор без цели подбора (открыт прямо из Библиотеки) — «Выбрать»
+  // активна и ставит фасад в активную секцию активного модуля, заодно
+  // переключая её «Вид фасада» на алюминиевый (app.js aluFreeTarget).
+  // Перерисовать вкладку «Двери» (заглушка DOM не отражает правки
+  // innerHTML вложенных элементов в innerHTML панели).
+  const openFacTab = () => {
+    const tabs = document.getElementById('libTabs');
+    const facTab = Array.from(document.querySelectorAll('.lib-tab-btn')).filter((x) => x.dataset.libtab === 'facades')[0];
+    if (!tabs || !facTab) return false;
+    tabs.dispatch('click', { target: facTab });
+    return true;
+  };
+  check('алюм. фасад: без цели «Выбрать» активна, цель — активная секция', () =>
+    aluSet('facadeType', 'ldsp') && !/data-alu-open/.test(secHtml()) && openFacTab()
+    && /id="libAluCtor"/.test(libHtml()) && !/data-alu-draft-apply="1" disabled/.test(libHtml())
+    && /Для: <b>[^<]*Секция 1<\/b>/.test(libHtml()) && /Вид фасада станет/.test(libHtml()));
+  check('алюм. фасад: «Выбрать» у профиля в таблице — профиль в конструкторе', () => {
+    const b = ctorEl('[data-alu-pick-profile]', 'ALU-LXD3080');
+    if (!b) return false;
+    libPanelEl().dispatch('click', { target: b });
+    return /id="libAluCtor"/.test(libHtml()) && /<option value="ALU-LXD3080" selected/.test(libHtml());
+  });
+  check('алюм. фасад: из Библиотеки без цели — alu в активной секции', () => {
+    const b = ctorEl('[data-alu-draft-apply]');
+    if (!b) return false;
+    libPanelEl().dispatch('click', { target: b });
+    return /data-alu-open="0"/.test(secHtml()) && /LXD3080/.test(secHtml());
+  });
+  check('алюм. фасад: лист FAC-ALU в «Видах фасадов» открывает конструктор', () => {
+    if (!openFacTab()) return false;
+    // Лист «Алюминий» раздела «Виды фасадов» (topCode 'facade').
+    const nodes = (kind) => libPanelEl().querySelectorAll('[data-tree-node]').filter((r) => r.dataset.kind === kind && r.dataset.top === 'facade');
+    let leaf = nodes('leaf').filter((r) => r.dataset.path === 'Алюминий')[0];
+    if (!leaf) { const top = nodes('top')[0]; if (top) libPanelEl().dispatch('click', { target: top }); }
+    leaf = nodes('leaf').filter((r) => r.dataset.path === 'Алюминий')[0];
+    if (!leaf) return false;
+    if (!libPanelEl().querySelectorAll('[data-alu-open-ctor]').length) libPanelEl().dispatch('click', { target: leaf });
+    const b = libPanelEl().querySelectorAll('[data-alu-open-ctor]')[0];
+    if (!b) return false;
+    libPanelEl().dispatch('click', { target: b });
+    return /id="libAluCtor"/.test(libHtml()) && /Для: <b>/.test(libHtml());
+  });
   // Подбор переключил Библиотеку на «Двери» — возвращаем «Базу модулей»,
   // её ждут проверки ниже.
   check('алюм. фасад: Библиотека обратно на «Базу модулей»', () => {
