@@ -16,6 +16,14 @@ const daskCentruMd = require('./daskCentruMd');
 const sebasMd = require('./sebasMd');
 const tehmobMd = require('./tehmobMd');
 
+// kinds — что реально продаёт сайт, ['materials', 'hardware'] или подмножество
+// (см. state.libLinkForm.kind в src/app.js — форма «Добавить по ссылке»
+// открывается либо из панели материалов, либо из панели фурнитуры). Используется
+// клиентом, чтобы не предлагать в списке материалов сайт, где материалов нет
+// вообще (см. libLinkSitePickerHtml) — mobilier.md/dask-centru.md торгуют и тем,
+// и тем (проверено живыми примерами прямо в комментариях их парсеров), а
+// sebas.md/tehmob.md — только штучной фурнитурой и профилем (см. комментарии
+// вверху sebasMd.js/tehmobMd.js про "сайт продаёт только штучную фурнитуру").
 const SITES = [
   {
     id: 'mobilierMd',
@@ -25,6 +33,7 @@ const SITES = [
     // форме «Добавить по ссылке» (см. src/app.js), чтобы найти товар и
     // скопировать его URL. Без /ru сайт по умолчанию отдаёт другой язык.
     browseUrl: 'https://mobilier.md/ru',
+    kinds: ['materials', 'hardware'],
     parse: mobilierMd.parse,
   },
   {
@@ -32,6 +41,7 @@ const SITES = [
     name: 'dask-centru.md',
     domain: 'dask-centru.md',
     browseUrl: 'https://dask-centru.md/ru',
+    kinds: ['materials', 'hardware'],
     parse: daskCentruMd.parse,
   },
   {
@@ -39,6 +49,7 @@ const SITES = [
     name: 'sebas.md',
     domain: 'sebas.md',
     browseUrl: 'https://sebas.md/ru/',
+    kinds: ['hardware'],
     parse: sebasMd.parse,
   },
   {
@@ -51,12 +62,13 @@ const SITES = [
     // /profili/..., не /profile/...). Страницы товара парсер при этом
     // понимает в любом варианте — и румынском, и русском — см. tehmobMd.js.
     browseUrl: 'https://tehmob.md/ru/',
+    kinds: ['hardware'],
     parse: tehmobMd.parse,
   },
 ];
 
 function listSites() {
-  return SITES.map(({ id, name, domain, browseUrl }) => ({ id, name, domain, browseUrl }));
+  return SITES.map(({ id, name, domain, browseUrl, kinds }) => ({ id, name, domain, browseUrl, kinds }));
 }
 
 function getSite(id) {

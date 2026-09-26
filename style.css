@@ -2015,6 +2015,18 @@ body.lib-dragging .drawer-body { touch-action: none; }
 }
 .lib-chars-btn:hover { border-color: var(--accent); color: var(--text); }
 .lib-chars-btn.active { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
+/* Кнопка «Поставщики» (app.js: libLeafTableHtml/libHardwareLeafTableHtml) —
+   независимый тумблер колонки «Поставщик» (state.libSuppliersVisible), тот
+   же .lib-chars-btn, но своя подпись/data-атрибут. Всегда стоит ВТОРОЙ рядом
+   с кнопкой «Характеристики» (материалов — .lib-chars-toggle, фурнитуры —
+   .lib-hw-chars-toggle ниже), поэтому небольшой отступ слева нужен всегда. */
+.lib-suppliers-toggle { display: inline-block; margin: 0 0 var(--sp-2) var(--sp-2); }
+/* Кнопка «Характеристики» таблицы ФУРНИТУРЫ (app.js:
+   libHardwareLeafTableHtml/state.libHwCharsVisible) — независимый тумблер
+   колонки «Чертёж» (миниатюра чертежа присадки, it.drawing). Тот же
+   .lib-chars-btn и та же посадка «первой кнопки», что у .lib-chars-toggle
+   материалов выше — она стоит первой перед «Поставщики» в таблице фурнитуры. */
+.lib-hw-chars-toggle { display: inline-block; margin-bottom: var(--sp-2); }
 
 /* Выбранная кликом строка таблицы (app.js: state.libSelectedRow) — под
    «− Удалить материал» ниже таблицы. Инлайн-редактируемые ячейки внутри
@@ -2055,12 +2067,30 @@ body.lib-dragging .drawer-body { touch-action: none; }
 .lib-table td.lib-price-cell {
   text-align: center;
 }
+/* Колонка «Поставщик» (app.js: libRowHtml/libHardwareLeafTableHtml, кнопка
+   «Поставщики») — узкая (см. width в libColgroup), название сайта/хост может
+   быть длиннее колонки (например «immobiliare.md») — обрезаем многоточием, а
+   не расширяем таблицу; полный текст — в title (см. разметку ячейки). */
+.lib-table th.lib-supplier-col .dth-label {
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: normal;
+}
+.lib-table td.lib-supplier-col {
+  text-align: center;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
 
 /* Карточка цвета/образца материала/фурнитуры — превью (item.image), клик
    открывает карточку товара на сайте поставщика (item.sourceUrl, если есть,
    см. app.js: libSwatchHtml — заменяет собой прежнюю отдельную колонку-
-   стрелку) либо загрузку своего файла. */
+   стрелку) либо загрузку своего файла. Тот же класс — у миниатюры чертежа
+   присадки фурнитуры (.lib-drawing-swatch, app.js: libDrawingSwatchHtml,
+   item.drawing) — она без клика, но с той же лупой-зумом (см. ниже).
+   position:relative нужен под .lib-swatch-zoom-icon — абсолютно
+   спозиционированный ребёнок в углу миниатюры. */
 .lib-swatch {
+  position: relative;
   display: block; width: 36px; height: 24px; border-radius: var(--r-sm);
   border: 1px solid var(--border); background-color: var(--surface-2);
   background-size: cover; background-position: center; cursor: pointer;
@@ -2068,6 +2098,43 @@ body.lib-dragging .drawer-body { touch-action: none; }
 .lib-swatch:hover { border-color: var(--accent); }
 .lib-swatch.empty { display: flex; align-items: center; justify-content: center; color: var(--muted); font-size: 15px; }
 .lib-swatch.empty::after { content: '+'; }
+/* Пустой чертёж (.lib-drawing-swatch, app.js: libDrawingSwatchHtml) — в
+   отличие от пустого образца материала выше, клик по нему НИЧЕГО не делает
+   (см. ранний return в обработчике .lib-swatch в initLibraryPanel) — курсор
+   и «+» пустого .lib-swatch намекали бы «нажми, чтобы добавить», как у
+   образца, что здесь неверно: убираем оба намёка на кликабельность. */
+.lib-drawing-swatch.empty { cursor: default; }
+.lib-drawing-swatch.empty::after { content: '—'; }
+
+/* Лупа-зум миниатюры (app.js: openLibSwatchZoomPreview) — значок в углу
+   .lib-swatch, скрыт по умолчанию, виден только по наведению на саму
+   миниатюру (не рисуется вовсе у .lib-swatch.empty — там ребёнка в разметке
+   нет, увеличивать нечего). Наведение на сам значок открывает увеличенное
+   превью (см. .lib-swatch-zoom-preview ниже) — делегированный
+   mouseover/mouseout на #libraryPanel, см. initLibraryPanel. */
+.lib-swatch-zoom-icon {
+  position: absolute; right: -1px; bottom: -1px;
+  width: 15px; height: 15px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 9px; line-height: 1;
+  background: var(--surface-solid); border: 1px solid var(--border); color: var(--text-2);
+  opacity: 0; transition: opacity var(--dur) var(--ease), border-color var(--dur) var(--ease), color var(--dur) var(--ease);
+}
+.lib-swatch:hover .lib-swatch-zoom-icon { opacity: 1; }
+.lib-swatch-zoom-icon:hover { border-color: var(--accent); color: var(--accent); }
+
+/* Увеличенное превью картинки миниатюры (app.js: openLibSwatchZoomPreview) —
+   один переиспользуемый элемент, создаётся у курсора/лупы по месту (тот же
+   приём позиционирования и z-index-слой, что у .ctx-menu/.detail-filter-menu
+   выше — поповеры Библиотеки/Деталировки). Размер выставляется в JS под
+   реальное разрешение картинки (не крупнее ~90vw/90vh) — здесь только рамка/
+   фон/тень и растяжение <img> на весь бокс. */
+.lib-swatch-zoom-preview {
+  position: fixed; z-index: 65; padding: 4px; box-sizing: border-box;
+  background: var(--surface-solid); border: 1px solid var(--border); border-radius: var(--r-md);
+  box-shadow: var(--shadow-3);
+}
+.lib-swatch-zoom-preview img { display: block; width: 100%; height: 100%; object-fit: contain; }
 
 /* Форма «Добавить по ссылке» (app.js: libLinkFormHtml) — вкладки «Материалы»/
    «Фурнитура» панели «Библиотека», см. libraryMaterialsBlock/
@@ -2499,12 +2566,29 @@ body.is-focus .scrim { opacity: 0 !important; }
 
 .detail-filter-menu { max-width: 260px; }
 .detail-filter-menu .df-values-list { overflow-y: auto; max-height: 220px; padding: 2px 0; }
+/* Строка поиска внутри поповера сортировки/фильтра колонки (app.js:
+   openColumnFilterMenu) — фильтрует .df-check-row в .df-values-list по
+   подстроке на лету, ничего не отправляя и не меняя выбор. Тот же визуальный
+   язык, что у обычных текстовых полей формы, но компактнее — под ширину
+   попапа (.ctx-menu, min-width 214px). */
+.df-search-input {
+  display: block; width: 100%; box-sizing: border-box;
+  margin: 4px 0 6px; padding: 5px 8px;
+  font-family: inherit; font-size: var(--fs-sm);
+  border: 1px solid var(--border); border-radius: var(--r-sm);
+  background: var(--surface-2); color: var(--text);
+}
+.df-search-input:focus { border-color: var(--accent); outline: none; }
 .df-check-row {
   display: flex !important; align-items: center; gap: 7px;
   padding: 5px 9px; border-radius: var(--r-sm);
   font-size: var(--fs-sm); color: var(--text); cursor: pointer; user-select: none;
 }
 .df-check-row:hover { background: var(--surface-2); }
+/* Строка поиска (app.js: openColumnFilterMenu) прячет строки классом, а не
+   inline style.display — у .df-check-row выше display уже "!important",
+   обычный style.display его не перебивает (проверено вживую в браузере). */
+.df-check-row.df-search-hidden { display: none !important; }
 .df-check-row input { width: auto !important; margin: 0; accent-color: var(--accent); flex: none; }
 .df-check-row span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .df-check-all { font-weight: 600; border-bottom: 1px solid var(--border); margin-bottom: 2px; padding-bottom: 7px; }

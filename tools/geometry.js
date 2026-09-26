@@ -729,7 +729,7 @@ for (const bt of ['plinth', 'legsPlinth', 'legs']) {
   // подъёмник: попадает в смету, вне диапазона — предупреждение
   const lift = mk({ shelves: 0, drawers: 0, facade: 'liftUp', handle: 'knob', lift: 'sametRapid', drawerSystem: 'ballBearing' });
   const sp = buildSpecification(lift);
-  if (!(sp.hardware || []).some((r) => /Samet Rapid/.test(r.name))) problems.push('подъёмник не попал в смету');
+  if (!(sp.hardware || []).some((r) => /Samet Performa/.test(r.name))) problems.push('подъёмник не попал в смету');
   if (!lift.warnings.some((w) => /вне диапазона/.test(w))) problems.push('подъёмник вне диапазона — нет предупреждения');
   if ((sp.hardware || []).some((r) => /Петля/.test(r.name))) problems.push('у откидного фасада не должно быть петель');
 
