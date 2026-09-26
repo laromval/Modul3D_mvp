@@ -2111,7 +2111,12 @@ body.lib-dragging .drawer-body { touch-action: none; }
    миниатюру (не рисуется вовсе у .lib-swatch.empty — там ребёнка в разметке
    нет, увеличивать нечего). Наведение на сам значок открывает увеличенное
    превью (см. .lib-swatch-zoom-preview ниже) — делегированный
-   mouseover/mouseout на #libraryPanel, см. initLibraryPanel. */
+   mouseover/mouseout на #libraryPanel, см. initLibraryPanel.
+   На touch-устройствах (палец, hover недоступен) значок скрыт вовсе — там
+   это была отдельная мелкая мишень вплотную к самой миниатюре, палец
+   промахивался между «зум» и «уйти на сайт» (задача 2026-09-26); вместо
+   него тап по самой миниатюре сразу открывает то же превью, см.
+   isTouchLibraryDevice/openLibSwatchZoomPreview в app.js. */
 .lib-swatch-zoom-icon {
   position: absolute; right: -1px; bottom: -1px;
   width: 15px; height: 15px; border-radius: 50%;
@@ -2122,19 +2127,29 @@ body.lib-dragging .drawer-body { touch-action: none; }
 }
 .lib-swatch:hover .lib-swatch-zoom-icon { opacity: 1; }
 .lib-swatch-zoom-icon:hover { border-color: var(--accent); color: var(--accent); }
+@media (hover: none) {
+  .lib-swatch-zoom-icon { display: none; }
+}
 
 /* Увеличенное превью картинки миниатюры (app.js: openLibSwatchZoomPreview) —
-   один переиспользуемый элемент, создаётся у курсора/лупы по месту (тот же
-   приём позиционирования и z-index-слой, что у .ctx-menu/.detail-filter-menu
-   выше — поповеры Библиотеки/Деталировки). Размер выставляется в JS под
-   реальное разрешение картинки (не крупнее ~90vw/90vh) — здесь только рамка/
-   фон/тень и растяжение <img> на весь бокс. */
+   один переиспользуемый элемент, создаётся у лупы (desktop) или у самой
+   миниатюры (touch, тап) по месту (тот же приём позиционирования и
+   z-index-слой, что у .ctx-menu/.detail-filter-menu выше — поповеры
+   Библиотеки/Деталировки). Картинка — ВСЕГДА фиксированные 250×250 px, не
+   зависит от natural-разрешения источника (разные сайты-парсеры отдают
+   разное разрешение — раньше из-за этого превью разных позиций визуально
+   отличались по размеру, задача 2026-09-26); object-fit: contain сохраняет
+   пропорции без искажений, не растягивает и не обрезает. Кнопка «Перейти на
+   сайт» (.lib-swatch-zoom-link, только touch-сценарий с sourceUrl, см.
+   app.js) добавляет высоту ниже картинки, ширина бокса не меняется. */
 .lib-swatch-zoom-preview {
   position: fixed; z-index: 65; padding: 4px; box-sizing: border-box;
+  display: flex; flex-direction: column; gap: 6px; width: 258px;
   background: var(--surface-solid); border: 1px solid var(--border); border-radius: var(--r-md);
   box-shadow: var(--shadow-3);
 }
-.lib-swatch-zoom-preview img { display: block; width: 100%; height: 100%; object-fit: contain; }
+.lib-swatch-zoom-preview img { display: block; width: 250px; height: 250px; object-fit: contain; }
+.lib-swatch-zoom-link { display: block; width: 100%; box-sizing: border-box; text-align: center; }
 
 /* Форма «Добавить по ссылке» (app.js: libLinkFormHtml) — вкладки «Материалы»/
    «Фурнитура» панели «Библиотека», см. libraryMaterialsBlock/

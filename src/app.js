@@ -14,7 +14,7 @@
 (function () {
 // Версия сборки — показывается во вкладке браузера и в шапке.
 // При выпуске новой версии меняется только эта строка.
-const APP_VERSION = 'v311';
+const APP_VERSION = 'v312';
 
 // Номер версии выводим ПЕРВЫМ делом: если дальше что-то упадёт, по нему сразу
 // видно, какая сборка открыта.
@@ -2823,33 +2823,64 @@ function libDrawingSwatchHtml(group, key, drawing) {
   return `<span class="lib-swatch lib-drawing-swatch${drawing ? '' : ' empty'}" data-swatch-group="${esc(group)}" data-swatch-key="${esc(key)}"${style}${srcAttr} title="${esc(title)}">${zoomIcon}</span>`;
 }
 
+// Touch-устройство (телефон/планшет) — определяем один раз по факту, без
+// кэширования (вызывается только по клику, не в горячем пути рендера).
+// Нужна, чтобы развести на .lib-swatch два разных действия по тапу (см.
+// initLibraryPanel: клик по .lib-swatch) — раньше на touch и крошечная
+// лупа-иконка в углу, и сама миниатюра рядом с ней были отдельными мишенями,
+// палец промахивался между «зум» и «уйти на сайт» (задача 2026-09-26). На
+// touch тап по самой миниатюре теперь сразу открывает зум-превью, а переход
+// на сайт — явной кнопкой «Перейти на сайт» внутри превью (см.
+// openLibSwatchZoomPreview); значок лупы там же прячется CSS-медиа-запросом
+// (hover: none), см. .lib-swatch-zoom-icon в style.css.
+function isTouchLibraryDevice() {
+  return ('ontouchstart' in window) || navigator.maxTouchPoints > 0;
+}
+
 // -----------------------------------------------------------------------
 // Лупа-зум миниатюр .lib-swatch (образец материала/фурнитуры — libSwatchHtml,
 // чертёж присадки — libDrawingSwatchHtml) — общий для ВСЕХ таблиц Библиотеки
-// приём: наведение на саму миниатюру показывает значок лупы в её углу (чисто
-// CSS, .lib-swatch:hover .lib-swatch-zoom-icon, см. style.css), а наведение
-// на саму лупу открывает вот это увеличенное превью — один переиспользуемый
-// элемент #libSwatchZoomPreview, создаётся/удаляется по месту (тот же приём,
-// что и #detailFilterMenu в openColumnFilterMenu/closeColumnFilterMenu выше).
-// Делегированные mouseover/mouseout вешаются один раз на #libraryPanel в
-// initLibraryPanel — переживают renderLibraryPanel (innerHTML целиком
-// перерисовывается), поэтому саму разметку лупы искать заново не нужно.
+// приём на desktop: наведение на саму миниатюру показывает значок лупы в её
+// углу (чисто CSS, .lib-swatch:hover .lib-swatch-zoom-icon, см. style.css), а
+// наведение на саму лупу открывает вот это увеличенное превью — один
+// переиспользуемый элемент #libSwatchZoomPreview, создаётся/удаляется по
+// месту (тот же приём, что и #detailFilterMenu в openColumnFilterMenu/
+// closeColumnFilterMenu выше). На touch (см. isTouchLibraryDevice) значка
+// лупы нет вовсе — то же превью открывает тап по самой миниатюре (см. клик
+// по .lib-swatch в initLibraryPanel). Делегированные mouseover/mouseout/click
+// вешаются один раз на #libraryPanel в initLibraryPanel — переживают
+// renderLibraryPanel (innerHTML целиком перерисовывается), поэтому саму
+// разметку лупы искать заново не нужно.
 // -----------------------------------------------------------------------
+let libSwatchZoomOutsideHandler = null;
 function closeLibSwatchZoomPreview() {
   const el = document.getElementById('libSwatchZoomPreview');
   if (el && el.remove) el.remove();
+  if (libSwatchZoomOutsideHandler) {
+    document.removeEventListener('click', libSwatchZoomOutsideHandler);
+    document.removeEventListener('touchstart', libSwatchZoomOutsideHandler);
+    libSwatchZoomOutsideHandler = null;
+  }
 }
-// icon — сам .lib-swatch-zoom-icon, наведение на который позвало превью;
-// картинку берём из data-swatch-src РОДИТЕЛЬСКОЙ .lib-swatch (та же ссылка,
-// что уже используется как background-image миниатюры, см. libSwatchHtml/
+// anchorEl — либо сам .lib-swatch-zoom-icon (desktop, наведение), либо сама
+// .lib-swatch (touch, тап) — превью встаёт рядом с НИМ (тот же приём
+// позиционирования, что и раньше, просто якорь разный). Картинку берём из
+// data-swatch-src РОДИТЕЛЬСКОЙ .lib-swatch (та же ссылка, что уже
+// используется как background-image миниатюры, см. libSwatchHtml/
 // libDrawingSwatchHtml) — так превью показывает ИМЕННО ту картинку, что и
-// сама миниатюра, без повторного чтения item из каталога. Размер — реальное
-// разрешение картинки (img.naturalWidth/Height), но не крупнее ~90vw/90vh, с
-// сохранением пропорций; до загрузки натуральных размеров позиционируем по
-// временной оценке и пересчитываем в img.onload — так превью не «прыгает»
-// заметно у уже закэшированных браузером картинок (img.complete сразу true).
-function openLibSwatchZoomPreview(icon) {
-  const swatch = icon.closest('.lib-swatch');
+// сама миниатюра, без повторного чтения item из каталога. Размер бокса —
+// ВСЕГДА фиксированные 250×250 (см. .lib-swatch-zoom-preview img в
+// style.css, object-fit: contain сохраняет пропорции без искажений) — не
+// зависит от natural-разрешения источника, чтобы превью разных позиций (у
+// разных сайтов-парсеров разное исходное разрешение) не отличались по
+// размеру визуально (задача 2026-09-26). opts.showLink — показать кнопку
+// «Перейти на сайт» (только touch-сценарий, см. initLibraryPanel); кнопка
+// добавляется, только если у миниатюры реально есть sourceUrl (data-swatch-
+// url, см. libSwatchHtml) — у чертежа присадки (libDrawingSwatchHtml) его
+// нет никогда, поэтому там кнопки не будет, даже если showLink запрошен.
+function openLibSwatchZoomPreview(anchorEl, opts) {
+  const isSwatchAnchor = anchorEl.classList && anchorEl.classList.contains('lib-swatch');
+  const swatch = isSwatchAnchor ? anchorEl : anchorEl.closest('.lib-swatch');
   const src = swatch && swatch.dataset.swatchSrc;
   if (!src) return;
   closeLibSwatchZoomPreview();
@@ -2859,32 +2890,47 @@ function openLibSwatchZoomPreview(icon) {
   const img = document.createElement('img');
   img.src = src;
   box.appendChild(img);
+  const swatchUrl = swatch.dataset.swatchUrl;
+  if (opts && opts.showLink && swatchUrl) {
+    const link = document.createElement('a');
+    link.className = 'btn btn-primary lib-swatch-zoom-link';
+    link.href = swatchUrl;
+    link.target = '_blank';
+    link.rel = 'noopener';
+    link.textContent = 'Перейти на сайт';
+    box.appendChild(link);
+  }
   document.body.appendChild(box);
-  const place = () => {
-    const iconRect = icon.getBoundingClientRect();
-    const maxW = window.innerWidth * 0.9;
-    const maxH = window.innerHeight * 0.9;
-    const naturalW = img.naturalWidth || 240;
-    const naturalH = img.naturalHeight || 160;
-    const scale = Math.min(1, maxW / naturalW, maxH / naturalH);
-    const w = Math.max(1, Math.round(naturalW * scale));
-    const h = Math.max(1, Math.round(naturalH * scale));
-    box.style.width = w + 'px';
-    box.style.height = h + 'px';
-    const left = Math.max(4, Math.min(iconRect.right + 8, window.innerWidth - w - 4));
-    const top = Math.max(4, Math.min(iconRect.top + iconRect.height / 2 - h / 2, window.innerHeight - h - 4));
-    box.style.left = Math.round(left) + 'px';
-    box.style.top = Math.round(top) + 'px';
-  };
-  place();
-  if (!img.complete || !img.naturalWidth) img.addEventListener('load', place);
-  // Курсор может перейти с лупы прямо на само превью (они соприкасаются, см.
-  // задачу) — свой mouseout, чтобы не закрывать превью, пока курсор внутри
-  // него самого или ещё на исходной лупе.
-  box.addEventListener('mouseout', (e) => {
-    if (box.contains(e.relatedTarget) || icon.contains(e.relatedTarget)) return;
-    closeLibSwatchZoomPreview();
-  });
+  const anchorRect = anchorEl.getBoundingClientRect();
+  const rect = box.getBoundingClientRect();
+  const w = rect.width;
+  const h = rect.height;
+  const left = Math.max(4, Math.min(anchorRect.right + 8, window.innerWidth - w - 4));
+  const top = Math.max(4, Math.min(anchorRect.top + anchorRect.height / 2 - h / 2, window.innerHeight - h - 4));
+  box.style.left = Math.round(left) + 'px';
+  box.style.top = Math.round(top) + 'px';
+  if (isSwatchAnchor) {
+    // Touch: закрываем по тапу мимо превью (и мимо самой миниатюры-якоря,
+    // иначе тот же тап, что превью открыл, тут же его бы и закрыл) — тот же
+    // приём отложенной подписки на document, что и у openLibMoveMenu выше
+    // (setTimeout 0, чтобы не поймать текущий, уже идущий клик).
+    setTimeout(() => {
+      libSwatchZoomOutsideHandler = (e) => {
+        if (box.contains(e.target) || anchorEl.contains(e.target)) return;
+        closeLibSwatchZoomPreview();
+      };
+      document.addEventListener('click', libSwatchZoomOutsideHandler);
+      document.addEventListener('touchstart', libSwatchZoomOutsideHandler);
+    }, 0);
+  } else {
+    // Desktop: курсор может перейти с лупы прямо на само превью (они
+    // соприкасаются, см. задачу) — свой mouseout, чтобы не закрывать
+    // превью, пока курсор внутри него самого или ещё на исходной лупе.
+    box.addEventListener('mouseout', (e) => {
+      if (box.contains(e.relatedTarget) || anchorEl.contains(e.relatedTarget)) return;
+      closeLibSwatchZoomPreview();
+    });
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -9480,6 +9526,28 @@ function initLibraryPanel() {
     if (delRowBtn) { libDeleteSelectedRow(); return; }
     const swatch = e.target.closest('.lib-swatch');
     if (swatch) {
+      // Touch (телефон/планшет, см. isTouchLibraryDevice) — лупа-иконка и
+      // сама миниатюра слишком мелкие и близкие мишени для пальца, поэтому
+      // там нет отдельного «навести на лупу»: тап по самой миниатюре сразу
+      // открывает то же увеличенное превью 250×250 (см.
+      // openLibSwatchZoomPreview), а переход на сайт (если есть sourceUrl) —
+      // явной кнопкой «Перейти на сайт» внутри превью, не самим тапом по
+      // миниатюре (задача 2026-09-26).
+      if (isTouchLibraryDevice()) {
+        if (swatch.dataset.swatchSrc) { openLibSwatchZoomPreview(swatch, { showLink: true }); return; }
+        // Картинки нет, но есть sourceUrl — бывает у позиций «по ссылке»,
+        // если парсер сайта не нашёл фото товара (см. libLinkSelectedImageUrl,
+        // может вернуть null, а позиция всё равно сохраняется). Превью
+        // показывать нечего — как на desktop, сразу открываем карточку
+        // товара, а не системный выбор файла (иначе на телефоне для таких
+        // позиций переход на сайт был бы вообще недостижим).
+        if (swatch.dataset.swatchUrl) { window.open(swatch.dataset.swatchUrl, '_blank', 'noopener'); return; }
+        // Ни картинки, ни sourceUrl — пустая заглушка «+», как на desktop,
+        // открыть системный выбор файла (у пустого чертежа присадки клика
+        // нет и на desktop, см. ветку ниже — здесь просто ничего не делаем).
+        if (!swatch.classList.contains('lib-drawing-swatch')) openLibImagePicker(swatch.dataset.swatchGroup, swatch.dataset.swatchKey);
+        return;
+      }
       // Миниатюра чертежа присадки (.lib-drawing-swatch, см.
       // libDrawingSwatchHtml) — только просмотр (лупа-зум по наведению, см.
       // .lib-swatch-zoom-icon), без клика: у неё нет sourceUrl, а
