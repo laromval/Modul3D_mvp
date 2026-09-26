@@ -95,8 +95,12 @@ function sidesLabel(s) {
 // Раскладка секций по ширине: фиксированные берут свою ширину, остальные
 // делят остаток поровну. Возвращает ширины и левые границы проёмов, а также
 // величину нехватки места (overflow), если заданные ширины не влезли.
-function layoutSections(sections, Wi, t) {
+// xStart — левая граница первого проёма (внутренняя грань левой боковины).
+// По умолчанию -Wi/2 (боковины одной толщины, проёмы симметричны); при
+// боковинах разной толщины (видимая боковина, ручная правка) — -W/2 + tL.
+function layoutSections(sections, Wi, t, xStart) {
   const n = sections.length;
+  const x00 = Number.isFinite(xStart) ? xStart : -Wi / 2;
   const avail = Wi - (n - 1) * t;               // чистая ширина всех проёмов
 
   // Секция ровно одна — делить и фиксировать нечего, ей всегда положена вся
@@ -107,7 +111,7 @@ function layoutSections(sections, Wi, t) {
   // нечем) — иначе в раскладке возникает необъяснимый зазор или ложный
   // overflow-предупреждение.
   if (n === 1) {
-    return { widths: [avail], x0: [-Wi / 2], overflow: 0 };
+    return { widths: [avail], x0: [x00], overflow: 0 };
   }
 
   const fixed = sections.map((s) => {
@@ -121,7 +125,7 @@ function layoutSections(sections, Wi, t) {
 
   const widths = fixed.map((v) => (v === null ? autoW : v));
   const x0 = [];
-  let cur = -Wi / 2;
+  let cur = x00;
   for (let i = 0; i < n; i++) { x0.push(cur); cur += widths[i] + t; }
 
   return { widths, x0, overflow: autoCount ? Math.max(0, -rest) : Math.max(0, fixedSum - avail) };
@@ -1356,21 +1360,29 @@ function facadeMaterialPick(ftId, code, defLdspCode) {
 // facadeDecor (поле «Видимая боковина»), при любом виде фасада секции.
 // Допустимы листовые ЛДСП/ДСП и фасадные МДФ-панели.
 // ---------------------------------------------------------------------------
+// Минимальная толщина листа видимой боковины, мм (решение пользователя
+// 2026-09-26; крепёж корпуса — минификс Rastex в пласть боковины).
+// Материалы тоньше (или без толщины в каталоге) в список выбора
+// поля «Видимая боковина» не попадают; в старом проекте с уже выбранным
+// тонким листом выбор не сбрасывается — только предупреждение ядра.
+const VISIBLE_SIDE_MIN_T = 16;
 // Для UI: [{ code, name, thickness }] — что можно выбрать в «Видимую боковину».
 function visibleSideMaterialOptions() {
   const out = facadeMaterialOptions('ldsp').slice();
   const seen = {};
   out.forEach((o) => { seen[o.code] = true; });
   facadeMaterialOptions('mdf').forEach((o) => { if (!seen[o.code]) { seen[o.code] = true; out.push(o); } });
-  return out;
+  return out.filter((o) => Number(o.thickness) >= VISIBLE_SIDE_MIN_T);
 }
 // Материал видимой боковины/цоколя: { code, name, kind, thickness }.
-// thickness — толщина листа: у МДФ-панели — её thickness из каталога
-// (МДФ 19), у ЛДСП — корпусная t (как было всегда). fdec — объект каталога.
+// thickness — РЕАЛЬНАЯ толщина выбранного листа из каталога для любого
+// материала (ЛДСП 18,6 → 18,6; МДФ 19 → 19; решение 2026-09-26). Поле
+// «Видимая боковина» пусто или у листа нет толщины — корпусная t.
+// fdec — объект каталога.
 function visibleSideMaterialOf(fdec, decor, t) {
   const m = fdec || decor;
   const kind = facadeMaterialKind(m) === 'mdf' ? 'mdf' : 'ldsp';
-  const th = kind === 'mdf' && Number(m.thickness) > 0 ? Number(m.thickness) : t;
+  const th = fdec && Number(fdec.thickness) > 0 ? Number(fdec.thickness) : t;
   return { code: m.code, name: kind === 'mdf' ? 'МДФ' : 'ЛДСП', kind, thickness: th };
 }
 // Умолчание ЛДСП-фасада — проектный facadeDecor, но только если это ЛДСП:
@@ -1791,6 +1803,11 @@ function makePart(o) {
 // места) может физически разойтись; пользователь предупреждается через
 // warnings, но пересчёт не блокируется (решение пользователя — только
 // предупреждение, не запрет).
+// ИСКЛЮЧЕНИЕ — боковины корпуса (решение пользователя 2026-09-26): их
+// толщина из thicknessOverride / листа materialOverride учитывается ЕЩЁ ПРИ
+// СБОРКЕ (buildModuleParts: sideT → tL/tR) — наружная грань на ±W/2,
+// боковина растёт/худеет внутрь, дно/крыша/секции/присадка подгоняются.
+// Здесь для боковины толщина уже совпадает, предупреждение не выводится.
 //
 // Идентификация детали — составной ключ kind|section|side|index, стабильный
 // только для «одиночных» видов (боковина, дно, крыша, задняя стенка,
@@ -1844,7 +1861,8 @@ function applyPartOverrides(parts, partOverrides, warnings) {
 
     if (ov.thicknessOverride && ov.thicknessOverride > 0 && ov.thicknessOverride !== part.thickness) {
       const axis = thicknessBoxAxis(part);
-      const isLoadBearing = part.kind === 'side' || part.kind === 'bottom' || part.kind === 'top';
+      // Боковина сюда с другой толщиной не попадает (см. комментарий выше).
+      const isLoadBearing = part.kind === 'bottom' || part.kind === 'top';
       if (isLoadBearing) {
         warnings.push(`${part.name}: толщина переопределена вручную на ${ov.thicknessOverride} мм `
           + `(проектная — ${part.thickness} мм) — сопряжение с соседними деталями `
@@ -2274,7 +2292,47 @@ function buildModuleParts(p) {
   // Одинакова в обеих схемах: дно лежит на высоте цоколя, крыша — под верхом.
   const innerH = H - baseH - 2 * t;
   const innerBottomY = baseH + t;   // верхняя плоскость дна
-  const Wi = W - 2 * t;             // чистая ширина между боковинами
+
+  // ВИДИМАЯ БОКОВИНА. Корпус кухни делают белым, а боковину, которую видно
+  // в интерьере, — в отдельном материале. Видимой считается та, что доходит
+  // ДО ПОЛА или стоит СБОКУ ДНА (дно вкладное): её пласть открыта целиком.
+  // p.sideCovered = { left, right } (необязательно): === false для стороны —
+  // боковина ничем не закрыта (торец ряда), тоже видимая. Не передано —
+  // прежнее поведение (только по варианту установки боковины).
+  // Материал ВСЕГДА выбирает пользователь — проектный facadeDecor (поле
+  // «Видимая боковина», решение 2026-09-26), независимо от вида фасада
+  // секции (ldsp/mdf/wood/glass4/alu…): ЛДСП или фасадная МДФ-панель.
+  // Один код на весь проект — у соседних модулей цоколь сливается в одну
+  // планку (mergePlinths сверяет материал буквально).
+  const visibleSideMat = () => visibleSideMaterialOf(p.facadeDecor, decor, t);
+  const sideVisible = {};
+  for (const key of ['left', 'right']) {
+    const v = sides[key];
+    sideVisible[key] = p.visibleSides !== false
+      && (v === 'floor' || v === 'besideBottom'
+        || !!(p.sideCovered && p.sideCovered[key] === false));
+  }
+  // ТОЛЩИНА БОКОВИНЫ по сторонам (решение пользователя 2026-09-26).
+  // Приоритет: ручная правка толщины (partOverrides, тот же ключ, что у
+  // applyPartOverrides) → толщина листа ручной правки материала из каталога →
+  // видимая — реальная толщина листа «Видимая боковина» → корпусная t.
+  // НАРУЖНЫЙ размер модуля W не меняется: наружная пласть боковины всегда
+  // на ±W/2, боковина растёт/худеет ВНУТРЬ, а дно, крыша, царги, секции,
+  // присадка подгоняются под её внутреннюю грань.
+  const sideOv = (key) => (p.partOverrides
+    && p.partOverrides[['side', 'Корпус', key, 0].join('|')]) || null;
+  const sideT = (key) => {
+    const ov = sideOv(key);
+    if (ov && Number(ov.thicknessOverride) > 0) return Number(ov.thicknessOverride);
+    if (ov && ov.materialOverride) {
+      const om = aluFillMaterial(ov.materialOverride);
+      if (om && Number(om.thickness) > 0) return Number(om.thickness);
+    }
+    if (sideVisible[key]) return visibleSideMat().thickness;
+    return t;
+  };
+  const tL = sideT('left'), tR = sideT('right');
+  const Wi = W - tL - tR;           // чистая ширина между боковинами
 
   // Верхняя планка/царга (topType 'rails'/'railsEdge') занимает по высоте
   // RAIL_W мм «на ребро» или t мм «плашмя», от самого верха корпуса вниз.
@@ -2297,7 +2355,7 @@ function buildModuleParts(p) {
   // width в мм — чистый проём) либо АВТО: такие секции делят между собой
   // остаток поровну. Так стойка между секциями встаёт в нужном месте, а не
   // обязательно по центру.
-  const layout = layoutSections(sections, Wi, t);
+  const layout = layoutSections(sections, Wi, t, -W / 2 + tL);
   const sectionOpening = layout.widths[0];   // для совместимости
   for (const w of layout.widths) {
     if (w <= 100) {
@@ -2316,7 +2374,15 @@ function buildModuleParts(p) {
   // Низ боковины: до пола — 0 (при ножках отсчёт от верха ножки);
   // на дно — верхняя плоскость дна (baseH + t). Верх всегда H, так как
   // крышка вкладная между боковинами.
-  const sideX = W / 2 - t / 2;
+  // Центры боковин — от НАРУЖНОЙ грани ±W/2 внутрь на полтолщины своей
+  // стороны (tL/tR). Поиск боковины по box.x ниже по файлу — только по этим
+  // точным значениям, не по ±(W/2 - t/2).
+  const sideXL = -(W / 2 - tL / 2);
+  const sideXR = W / 2 - tR / 2;
+  // Центр ограничивающей панели слева/справа от секции i: у крайних —
+  // боковина (своя толщина), у внутренних — стойка толщиной t.
+  const panelLX = (i) => (i === 0 ? sideXL : layout.x0[i] - t / 2);
+  const panelRX = (i) => (i === n - 1 ? sideXR : layout.x0[i] + layout.widths[i] + t / 2);
   // «До пола» означает ровно это при любом основании: боковина идёт до пола
   // и сама несёт корпус. Опоры при этом встают под дном между боковинами,
   // цоколь входит между ними. Если боковина не должна опускаться — есть
@@ -2333,17 +2399,14 @@ function buildModuleParts(p) {
     ? (p.base.type === 'plinth' ? 'Несущая, до пола' : 'Несущая, на ножках')
     : (v === 'besideBottom' ? 'Сбоку дна, опирается на основание' : 'Стоит на дне'));
 
-  // ВИДИМАЯ БОКОВИНА. Корпус кухни делают белым, а боковину, которую видно
-  // в интерьере, — в отдельном материале. Видимой считается та, что доходит
-  // ДО ПОЛА или стоит СБОКУ ДНА (дно вкладное): её пласть открыта целиком.
-  // Материал ВСЕГДА выбирает пользователь — проектный facadeDecor (поле
-  // «Видимая боковина», решение 2026-09-26), независимо от вида фасада
-  // секции (ldsp/mdf/wood/glass4/alu…): ЛДСП или фасадная МДФ-панель.
-  // Один код на весь проект — у соседних модулей цоколь сливается в одну
-  // планку (mergePlinths сверяет материал буквально).
-  // Толщина: у МДФ-панели — её лист (МДФ 19), у ЛДСП — корпусная t.
-  const visibleSideMat = () => visibleSideMaterialOf(p.facadeDecor, decor, t);
-  const visibleSideThick = [];
+  // Лист «Видимая боковина» тоньше минимума (старый проект — выбор не
+  // сбрасываем, только предупреждаем; в список выбора такие листы не
+  // попадают, см. VISIBLE_SIDE_MIN_T).
+  if ((sideVisible.left || sideVisible.right) && p.facadeDecor
+    && Number(p.facadeDecor.thickness) > 0 && Number(p.facadeDecor.thickness) < VISIBLE_SIDE_MIN_T) {
+    warnings.push(`Лист «Видимая боковина» ${Number(p.facadeDecor.thickness)} мм тоньше минимума `
+      + `${VISIBLE_SIDE_MIN_T} мм — выберите лист не тоньше ${VISIBLE_SIDE_MIN_T} мм.`);
+  }
 
   // КРАЙНИЙ МОДУЛЬ. Видимая боковина стоит с торца ряда, и между корпусом и
   // стеной остаётся щель (корпус 510 при столешнице 600) — её видно. Поэтому
@@ -2357,17 +2420,16 @@ function buildModuleParts(p) {
   const sideDepth = Math.max(D, round1(D / 2 - Math.min(wallZ, -D / 2)));
 
   for (const s of [
-    { nm: 'Боковина левая', x: -sideX, v: sides.left, sec: sections[0] },
-    { nm: 'Боковина правая', x: sideX, v: sides.right, sec: sections[n - 1] },
+    { nm: 'Боковина левая', key: 'left', x: sideXL, th: tL, v: sides.left, sec: sections[0] },
+    { nm: 'Боковина правая', key: 'right', x: sideXR, th: tR, v: sides.right, sec: sections[n - 1] },
   ]) {
     const bottomY = sideBottomY(s.v);
     const h = sideTop - bottomY;
-    const visible = p.visibleSides !== false
-      && (s.v === 'floor' || s.v === 'besideBottom');
+    const visible = sideVisible[s.key];
     const vm = visible ? visibleSideMat() : null;
     // Глубина боковины: видимая кухонная может быть глубже корпуса (до
     // стены), боковина с пазом под заднюю стенку — удлинена назад на E.
-    const sDepth = grooveDepth(s.x < 0 ? 'left' : 'right', visible ? sideDepth : D);
+    const sDepth = grooveDepth(s.key, visible ? sideDepth : D);
     // Передний торец виден, только если он не закрыт фасадом секции (или
     // фасад стеклянный) — см. sectionFrontHidden. Флаг visible выше — про
     // ДРУГОЕ: открытую наружу ПЛАСТЬ крайней боковины (материал в тон
@@ -2377,7 +2439,7 @@ function buildModuleParts(p) {
     const frontHidden = sectionFrontHidden(s.sec, decor, t, p.facadeDecor, p.facadeThickness);
     parts.push(makePart({
       name: s.nm + (visible ? ' (видимая)' : ''), section: 'Корпус',
-      material: vm ? vm.code : decor.code, thickness: t,
+      material: vm ? vm.code : decor.code, thickness: s.th,
       length: h, width: sDepth, qty: 1, grain: true, kind: 'side',
       facadeType: vm ? 'sidePanel' : null,
       note: sideNote(s.v) + (vm ? `; видимая — из материала «Видимая боковина» (${vm.name})` : ''),
@@ -2389,28 +2451,18 @@ function buildModuleParts(p) {
       edging: { long1: frontHidden ? EDGE_BACK : EDGE_FRONT, long2: EDGE_BACK, short1: EDGE_BACK, short2: EDGE_BACK },
       // Передний край всегда на +D/2, более глубокая боковина растёт назад.
       x: s.x, y: (sideTop + bottomY) / 2, z: round1(D / 2 - sDepth / 2),
-      dims: { w: t, h, d: sDepth },
+      dims: { w: s.th, h, d: sDepth },
     }));
-    if (inGroove(s.x < 0 ? 'left' : 'right')) exactFrontZ(parts[parts.length - 1]);
-    // Толщина видимой боковины из МДФ-панели (19) отличается от корпусной t —
-    // применяется в конце сборки (см. «ТОЛЩИНА ВИДИМОЙ БОКОВИНЫ» перед
-    // applyPartOverrides): вся присадка и поиск боковины по box.x ниже по
-    // файлу считают её центр на ±sideX.
-    if (vm && vm.thickness !== t) {
-      visibleSideThick.push({ part: parts[parts.length - 1], sgn: s.x < 0 ? -1 : 1, tv: vm.thickness });
-    }
+    if (inGroove(s.key)) exactFrontZ(parts[parts.length - 1]);
   }
-  const hasVisibleSide = p.visibleSides !== false
-    && (sides.left === 'floor' || sides.left === 'besideBottom'
-      || sides.right === 'floor' || sides.right === 'besideBottom');
 
   // ---------- Дно и крыша ----------
   // Накладная — во всю ширину W (перекрывает торцы боковин).
-  // Вкладная — между боковинами, длина W - 2t.
+  // Вкладная — между боковинами, длина W - tL - tR.
   // Дно доходит до внутренней грани боковины, идущей до пола, и до наружной
   // грани боковины, стоящей на нём (та ложится сверху).
-  const bottomLeft  = leftInset  ? (-W / 2 + t) : (-W / 2);
-  const bottomRight = rightInset ? ( W / 2 - t) : ( W / 2);
+  const bottomLeft  = leftInset  ? (-W / 2 + tL) : (-W / 2);
+  const bottomRight = rightInset ? ( W / 2 - tR) : ( W / 2);
   const bottomLen = bottomRight - bottomLeft;
   const bottomNote = (leftInset && rightInset) ? 'Вкладное между боковинами'
     : (!leftInset && !rightInset) ? 'Накладное, боковины стоят на нём'
@@ -2521,7 +2573,9 @@ function buildModuleParts(p) {
           ? { long1: EDGE_FRONT, long2: EDGE_BACK, short1: EDGE_BACK, short2: EDGE_BACK }
           : { long1: r.front ? (bodyFrontHidden ? EDGE_BACK : EDGE_FRONT) : EDGE_BACK,
               long2: EDGE_BACK, short1: EDGE_BACK, short2: EDGE_BACK },
-        x: 0, y: onEdge ? H - RAIL_W / 2 : H - t / 2, z: r.z,
+        // Центр между внутренними гранями боковин (толщины сторон могут
+        // различаться — видимая боковина, ручная правка).
+        x: (tL - tR) / 2, y: onEdge ? H - RAIL_W / 2 : H - t / 2, z: r.z,
         dims: onEdge ? { w: Wi, h: RAIL_W, d: t } : { w: Wi, h: t, d: RAIL_W },
       }));
     }
@@ -2534,7 +2588,7 @@ function buildModuleParts(p) {
       length: Wi, width: topD, qty: 1, kind: 'top',
       note: 'Вкладная между боковинами',
       edging: { long1: bodyFrontHidden ? EDGE_BACK : EDGE_FRONT, long2: EDGE_BACK, short1: EDGE_BACK, short2: EDGE_BACK },
-      x: 0, y: H - t / 2, z: round1(D / 2 - topD / 2),
+      x: (tL - tR) / 2, y: H - t / 2, z: round1(D / 2 - topD / 2),
       dims: { w: Wi, h: t, d: topD },
     }));
     if (inGroove('top')) exactFrontZ(parts[parts.length - 1]);
@@ -2732,7 +2786,7 @@ function buildModuleParts(p) {
       // сдвигаются отдельно (см. flush() там же) — здесь координаты верны
       // только для ЭТОЙ, ещё не слитой детали.
       if (skipTopPanel) {
-        for (const sx of [-sideX, sideX]) {
+        for (const sx of [sideXL, sideXR]) {
           const sidePanel = parts.filter((pp) => pp.kind === 'side'
             && Math.abs(pp.box.x - sx) < 1.5)[0];
           if (!sidePanel) continue; // подстраховка — по построению всегда найдётся
@@ -2782,7 +2836,7 @@ function buildModuleParts(p) {
   // Цоколь бывает несущий (боковины до пола) и навесной — на клипсах к
   // регулируемым опорам. Второй вариант — стандарт для кухонь и тумб.
   const hasPlinth = (p.base.type === 'plinth' || p.base.type === 'legsPlinth') && baseH > 0;
-  // Толщина цоколя — лист материала «Видимая боковина» (ЛДСП — t, МДФ — свой).
+  // Толщина цоколя — реальная толщина листа «Видимая боковина» из каталога.
   const plinthT = visibleSideMat().thickness;
   const onLegs = p.base.type === 'legs' || p.base.type === 'legsPlinth';
   if (hasPlinth) {
@@ -2792,8 +2846,8 @@ function buildModuleParts(p) {
     // Планку ограничивает только та боковина, которая реально спускается в
     // зону цоколя, то есть «до пола». При «на дно» и «сбоку дна» низ свободен,
     // планка идёт до габарита и в ряду сливается в сквозную.
-    const pLeft  = (sides.left === 'floor')  ? (-W / 2 + t) : (-W / 2);
-    const pRight = (sides.right === 'floor') ? ( W / 2 - t) : ( W / 2);
+    const pLeft  = (sides.left === 'floor')  ? (-W / 2 + tL) : (-W / 2);
+    const pRight = (sides.right === 'floor') ? ( W / 2 - tR) : ( W / 2);
     const plinthLen = pRight - pLeft;
     const plinthX = (pLeft + pRight) / 2;
     // ЦОКОЛЬ — ВИДИМАЯ ДЕТАЛЬ. Он идёт по всему фронту на уровне пола, его
@@ -2878,8 +2932,8 @@ function buildModuleParts(p) {
 
     // Если боковина идёт до пола, опора не может стоять под ней — сдвигаем
     // крайние опоры внутрь на толщину такой боковины.
-    const padL = LEG_INSET + (sides.left === 'floor' ? t : 0);
-    const padR = LEG_INSET + (sides.right === 'floor' ? t : 0);
+    const padL = LEG_INSET + (sides.left === 'floor' ? tL : 0);
+    const padR = LEG_INSET + (sides.right === 'floor' ? tR : 0);
     const xFrom = -W / 2 + padL, xTo = W / 2 - padR;
     const cols = Math.max(2, Math.ceil((xTo - xFrom) / LEG_SPAN) + 1);
     // Передний ряд опор: стандартный отступ от края — как у обычных опор
@@ -3045,10 +3099,10 @@ function buildModuleParts(p) {
     // глубже корпуса (видимая кухонная, ручной режим с её снятой галочкой) —
     // её торец не на задней плоскости, стенка встаёт между боковинами, чтобы
     // не врезаться в её тело.
-    const plainSideEdge = (sp) => ((sp && sp.box.z - sp.box.d / 2 < -D / 2 - 0.5)
-      ? (W / 2 - t - BACK_PLAY) : (W / 2 - BACK_PLAY));
-    leftEdge = bm.parts.left ? -(W / 2 - t + bm.entry) : -plainSideEdge(grooveTargets.left);
-    rightEdge = bm.parts.right ? (W / 2 - t + bm.entry) : plainSideEdge(grooveTargets.right);
+    const plainSideEdge = (sp, th) => ((sp && sp.box.z - sp.box.d / 2 < -D / 2 - 0.5)
+      ? (W / 2 - th - BACK_PLAY) : (W / 2 - BACK_PLAY));
+    leftEdge = bm.parts.left ? -(W / 2 - tL + bm.entry) : -plainSideEdge(grooveTargets.left, tL);
+    rightEdge = bm.parts.right ? (W / 2 - tR + bm.entry) : plainSideEdge(grooveTargets.right, tR);
     // Верх дна — baseH + t, низ крыши — H - t (см. их y выше).
     backBottomY = bm.parts.bottom ? (baseH + t) - bm.entry : baseH + BACK_PLAY;
     backTopY = bm.parts.top ? (H - t) + bm.entry : H - BACK_PLAY;
@@ -3065,8 +3119,12 @@ function buildModuleParts(p) {
     if (bm.entry >= bm.depth) {
       warnings.push(`Задняя стенка: заход в паз ${bm.entry} мм не меньше глубины паза ${bm.depth} мм — стенка упрётся в дно паза.`);
     }
-    if (bm.depth >= t) {
-      warnings.push(`Задняя стенка: глубина паза ${bm.depth} мм не меньше толщины корпуса ${t} мм — паз прорежет деталь насквозь.`);
+    // Самая тонкая деталь с пазом: боковины — своей толщины (tL/tR), крыша/дно — t.
+    const grooveMinT = Math.min.apply(null, [
+      bm.parts.left ? tL : Infinity, bm.parts.right ? tR : Infinity,
+      (bm.parts.top || bm.parts.bottom) ? t : Infinity]);
+    if (Number.isFinite(grooveMinT) && bm.depth >= grooveMinT) {
+      warnings.push(`Задняя стенка: глубина паза ${bm.depth} мм не меньше толщины детали с пазом ${grooveMinT} мм — паз прорежет деталь насквозь.`);
     }
   } else {
     // НАКЛАДНАЯ. У КРАЙНЕГО кухонного модуля видимая боковина глубже корпуса
@@ -3084,16 +3142,14 @@ function buildModuleParts(p) {
     // без реального выступа — отсюда лишние -12 мм на сторону по ширине при
     // корректных -1 мм по высоте.
     const hasOverhang = sideDepth > D;
-    const leftVisible = p.visibleSides !== false && hasOverhang
-      && (sides.left === 'floor' || sides.left === 'besideBottom');
-    const rightVisible = p.visibleSides !== false && hasOverhang
-      && (sides.right === 'floor' || sides.right === 'besideBottom');
+    const leftVisible = hasOverhang && sideVisible.left;
+    const rightVisible = hasOverhang && sideVisible.right;
     // ДОПУСК В ПАЗУ. Стенка режется на 2 мм короче полного захода: иначе она
     // упирается в дно паза и корпус не стягивается по диагонали. Допуск даётся
     // только с той стороны, где стенка ВХОДИТ В ПАЗ.
     const PAZ_PLAY = 2;
-    leftEdge = leftVisible ? -(W / 2 - t + PAZ_D - PAZ_PLAY) : -(W / 2 - BACK_PLAY);
-    rightEdge = rightVisible ? (W / 2 - t + PAZ_D - PAZ_PLAY) : (W / 2 - BACK_PLAY);
+    leftEdge = leftVisible ? -(W / 2 - tL + PAZ_D - PAZ_PLAY) : -(W / 2 - BACK_PLAY);
+    rightEdge = rightVisible ? (W / 2 - tR + PAZ_D - PAZ_PLAY) : (W / 2 - BACK_PLAY);
     // Положение по высоте — как было исторически (низ стенки на уровне
     // низа дна, высота H - baseH - 2): режим «накладная» не меняется.
     backBottomY = baseH;
@@ -3165,7 +3221,7 @@ function buildModuleParts(p) {
         // передняя пласть во всех режимах на -D/2). Требование пользователя
         // 2026-09-23; раньше была D - tb и не доходила до стенки на tb.
         length: innerH, width: D, qty: 1, kind: 'divider',
-        note: `Вкладная между дном и крышей, отступ слева ${Math.round(secX0 + secW + Wi / 2)} мм`,
+        note: `Вкладная между дном и крышей, отступ слева ${Math.round(secX0 + secW - (-W / 2 + tL))} мм`,
         edging: { long1: dividerHidden ? EDGE_BACK : EDGE_FRONT, long2: EDGE_BACK, short1: EDGE_BACK, short2: EDGE_BACK },
         x: secX0 + secW + t / 2, y: innerBottomY + innerH / 2, z: 0,
         dims: { w: t, h: innerH, d: D },
@@ -3215,8 +3271,20 @@ function buildModuleParts(p) {
       // Направляющие крепятся по фактическим отметкам построенных коробов:
       // если короб не построен (не влез), то и присадки под него быть не должно.
       const drawSys = window.Modul3D.catalog.DRAWER_SYSTEMS[sec.drawerSystem || 'ballBearing'];
+      // Hettich InnoTech Atira: монтажный зазор EB зависит от толщины
+      // боковины (catalog.js, ebFor), но считается по корпусной t. Если
+      // ограничивающая секцию боковина другой толщины (видимая, ручная
+      // правка) — формулу не меняем, только предупреждаем.
+      if ((sec.drawerSystem || 'ballBearing') === 'innotech' && runnerYs.length) {
+        const secSideT = [i === 0 ? tL : t, i === n - 1 ? tR : t];
+        if (secSideT.some((v) => Math.abs(v - t) > 0.05)) {
+          warnings.push(`${secName}: ящики Hettich InnoTech Atira — толщина боковины `
+            + `${secSideT.filter((v) => Math.abs(v - t) > 0.05).join('/')} мм отличается от корпусной ${t} мм; `
+            + `монтажный зазор EB и присадка Atira посчитаны по толщине корпуса ${t} мм — сверьте с каталогом Hettich.`);
+        }
+      }
       for (const ry of runnerYs) {
-        drawerMounts.push({ y: ry, panels: [secX0 - t / 2, secX0 + secW + t / 2],
+        drawerMounts.push({ y: ry, panels: [panelLX(i), panelRX(i)],
           cabinetPin: drawSys && drawSys.cabinetPin });
       }
       if (infoRowBox) infoRowBox.boxes = boxInfo;
@@ -3295,7 +3363,7 @@ function buildModuleParts(p) {
     // и ставятся полкодержатели.
     const infoRow = secInfo[secInfo.length - 1];
     if (infoRow) infoRow.shelfYs = shelfYs.slice();
-    shelfPanelX[i] = [secX0 - t / 2, secX0 + secW + t / 2];
+    shelfPanelX[i] = [panelLX(i), panelRX(i)];
     for (let si = 0; si < shelfEntries.length; si++) {
       const y = shelfEntries[si].y;
       const isFixed = shelfEntries[si].fixed;
@@ -3416,7 +3484,7 @@ function buildModuleParts(p) {
           shape: 'flange',
           hardware: true,
         }));
-        rodFlanges.push({ panelX: secCenterX + sgn * (secW / 2 + t / 2), y: rodY, z: rodZ, secName });
+        rodFlanges.push({ panelX: sgn < 0 ? panelLX(i) : panelRX(i), y: rodY, z: rodZ, secName });
       }
     }
   }
@@ -3485,7 +3553,7 @@ function buildModuleParts(p) {
 
     for (const sgn of [-1, 1]) {
       const mode = sgn < 0 ? sides.left : sides.right;
-      const panel = sidePart(sgn * (W / 2 - t / 2));
+      const panel = sidePart(sgn < 0 ? sideXL : sideXR);
       if (!panel) continue;
       // Видимая (декоративная — с цветом/текстурой, шпон, МДФ) боковина
       // нельзя сажать на конфирмат: у накладной боковины (mode==='onBottom')
@@ -4267,39 +4335,6 @@ function buildModuleParts(p) {
     }
   }
 
-  // ТОЛЩИНА ВИДИМОЙ БОКОВИНЫ. Боковина из МДФ-панели (поле «Видимая
-  // боковина», лист 19 мм) толще корпусной t. Внутренняя пласть остаётся на
-  // месте — дно, полки, петли, паз и вся присадка (координаты по длине/
-  // ширине пласти от толщины не зависят) не меняются; лишняя толщина уходит
-  // НАРУЖУ, габарит модуля по ширине больше на разницу — об этом warning.
-  // Шаг после всей присадки: поиск боковины по box.x (±sideX) выше по файлу.
-  for (const vs of visibleSideThick) {
-    const q = vs.part;
-    const dt = vs.tv - t;
-    const oldX = q.box.x;
-    q.thickness = vs.tv;
-    q.box.w = round1(vs.tv);
-    q.box.x = round1(oldX + vs.sgn * dt / 2);
-    // Растикс столешницы в торце боковины: глубина чашки — по толщине листа,
-    // шкант в столешнице — по новому центру торца.
-    for (const h of q.holes || []) {
-      if (h.kind === 'minifixCam' && h.forJoint === 'countertop') h.depth = RASTEX.camDepthFor(vs.tv);
-    }
-    const ct = parts.find((pp) => pp.kind === 'countertop');
-    if (ct && ct.holes) {
-      const ctLeftX = ct.box.x - ct.box.w / 2;
-      for (const h of ct.holes) {
-        if (h.forJoint === 'countertop' && h.kind === 'minifixDowel'
-          && Math.abs(h.x - (oldX - ctLeftX)) < 0.2) h.x = round1(q.box.x - ctLeftX);
-      }
-    }
-    warnings.push(dt > 0
-      ? `${q.name}: лист «Видимая боковина» ${vs.tv} мм толще корпуса (${t} мм) — `
-        + `боковина выступает наружу на ${round1(dt)} мм, модуль шире на ${round1(dt)} мм.`
-      : `${q.name}: лист «Видимая боковина» ${vs.tv} мм тоньше корпуса (${t} мм) — `
-        + `модуль уже на ${round1(-dt)} мм.`);
-  }
-
   // Ручные правки конкретных деталей — см. applyPartOverrides выше. Строго
   // ПОСЛЕДНИЙ шаг: все формулы корпуса уже отработали, соседние детали
   // пересчитывать не нужно (и не будем).
@@ -4314,6 +4349,9 @@ function buildModuleParts(p) {
     sidesLabel: sidesLabel(sides),
     dims: {
       W, H, D, innerH, baseH, Wi, sectionOpening, t, tb, gap, innerBottomY, n,
+      // Толщины левой/правой боковины (видимая — лист «Видимая боковина»,
+      // ручная правка — partOverrides); наружная грань всегда на ±W/2.
+      tL, tR,
       // Раскладка секций: ширина и левая граница проёма каждой
       sections: layout.widths.map((w, i) => Object.assign(
         { w, x0: layout.x0[i], x1: layout.x0[i] + w },

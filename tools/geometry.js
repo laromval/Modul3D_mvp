@@ -197,6 +197,30 @@ for (const sys of DRAWER_SYSTEM_ORDER) for (const D of [350, 600]) {
   })), `${L}/${R} ${bt}${bh} H${H} D${D} ${fac} ${sys} n${n}`);
 }
 
+// --- видимая боковина другой толщины (МДФ-панель, решение 2026-09-26) -------
+// Наружный размер не меняется, боковина растёт внутрь — все внутренние детали
+// (дно, крыша, стойки, полки, ящики, задняя стенка, опоры, цоколь) обязаны
+// подогнаться без пересечений. Две секции — чтобы проверить и стойку.
+{
+  const mdfVis = Object.values(FACADE_MATERIALS).filter((m) => (m.categoryPath || [])[0] === 'МДФ-плита'
+    && Number(m.thickness) > 0 && Number(m.thickness) !== base.bodyThickness)[0];
+  if (mdfVis) {
+    for (const L of SIDES) for (const R of SIDES)
+    for (const bt of ['plinth', 'legs', 'legsPlinth']) for (const n of [0, 3])
+    for (const fac of FACADES) for (const sys of DRAWER_SYSTEM_ORDER) {
+      inspect(buildModel(Object.assign({}, base, {
+        facadeDecor: mdfVis, worktopDepth: 600,
+        modules: [{
+          name: 'M', width: 900, height: 850, depth: 560, leftSide: L, rightSide: R, topType: 'rails',
+          base: bt === 'plinth' ? { type: 'plinth', plinthHeight: 100 } : { type: bt, legHeight: 100 },
+          sections: [{ shelves: 2, drawers: n, facade: fac, drawerSystem: sys },
+            { shelves: 1, drawers: 0, facade: fac }],
+        }],
+      })), `МДФ-боковина ${L}/${R} ${bt} ${fac} ${sys} n${n}`);
+    }
+  } else problems.push('в каталоге нет МДФ-панели другой толщины для перебора видимой боковины');
+}
+
 // --- ряды модулей: сквозной цоколь, разная глубина и высота -----------------
 const sec = (o) => Object.assign({ shelves: 1, drawers: 0, facade: 'doors2', drawerSystem: 'ballBearing', widthMode: 'auto' }, o);
 const rows = [
@@ -2317,20 +2341,26 @@ for (const glass of [false, true]) {
     problems.push('боковина «на дно» не видна снаружи, а режется из материала видимой боковины');
   }
   // Любой вид фасада секции → видимая боковина и цоколь из facadeDecor,
-  // толщина ЛДСП — корпусная, как раньше.
+  // толщина — РЕАЛЬНАЯ толщина листа из каталога (решение 2026-09-26:
+  // ЛДСП 18,6 → 18,6), наружная пласть на -W/2.
+  const oakT = Number(oak.thickness) > 0 ? Number(oak.thickness) : base.bodyThickness;
   for (const ft of ['ldsp', 'mdf', 'mdfMilled', 'wood', 'woodGlass', 'glass4', 'alu']) {
     const m = mk('floor', ft);
     const sd = sideOf(m, /Боковина левая/);
     if (sd.material !== oak.code) problems.push(`фасад ${ft}: видимая боковина ${sd.material} вместо ${oak.code}`);
-    if (sd.thickness !== base.bodyThickness || sd.box.w !== base.bodyThickness) {
-      problems.push(`фасад ${ft}: толщина видимой ЛДСП-боковины ${sd.thickness}/${sd.box && sd.box.w} вместо ${base.bodyThickness}`);
+    if (sd.thickness !== oakT || sd.box.w !== oakT) {
+      problems.push(`фасад ${ft}: толщина видимой ЛДСП-боковины ${sd.thickness}/${sd.box && sd.box.w} вместо ${oakT}`);
+    }
+    if (Math.abs((sd.box.x - sd.box.w / 2) - (-300)) > 0.11) {
+      problems.push(`фасад ${ft}: наружная пласть видимой боковины не на -W/2 (${sd.box.x - sd.box.w / 2})`);
     }
     const pl = mk('onBottom', ft).parts.filter((q) => q.kind === 'plinth')[0];
     if (!pl) { problems.push(`цоколь не построен при фасаде ${ft}`); continue; }
     if (pl.material !== oak.code) problems.push(`цоколь при фасаде ${ft}: ${pl.material} вместо ${oak.code}`);
   }
   // Поле «Видимая боковина» = МДФ-панель → боковина и цоколь МДФ её толщины;
-  // лишняя толщина уходит наружу, внутренняя пласть на месте.
+  // наружный размер модуля не меняется: наружная пласть на -W/2, боковина
+  // растёт ВНУТРЬ, вкладное дно начинается от её внутренней грани.
   if (!mdfPanel) problems.push('в каталоге нет МДФ-панели с толщиной для проверки видимой боковины');
   else {
     const T = base.bodyThickness;
@@ -2342,16 +2372,59 @@ for (const glass of [false, true]) {
     if (sd.thickness !== mdfPanel.thickness || sd.box.w !== mdfPanel.thickness) {
       problems.push(`МДФ-панель: толщина боковины ${sd.thickness}/${sd.box.w} вместо ${mdfPanel.thickness}`);
     }
-    const innerFace = (q) => q.box.x + q.box.w / 2; // левая боковина — внутренняя пласть справа
-    if (Math.abs(innerFace(sd) - innerFace(sr)) > 0.11) {
-      problems.push(`МДФ-панель: внутренняя пласть боковины сдвинулась (${innerFace(sd)} вместо ${innerFace(sr)})`);
+    const outerFace = (q) => q.box.x - q.box.w / 2; // левая боковина — наружная пласть слева
+    if (Math.abs(outerFace(sd) - (-300)) > 0.11) {
+      problems.push(`МДФ-панель: наружная пласть боковины сдвинулась (${outerFace(sd)} вместо -300)`);
+    }
+    const bot = m.partsRaw.filter((q) => q.kind === 'bottom')[0];
+    if (!bot || Math.abs((bot.box.x - bot.box.w / 2) - (-300 + mdfPanel.thickness)) > 0.11) {
+      problems.push(`МДФ-панель: вкладное дно начинается не от внутренней грани боковины (${bot && bot.box.x - bot.box.w / 2})`);
     }
     if (JSON.stringify(sd.holes.map((h) => [h.kind, h.x, h.y])) !== JSON.stringify(sr.holes.map((h) => [h.kind, h.x, h.y]))) {
       problems.push('МДФ-панель: присадка видимой боковины изменилась от толщины листа');
     }
-    if (mdfPanel.thickness !== T && !(m.warnings || []).some((w) => /Видимая боковина/.test(w))) {
-      problems.push('МДФ-панель толще/тоньше корпуса — нет предупреждения о габарите');
+    // Габарит модуля не меняется — предупреждения «модуль шире» быть не должно.
+    if ((m.warnings || []).some((w) => /модуль (шире|уже)/.test(w))) {
+      problems.push('МДФ-панель: осталось старое предупреждение «модуль шире/уже»');
     }
+    // Два модуля 600 в ряд, обе крайние боковины до пола из МДФ: соседние
+    // боковины не пересекаются, габарит ряда 1200.
+    const row = buildModel(Object.assign({}, base, {
+      decor: white, facadeDecor: mdfPanel,
+      modules: ['А', 'Б'].map((nm) => ({
+        name: nm, width: 600, height: 820, depth: 510, topType: 'rails',
+        leftSide: 'floor', rightSide: 'floor', base: { type: 'legsPlinth', legHeight: 100 },
+        sections: [{ shelves: 1, drawers: 0, facade: 'doorLeft', facadeType: 'ldsp', handle: 'bow160' }],
+      })),
+    }));
+    const rs = row.partsRaw.filter((q) => q.kind === 'side')
+      .map((q) => [q.box.x - q.box.w / 2, q.box.x + q.box.w / 2]).sort((a, b) => a[0] - b[0]);
+    for (let k = 1; k < rs.length; k++) {
+      if (rs[k][0] < rs[k - 1][1] - 0.05) problems.push(`ряд 2×600 МДФ: боковины пересекаются (${rs[k - 1]} / ${rs[k]})`);
+    }
+    if (rs.length && Math.abs((rs[rs.length - 1][1] - rs[0][0]) - 1200) > 0.11) {
+      problems.push(`ряд 2×600 МДФ: габарит ${rs[rs.length - 1][1] - rs[0][0]} вместо 1200`);
+    }
+    // Ручная правка толщины боковины двигает внутренние детали так же.
+    const OVT = mdfPanel.thickness;
+    const mo = mk('onBottom', 'ldsp', null, { leftSide: 'onBottom',
+      partOverrides: { 'side|Корпус|left|0': { thicknessOverride: OVT } } });
+    const so = sideOf(mo, /Боковина левая/);
+    const tpo = mo.partsRaw.filter((q) => q.kind === 'top')[0];
+    if (so.box.w !== OVT || Math.abs(outerFace(so) - (-300)) > 0.11) {
+      problems.push(`ручная толщина боковины: ${so.box.w} / наружная пласть ${outerFace(so)}`);
+    }
+    if (!tpo || Math.abs((tpo.box.x - tpo.box.w / 2) - (-300 + OVT)) > 0.11) {
+      problems.push('ручная толщина боковины: верхняя планка не подогнана к её внутренней грани');
+    }
+    if ((mo.warnings || []).some((w) => /Боковина левая: толщина переопределена/.test(w))) {
+      problems.push('ручная толщина боковины: лишнее предупреждение «стык не пересчитывается»');
+    }
+    // Лист тоньше 16 мм: из списка выбора исключён, в старом проекте — предупреждение.
+    const thin = Object.assign({}, oak, { thickness: 10 });
+    const mt = mk('floor', 'ldsp', thin);
+    if (sideOf(mt, /Боковина левая/).material !== oak.code) problems.push('тонкий лист видимой боковины сброшен');
+    if (!(mt.warnings || []).some((w) => /тоньше минимума/.test(w))) problems.push('тонкий лист видимой боковины: нет предупреждения');
     if (sideMat(m, /Боковина правая/) !== white.code) problems.push('МДФ-панель: скрытая боковина не в декоре корпуса');
     const pl = mk('onBottom', 'ldsp', mdfPanel).parts.filter((q) => q.kind === 'plinth')[0];
     const plRef = mk('onBottom', 'ldsp').parts.filter((q) => q.kind === 'plinth')[0];
@@ -2372,6 +2445,9 @@ for (const glass of [false, true]) {
     const opts = eng.visibleSideMaterialOptions().map((o) => o.code);
     if (opts.indexOf(mdfPanel.code) < 0 || opts.indexOf(oak.code) < 0) problems.push('visibleSideMaterialOptions: нет МДФ-панели или ЛДСП');
     if (opts.some((c) => /^GLASS|^FAC-ALU/.test(c))) problems.push('visibleSideMaterialOptions: стекло/алюминий в списке');
+    if (eng.visibleSideMaterialOptions().some((o) => !(Number(o.thickness) >= 16))) {
+      problems.push('visibleSideMaterialOptions: в списке лист тоньше 16 мм или без толщины');
+    }
   }
   cases += 1;
 }
