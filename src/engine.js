@@ -1252,8 +1252,10 @@ function checkLift(liftId, frontH, bodyW) {
 
 // Тип фасада секции: материал, толщина и способ отрисовки.
 // Совместимость: старый флажок sec.glass = «стекло 4 мм».
-// facadeDecor — ДЕКОР ФАСАДА, отдельный от корпуса: у кухни корпус обычно
-// белый, а фасад в другом декоре. Если не задан — берётся декор корпуса.
+// facadeDecor — проектное поле «Видимая боковина» (ЛДСП из DECORS или
+// МДФ-панель из FACADE_MATERIALS). Для ЛДСП-фасада оно же — декор по
+// умолчанию, но только если это ЛДСП (см. ldspFacadeDefault); если не задано
+// или это МДФ — берётся декор корпуса.
 function facadeTypeOf(sec, decor, t, facadeDecor, facadeThickness) {
   const cat = window.Modul3D.catalog;
   const id = sec.facadeType || (sec.glass ? 'glass4' : 'ldsp');
@@ -2795,8 +2797,9 @@ function buildModuleParts(p) {
     const plinthLen = pRight - pLeft;
     const plinthX = (pLeft + pRight) / 2;
     // ЦОКОЛЬ — ВИДИМАЯ ДЕТАЛЬ. Он идёт по всему фронту на уровне пола, его
-    // видно всегда, поэтому режется он в материале и декоре ФАСАДА, а под
-    // деревянный фасад — из МДФ в шпоне (как и видимая боковина).
+    // видно всегда, поэтому режется он из материала поля «Видимая боковина»
+    // (p.facadeDecor: ЛДСП или МДФ-панель, см. visibleSideMaterialOf) — так
+    // же, как и видимая боковина; толщина — plinthT выше.
     const plinthMat = visibleSideMat();
     parts.push(makePart({
       name: 'Цоколь (планка передняя)', section: 'Корпус',

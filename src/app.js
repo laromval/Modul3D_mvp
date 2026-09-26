@@ -7380,9 +7380,9 @@ function libSaveEdit(group, key, field, value) {
 }
 
 // Роли подбора материала проекта (см. state.libPickTarget/openMaterialPicker)
-// читают только ДВА массива каталога: decor/facadeDecor — DECORS (декор
-// корпуса и декор видимой боковины), back — BACK_MATERIALS; выбранная строка
-// из другого массива копируется в целевой (см. libPickMaterial ниже).
+// с копированием читают только ДВА массива каталога: decor — DECORS (декор
+// корпуса), back — BACK_MATERIALS; выбранная строка из другого массива
+// копируется в целевой (см. libPickMaterial ниже). facadeDecor,
 // countertopDecor, facadeMaterial и aluFill сюда НЕ входят — они ссылаются
 // на код из ЛЮБОГО списка каталога напрямую, без копирования (копия раньше
 // плодила видимый дубль в Библиотеке, 2026-09-06). Кнопок «Удалить материал»
@@ -7713,15 +7713,16 @@ function libAddRow(group, path, topCode) {
 // Коды FACADE_MATERIALS, жёстко зашитые в FACADE_TYPES (.material/.insert) —
 // каждый тип фасада (ldsp/mdf/glass4/wood/...) ссылается на конкретный код
 // напрямую, спецификация ищет материал по нему без проверки на
-// существование. Плюс 'FAC-VENEER' — engine.js (visibleSideMat) возвращает
-// этот код НАПРЯМУЮ литералом, в обход FACADE_TYPES. Удаление любого из этих
-// кодов молча сломало бы стоимость (и, для FAC-VENEER, деталировку боковины)
+// существование. Удаление любого из этих кодов молча сломало бы стоимость
 // у всех модулей с соответствующим типом фасада — блокируем в
-// libDeleteSelectedRow. Позиции фасада, добавленные пользователем через «+
+// libDeleteSelectedRow. (FAC-VENEER раньше тоже был здесь — engine.js
+// возвращал его литералом для видимой боковины; теперь боковина берёт код
+// из поля «Видимая боковина» (state.facadeDecorCode), и если там выбрана
+// МДФ-панель, её удаление блокирует libFindMaterialUsages.) Позиции фасада, добавленные пользователем через «+
 // Добавить материал» (коды вида FAC-NEW-*), в этот список не попадают и
 // удаляются свободно.
 function libFacadeReservedCodes() {
-  const set = { 'FAC-VENEER': true };
+  const set = {};
   Object.values(FACADE_TYPES || {}).forEach((t) => {
     if (t.material) set[t.material] = true;
     if (t.insert) set[t.insert] = true;
@@ -7783,12 +7784,15 @@ function libFindMaterialUsages(group, code) {
   const usages = [];
   if (!code) return usages;
   // decor/facadeDecor/back — ОБЩИЕ на весь проект поля (state.decorCode/
-  // state.facadeDecorCode/state.backCode, см. materialsBlock) — decorCode
-  // корпуса и фасада применяется разом ко ВСЕМ модулям проекта, поэтому
-  // здесь одна запись «Проект целиком», а не по записи на каждый модуль.
+  // state.facadeDecorCode/state.backCode, см. materialsBlock) — применяются
+  // разом ко ВСЕМ модулям проекта, поэтому здесь одна запись «Проект
+  // целиком», а не по записи на каждый модуль. facadeDecorCode («Видимая
+  // боковина») может ссылаться и на ЛДСП (DECORS), и на МДФ-панель
+  // (FACADE_MATERIALS) — ядро ищет код во всех списках, поэтому, как у
+  // столешницы/фасада секции ниже, проверяем независимо от group.
+  if (state.facadeDecorCode === code) usages.push({ moduleName: 'Проект целиком', part: 'видимая боковина (общая на весь проект)' });
   if (group === 'decors') {
     if (state.decorCode === code) usages.push({ moduleName: 'Проект целиком', part: 'материал корпуса (общий на весь проект)' });
-    if (state.facadeDecorCode === code) usages.push({ moduleName: 'Проект целиком', part: 'видимая боковина (общая на весь проект)' });
   } else if (group === 'back') {
     if (state.backCode === code) usages.push({ moduleName: 'Проект целиком', part: 'задняя стенка (общая на весь проект)' });
   }
