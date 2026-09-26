@@ -1324,7 +1324,7 @@ function moduleLabel(m, F) {
 // а не внутренний артикул, поэтому в таблице печатаем его целиком.
 function materialLabel(model, code) {
   const proj = model.project || {};
-  for (const info of [proj.decor, proj.facadeDecor, proj.backMaterial, proj.drawerDecor]) {
+  for (const info of [proj.decor, proj.facadeDecor, proj.facadeMat, proj.backMaterial, proj.drawerDecor]) {
     if (info && info.code === code) return info.name;
   }
   // Фасадные материалы, шпон и стекло лежат в каталоге, а не в проекте

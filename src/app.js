@@ -64,6 +64,14 @@ const { exportDetailing, exportSpecification } = window.Modul3D.exportModule;
 const { DECORS, BACK_MATERIALS, DRAWER_SYSTEMS, DRAWER_SYSTEM_ORDER,
         HANDLES, HANDLE_ORDER, LIFTS, LIFT_ORDER,
         FACADE_TYPES, FACADE_TYPE_ORDER } = window.Modul3D.catalog;
+// Декор по умолчанию нового проекта (H1145 ST10, catalog.DEFAULT_DECOR_CODE,
+// решение 2026-09-26) — объект/код. Не «DECORS[0]»: порядок каталога меняют
+// в Библиотеке. Позицию удалили — запасной первый декор (см. defaultDecor).
+function defaultDecorObj() {
+  const cat = window.Modul3D.catalog;
+  return (typeof cat.defaultDecor === 'function' && cat.defaultDecor()) || DECORS[0];
+}
+function defaultDecorCode() { return defaultDecorObj().code; }
 const { PRESETS } = window.Modul3D.presets;
 const { recognizeSketch } = window.Modul3D.sketchAI;
 const { buildDrawings, buildViewSVG, DRAWINGS_CSS } = window.Modul3D.drawings;
@@ -81,7 +89,7 @@ function newSection() {
     // см. drawersPanelBlock ниже), а не общая на проект: у секции могут стоять
     // ящики другого декора/толщины, чем у соседней. Дефолты те же, что раньше
     // были общепроектными в state.
-    drawerDecorCode: DECORS[0].code, drawerThickness: 16, drawerSystem: 'ballBearing',
+    drawerDecorCode: defaultDecorCode(), drawerThickness: 16, drawerSystem: 'ballBearing',
     widthMode: 'auto', width: 400,
   };
 }
@@ -113,9 +121,16 @@ function rebalanceSectionFacades(mod) {
 
 const state = {
   bodyThickness: 18, backThickness: 3, facadeThickness: 18,
-  decorCode: DECORS[0].code,
-  // Декор фасада отдельный: у кухни корпус белый, фасад в своём декоре
-  facadeDecorCode: DECORS[0].code,
+  // Материалы нового проекта по умолчанию — H1145 ST10 (catalog.
+  // DEFAULT_DECOR_CODE): корпус, видимая боковина и фасад одного цвета.
+  decorCode: defaultDecorCode(),
+  // «Видимая боковина» (исторически — facadeDecorCode): ТОЛЬКО видимые
+  // боковины и цоколь, фасады от неё не зависят (2026-09-26).
+  facadeDecorCode: defaultDecorCode(),
+  // «Материал фасада» (2026-09-26): декор ЛДСП-фасада по умолчанию — для
+  // секций без своего sec.facadeMaterial. Читает engine.js как
+  // proj.facadeMat. Старые проекты без поля — см. migrateFacadeMatCode.
+  facadeMatCode: defaultDecorCode(),
   // Глубина столешницы: по ней видимая боковина дотягивается до стены
   worktopDepth: 600,
   backCode: BACK_MATERIALS[0].code,
@@ -1013,8 +1028,9 @@ const state = {
   // Режим подбора материала в Библиотеке (плашки экрана «Материалы», см.
   // matPickPlashkaHtml/openMaterialPicker/openFacadeMaterialPicker) или null,
   // когда подбор не идёт. Роли:
-  //   { role: 'decor' | 'facadeDecor' | 'back', returnTo: 'materials' } —
-  //     материал корпуса / видимой боковины / задней стенки проекта;
+  //   { role: 'decor' | 'facadeDecor' | 'facadeMat' | 'back', returnTo: 'materials' } —
+  //     материал корпуса / видимой боковины / фасада (ЛДСП по умолчанию) /
+  //     задней стенки проекта;
   //   { role: 'countertopDecor' } — «свой материал» столешницы;
   //   { role: 'facadeMaterial', moduleIdx, moduleName, secIdx, zoneIdx,
   //     returnTo: 'materials' | 'module' } — материал фасада секции
@@ -1514,7 +1530,8 @@ function snapshot() {
   return JSON.stringify({
     modules: state.modules, activeModule: state.activeModule, selected: state.selected,
     bodyThickness: state.bodyThickness, backThickness: state.backThickness, facadeThickness: state.facadeThickness,
-    decorCode: state.decorCode, facadeDecorCode: state.facadeDecorCode, backCode: state.backCode,
+    decorCode: state.decorCode, facadeDecorCode: state.facadeDecorCode, facadeMatCode: state.facadeMatCode,
+    backCode: state.backCode,
     jointType: state.jointType, worktopDepth: state.worktopDepth,
     countertopCornerJoint: state.countertopCornerJoint,
     grainGroups: state.grainGroups,
@@ -1535,6 +1552,7 @@ function applySnapshot(snap) {
   Object.keys(o).forEach((k) => { state[k] = o[k]; });
   // Снимок без этого поля (старый) не должен оставлять группы от другого проекта.
   if (!o.grainGroups) state.grainGroups = {};
+  migrateFacadeMatCode(o);
   // state.modules целиком заменён — режим изоляции (по имени модуля) и
   // выбор детали внутри него могли устареть, снимаем безусловно.
   exitIsolation();
@@ -1630,6 +1648,19 @@ function migrateDrawerFieldsToSections(data) {
   });
 }
 
+// Старый проект/снимок без «Материала фасада» (до 2026-09-26): там декор
+// ЛДСП-фасадов по умолчанию брался из «Видимой боковины» (facadeDecorCode),
+// если это ЛДСП, иначе — из корпуса (engine.ldspFacadeDefault). Ставим то же
+// самое, чтобы старый проект выглядел как раньше. src — сохранённый state.
+function migrateFacadeMatCode(src) {
+  if (!src || src.facadeMatCode) return;
+  const engine = window.Modul3D.engine;
+  const fd = src.facadeDecorCode ? findAnyMaterialByCode(src.facadeDecorCode) : null;
+  const isLdsp = !!fd && engine && typeof engine.facadeMaterialOptions === 'function'
+    && engine.facadeMaterialOptions('ldsp').some((o) => o.code === fd.code);
+  state.facadeMatCode = isLdsp ? fd.code : (src.decorCode || state.decorCode);
+}
+
 // Применяет сохранённое состояние проекта (из файла или автосохранения).
 // В отличие от applySnapshot() (только для истории отмены), терпима к
 // неполным/старым файлам: недостающие поля остаются как в текущем состоянии,
@@ -1642,6 +1673,7 @@ function restoreProjectData(data) {
   // Проект из файла до появления «Направления текстуры» — все группы «Авто»,
   // а не то, что было выставлено в предыдущем открытом проекте.
   if (!data.state.grainGroups) state.grainGroups = {};
+  migrateFacadeMatCode(data.state);
   migrateDrawerFieldsToSections(data);
   // Открыт другой проект (или восстановлено автосохранение) — модули заменены
   // целиком, старая изоляция/выбор детали больше не имеют смысла.
@@ -2007,10 +2039,13 @@ function libModThumbBase() {
     // отдельно от app.js, коды могут переименовать или убрать — так уже было
     // 2026-09-03). Без отката buildModel() падает на undefined.code и рвёт
     // всю инициализацию приложения (пустая библиотека, неработающие кнопки).
-    decor: DECORS.find((d) => d.code === state.decorCode) || DECORS[0],
+    decor: DECORS.find((d) => d.code === state.decorCode) || defaultDecorObj(),
     // «Видимая боковина» может ссылаться и на МДФ-панель из FACADE_MATERIALS.
     facadeDecor: findAnyMaterialByCode(state.facadeDecorCode)
-      || DECORS.find((d) => d.code === state.decorCode) || DECORS[0],
+      || DECORS.find((d) => d.code === state.decorCode) || defaultDecorObj(),
+    // «Материал фасада» — декор ЛДСП-фасадов по умолчанию.
+    facadeMat: findAnyMaterialByCode(state.facadeMatCode)
+      || DECORS.find((d) => d.code === state.decorCode) || defaultDecorObj(),
     backMaterial: BACK_MATERIALS.find((d) => d.code === state.backCode) || BACK_MATERIALS[0],
     worktopDepth: state.worktopDepth,
     jointType: state.jointType,
@@ -2027,7 +2062,7 @@ function libModThumbDataUrl(groupId, it) {
   const thumbBase = libModThumbBase();
   const thumbKeyBase = [
     thumbBase.bodyThickness, thumbBase.backThickness, thumbBase.facadeThickness,
-    thumbBase.decor.code, thumbBase.facadeDecor.code, thumbBase.backMaterial.code,
+    thumbBase.decor.code, thumbBase.facadeDecor.code, thumbBase.facadeMat.code, thumbBase.backMaterial.code,
     thumbBase.worktopDepth, thumbBase.jointType,
   ].join('|');
   const cacheKey = `${libModPresetId(groupId, it.id)}|${thumbKeyBase}`;
@@ -2125,7 +2160,7 @@ function libModCustomThumbDataUrl(p) {
   const thumbBase = libModThumbBase();
   const thumbKeyBase = [
     thumbBase.bodyThickness, thumbBase.backThickness, thumbBase.facadeThickness,
-    thumbBase.decor.code, thumbBase.facadeDecor.code, thumbBase.backMaterial.code,
+    thumbBase.decor.code, thumbBase.facadeDecor.code, thumbBase.facadeMat.code, thumbBase.backMaterial.code,
     thumbBase.worktopDepth, thumbBase.jointType,
   ].join('|');
   const dataKey = JSON.stringify((p.kit && p.kit.map((k) => k.params)) || p.params || null);
@@ -7397,6 +7432,11 @@ function visibleSideOptionsOf() {
   const engine = window.Modul3D.engine;
   return engine && typeof engine.visibleSideMaterialOptions === 'function' ? engine.visibleSideMaterialOptions() : [];
 }
+// Что можно выбрать в проектный «Материал фасада» (state.facadeMatCode) —
+// это умолчание именно ЛДСП-фасада, поэтому список вида 'ldsp' из ядра.
+function facadeMatOptionsOf() {
+  return facadeMaterialOptionsOf('ldsp');
+}
 
 // Клик «Выбрать» на строке «Листовых материалов» в режиме подбора.
 // rowGroup/code — ИСТИННОЕ происхождение строки (см. libRowHtml: entry.group),
@@ -7434,6 +7474,14 @@ function libPickMaterial(rowGroup, code) {
     if (!store) { state.libPickTarget = null; renderLibraryPanel(); return; }
     store.facadeMaterial = code;
     libPickReturnToParams(target, info);
+    return;
+  }
+  if (target.role === 'facadeMat') {
+    // «Материал фасада» проекта — код НАПРЯМУЮ в state.facadeMatCode, без
+    // копии в DECORS (как у facadeDecor ниже). Только ЛДСП (вид 'ldsp').
+    if (!facadeMatOptionsOf().some((o) => o.code === code)) return;
+    state.facadeMatCode = code;
+    libPickReturnToParams(target, null);
     return;
   }
   if (target.role === 'facadeDecor') {
@@ -7575,7 +7623,8 @@ function libPickReturnToParams(target, info) {
   if (target.returnTo === 'materials') {
     el = info ? document.getElementById('matFacadeField') : document.querySelector(`#paramsPanel [data-mat-pick="${target.role}"]`);
   } else if (target.returnTo === 'module' && info) {
-    el = document.querySelector(`[data-alu-open="${target.secIdx}"]`);
+    el = document.querySelector(`[data-alu-open="${target.secIdx}"]`)
+      || document.querySelector(`[data-sec-facade-pick="${target.secIdx}"]`);
   }
   if (el && el.scrollIntoView) el.scrollIntoView({ block: 'center' });
 }
@@ -7791,6 +7840,8 @@ function libFindMaterialUsages(group, code) {
   // (FACADE_MATERIALS) — ядро ищет код во всех списках, поэтому, как у
   // столешницы/фасада секции ниже, проверяем независимо от group.
   if (state.facadeDecorCode === code) usages.push({ moduleName: 'Проект целиком', part: 'видимая боковина (общая на весь проект)' });
+  // «Материал фасада» (state.facadeMatCode) — так же, код из любого списка.
+  if (state.facadeMatCode === code) usages.push({ moduleName: 'Проект целиком', part: 'материал фасада (ЛДСП по умолчанию, общий на весь проект)' });
   if (group === 'decors') {
     if (state.decorCode === code) usages.push({ moduleName: 'Проект целиком', part: 'материал корпуса (общий на весь проект)' });
   } else if (group === 'back') {
@@ -7932,7 +7983,7 @@ function showLibUsageModal(name, usages) {
   // (плашка → Библиотека → «Выбрать»), затем повторить удаление.
   const isActiveProjectMaterial = usages.some((u) => u.moduleName === 'Проект целиком');
   const hintHtml = isActiveProjectMaterial
-    ? `<p class="hint">Этот материал сейчас выбран в «Материалах модуля» (корпус, видимая боковина или задняя стенка). Сначала выберите там другой материал — нажмите на поле и затем «Выбрать» в Библиотеке, — а потом повторите удаление «${esc(name)}».</p>`
+    ? `<p class="hint">Этот материал сейчас выбран в «Материалах модуля» (корпус, видимая боковина, материал фасада или задняя стенка). Сначала выберите там другой материал — нажмите на поле и затем «Выбрать» в Библиотеке, — а потом повторите удаление «${esc(name)}».</p>`
     : `<p class="hint">Сначала замените материал в перечисленных местах вручную (в «Материалах модуля» или в секциях модуля), затем повторите удаление.</p>`;
   body.innerHTML = `
     <p>«<b>${esc(name)}</b>» нельзя удалить — она используется в проекте:</p>
@@ -10796,7 +10847,7 @@ function matPickPlashkaHtml(role, id, code, fallbackName, extraAttrs) {
   const isGlass = !!(it && ((Array.isArray(it.categoryPath) && it.categoryPath[0] === 'Стекло') || /^GLASS/i.test(it.code || '')));
   const swCls = img ? '' : (isGlass ? ' alu-fill-sw-glass' : ' alu-fill-sw-sheet');
   const swStyle = img ? ` style="background-image:url('${esc(img)}')"` : '';
-  return `<button type="button" class="alu-fill-pick mat-pick"${id ? ` id="${esc(id)}"` : ''} data-mat-pick="${esc(role)}" data-code="${esc(code || '')}"${extraAttrs || ''}
+  return `<button type="button" class="alu-fill-pick mat-pick"${id ? ` id="${esc(id)}"` : ''}${role ? ` data-mat-pick="${esc(role)}"` : ''} data-code="${esc(code || '')}"${extraAttrs || ''}
           title="Выбрать в Библиотеке" aria-label="${esc(`${name}. Выбрать в Библиотеке`)}">
           <span class="alu-fill-sw${swCls}"${swStyle}></span>
           <span class="alu-fill-txt"><span class="alu-fill-name">${esc(name)}</span><span class="alu-fill-sub">Выбрать в Библиотеке →</span></span>
@@ -10813,7 +10864,12 @@ function materialsBlock() {
     <div class="field">
       <label>Видимая боковина</label>
       ${matPickPlashkaHtml('facadeDecor', 'p-facadeDecor', state.facadeDecorCode)}
-      <div class="hint">Из этого материала режется видимая боковина (до пола или сбоку дна) — при любом виде фасада. Можно выбрать ЛДСП или фасадную МДФ-панель</div>
+      <div class="hint">Из этого материала режется видимая боковина (до пола или сбоку дна) и цоколь — при любом виде фасада. Фасады от этого поля не зависят. Можно выбрать ЛДСП или фасадную МДФ-панель</div>
+    </div>
+    <div class="field">
+      <label>Материал фасада (ЛДСП, по умолчанию)</label>
+      ${matPickPlashkaHtml('facadeMat', 'p-facadeMat', state.facadeMatCode)}
+      <div class="hint">Из этого ЛДСП режутся ЛДСП-фасады всех секций, где свой материал фасада не выбран. Материал фасада конкретной секции (для любого вида — ЛДСП, МДФ, стекло…) выбирается ниже, в поле «Фасад»</div>
     </div>
     <div class="field-row">
       <div class="field"><label>Толщина ЛДСП</label><input id="p-bodyThickness" type="number" value="${state.bodyThickness}"></div>
@@ -10841,7 +10897,7 @@ function materialsBlock() {
 // итоговый материал — engine.facadeMaterialOf (как построит ядро).
 // ---------------------------------------------------------------------------
 function matFacadeProj() {
-  return { decor: state.decorCode, facadeDecor: state.facadeDecorCode, facadeThickness: state.facadeThickness, t: state.bodyThickness };
+  return { decor: state.decorCode, facadeMat: state.facadeMatCode, facadeThickness: state.facadeThickness, t: state.bodyThickness };
 }
 // Число отсеков секции ровно так, как их использует ядро (engine.js:
 // раскладка зон в buildModuleParts и zoneFacadeSettings) — отсеки действуют
@@ -11104,7 +11160,8 @@ function openMaterialPicker(role) {
   // Сразу на листе ТЕКУЩЕГО материала поля (его таблица с «Выбрать» видна
   // без лишнего клика, крошки ведут выше), если он лежит в нужной категории;
   // иначе — на самой категории.
-  const curCode = role === 'decor' ? state.decorCode : role === 'facadeDecor' ? state.facadeDecorCode : state.backCode;
+  const curCode = role === 'decor' ? state.decorCode : role === 'facadeDecor' ? state.facadeDecorCode
+    : role === 'facadeMat' ? state.facadeMatCode : state.backCode;
   const loc = libLocateMaterial(curCode);
   let path = [];
   if (role === 'decor') {
@@ -11114,6 +11171,10 @@ function openMaterialPicker(role) {
     // МДФ-панель там, где она лежит), иначе — «Листовые материалы» → ДСП.
     if (loc && loc.topCode !== 'countertop') { libOpenPickLocation(loc.topCode, loc.path); return; }
     path = ['ДСП'];
+  } else if (role === 'facadeMat') {
+    // «Материал фасада» проекта — ЛДСП-фасад: на листе текущего декора, если
+    // он в «Листовых материалах», иначе — «Листовые материалы» → ДСП.
+    path = loc && loc.topCode === 'sheet' ? loc.path : ['ДСП'];
   } else if (role === 'back') {
     const b0 = BACK_MATERIALS[0] && Array.isArray(BACK_MATERIALS[0].categoryPath) ? BACK_MATERIALS[0].categoryPath : [];
     path = loc && loc.topCode === 'sheet' && loc.path[0] === b0[0] ? loc.path : b0.slice(0, 1);
@@ -11201,6 +11262,7 @@ function libPickRowAllowed(topCode, entry) {
   if (topCode === 'countertop') return false;
   if (t.role === 'decor') return sheetLike && entry.group !== 'back';
   if (t.role === 'facadeDecor') return entry.group !== 'back' && visibleSideOptionsOf().some((o) => o.code === code);
+  if (t.role === 'facadeMat') return entry.group !== 'back' && facadeMatOptionsOf().some((o) => o.code === code);
   if (t.role === 'back') {
     const b0 = BACK_MATERIALS[0] && Array.isArray(BACK_MATERIALS[0].categoryPath) ? BACK_MATERIALS[0].categoryPath[0] : null;
     return sheetLike && (entry.group === 'back' || (!!b0 && cp[0] === b0));
@@ -12595,6 +12657,20 @@ function secGlassInside(sec, ftId, ftInfo) {
   return !!(ftInfo && ftInfo.glassInside);
 }
 
+// «Материал фасада» секции в «Конструктиве» (решение 2026-09-26): вид фасада
+// выбирается выше, а клик по плашке открывает Библиотеку сразу в разделе
+// материалов ЭТОГО вида (ЛДСП → «Листовые материалы → ДСП», МДФ →
+// МДФ-плиты, стекло → «Стекло»; см. openFacadeMaterialPicker), «Выбрать»
+// пишет sec.facadeMaterial. Без data-mat-pick — у экрана «Материалы» свой
+// обработчик плашек (bindPanelEvents), здесь — data-sec-facade-pick.
+// Вид без выбора материала (фрезерованный МДФ, массив…) — плашки нет.
+function secFacadeMatPlashkaHtml(sec, ftId, i) {
+  if (!facadeMaterialOptionsOf(ftId).length) return '';
+  let fm = null;
+  try { fm = window.Modul3D.engine.facadeMaterialOf(sec, matFacadeProj()); } catch (err) { fm = null; }
+  return `<label class="mt6">Материал фасада</label>${matPickPlashkaHtml(null, '', fm && fm.code, fm && fm.name, ` data-sec-facade-pick="${i}"`)}`;
+}
+
 function renderSectionsList() {
   const mod = state.modules[state.activeModule];
   const list = document.getElementById('sectionsList');
@@ -12633,7 +12709,7 @@ function renderSectionsList() {
           ${FACADE_TYPE_ORDER.map((id) => `<option value="${id}" ${ftId === id ? 'selected' : ''}>${esc(FACADE_TYPES[id].name)}</option>`).join('')}
         </select>
         <div class="hint">${esc(secFacadeThickness(sec, ftInfo))} мм${secGlassInside(sec, ftId, ftInfo) ? ' · полки в секции — стекло 6 мм на держателях с силиконовой пяткой' : ''}</div>
-        ${ftId === 'alu' ? `<label class="mt6">Алюминиевый фасад</label>${aluSummaryPlashkaHtml(sec, ` data-alu-open="${i}"`)}` : ''}
+        ${ftId === 'alu' ? `<label class="mt6">Алюминиевый фасад</label>${aluSummaryPlashkaHtml(sec, ` data-alu-open="${i}"`)}` : secFacadeMatPlashkaHtml(sec, ftId, i)}
       </div>`;
 
     const handleBlock = secEffectiveFacades(sec).every((f) => f === 'open') && !sec.drawers ? '' : `
@@ -12845,6 +12921,14 @@ function renderSectionsList() {
       openAluConstructor({ role: 'facadeMaterial', moduleIdx: state.activeModule, moduleName: mod.name, secIdx: si, zoneIdx: null, returnTo: 'module' });
     });
   });
+  // «Материал фасада» секции — Библиотека в разделе материалов вида фасада
+  // (см. secFacadeMatPlashkaHtml), «Выбрать» вернёт сюда же.
+  list.querySelectorAll('[data-sec-facade-pick]').forEach((el) => {
+    el.addEventListener('click', (e) => {
+      const si = Number(e.currentTarget.dataset.secFacadePick);
+      openFacadeMaterialPicker({ moduleIdx: state.activeModule, moduleName: mod.name, secIdx: si, zoneIdx: null }, 'module');
+    });
+  });
   // поля секции
   list.querySelectorAll('[data-field]').forEach((el) => {
     el.addEventListener('change', (e) => {
@@ -12936,7 +13020,13 @@ function addPresetToProject(catId, presetId, placementId) {
       // Декор, который стоял на корпусе, уезжает на ФАСАД, а корпус и
       // ящики становятся белыми. Если корпус уже белый — фасадный декор
       // не трогаем, иначе кухня получится целиком белой.
-      if (state.decorCode !== white.code) state.facadeDecorCode = state.decorCode;
+      // Декор уходит и в «Материал фасада» (ЛДСП-фасады), и в «Видимую
+      // боковину» — поля независимы (2026-09-26), здесь просто оба
+      // получают прежний декор корпуса.
+      if (state.decorCode !== white.code) {
+        state.facadeDecorCode = state.decorCode;
+        state.facadeMatCode = state.decorCode;
+      }
       state.decorCode = white.code;
       // Материал ящиков — поле секции (см. newSection()/drawersPanelBlock),
       // красим ящики нового кухонного модуля в тот же белый, что и корпус.
@@ -13609,10 +13699,14 @@ function recompute(isRetry) {
     // отдельно от app.js, коды могут переименовать или убрать — так уже было
     // 2026-09-03). Без отката buildModel() падает на undefined.code и рвёт
     // всю инициализацию приложения (пустая библиотека, неработающие кнопки).
-    decor: DECORS.find(d => d.code === state.decorCode) || DECORS[0],
+    decor: DECORS.find(d => d.code === state.decorCode) || defaultDecorObj(),
     // «Видимая боковина» может ссылаться и на МДФ-панель из FACADE_MATERIALS.
     facadeDecor: findAnyMaterialByCode(state.facadeDecorCode)
-      || DECORS.find(d => d.code === state.decorCode) || DECORS[0],
+      || DECORS.find(d => d.code === state.decorCode) || defaultDecorObj(),
+    // «Материал фасада» (2026-09-26) — декор ЛДСП-фасадов по умолчанию,
+    // независимый от «Видимой боковины». Читает engine.js как proj.facadeMat.
+    facadeMat: findAnyMaterialByCode(state.facadeMatCode)
+      || DECORS.find(d => d.code === state.decorCode) || defaultDecorObj(),
     backMaterial: BACK_MATERIALS.find(d => d.code === state.backCode) || BACK_MATERIALS[0],
     worktopDepth: state.worktopDepth,
     jointType: state.jointType,
@@ -13654,6 +13748,7 @@ function recompute(isRetry) {
   // сохранять всё тот же битый код вместо реально применённого.
   state.decorCode = project.decor.code;
   state.facadeDecorCode = project.facadeDecor.code;
+  state.facadeMatCode = project.facadeMat.code;
   state.backCode = project.backMaterial.code;
 
   currentModel = buildModel(project);

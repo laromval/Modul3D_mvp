@@ -443,6 +443,16 @@ check('корпус по умолчанию 18 мм', () => {
   const el = document.getElementById('p-bodyThickness');
   return !!el && Number(el.attrs.value) === 18;
 });
+// Материал нового проекта по умолчанию (2026-09-26) — H1145 ST10
+// (catalog.DEFAULT_DECOR_CODE): корпус, видимая боковина и материал фасада.
+check('материалы по умолчанию: корпус/боковина/фасад — H1145 ST10', () => {
+  const cat = sandbox.Modul3D.catalog;
+  const def = cat.DEFAULT_DECOR_CODE;
+  const d = cat.DECORS.filter((x) => x.code === def)[0];
+  const codeOf = (id) => { const el = document.getElementById(id); return el && el.dataset.code; };
+  return !!d && /H1145 ST10/.test(d.name)
+    && ['p-decor', 'p-facadeDecor', 'p-facadeMat'].every((id) => codeOf(id) === def);
+});
 // Материалы (2026-09-26): не выпадающие списки, а плашки с выбранным
 // материалом (data-mat-pick) — клик открывает Библиотеку в режиме подбора
 // сразу в нужной категории, «Выбрать» только у подходящих строк; ссылок
@@ -510,6 +520,26 @@ check('корпус по умолчанию 18 мм', () => {
     return choose(pickBy(mdf.code))
       && new RegExp(`id="p-facadeDecor" data-mat-pick="facadeDecor" data-code="${mdf.code}"`).test(panelHtml())
       && cat.DECORS.length === nDecors && !/lib-pick-btn/.test(libHtml());
+  });
+  // «Материал фасада» проекта (2026-09-26) — умолчание ЛДСП-фасадов,
+  // независимое от «Видимой боковины»: «Выбрать» только у ЛДСП
+  // (engine.facadeMaterialOptions('ldsp')), код — в state.facadeMatCode.
+  check('материалы: «Материал фасада» — «Выбрать» только у ЛДСП', () => {
+    const b = document.getElementById('p-facadeMat');
+    if (!b) return false;
+    b.click();
+    const allowed = sandbox.Modul3D.engine.facadeMaterialOptions('ldsp').map((o) => o.code);
+    const btns = pickBtns();
+    return btns.length > 0 && btns.every((x) => allowed.indexOf(x.attrs['data-pick-code']) !== -1);
+  });
+  check('материалы: «Материал фасада» — выбор пишется в поле, видимая боковина не меняется', () => {
+    const vis = document.getElementById('p-facadeDecor');
+    const visCode = vis && vis.dataset.code;
+    const cur = document.getElementById('p-facadeMat').dataset.code;
+    const pb = pickBtns().filter((x) => x.attrs['data-pick-code'] !== cur)[0];
+    const code = pb && pb.attrs['data-pick-code'];
+    return choose(pb) && new RegExp(`id="p-facadeMat" data-mat-pick="facadeMat" data-code="${code}"`).test(panelHtml())
+      && document.getElementById('p-facadeDecor').dataset.code === visCode && !/lib-pick-btn/.test(libHtml());
   });
   // Поле «Фасад» активной секции: вид ЛДСП → «Выбрать» только у допустимых
   // материалов вида (engine.facadeMaterialOptions), выбор — в sec.facadeMaterial.
@@ -645,6 +675,31 @@ check('в списке фасадов есть открывание вверх',
     libPanelEl().dispatch('change', { target: el });
     return true;
   };
+  // «Материал фасада» секции в «Конструктиве» (2026-09-26): вид фасада
+  // выбирается в секции, плашка открывает Библиотеку в разделе материалов
+  // ЭТОГО вида — «Выбрать» только у engine.facadeMaterialOptions(вид),
+  // выбор пишется в sec.facadeMaterial и виден на плашке.
+  {
+    const secPick = () => document.getElementById('sectionsList').querySelectorAll('[data-sec-facade-pick]')[0];
+    const pickBtns = () => libPanelEl().querySelectorAll('.lib-pick-btn');
+    for (const ft of ['mdf', 'glass4', 'ldsp']) {
+      check(`материал фасада секции (${ft}): «Выбрать» только у материалов вида`, () => {
+        if (!aluSet('facadeType', ft)) return false;
+        const b = secPick();
+        if (!b || !/<label class="mt6">Материал фасада<\/label>/.test(secHtml())) return false;
+        b.click();
+        const allowed = sandbox.Modul3D.engine.facadeMaterialOptions(ft).map((o) => o.code);
+        const btns = pickBtns();
+        if (!btns.length || !btns.every((x) => allowed.indexOf(x.attrs['data-pick-code']) !== -1)) return false;
+        const pb = btns[btns.length - 1];
+        const code = pb.attrs['data-pick-code'];
+        libPanelEl().dispatch('click', { target: pb });
+        return new RegExp(`data-code="${code}" data-sec-facade-pick="0"`).test(secHtml()) && !/lib-pick-btn/.test(libHtml());
+      });
+    }
+    check('материал фасада секции: у фрезерованного МДФ плашки нет', () =>
+      aluSet('facadeType', 'mdfMilled') && !/data-sec-facade-pick/.test(secHtml()) && aluSet('facadeType', 'ldsp'));
+  }
   check('алюм. фасад: выбирается в «Вид фасада»', () => /<label>Вид фасада<\/label>/.test(secHtml()) && aluSet('facadeType', 'alu'));
   check('алюм. фасад: в секции одна плашка-итог, без полей профиля', () =>
     /data-alu-open="\d+"/.test(secHtml()) && !/data-field="alu/.test(secHtml()) && /LXD3080/.test(secHtml()));
@@ -1400,7 +1455,9 @@ for (const el of document.querySelectorAll('.tab-btn')) {
       const facade = document.getElementById('p-facadeDecor');
       // Поля — плашки (не <select>): выбранный код — в data-code.
       if (!isWhite(body && body.dataset.code)) fails.push('кухня: корпус не стал белым');
-      if (facade && isWhite(facade.dataset.code)) fails.push('кухня: декор фасада тоже побелел');
+      if (facade && isWhite(facade.dataset.code)) fails.push('кухня: видимая боковина тоже побелела');
+      const facadeMat = document.getElementById('p-facadeMat');
+      if (facadeMat && isWhite(facadeMat.dataset.code)) fails.push('кухня: материал фасада тоже побелел');
       const back = document.getElementById('panelBack');
       if (back) back.click();
       // Материал ящиков — поле СЕКЦИИ на экране «Ящики» (#drawersDecor,

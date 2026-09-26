@@ -1695,6 +1695,20 @@
   };
   const HARDWARE_CATEGORY_ORDER = ['hinge', 'runner', 'handle', 'leg', 'support', 'plinth', 'countertop', 'mechanism', 'rod', 'fastener'];
 
+  // Материал по умолчанию для НОВОГО/пустого проекта (решение
+  // пользователя-технолога 2026-09-26): ЛДСП Egger H1145 ST10 «Дуб Бардолино
+  // натуральный» — корпус, «Видимая боковина», «Материал фасада» и ящики
+  // новой секции. Одна точка правды — app.js/engine.js берут его отсюда
+  // (defaultDecor), а не «первым элементом DECORS»: порядок каталога
+  // пользователь меняет в Библиотеке. Старые проекты со своим сохранённым
+  // кодом это НЕ затрагивает.
+  const DEFAULT_DECOR_CODE = 'LINK-1790014004794';
+  // Объект декора по умолчанию; если позицию удалили из каталога — первый
+  // оставшийся декор (запасной вариант, чтобы ядро не падало).
+  function defaultDecor() {
+    return DECORS.find((d) => d.code === DEFAULT_DECOR_CODE) || DECORS[0];
+  }
+
   window.Modul3D = window.Modul3D || {};
   window.Modul3D.catalog = {
     CATALOG_SOURCE,
@@ -1706,5 +1720,6 @@
     HANDLES, HANDLE_ORDER, HANDLE_HOLE_D, LIFTS, LIFT_ORDER,
     HARDWARE_CATEGORY_LABEL, HARDWARE_CATEGORY_ORDER,
     findMaterialByCode, findCountertopMaterialByCode, decorHasPattern,
+    DEFAULT_DECOR_CODE, defaultDecor,
   };
 })();

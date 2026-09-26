@@ -2301,6 +2301,52 @@ for (const glass of [false, true]) {
   cases += 1;
 }
 
+// --- «Материал фасада» не зависит от «Видимой боковины» (2026-09-26) ------
+// Декор ЛДСП-фасада по умолчанию — проектный proj.facadeMat, а НЕ
+// proj.facadeDecor («Видимая боковина»): смена боковины фасады не меняет.
+// Без facadeMat — декор корпуса.
+{
+  const { DECORS, FACADE_MATERIALS } = window.Modul3D.catalog;
+  const eng = window.Modul3D.engine;
+  const bad = (m) => problems.push(`материал фасада проекта: ${m}`);
+  const ldsp = DECORS.filter((d) => (d.categoryPath || [])[0] === 'ДСП');
+  const white = DECORS.filter((d) => /бел/i.test(d.name))[0] || DECORS[1];
+  const [fm1, vis1, vis2] = ldsp.filter((d) => d.code !== white.code);
+  const mdfPanel = Object.values(FACADE_MATERIALS).filter((m) => (m.categoryPath || [])[0] === 'МДФ-плита'
+    && Number(m.thickness) > 0)[0];
+  const mk = (fdec, fmat, sec) => buildModel(Object.assign({}, base, {
+    decor: white, facadeDecor: fdec, facadeMat: fmat,
+    modules: [{ name: 'М', width: 600, height: 820, depth: 510, topType: 'rails',
+      leftSide: 'floor', rightSide: 'onBottom', base: { type: 'legsPlinth', legHeight: 100 },
+      sections: [Object.assign({ shelves: 1, drawers: 1, facade: 'doorLeft', facadeType: 'ldsp',
+        handle: 'bow160', drawerSystem: 'ballBearing' }, sec || {})] }],
+  }));
+  const doorMat = (m) => (m.partsRaw.filter((p) => p.kind === 'door')[0] || {}).material;
+  const dfMat = (m) => (m.partsRaw.filter((p) => p.kind === 'drawerFront')[0] || {}).material;
+  const sideMat = (m) => (m.partsRaw.filter((p) => /Боковина левая/.test(p.name))[0] || {}).material;
+  if (!fm1 || !vis1 || !vis2) bad('в каталоге мало ЛДСП для проверки');
+  else {
+    for (const vis of [vis1, vis2, mdfPanel].filter(Boolean)) {
+      const m = mk(vis, fm1);
+      inspect(m, `материал фасада при боковине ${vis.code}`);
+      if (doorMat(m) !== fm1.code) bad(`смена «Видимой боковины» (${vis.code}) сменила дверь: ${doorMat(m)}`);
+      if (dfMat(m) !== fm1.code) bad(`смена «Видимой боковины» (${vis.code}) сменила фасад ящика: ${dfMat(m)}`);
+      if (sideMat(m) !== vis.code) bad(`видимая боковина не из своего поля: ${sideMat(m)} вместо ${vis.code}`);
+      const fo = eng.facadeMaterialOf({ facadeType: 'ldsp' }, { decor: white, facadeDecor: vis, facadeMat: fm1, t: 18 });
+      if (fo.code !== fm1.code) bad(`facadeMaterialOf зависит от боковины: ${fo.code}`);
+    }
+    // Без «Материала фасада» — декор корпуса, а не видимая боковина.
+    const m0 = mk(vis1, undefined);
+    if (doorMat(m0) !== white.code) bad(`без facadeMat дверь ${doorMat(m0)} вместо декора корпуса ${white.code}`);
+    // Свой материал секции по-прежнему приоритетнее проектного.
+    const ms = mk(vis1, fm1, { facadeMaterial: vis2.code });
+    if (doorMat(ms) !== vis2.code) bad(`материал секции не приоритетнее проектного: ${doorMat(ms)}`);
+    // МДФ-панель в «Материале фасада» ЛДСП-фасадом не режется — декор корпуса.
+    if (mdfPanel && doorMat(mk(vis1, mdfPanel)) !== white.code) bad('МДФ-код принят как ЛДСП-фасад');
+  }
+  cases += 1;
+}
+
 // --- видимая боковина: материал выбирает пользователь ---------------------
 // Решение 2026-09-26: «не важно, какой фасад выберет пользователь, материал
 // видимых боковин должен выбрать пользователь» — видимая боковина (до пола или
