@@ -131,9 +131,10 @@
     "verifiedAt": "2026-09-24T17:35:55.811Z",
     "categoryPath": [
       "МДФ-плита",
-      "Egger"
+      "Фасадные панели МДФ"
     ],
-    "sourceSiteId": "mobilierMd"
+    "sourceSiteId": "mobilierMd",
+    "categoryPathEdited": true
   },
   {
     "code": "LINK-1790200284959",
@@ -175,6 +176,27 @@
     ],
     "sourceSiteId": "mobilierMd",
     "sourceArticle": ""
+  },
+  {
+    "code": "LINK-1790325008828",
+    "name": "МДФ F128 PA/U999 ST9 Гранитная атмосфера черная",
+    "unit": "м²",
+    "image": "https://mobilier.md/image/cache/catalog/products/33968/aa8ffc38c237e1807bc60dbbb9dfaec0-768x1087.png",
+    "sheetH": 2070,
+    "sheetW": 2800,
+    "article": "",
+    "sourceUrl": "https://mobilier.md/ru/plitnye-materialy/fasadnye-paneli-mdf/mdf-egger/df-f128-pau999-st9-granitnaya-atmosfera-chernaya-19-2800x2070-eg-perfectsense.html",
+    "thickness": 19,
+    "sheetPrice": 6665.4,
+    "sourceName": "МДФ F128 PA/U999 ST9 Гранитная атмосфера черная (19) 2800x2070 (EG) PerfectSense",
+    "verifiedAt": "2026-09-25T08:30:08.827Z",
+    "categoryPath": [
+      "МДФ-плита",
+      "Фасадные панели МДФ"
+    ],
+    "sourceSiteId": "mobilierMd",
+    "sourceArticle": "",
+    "categoryPathEdited": true
   }
 ];
 
@@ -441,9 +463,10 @@
     "verifiedAt": "2026-09-24T17:35:55.811Z",
     "categoryPath": [
       "МДФ-плита",
-      "Egger"
+      "Фасадные панели МДФ"
     ],
-    "sourceSiteId": "mobilierMd"
+    "sourceSiteId": "mobilierMd",
+    "categoryPathEdited": true
   },
   "GLASS-4": {
     "code": "GLASS-4",
@@ -664,17 +687,12 @@
     "sourceSiteId": "mobilierMd"
   },
   "hinge": {
-    "name": "Петля накладная Blum CLIP Top Blumotion 110°",
+    "name": "Петля накладная Blum CLIP 110°",
     "unit": "шт",
-    "price": 58,
-    "article": "71B3550",
+    "price": 210,
+    "article": "BLUM-CLIP",
     "category": "hinge",
-    "image": "https://tehmob.md/image/catalog/products/2025/30547.jpg",
-    "sourceUrl": "https://tehmob.md/15531-petlya-clip-top-blumotion-blum-110.html",
-    "sourceName": "Петля Clip Top-Blumotion Blum 110°",
-    "sourceArticle": "71B3550",
-    "verifiedAt": "2026-09-25T00:00:00.000Z",
-    "sourceSiteId": "tehmobMd",
+    "sourceUrl": "https://www.blum.com/us/en/products/hingesystems/clip-top/programme/",
     "subcategory": "Blum",
     "categoryPath": [
       "Blum"
@@ -708,31 +726,13 @@
     "sourceSiteId": "mobilierMd",
     "sourceArticle": "MR-WP-010-01"
   },
-  // ВАЖНЫЙ НЮАНС (2026-09-26): реальная сверлимая петля Blum под голое стекло
-  // существует (артикулы 75T4100/75T4200/75T4300 — накладная/полунакладная/
-  // вкладная, официальный каталог Blum, чашка на саморезы, угол 94°, толщина
-  // фасада 4.5-7мм) — но НЕ продаётся ни на одном из 4 подключённых сайтов
-  // (проверено по каждому артикулу отдельно). У Blum есть ещё линейка
-  // CRISTALLO (петля клеится на стекло, сверления нет вообще) — она в
-  // продаже (sebas.md), но это принципиально другой способ крепления, не
-  // совпадающий с текущей моделью присадки ниже (Ø26 сквозное). Оставлен
-  // DTC как ближайший реальный товар (правило «только реально покупаемое»),
-  // но его точный способ крепления НЕ подтверждён — на фото с сайта
-  // производителя похоже на приклеиваемую конструкцию вроде CRISTALLO, а не
-  // на сверлимую чашку. Если для проекта важна точная присадка именно этой
-  // петли — нужен чертёж производителя на сам товар C80C611F.
   "hingeGlass": {
-    "name": "Петля для стеклянной двери DTC Blumotion (отверстие Ø26)",
+    "name": "Петля для стеклянной двери (отверстие Ø26)",
     "unit": "шт",
-    "price": 30,
-    "article": "C80C611F",
+    "price": 520,
+    "article": "HNG-GLASS",
     "category": "hinge",
-    "image": "https://tehmob.md/image/catalog/products/2025/28201.jpg",
-    "sourceUrl": "https://tehmob.md/15583-petlya-dlya-stekla-dtc-blumotion.html",
-    "sourceName": "Петля для стекла DTC Blumotion",
-    "sourceArticle": "C80C611F",
-    "verifiedAt": "2026-09-25T00:00:00.000Z",
-    "sourceSiteId": "tehmobMd",
+    "sourceUrl": "https://www.blum.com/us/en/products/hingesystems/clip-top/programme/",
     "subcategory": "петли для стекла",
     "categoryPath": [
       "петли для стекла"
@@ -858,6 +858,23 @@
     "price": 0,
     "article": "CTOP-GLUE-CARCASS",
     "category": "countertop"
+  },
+  "link_hinge_1790325382612": {
+    "name": "Петля внутренняя Clip Top Blumotion Blum",
+    "unit": "шт",
+    "price": 85,
+    "article": "71B3750",
+    "category": "hinge",
+    "sourceUrl": "https://tehmob.md/15533-petlya-vnutrennyaya-clip-top-blumotion-blum.html",
+    "sourceName": "Петля внутренняя Clip Top Blumotion Blum",
+    "verifiedAt": "2026-09-25T08:36:22.612Z",
+    "subcategory": "Blum",
+    "categoryPath": [
+      "Blum"
+    ],
+    "sourceSiteId": "tehmobMd",
+    "sourceArticle": "71B3750",
+    "hardwareModelSlot": "hingeCup"
   },
   "link_runner_1790013629486": {
     "name": "PB-3D0SHX18-250-PRO Направляющая нижнего монтажа с доводчиком 0SHX-18 3D, L-250",
@@ -1381,126 +1398,102 @@
     "maxH": 1040,
     "maxW": 1800,
     "minH": 480,
-    "name": "Blum AVENTOS HF TOP (складной, два фасада)",
+    "name": "Blum AVENTOS HF (складной, два фасада)",
     "note": "Складывается пополам — для высоких антресолей",
     "brand": "Blum",
-    "price": 1750,
-    "article": "22F2501",
+    "price": 8900,
+    "article": "AVENTOS-HF",
     "category": "mechanism",
-    "image": "https://tehmob.md/image/catalog/products/2025/seryj_1-513x410.jpg",
-    "sourceUrl": "https://tehmob.md/15541-aventos-hf-top.html",
-    "sourceName": "Aventos HF TOP",
-    "sourceArticle": "22F2501",
-    "verifiedAt": "2026-09-25T00:00:00.000Z",
-    "sourceSiteId": "tehmobMd"
+    "sourceUrl": "https://www.blum.com/us/en/products/liftsystems/aventos-hf/programme/"
   },
   "aventosHK": {
     "id": "aventosHK",
     "maxH": 600,
     "maxW": 1800,
     "minH": 240,
-    "name": "Blum AVENTOS HK TOP (откидной)",
+    "name": "Blum AVENTOS HK (откидной)",
     "note": "Фасад откидывается вверх одной плоскостью",
     "brand": "Blum",
-    "price": 1817,
-    "article": "22K2500",
+    "price": 4200,
+    "article": "AVENTOS-HK",
     "category": "mechanism",
-    "image": "https://tehmob.md/image/catalog/products/2025/23505.jpg",
-    "sourceUrl": "https://tehmob.md/15542-aventos-hk-top.html",
-    "sourceName": "Aventos HK TOP",
-    "sourceArticle": "22K2500",
-    "verifiedAt": "2026-09-25T00:00:00.000Z",
-    "sourceSiteId": "tehmobMd"
+    "sourceUrl": "https://www.blum.com/eu/en/products/liftsystems/aventos-hk/programme/"
   },
   "aventosHL": {
     "id": "aventosHL",
     "maxH": 580,
     "maxW": 1800,
     "minH": 300,
-    "name": "Blum AVENTOS HL TOP (параллельный подъём)",
+    "name": "Blum AVENTOS HL (параллельный подъём)",
     "note": "Фасад уходит параллельно вверх, открывая весь проём",
     "brand": "Blum",
-    "price": 2000,
-    "article": "22L2501",
+    "price": 9800,
+    "article": "AVENTOS-HL",
     "category": "mechanism",
-    "image": "https://tehmob.md/image/catalog/products/2025/seryj_1.jpg",
-    "sourceUrl": "https://tehmob.md/15543-aventos-hl-top.html",
-    "sourceName": "Aventos HL TOP",
-    "sourceArticle": "22L2501",
-    "verifiedAt": "2026-09-25T00:00:00.000Z",
-    "sourceSiteId": "tehmobMd"
+    "sourceUrl": "https://www.blum.com/us/en/products/liftsystems/aventos-hl/programme/"
+  },
+  "aventosHS": {
+    "id": "aventosHS",
+    "maxH": 800,
+    "maxW": 1800,
+    "minH": 350,
+    "name": "Blum AVENTOS HS (подъём над корпусом)",
+    "note": "Единый фасад поднимается над корпусом",
+    "brand": "Blum",
+    "price": 10500,
+    "article": "AVENTOS-HS",
+    "category": "mechanism",
+    "sourceUrl": "https://www.blum.com/us/en/products/liftsystems/aventos-hs/programme/"
   },
   "hettichHF": {
     "id": "hettichHF",
-    "maxH": 879,
+    "maxH": 1000,
     "maxW": 1200,
-    "minH": 800,
-    "name": "DTC Lift ST (складной, два фасада, фасад H 800–879 мм)",
-    "note": "Складной фасад — конкретный типоразмер линейки DTC ST, для другой высоты нужен другой артикул",
-    "brand": "DTC",
-    "price": 1690,
-    "article": "ST06AH02B",
+    "minH": 480,
+    "name": "Hettich Lift Advanced HF (складной)",
+    "note": "Складной фасад из двух частей",
+    "brand": "Hettich",
+    "price": 7600,
+    "article": "HT-LIFT-HF",
     "category": "mechanism",
-    "image": "https://dask-centru.md/image/cache/catalog/dask/products/94822_1-1200x800.jpg",
-    "sourceUrl": "https://dask-centru.md/index.php?route=product/product&product_id=94822",
-    "sourceName": "ДТС лифт подъемный ST для двойного фасада (H-800-879, V9.5-16.5)",
-    "sourceArticle": "ST06AH02B",
-    "verifiedAt": "2026-09-25T00:00:00.000Z",
-    "sourceSiteId": "daskCentruMd"
+    "sourceUrl": "https://shop.hettich.com/us_EN/Further-products/Flap-fittings/Folding-flap-fittings/Folding-flap-fitting-Lift-Advanced-HF,-440---550/p/9079605"
   },
   "hettichHL": {
     "id": "hettichHL",
-    "maxH": 450,
+    "maxH": 700,
     "maxW": 1200,
-    "minH": 300,
-    "name": "GTV Horizon (откидной, лёгкий фасад)",
-    "note": "Лёгкий фасад — вес передней части до 5 кг, для тяжёлых фасадов не подходит",
-    "brand": "GTV",
-    "price": 453,
-    "article": "PD-H-LIGHT-10",
+    "minH": 200,
+    "name": "Hettich Lift Advanced HL",
+    "note": "Откидной подъёмник для навесных шкафов",
+    "brand": "Hettich",
+    "price": 3900,
+    "article": "HT-LIFT-HL",
     "category": "mechanism",
-    "image": "https://mobilier.md/image/cache/catalog/products/23442/3f33f6daba6ae92cf009cd5890efed7d-1200x800.png",
-    "sourceUrl": "https://mobilier.md/ru/mebelnaya-furnitura/funkcionalnaya-furnitura/podemniki/podemnye-mekhanizmy/pd-h-light-10-podiomnik-gtv-horizon-vysota-fasada-300-450-mm-ves-peredney-chasti-2-5-kg-belyy.html",
-    "sourceName": "Подъёмник GTV HORIZON, высота фасада 300-450 мм, вес передней части 2-5 кг, белый",
-    "sourceArticle": "PD-H-LIGHT-10",
-    "verifiedAt": "2026-09-25T00:00:00.000Z",
-    "sourceSiteId": "mobilierMd"
+    "sourceUrl": "https://shop.hettich.com/us_EN/Further-products/Flap-fittings/Flap-lift-fittings/Flap-lift-fitting-Lift-Advanced-HL,-403---462/p/9079600"
   },
   "sametRapid": {
     "id": "sametRapid",
     "maxH": 500,
     "maxW": 900,
     "minH": 200,
-    "name": "Samet Performa (лифт типа Huwil)",
-    "note": "Подъёмный лифт для откидного фасада — диапазон высоты не публикуется продавцом, оставлен прежней инженерной оценкой",
+    "name": "Samet Rapid Lift (газовый)",
+    "note": "Газовый упор с доводчиком",
     "brand": "Samet",
-    "price": 80,
-    "article": "1240282",
-    "category": "mechanism",
-    "image": "https://dask-centru.md/image/cache/catalog/dask/products/27353_1-1200x800.jpg",
-    "sourceUrl": "https://dask-centru.md/index.php?route=product/product&product_id=27353",
-    "sourceName": "Лифт Performa (1240282)",
-    "sourceArticle": "1240282",
-    "verifiedAt": "2026-09-25T00:00:00.000Z",
-    "sourceSiteId": "daskCentruMd"
+    "price": 1600,
+    "article": "SM-RAPID",
+    "category": "mechanism"
   },
   "sametSmart": {
     "id": "sametSmart",
-    "maxH": 1000,
+    "maxH": 600,
     "maxW": 1000,
-    "minH": 200,
-    "name": "DTC Lift SE (откидной, H 200–1000 мм)",
+    "minH": 240,
+    "name": "Samet Smart Lift",
     "note": "Бюджетный откидной подъёмник",
-    "brand": "DTC",
-    "price": 285,
-    "article": "SE00AL01",
-    "category": "mechanism",
-    "image": "https://dask-centru.md/image/cache/catalog/dask/products/94824_1-1200x800.jpg",
-    "sourceUrl": "https://dask-centru.md/index.php?route=product/product&product_id=94824",
-    "sourceName": "ДТС лифт подъемный SE малый (200-1000) SE00AL01",
-    "sourceArticle": "SE00AL01",
-    "verifiedAt": "2026-09-25T00:00:00.000Z",
-    "sourceSiteId": "daskCentruMd"
+    "brand": "Samet",
+    "price": 2400,
+    "article": "SM-SMART",
+    "category": "mechanism"
   }
 };
   const LIFT_ORDER = ['aventosHK', 'aventosHF', 'aventosHL',
