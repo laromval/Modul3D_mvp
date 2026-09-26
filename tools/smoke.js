@@ -296,7 +296,13 @@ const INDEX_ELS = parseElements(INDEX);
 const document = {
   title: '',
   body: new El('body', 'body'),
-  documentElement: new El('html', 'html'),
+  // style.setProperty нужен ui-shell (переменные --drawer-sheet-h/--mobile-drawer-h
+  // высоты нижнего листа на телефоне, v314)
+  documentElement: (() => {
+    const html = new El('html', 'html');
+    html.style.setProperty = function (k, v) { this[k] = v; };
+    return html;
+  })(),
   getElementById: (id) => registry.get(id) || null,
   // Ищем не только по каркасу страницы, но и по всему, что приложение
   // отрисовало в контейнеры, — иначе элементы панели «не видны» прогону.
@@ -403,7 +409,9 @@ check('заголовок с версией', () => /^Modul3D v\d+/.test(documen
 check('стартует без модулей', () => document.querySelectorAll('.mod-tab').length === 0);
 // «База модулей» теперь в отдельной панели «Библиотека» (#libraryPanel),
 // не в #paramsPanel — см. app.js libraryBlock/renderLibraryPanel.
-check('на старте видна база модулей', () => /База модулей/.test($('libraryPanel').innerHTML));
+// Заголовка <h3>База модулей</h3> под вкладками больше нет (2026-09-26, v314) —
+// о том, что вкладка отрисована, говорит кнопка «Сохранить в базу».
+check('на старте видна база модулей', () => /data-lib-save-project/.test($('libraryPanel').innerHTML));
 check('на старте есть подсказка о пустом проекте', () => /Проект пуст/.test(panel.innerHTML));
 check('на чертежах написано, что проект пуст', () => /Проект пуст/.test(docsTab('drawings').innerHTML));
 check('пустой проект не даёт ошибок', () => panel.innerHTML.indexOf('Ошибка') === -1);
@@ -1349,7 +1357,9 @@ for (const el of document.querySelectorAll('.tab-btn')) {
   // target = сама кнопка вкладки: обработчик делегированный
   // (e.target.closest('.lib-tab-btn'), см. app.js initLibraryPanel).
   else if (step('Фурнитура: вкладка не открывается', () => tabs.dispatch('click', { target: hwTab }))) {
-    if (!/<h3>Фурнитура<\/h3>/.test(String(lib.innerHTML || ''))) {
+    // Заголовка <h3>Фурнитура</h3> под вкладками больше нет (v314) — признак
+    // отрисовки вкладки: кнопка «+ Добавить по ссылке» (libLinkTopBarHtml('hardware')).
+    if (!/data-link-kind="hardware"/.test(String(lib.innerHTML || ''))) {
       fails.push('Фурнитура: вкладка не отрисовалась');
     }
     // Лист дерева — клик по нему открывает таблицу позиций этой ветки

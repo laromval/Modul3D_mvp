@@ -14,7 +14,7 @@
 (function () {
 // Версия сборки — показывается во вкладке браузера и в шапке.
 // При выпуске новой версии меняется только эта строка.
-const APP_VERSION = 'v313';
+const APP_VERSION = 'v314';
 
 // Номер версии выводим ПЕРВЫМ делом: если дальше что-то упадёт, по нему сразу
 // видно, какая сборка открыта.
@@ -1742,14 +1742,16 @@ function libraryBlock() {
   const catsHtml = libTabRootCodes('modules')
     .map((code) => libTopCategoryTreeHtml('modules', code, 0))
     .join('');
+  // Заголовок раздела («База модулей») здесь намеренно не рисуем — он
+  // дублировал название активной вкладки .lib-tabs прямо над ним (то же на
+  // «Материалах»/«Фурнитуре»/«Дверях») и съедал место на телефоне.
   return `
-    <h3>База модулей</h3>
     <div class="lib-link-refresh-bar">
-      <button type="button" class="btn" data-lib-save-project="1" title="Сохранить текущий проект в «Базу модулей»">Добавить модуль</button>
+      <button type="button" class="btn" data-lib-save-project="1" title="Сохранить текущий проект в «Базу модулей»">Сохранить в базу</button>
       ${libAddCatTileHtml('modules')}
     </div>
     ${catsHtml}
-    <div class="hint">Раскройте категорию и нажмите на модуль — он добавится в проект. Правая кнопка мыши на модуле — переименовать/скопировать/переместить/удалить карточку (сам пресет при этом не меняется); перетащите миниатюру на строку категории, чтобы перенести её. «Добавить модуль» выше сохраняет текущий проект в библиотеку: один модуль — обычной карточкой, несколько — карточкой-комплектом.</div>`;
+    <div class="hint">Раскройте категорию и нажмите на модуль — он добавится в проект. Правая кнопка мыши на модуле — переименовать/скопировать/переместить/удалить карточку (сам пресет при этом не меняется); перетащите миниатюру на строку категории, чтобы перенести её. «Сохранить в базу» выше сохраняет текущий проект в библиотеку: один модуль — обычной карточкой, несколько — карточкой-комплектом.</div>`;
 }
 
 // ---------------------------------------------------------------------------
@@ -5419,7 +5421,6 @@ function libraryMaterialsBlock() {
     .map((code) => libTopCategoryTreeHtml('materials', code, 0))
     .join('');
   return `
-    <h3>Материалы</h3>
     ${libLinkTopBarHtml('materials')}
     ${state.libLinkForm && state.libLinkForm.kind === 'materials' ? libLinkFormHtml(state.libLinkForm) : ''}
     ${catsHtml}`;
@@ -5454,7 +5455,6 @@ function libraryHardwareBlock() {
     .map((code) => libTopCategoryTreeHtml('hardware', code, 0))
     .join('');
   return `
-    <h3>Фурнитура</h3>
     ${libLinkTopBarHtml('hardware')}
     ${state.libLinkForm && state.libLinkForm.kind === 'hardware' ? libLinkFormHtml(state.libLinkForm) : ''}
     ${categoriesHtml}`;
@@ -8796,7 +8796,6 @@ function libraryFacadesBlock() {
     .map((code) => libTopCategoryTreeHtml('facades', code, 0))
     .join('');
   return `
-    <h3>Двери</h3>
     <div class="lib-link-refresh-bar">${libAddCatTileHtml('facades')}</div>
     ${state.libLinkForm && state.libLinkForm.kind === 'materials' ? libLinkFormHtml(state.libLinkForm) : ''}
     ${catsHtml}`;
@@ -13375,6 +13374,11 @@ function initHeaderControls() {
       state.view = name;
       renderViewOverlay();
     };
+    // Подгонка кадра под нижний лист на телефоне (viewer.setBottomInset) двигает
+    // камеру без жеста пользователя — плоским видам нужно пересчитать оверлей размеров.
+    viewer.onCameraFit = () => {
+      if (state.view !== 'iso') renderViewOverlay();
+    };
   }
 
   // Оверлей размеров пересчитываем при любом движении камеры
@@ -13875,8 +13879,9 @@ function renderAccountUI() {
   const plansPanel = document.getElementById('plansPanel');
   const accountToggle = document.getElementById('accountToggle');
   const sketchNote = document.getElementById('sketchAuthNote'); const workflowLink = document.getElementById('workflowLink'); if (workflowLink) workflowLink.style.display = (authAccount && authAccount.email === 'laromval@gmail.com') ? 'flex' : 'none';
-  // Кнопка «Опубликовать как базу по умолчанию» (панель «Библиотека») —
-  // сервер сам проверяет email при самом запросе, здесь только видимость.
+  // Кнопка «Опубликовать как базу по умолчанию» (меню настроек-шестерёнка,
+  // #currencyPopover) — сервер сам проверяет email при самом запросе, здесь
+  // только видимость.
   const libPublishBar = document.getElementById('libPublishBar');
   if (libPublishBar) {
     const isAdmin = !!(authAccount && authAccount.isAdmin);
@@ -14605,8 +14610,8 @@ window.Modul3D.app = {
   getViewModes: function () {
     return { xray: state.xray, hideFacades: state.hideFacades, drillCheck: state.drillCheck };
   },
-  // ui-shell.js зовёт при ЛЮБОМ закрытии панели «Библиотека» (крестик, скрим,
-  // Escape, свайп, открытие другой панели поверх) — без этого «Выбрать» у
+  // ui-shell.js зовёт при ЛЮБОМ закрытии панели «Библиотека» (крестик,
+  // Escape, вытягивание листа вниз на телефоне, открытие другой панели поверх) — без этого «Выбрать» у
   // «Листовых материалов» могла остаться включённой до следующего открытия
   // (пользователь нажал «+ Добавить материал», передумал, закрыл крестиком —
   // при обычном открытии Библиотеки позже колонка «Выбрать» была бы всё ещё

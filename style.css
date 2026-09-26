@@ -595,7 +595,7 @@ body.rail-moving .drawer { transition: none !important; }
 /* ---------- 7. ВЫДВИЖНЫЕ ПАНЕЛИ (off-canvas) ----------------------------- */
 
 .scrim {
-  display: none;                 /* на десктопе панели не блокируют холст */
+  display: none;                 /* панели не блокируют холст ни на десктопе, ни на телефоне (см. раздел 17) */
   position: absolute; inset: 0; z-index: 34;
   background: rgba(8, 12, 20, .28);
   -webkit-backdrop-filter: blur(2px); backdrop-filter: blur(2px);
@@ -1769,12 +1769,8 @@ h4.spec-title { margin: var(--sp-5) 0 var(--sp-2); font-size: var(--fs-md); font
    var(--fs-sm)) ради читаемости, ужимаем только «воздух» вокруг текста.
    flex-wrap оставлен подстраховкой на случай ещё более узкого экрана/зума. */
 .lib-tabs { display: flex; gap: 3px; margin-bottom: var(--sp-3); flex-wrap: wrap; }
-/* Кнопка публикации каталога как базы по умолчанию — видна только админу
-   (см. renderAccountUI в app.js, toggle через display:none/flex). Строка
-   вне #libraryPanel по той же причине, что и .lib-save-status ниже —
-   не должна пропадать при перерисовке содержимого вкладки. */
-.lib-publish-bar { align-items: center; gap: var(--sp-3); flex-wrap: wrap; margin-bottom: var(--sp-3); }
-.lib-publish-bar .sketch-status { margin: 0; }
+/* Кнопка публикации каталога как базы по умолчанию (#libPublishBar) с
+   2026-09-26 живёт не здесь, а внизу окна настроек — см. раздел 15. */
 /* Статус сохранения правок каталога (см. setLibrarySaveStatus/scheduleCatalogSave
    в app.js) — живёт вне #libraryPanel, поэтому не пропадает при полной
    перерисовке содержимого вкладки (panel.innerHTML = ...). Пустой текст —
@@ -2291,6 +2287,20 @@ body.lib-dragging .drawer-body { touch-action: none; }
 .hotkeys-key { color: var(--text); font-weight: 600; white-space: nowrap; }
 .hotkeys-desc { color: var(--text-2); text-align: right; }
 
+/* «Опубликовать как базу по умолчанию» — последний блок окна настроек,
+   виден только админу (app.js: renderAccountUI ставит display:flex/none на
+   #libPublishBar; сам блок стоит в разметке со style="display:none").
+   Окно узкое (230px), поэтому блок — колонка: кнопка на всю ширину с
+   переносом длинной подписи (у .btn по умолчанию nowrap), под ней статус
+   публикации (setLibPublishStatus) — с переносом длинных списков групп
+   каталога и своей прокруткой, чтобы окно не выросло за экран. */
+.lib-publish-bar { flex-direction: column; align-items: stretch; gap: var(--sp-2); }
+.lib-publish-bar .btn { width: 100%; white-space: normal; text-align: center; }
+.lib-publish-bar .sketch-status {
+  margin: 0; overflow-wrap: anywhere; max-height: 9em; overflow-y: auto;
+}
+.lib-publish-bar .sketch-status:empty { display: none; }
+
 /* «Положение панели» — пять кнопок-сегментов со схемой экрана и подписью;
    активная подсвечена (ui-shell.js: initRailPosition/syncRailPosButtons).
    Сетка в три равные колонки (3 + 2 кнопки): в окне настроек шириной 230px
@@ -2476,7 +2486,13 @@ body.is-focus .scrim { opacity: 0 !important; }
   .header-actions #projectBtns { display: none; }
 
   .rail { display: none; }
-  .scrim { display: block; }
+  /* Скрим на телефоне выключен совсем: фон за нижним листом не затемняется и
+     не размывается (3D должно оставаться чётким — там видно, что добавляешь/
+     правишь), а касания проходят к сцене — модель можно вращать и приближать
+     при открытой панели. Закрывается лист крестиком в шапке и по Esc; тап
+     «мимо» листа его больше не закрывает. На десктопе скрим и так display:none. */
+  .scrim,
+  body.has-modal-drawer .scrim { display: none; }
   /* гизма видов — над нижней шторкой и поменьше */
   :root { --gizmo-bottom: calc(var(--sheet-h) + 10px); --gizmo-size: 88px; }
 
@@ -2502,6 +2518,16 @@ body.is-focus .scrim { opacity: 0 !important; }
   .mobile-sheet-bar .rail-btn.active::before { display: none; }
   .mobile-sheet-bar .tip::after { display: none; }
 
+  /* Высота нижнего листа — ОДНА на все панели (Библиотека, Параметры, Студия,
+     Столешница, Документы) и задаёт её пользователь: тянет шапку листа вверх/
+     вниз (ui-shell.js, раздел 7б; границы 25–85% высоты окна, запоминается).
+     --drawer-sheet-h ставит JS в px на <html>; здесь — значение по умолчанию
+     (45% высоты окна, dvh с запасом на vh) на случай, пока JS не отработал. */
+  :root { --drawer-sheet-h: 45vh; }
+  @supports (height: 1dvh) {
+    :root { --drawer-sheet-h: 45dvh; }
+  }
+
   /* все панели превращаются в нижние листы */
   .drawer,
   .drawer-left,
@@ -2509,20 +2535,46 @@ body.is-focus .scrim { opacity: 0 !important; }
   .drawer-bottom {
     left: 0; right: 0; bottom: 0; top: auto;
     width: auto; margin: 0;
-    height: 80vh;
+    height: var(--drawer-sheet-h);
+    max-height: 100%;
     border-radius: var(--r-lg) var(--r-lg) 0 0;
     border-left: none; border-right: none; border-bottom: none;
     transform: translateY(100%);
   }
+  /* полоска-«ручка» над заголовком — только рисунок: события принимает шапка
+     (.drawer-head ниже), иначе касание точно по полоске уходило бы на сам лист */
   .drawer::before {
     content: ''; position: absolute; left: 50%; top: 7px; transform: translateX(-50%);
     width: 40px; height: 4px; border-radius: 2px; background: var(--border-strong);
+    pointer-events: none;
   }
-  /* на мобильном ширина листа и так во весь экран (см. правило выше) —
-     единственный способ реально освободить место под 3D-сцену при
-     свёрнутых характеристиках — уменьшить высоту именно этого листа */
-  #drawer-library.lib-wide.lib-chars-collapsed { height: 58vh; }
-  .drawer-head { padding-top: 18px; }
+  /* Высота листа теперь общая (--drawer-sheet-h), а не отдельная у «Библиотеки»
+     со свёрнутыми характеристиками (раньше тут стояло height: 58vh) — свободное
+     место под 3D пользователь освобождает сам, потянув ручку. Ширина: правило
+     desktop-раскладки #drawer-library.lib-wide.lib-chars-collapsed (420px) по
+     специфичности перебивает #drawer-library.lib-wide выше — возвращаем лист во
+     всю ширину, как у остальных панелей. */
+  #drawer-library.lib-wide.lib-chars-collapsed { width: 100%; }
+
+  /* Шапка листа — ручка регулировки высоты (ui-shell.js, раздел 7б). Высота
+     зоны захвата ~52px (с запасом под палец). touch-action: none — жест не
+     превращается в прокрутку/pull-to-refresh страницы; текст шапки не
+     выделяется. Вертикальные отступы шапки/поиска/содержимого чуть плотнее
+     десктопных — на низком листе каждый пиксель на счету. */
+  .drawer-head {
+    padding: 16px var(--sp-4) 8px;
+    touch-action: none; cursor: ns-resize;
+    -webkit-user-select: none; user-select: none;
+  }
+  .drawer-body { padding: var(--sp-3) var(--sp-4); overscroll-behavior: contain; }
+  .drawer-search { margin-bottom: var(--sp-2); }
+  .drawer-search input { padding-top: 6px; padding-bottom: 6px; }
+  /* «Документы»: при очень низком листе панель вкладки не должна схлопываться
+     в ноль — тогда прокручивается весь лист целиком (.drawer-body), а не
+     остаётся шапка с пустотой под ней */
+  #drawer-docs .tab-panel.active { min-height: 140px; }
+  /* пока лист тянут — курсор «изменение высоты» везде, текст не выделяется */
+  body.sheet-resizing { cursor: ns-resize; -webkit-user-select: none; user-select: none; }
   /* предупреждения — у низа, слева от гизмы (по центру на узком экране им
      не хватило бы ширины); гейт с кнопками — над гизмой, по центру */
   .warnings {

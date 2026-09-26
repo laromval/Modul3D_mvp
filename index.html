@@ -7,7 +7,7 @@
 <title>Modul3D — параметрический конструктор корпусной мебели</title>
 
 <link rel="icon" type="image/svg+xml" href="favicon.svg" />
-<link rel="stylesheet" href="style.css?v311" />
+<link rel="stylesheet" href="style.css?v314" />
 
 <!-- Положение рейки панелей (data-rail-pos на <html>: left | header-start |
      header-end | top-right | bottom-left; по умолчанию header-end — в шапке
@@ -48,7 +48,7 @@
 })();
 </script>
 
-<script src="src/errorBanner.js?v311"></script>
+<script src="src/errorBanner.js?v314"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <!-- Paddle.js — оверлей оплаты подписки (см. app.js: requestCheckout/initPaddle).
      Обычный скрипт без defer, как остальные CDN-подключения выше. -->
@@ -266,6 +266,17 @@
               <div class="hotkeys-item"><span class="hotkeys-key">T</span><span class="hotkeys-desc">Тема</span></div>
             </div>
           </div>
+        </div>
+
+        <!-- Публикация каталога как базы по умолчанию — только для админа
+             (см. renderAccountUI/authAccount.isAdmin в app.js: он и решает,
+             показывать ли блок; у остальных остаётся display:none). Относится
+             ко всему каталогу разом; раньше стояла в панели «Библиотека»
+             под вкладками, но там занимала место на телефоне. Клик внутри
+             окна настроек не закрывает его (см. ui-shell.js: initCurrency). -->
+        <div class="settings-block lib-publish-bar" id="libPublishBar" style="display:none">
+          <button type="button" class="btn" id="libPublishBtn">Опубликовать как базу по умолчанию</button>
+          <span id="libPublishStatus" class="sketch-status" aria-live="polite"></span>
         </div>
       </div>
     </div>
@@ -498,14 +509,6 @@
         <button class="lib-tab-btn" data-libtab="materials" type="button">Материалы</button>
         <button class="lib-tab-btn" data-libtab="hardware" type="button">Фурнитура</button>
         <button class="lib-tab-btn" data-libtab="facades" type="button">Двери</button>
-      </div>
-      <!-- Публикация каталога как базы по умолчанию — только для админа
-           (см. renderAccountUI/authAccount.isAdmin в app.js). Относится ко
-           всему каталогу разом, поэтому стоит здесь, а не внутри
-           #libraryPanel — тот перерисовывается целиком при смене вкладки. -->
-      <div class="lib-publish-bar" id="libPublishBar" style="display:none">
-        <button type="button" class="btn" id="libPublishBtn">Опубликовать как базу по умолчанию</button>
-        <span id="libPublishStatus" class="sketch-status" aria-live="polite"></span>
       </div>
       <div id="librarySaveStatus" class="sketch-status lib-save-status" aria-live="polite"></div>
       <div class="panel" id="libraryPanel"><!-- заполняется app.js --></div>
@@ -749,19 +752,19 @@
 
 </main>
 
-<script src="src/catalog.js?v311"></script>
-<script src="src/presets.js?v311"></script>
-<script src="src/engine.js?v311"></script>
-<script src="src/specification.js?v311"></script>
-<script src="src/legMeshes.js?v311"></script>
-<script src="src/csg.js?v311"></script>
-<script src="src/viewer.js?v311"></script>
-<script src="src/ui-shell.js?v311"></script>
-<script src="src/drawings.js?v311"></script>
-<script src="src/export.js?v311"></script>
-<script src="src/cnc.js?v311"></script>
-<script src="src/sketchAI.js?v311"></script>
-<script src="src/app.js?v311"></script>
+<script src="src/catalog.js?v314"></script>
+<script src="src/presets.js?v314"></script>
+<script src="src/engine.js?v314"></script>
+<script src="src/specification.js?v314"></script>
+<script src="src/legMeshes.js?v314"></script>
+<script src="src/csg.js?v314"></script>
+<script src="src/viewer.js?v314"></script>
+<script src="src/ui-shell.js?v314"></script>
+<script src="src/drawings.js?v314"></script>
+<script src="src/export.js?v314"></script>
+<script src="src/cnc.js?v314"></script>
+<script src="src/sketchAI.js?v314"></script>
+<script src="src/app.js?v314"></script>
 <script>if (window.Modul3D && window.Modul3D.uiShell) window.Modul3D.uiShell.start();</script>
 </body>
 </html>

@@ -3,7 +3,8 @@
    Слой интерфейса: темы, выдвижные панели, положение рейки панелей
    (в шапке / слева / справа сверху / слева снизу), положение панели режимов
    3D-вида (внизу по центру / слева / справа / в шапке), Focus Mode, HUD на модели,
-   поиск по параметрам, горячие клавиши, мобильная шторка.
+   поиск по параметрам, горячие клавиши, мобильная шторка и регулировка высоты
+   нижних листов на телефоне (раздел 7б).
 
    ВАЖНО: файл не трогает параметрическое ядро. Он только:
    · читает и пишет значения в уже существующие поля панели (#m-width и т.п.)
@@ -314,6 +315,10 @@ function openDrawer(name, scrollTo) {
   el.setAttribute('aria-hidden', 'false');
   openPanel = name;
   document.body.classList.add('has-modal-drawer');
+  // Нижний лист на телефоне: вернуть запомненную высоту (после жеста «потянул
+  // вниз, чтобы закрыть» она могла остаться урезанной) и сообщить 3D-вьюеру
+  // отступ — см. раздел 7б.
+  refreshSheetHeight();
   syncTriggers();
   rememberUI();
 
@@ -331,6 +336,10 @@ function closeDrawer(name, silent) {
   if (!name || name === openPanel) openPanel = null;
   if (!silent) {
     document.body.classList.remove('has-modal-drawer');
+    // Панель закрыта — нижнего листа больше нет, отступ для 3D сбрасывается
+    // в 0 (раздел 7б). При «тихом» закрытии (смена одной панели другой) этого
+    // не делаем: следом сразу openDrawer, он сам сообщит итоговое значение.
+    publishSheetInset(false);
     syncTriggers();
     rememberUI();
   }
@@ -1597,17 +1606,228 @@ function initSheet() {
     startY = null;
     if (dy > 24 && !openPanel) openDrawer('params');
   });
+  // Раньше здесь же был «свайп вниз по шапке листа — закрыть». Теперь шапка —
+  // ручка регулировки высоты (раздел 7б): тот же жест тянет лист вниз, а
+  // закрытием он становится только если потянуть заметно ниже минимума
+  // (см. SHEET_CLOSE_PULL) — иначе он бы закрывал лист при любой попытке
+  // просто сделать его пониже.
+}
 
-  // Свайп вниз по шапке листа — закрыть
-  document.addEventListener('pointerdown', function (e) {
-    var head = e.target.closest && e.target.closest('.drawer-head');
-    if (!head) return;
-    var y0 = e.clientY;
-    var up = function (ev) {
-      document.removeEventListener('pointerup', up);
-      if (ev.clientY - y0 > 40) closeDrawer(openPanel);
-    };
-    document.addEventListener('pointerup', up);
+/* ---------------------------------------------------------------------------
+   7б. Высота нижнего листа на телефоне (≤ 820px)
+
+   Все панели-шторки (Библиотека, Параметры, Студия, Столешница, Документы —
+   всё, что .drawer) на телефоне — нижние листы ОДНОЙ высоты. Её регулирует
+   пользователь: тянет шапку листа (.drawer-head, кроме крестика) вверх — лист
+   выше, вниз — ниже; двойной тап по шапке возвращает высоту по умолчанию
+   (45% высоты окна). Границы — от 25% до 85% высоты окна (и не ниже
+   SHEET_H_MIN_PX, чтобы шапка и пара строк содержимого всегда были видны).
+   Если потянуть ниже минимума больше чем на SHEET_CLOSE_PULL px и отпустить —
+   лист закрывается (замена прежнему «свайпу вниз по шапке»).
+
+   Высота запоминается ДОЛЕЙ высоты окна (localStorage 'modul3d.sheetH', без
+   хранилища — просто значение по умолчанию), поэтому при повороте экрана лист
+   сохраняет пропорцию; при resize/повороте высота пересчитывается и
+   зажимается в границы (ключ хранилища при этом не трогаем — иначе временное
+   сжатие окна навсегда «съело» бы выбор пользователя).
+
+   Высоту листа в CSS задаёт переменная --drawer-sheet-h (px, на <html>; см.
+   style.css, раздел 17). Она есть ВСЕГДА, пока страница жива, даже когда
+   панель закрыта — иначе при закрытии лист схлопывался бы посреди анимации.
+
+   КОНТРАКТ для 3D-вьюера (камеру сдвигает viewer.js/geometry-engine, здесь мы
+   её не трогаем — только публикуем):
+   · CSS-переменная --mobile-drawer-h на <html>: высота ОТКРЫТОГО нижнего листа
+     в px («420px»); «0px» — если панель закрыта или ширина окна > 820px.
+     Текущее значение можно прочитать в любой момент (например, при подписке).
+   · Событие 'modul3d:drawer-inset' на window (CustomEvent),
+     detail: { bottom: <число px> } — то же значение числом: сколько пикселей
+     снизу окна сцены закрыто листом (0 — панели нет или десктопная раскладка).
+     Шлётся при открытии/закрытии/смене панели, повороте и resize окна, в ходе
+     перетаскивания (не чаще раза за кадр — requestAnimationFrame) и всегда
+     итоговым событием в конце жеста. Повторов с тем же значением подряд нет
+     (кроме итогового события в конце жеста).
+--------------------------------------------------------------------------- */
+var SHEET_H_KEY = 'modul3d.sheetH';
+var SHEET_H_DEFAULT = 0.45;     // высота по умолчанию — доля высоты окна
+var SHEET_H_MIN = 0.25;         // границы — тоже доли высоты окна
+var SHEET_H_MAX = 0.85;
+var SHEET_H_MIN_PX = 96;        // но не ниже: шапка листа + пара строк содержимого
+var SHEET_CLOSE_PULL = 48;      // потянули ниже минимума больше чем на столько px и отпустили — закрыть
+var SHEET_TAP_MS = 450;         // окно двойного тапа по шапке (неспешный тап пальцем — 350–450 мс между отпусканиями)
+var SHEET_TAP_SLOP = 4;         // сдвиг меньше этого — не жест, а тап
+
+var sheetRatio = SHEET_H_DEFAULT;   // запомненная высота листа, доля высоты окна
+var sheetPx = 0;                    // высота листа в px «сейчас» (в ходе жеста может быть ниже минимума)
+var sheetDrag = null;               // идущее перетаскивание: { id, head, y0, h0, raw, moved }
+var sheetInsetRaf = 0;              // id запланированной публикации отступа (rAF-троттлинг)
+var sheetInsetLast = null;          // последнее опубликованное значение отступа
+var sheetLastTap = 0;               // время последнего тапа по шапке (для двойного тапа)
+
+function isMobileLayout() {
+  return !!(window.matchMedia && window.matchMedia('(max-width: 820px)').matches);
+}
+
+function windowHeight() {
+  return window.innerHeight || document.documentElement.clientHeight || 600;
+}
+
+function sheetBounds() {
+  var H = windowHeight();
+  var min = Math.max(Math.round(H * SHEET_H_MIN), SHEET_H_MIN_PX);
+  var max = Math.max(Math.round(H * SHEET_H_MAX), min);
+  return { min: min, max: max, H: H };
+}
+
+function clampSheetPx(px) {
+  var b = sheetBounds();
+  return Math.min(b.max, Math.max(b.min, Math.round(px)));
+}
+
+function loadSheetRatio() {
+  var v = NaN;
+  try { v = parseFloat(localStorage.getItem(SHEET_H_KEY)); } catch (e) { /* нет хранилища — по умолчанию */ }
+  if (isNaN(v)) return SHEET_H_DEFAULT;
+  return Math.min(SHEET_H_MAX, Math.max(SHEET_H_MIN, v));
+}
+
+function saveSheetRatio() {
+  try { localStorage.setItem(SHEET_H_KEY, String(sheetRatio)); } catch (e) { /* приватный режим */ }
+}
+
+// Единственное место, где высота листа попадает в CSS.
+function setSheetPx(px) {
+  sheetPx = px;
+  document.documentElement.style.setProperty('--drawer-sheet-h', px + 'px');
+}
+
+// Сколько px снизу сцены сейчас закрыто листом (то, что видит 3D-вьюер).
+function sheetInsetBottom() {
+  return (openPanel && isMobileLayout()) ? sheetPx : 0;
+}
+
+// Публикует отступ для 3D-вьюера: переменная --mobile-drawer-h + событие
+// 'modul3d:drawer-inset' (контракт — в шапке раздела). force — слать событие
+// даже если значение не менялось (итог жеста).
+function publishSheetInset(force) {
+  var bottom = sheetInsetBottom();
+  document.documentElement.style.setProperty('--mobile-drawer-h', bottom + 'px');
+  if (!force && bottom === sheetInsetLast) return;
+  sheetInsetLast = bottom;
+  try {
+    window.dispatchEvent(new CustomEvent('modul3d:drawer-inset', { detail: { bottom: bottom } }));
+  } catch (e) { /* очень старый браузер без CustomEvent — вьюер просто не сдвинется */ }
+}
+
+// В ходе перетаскивания — не чаще одного раза за кадр.
+function scheduleSheetInset() {
+  if (sheetInsetRaf) return;
+  sheetInsetRaf = window.requestAnimationFrame(function () {
+    sheetInsetRaf = 0;
+    publishSheetInset(false);
+  });
+}
+
+// Пересчёт высоты из запомненной доли: старт, открытие панели, resize/поворот,
+// сброс по двойному тапу. Заодно публикует отступ (force — см. publishSheetInset).
+function refreshSheetHeight(force) {
+  setSheetPx(clampSheetPx(sheetRatio * windowHeight()));
+  publishSheetInset(!!force);
+}
+
+function onSheetPointerDown(e) {
+  if (e.button > 0 || sheetDrag) return;             // только основная кнопка/касание
+  if (!openPanel || !isMobileLayout()) return;
+  var head = e.target.closest && e.target.closest('.drawer-head');
+  if (!head || e.target.closest('.drawer-close')) return;   // крестик — обычная кнопка
+  var drawer = head.closest('.drawer');
+  if (!drawer || !drawer.classList.contains('open')) return;
+  sheetDrag = { id: e.pointerId, head: head, y0: e.clientY, h0: sheetPx, raw: sheetPx, moved: false };
+  // Указатель «прилипает» к шапке: жест не обрывается, когда палец уезжает с неё
+  // (а он уезжает — лист движется вместе с пальцем).
+  try { head.setPointerCapture(e.pointerId); } catch (err) { /* не критично */ }
+  head.addEventListener('pointermove', onSheetPointerMove);
+  head.addEventListener('pointerup', onSheetPointerUp);
+  head.addEventListener('pointercancel', onSheetPointerCancel);
+  head.addEventListener('lostpointercapture', onSheetPointerCancel);
+}
+
+function onSheetPointerMove(e) {
+  var d = sheetDrag;
+  if (!d || e.pointerId !== d.id) return;
+  var dy = d.y0 - e.clientY;                 // вверх — плюс: лист выше
+  if (!d.moved) {
+    if (Math.abs(dy) < SHEET_TAP_SLOP) return;   // дрожь пальца, не жест
+    d.moved = true;
+    document.body.classList.add('sheet-resizing');
+  }
+  var b = sheetBounds();
+  d.raw = d.h0 + dy;
+  // Выше максимума не растим; вниз — можно чуть ниже минимума («потяни, чтобы
+  // закрыть»), на отпускании это либо закроет лист, либо вернёт его к минимуму.
+  setSheetPx(Math.min(b.max, Math.max(Math.round(d.raw), b.min - 2 * SHEET_CLOSE_PULL)));
+  scheduleSheetInset();
+}
+
+function onSheetPointerUp(e) {
+  if (sheetDrag && e.pointerId === sheetDrag.id) endSheetDrag(false);
+}
+
+function onSheetPointerCancel(e) {
+  if (sheetDrag && (!e || e.pointerId === sheetDrag.id)) endSheetDrag(true);
+}
+
+function endSheetDrag(cancelled) {
+  var d = sheetDrag;
+  if (!d) return;
+  sheetDrag = null;
+  d.head.removeEventListener('pointermove', onSheetPointerMove);
+  d.head.removeEventListener('pointerup', onSheetPointerUp);
+  d.head.removeEventListener('pointercancel', onSheetPointerCancel);
+  d.head.removeEventListener('lostpointercapture', onSheetPointerCancel);
+  try { d.head.releasePointerCapture(d.id); } catch (err) { /* уже отпущен */ }
+  document.body.classList.remove('sheet-resizing');
+  if (sheetInsetRaf) { window.cancelAnimationFrame(sheetInsetRaf); sheetInsetRaf = 0; }
+
+  if (!d.moved) {
+    // Тап по шапке. Два тапа подряд — вернуть высоту по умолчанию.
+    if (cancelled) return;
+    var now = Date.now();
+    if (now - sheetLastTap < SHEET_TAP_MS) {
+      sheetLastTap = 0;
+      sheetRatio = SHEET_H_DEFAULT;
+      saveSheetRatio();
+      refreshSheetHeight(true);
+    } else {
+      sheetLastTap = now;
+    }
+    return;
+  }
+
+  var b = sheetBounds();
+  if (!cancelled && openPanel && d.raw < b.min - SHEET_CLOSE_PULL) {
+    // Потянули вниз «за минимум» — закрыть (closeDrawer сам сообщит отступ 0).
+    // Урезанная высота вернётся при следующем открытии (openDrawer →
+    // refreshSheetHeight), сохранённая доля при этом не менялась.
+    closeDrawer(openPanel);
+    return;
+  }
+  var px = clampSheetPx(sheetPx);
+  setSheetPx(px);
+  sheetRatio = Math.round((px / b.H) * 1000) / 1000;
+  saveSheetRatio();
+  publishSheetInset(true);        // итоговое событие жеста
+}
+
+function initSheetResize() {
+  sheetRatio = loadSheetRatio();
+  // Переменные нужны до первого открытия панели (restoreUI в start()).
+  refreshSheetHeight();
+  document.addEventListener('pointerdown', onSheetPointerDown);
+  window.addEventListener('resize', function () {
+    // Поворот экрана / смена размера окна / переход через 820px: пересчитать
+    // высоту из запомненной доли, зажать в границы, пересообщить отступ.
+    if (!sheetDrag) refreshSheetHeight();
   });
 }
 
@@ -1668,6 +1888,7 @@ function start() {
   initHud();
   initSearch();
   initSheet();
+  initSheetResize();   // до restoreUI: первой открытой панели нужна высота листа
   initHotkeys();
   restoreUI();
   window.addEventListener('resize', function () { if (hudModule) placeHud(); });
@@ -1685,6 +1906,10 @@ window.Modul3D.uiShell = {
   setTheme: setTheme,
   openDrawer: openDrawer,
   closeDrawer: closeDrawer,
+  // Сколько px снизу сцены сейчас закрыто нижним листом на телефоне (0 — панели
+  // нет / десктоп). То же значение, что в CSS-переменной --mobile-drawer-h и в
+  // событии 'modul3d:drawer-inset' (раздел 7б).
+  getDrawerInset: sheetInsetBottom,
   setRailPos: setRailPos,
   getRailPos: function () { return railPos; },
   // Панель режимов 3D: выбор пользователя и где она стоит на самом деле
