@@ -72,6 +72,37 @@ function defaultDecorObj() {
   return (typeof cat.defaultDecor === 'function' && cat.defaultDecor()) || DECORS[0];
 }
 function defaultDecorCode() { return defaultDecorObj().code; }
+
+// Материал ящиков секции (решение владельца 2026-09-26). sec.drawerDecorCode
+// хранит ТОЛЬКО ручной выбор из панели «Ящики»; пусто (null/undefined) —
+// «авто»: у кухонного модуля это ЛДСП «8681 SM Белый бриллиант»
+// (catalog.defaultKitchenDrawerDecor), у шкафов/тумб — материал корпуса
+// модуля, и ящики следуют за ним при смене корпуса. Сохранённый в старых
+// проектах код считается ручным выбором и не трогается.
+function isKitchenModule(mod) { return !!mod && mod.family === 'kitchen'; }
+function kitchenDrawerDecorObj() {
+  const cat = window.Modul3D.catalog;
+  return (typeof cat.defaultKitchenDrawerDecor === 'function' && cat.defaultKitchenDrawerDecor()) || defaultDecorObj();
+}
+function carcassDecorCodeOf(mod) {
+  const code = (mod && mod.carcassDecor) || state.decorCode;
+  return (DECORS.find((d) => d.code === code) || defaultDecorObj()).code;
+}
+function effectiveDrawerDecorCode(mod, sec) {
+  if (sec && sec.drawerDecorCode) return sec.drawerDecorCode;
+  return isKitchenModule(mod) ? kitchenDrawerDecorObj().code : carcassDecorCodeOf(mod);
+}
+// Секции модуля для buildModel(): у кухонных секций без ручного выбора
+// подставляем код ящиков по умолчанию (копией, state не мутируем). У
+// некухонных пустой код ядро само заменяет декором корпуса модуля
+// (engine.js: sec.drawerDecorCode || drawerDecor, drawerDecor = decor) —
+// так ящики гарантированно совпадают с тем корпусом, который реально строится.
+function engineSectionsOf(mod) {
+  const secs = (mod && mod.sections) || [];
+  if (!isKitchenModule(mod)) return secs;
+  const code = kitchenDrawerDecorObj().code;
+  return secs.map((sec) => (sec && !sec.drawerDecorCode) ? Object.assign({}, sec, { drawerDecorCode: code }) : sec);
+}
 const { PRESETS } = window.Modul3D.presets;
 const { recognizeSketch } = window.Modul3D.sketchAI;
 const { buildDrawings, buildViewSVG, DRAWINGS_CSS } = window.Modul3D.drawings;
@@ -89,7 +120,9 @@ function newSection() {
     // см. drawersPanelBlock ниже), а не общая на проект: у секции могут стоять
     // ящики другого декора/толщины, чем у соседней. Дефолты те же, что раньше
     // были общепроектными в state.
-    drawerDecorCode: defaultDecorCode(), drawerThickness: 16, drawerSystem: 'ballBearing',
+    // drawerDecorCode: null — «авто» (кухня — 8681 SM, иначе как корпус), см.
+    // effectiveDrawerDecorCode; код пишется только ручным выбором в «Ящиках».
+    drawerDecorCode: null, drawerThickness: 16, drawerSystem: 'ballBearing',
     widthMode: 'auto', width: 400,
   };
 }
@@ -599,7 +632,7 @@ const state = {
               "handleOrient": "vertical",
               "shelfHeights": [],
               "drawerHeights": [],
-              "drawerDecorCode": "H3450ST22"
+              "drawerDecorCode": null
             }
           ],
           "legHeight": 100,
@@ -1003,7 +1036,7 @@ const state = {
           "handleOrient": "vertical",
           "shelfHeights": [],
           "drawerHeights": [],
-          "drawerDecorCode": "H3450ST22",
+          "drawerDecorCode": null,
           "drawerThickness": 16
         }
       ],
@@ -1638,7 +1671,9 @@ function saveProjectToFile() {
 // секции.
 function migrateDrawerFieldsToSections(data) {
   const legacy = (data && data.state) || {};
-  const fallbackDecor = legacy.drawerDecorCode || DECORS[0].code;
+  // Нет проектного кода в файле — оставляем «авто» (null), а не DECORS[0]:
+  // см. effectiveDrawerDecorCode (кухня — 8681 SM, иначе как корпус).
+  const fallbackDecor = legacy.drawerDecorCode || null;
   const fallbackThickness = Number(legacy.drawerThickness) || 16;
   const fallbackSystem = legacy.drawerSystem || 'ballBearing';
   (state.modules || []).forEach((m) => {
@@ -2095,7 +2130,7 @@ function libModThumbDataUrl(groupId, it) {
           ? { type: 'plinth', plinthHeight: m.plinthHeight }
           : { type: m.baseType, legHeight: m.legHeight },
         legType: m.legType || 'metal',
-        sections: m.sections || [],
+        sections: engineSectionsOf(m),
         // Переопределение декора корпуса ТОЛЬКО этого модуля превью —
         // побеждает proj.decor в engine.js (decor: m.carcassDecor || proj.decor),
         // сам decor проекта (state.decorCode) нигде не трогается.
@@ -2145,7 +2180,7 @@ function libModProjectModuleOf(m) {
       ? { type: 'plinth', plinthHeight: m.plinthHeight }
       : { type: m.baseType, legHeight: m.legHeight },
     legType: m.legType || 'metal',
-    sections: m.sections || [],
+    sections: engineSectionsOf(m),
     partOverrides: m.partOverrides || {},
     countertop: m.countertop,
   };
@@ -7891,12 +7926,15 @@ function libFindMaterialUsages(group, code) {
     if (group === 'decors' && mod.carcassDecor === code) {
       usages.push({ moduleName: name, part: 'материал корпуса (индивидуальный для модуля)' });
     }
-    // sec.drawerDecorCode — материал ящиков конкретной секции (переопределяет
-    // проектный drawerDecorCode, см. drawersPanelBlock/newSection).
+    // Материал ящиков секции: ручной выбор (sec.drawerDecorCode) — всегда;
+    // «авто» (кухня — 8681 SM, иначе как корпус, см. effectiveDrawerDecorCode)
+    // — только у секций, где ящики реально есть.
     if (group === 'decors') {
       (mod.sections || []).forEach((sec, si) => {
-        if (sec.drawerDecorCode === code) {
-          usages.push({ moduleName: name, part: `материал ящиков — секция ${si + 1}` });
+        const manual = !!sec.drawerDecorCode;
+        if (!manual && !(Number(sec.drawers) > 0)) return;
+        if (effectiveDrawerDecorCode(mod, sec) === code) {
+          usages.push({ moduleName: name, part: `материал ящиков — секция ${si + 1}${manual ? '' : (isKitchenModule(mod) ? ' (по умолчанию для кухни)' : ' (как корпус)')}` });
         }
       });
     }
@@ -11406,7 +11444,15 @@ function drawersPanelBlock(mod, secIndex) {
       </div>
       <div class="field">
         <label>Материал ящиков</label>
-        <select id="drawersDecor">${DECORS.map(d => `<option value="${d.code}" ${d.code === sec.drawerDecorCode ? 'selected' : ''}>${esc(d.name)}</option>`).join('')}</select>
+        <select id="drawersDecor">
+          <option value="" ${!sec.drawerDecorCode ? 'selected' : ''}>${isKitchenModule(mod)
+            ? `По умолчанию (${esc(kitchenDrawerDecorObj().name)})`
+            : `Как корпус (${esc((DECORS.find((d) => d.code === carcassDecorCodeOf(mod)) || {}).name || '')})`}</option>
+          ${DECORS.map(d => `<option value="${d.code}" ${sec.drawerDecorCode && d.code === sec.drawerDecorCode ? 'selected' : ''}>${esc(d.name)}</option>`).join('')}
+        </select>
+        <div class="hint">${isKitchenModule(mod)
+          ? 'На кухне ящики по умолчанию из белого ЛДСП 8681 SM. Выбрали другой материал — он сохраняется.'
+          : 'По умолчанию ящики из того же материала, что и корпус, и меняются вместе с ним. Выбрали другой материал — он сохраняется.'}</div>
       </div>
       <div class="field">
         <label>Высота короба ящика</label>
@@ -13215,9 +13261,8 @@ function addPresetToProject(catId, presetId, placementId) {
         state.facadeMatCode = state.decorCode;
       }
       state.decorCode = white.code;
-      // Материал ящиков — поле секции (см. newSection()/drawersPanelBlock),
-      // красим ящики нового кухонного модуля в тот же белый, что и корпус.
-      (m.sections || []).forEach((sec) => { sec.drawerDecorCode = white.code; });
+      // Материал ящиков кухни сюда не пишем: пустой sec.drawerDecorCode у
+      // кухонного модуля = «8681 SM Белый бриллиант» (effectiveDrawerDecorCode).
     }
   }
   insertModule(m);
@@ -13868,7 +13913,8 @@ function bindPanelEvents() {
         recompute();
       });
       on('drawersDecor', 'change', (e) => {
-        sec.drawerDecorCode = e.target.value;
+        // Пустое значение — пункт «Как корпус»/«По умолчанию»: снова авто.
+        sec.drawerDecorCode = e.target.value || null;
         recompute();
       });
       on('drawersBoxHeight', 'change', (e) => {
@@ -13939,7 +13985,7 @@ function recompute(isRetry) {
         ? { type: 'plinth', plinthHeight: m.plinthHeight }
         : { type: m.baseType, legHeight: m.legHeight },
       legType: m.legType || 'metal',
-      sections: m.sections,
+      sections: engineSectionsOf(m),
       // Ручные правки конкретных деталей (толщина/материал/доп. отверстия) —
       // см. applyPartOverrides() в engine.js и partBlock()/bindPanelEvents()
       // выше, где этот объект заполняется с экрана «Деталь».

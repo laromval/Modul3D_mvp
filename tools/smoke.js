@@ -987,6 +987,58 @@ for (const id of Array.from(registry.keys())) {
   });
 })();
 
+// --- материал ящиков шкафа/тумбы (2026-09-26): «как корпус», пока его не
+// выбрали вручную в панели «Ящики»; ручной выбор смена корпуса не трогает.
+(function drawerDecorFollowsCarcassScenario() {
+  const model = () => sandbox.__lastModel;
+  const partsOf = (m) => (m && (m.partsRaw || m.parts)) || [];
+  const drawerMats = () => partsOf(model()).filter((q) => /ящика/.test(q.name || '') && /Боковина|Задняя/.test(q.name || ''))
+    .map((q) => q.material);
+  const carcassMat = () => { const s0 = partsOf(model()).filter((q) => q.kind === 'bottom')[0]; return s0 && s0.material; };
+  const allAre = (code) => { const a = drawerMats(); return a.length > 0 && a.every((c) => c === code); };
+  const pickBtns = () => libPanelEl().querySelectorAll('.lib-pick-btn');
+  const setCarcass = (notCode) => {
+    sandbox.Modul3D.app.setPanelView('module');
+    const mb = document.getElementById('materialsLinkBtn');
+    if (mb) mb.click();
+    const b = document.getElementById('p-decor');
+    if (!b) return null;
+    b.click();
+    const pb = pickBtns().filter((x) => x.attrs['data-pick-group'] === 'decors' && x.attrs['data-pick-code'] !== notCode)[0];
+    if (!pb) return null;
+    libPanelEl().dispatch('click', { target: pb });
+    return pb.attrs['data-pick-code'];
+  };
+  const setDrawerDecor = (v) => {
+    sandbox.Modul3D.app.setPanelView('drawers');
+    const el = document.getElementById('drawersDecor');
+    if (!el) return false;
+    el.value = v; el.dispatch('change', { target: el });
+    return true;
+  };
+  check('шкаф: ящики по умолчанию из материала корпуса', () => {
+    if (!setDrawerDecor('')) return false;
+    return !!carcassMat() && allAre(carcassMat());
+  });
+  let c1 = null;
+  check('шкаф: при смене корпуса ящики меняются вместе с ним', () => {
+    const before = carcassMat();
+    c1 = setCarcass(before);
+    return !!c1 && c1 !== before && carcassMat() === c1 && allAre(c1);
+  });
+  check('шкаф: ручной выбор материала ящиков не меняется при смене корпуса', () => {
+    const manual = (sandbox.Modul3D.catalog.DECORS || []).filter((d) => d.code !== c1)[0];
+    if (!manual || !setDrawerDecor(manual.code) || !allAre(manual.code)) return false;
+    const c2 = setCarcass(carcassMat() === manual.code ? '' : carcassMat());
+    return !!c2 && allAre(manual.code);
+  });
+  check('шкаф: «Как корпус» возвращает ящики к корпусу', () => setDrawerDecor('') && allAre(carcassMat()));
+  // Подбор корпуса переключил Библиотеку на материалы — вернуть «Базу модулей».
+  const tabs = document.getElementById('libTabs');
+  const modTab = Array.from(document.querySelectorAll('.lib-tab-btn')).filter((b) => b.dataset.libtab === 'modules')[0];
+  if (tabs && modTab) tabs.dispatch('click', { target: modTab });
+})();
+
 // --- панель: у кухонного модуля нет штанги, выбора верха нет ни у кого -----
 (function panelFieldsScenario() {
   sandbox.Modul3D.app.setPanelView('module');   // вернулись с экрана «Ящики»
@@ -1581,7 +1633,7 @@ for (const el of document.querySelectorAll('.tab-btn')) {
   }
 }
 
-// Кухонный пресет должен ставить белый корпус и белые ящики, а декор
+// Кухонный пресет должен ставить белый корпус, ящики 8681 SM, а декор
 // пользователя переносить на фасад.
 {
   const kitchen = modGroupRow('kitchen');
@@ -1621,8 +1673,16 @@ for (const el of document.querySelectorAll('.tab-btn')) {
       const openBtn = document.getElementById('sectionsList').querySelectorAll('[data-drawers-open]')[0];
       if (openBtn) {
         openBtn.click();
+        // Материал ящиков кухни (2026-09-26) — по умолчанию «8681 SM Белый
+        // бриллиант» (catalog.DEFAULT_KITCHEN_DRAWER_DECOR_CODE): в панели
+        // выбран пункт «По умолчанию», в модели ящики именно из 8681 SM.
         const drawer = document.getElementById('drawersDecor');
-        if (!isWhite(drawer && drawer.value)) fails.push('кухня: ящики не стали белыми');
+        if (!drawer || drawer.value) fails.push('кухня: материал ящиков не «По умолчанию»');
+        const kd = sandbox.Modul3D.catalog.defaultKitchenDrawerDecor();
+        if (!kd || !/8681 SM/.test(kd.name)) fails.push('кухня: в каталоге нет 8681 SM для ящиков');
+        const lm = sandbox.__lastModel;
+        const dm = ((lm && (lm.partsRaw || lm.parts)) || []).filter((q) => /ящика/.test(q.name || '') && /Боковина|Задняя/.test(q.name || ''));
+        if (!dm.length || !kd || !dm.every((q) => q.material === kd.code)) fails.push('кухня: ящики не из 8681 SM');
       }
     }
     toggleModGroup(kitchen);

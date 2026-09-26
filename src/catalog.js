@@ -1708,6 +1708,18 @@
   function defaultDecor() {
     return DECORS.find((d) => d.code === DEFAULT_DECOR_CODE) || DECORS[0];
   }
+  // Материал ящиков КУХОННЫХ модулей по умолчанию — ЛДСП «8681 SM Белый
+  // бриллиант» (решение владельца 2026-09-26). У шкафов/тумб отдельного
+  // дефолта нет: ящики «как корпус» (см. app.js effectiveDrawerDecorCode).
+  // Действует, только пока пользователь не выбрал материал ящиков вручную
+  // (sec.drawerDecorCode пуст). Если позицию удалили из каталога — ищем
+  // тот же декор по названию, затем — декор по умолчанию.
+  const DEFAULT_KITCHEN_DRAWER_DECOR_CODE = 'LINK-1790200284959';
+  function defaultKitchenDrawerDecor() {
+    return DECORS.find((d) => d.code === DEFAULT_KITCHEN_DRAWER_DECOR_CODE)
+      || DECORS.find((d) => /8681/.test(d.name || ''))
+      || defaultDecor();
+  }
 
   window.Modul3D = window.Modul3D || {};
   window.Modul3D.catalog = {
@@ -1721,5 +1733,6 @@
     HARDWARE_CATEGORY_LABEL, HARDWARE_CATEGORY_ORDER,
     findMaterialByCode, findCountertopMaterialByCode, decorHasPattern,
     DEFAULT_DECOR_CODE, defaultDecor,
+    DEFAULT_KITCHEN_DRAWER_DECOR_CODE, defaultKitchenDrawerDecor,
   };
 })();
