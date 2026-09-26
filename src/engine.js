@@ -42,11 +42,21 @@ const EDGE_MID   = 'ПВХ 0.8 мм'; // кромка периметра фас�
 // Кромка периметра фасада зависит от его материала (см. ПРАВИЛА-КОНСТРУИРОВАНИЯ.md, §4):
 // ЛДСП-фасад — ПВХ 2 мм, как и любая видимая кромка детали без фасада; стекло
 // вообще не кромкуется (торец шлифуется на стекольном производстве — см. GLASS
-// в catalog.js); любой другой фасадный материал (МДФ, массив, алюминиевый
-// профиль) — ПВХ 0.8 мм.
+// в catalog.js); любой другой фасадный материал (МДФ, массив) — ПВХ 0.8 мм.
+// ИСКЛЮЧЕНИЕ (решение пользователя 2026-09-25): алюминиевый рамочный фасад
+// ('alu') НЕ кромится вообще — кромки на профиле нет.
 function facadeEdgeType(ft) {
   if (ft.render === 'glass') return null;
+  if (ft.id === 'alu') return null;
   return ft.id === 'ldsp' ? EDGE_FRONT : EDGE_MID;
+}
+// Кромка фальш-планки (добора) из «фасадного материала» секции. Планка — не
+// рамка, а плита (у 'alu' — по-прежнему лист FAC-ALU), поэтому исключение
+// алюминиевого профиля из кромки на неё не распространяется: ПВХ 0.8 мм,
+// как было до v311.
+function fillerEdgeType(ft) {
+  if (ft.id === 'alu') return EDGE_MID;
+  return facadeEdgeType(ft);
 }
 
 const PLINTH_SETBACK = 50; // утопление цоколя от переднего края, мм (норма 50–70)
@@ -1249,18 +1259,378 @@ function facadeTypeOf(sec, decor, t, facadeDecor, facadeThickness) {
   const id = sec.facadeType || (sec.glass ? 'glass4' : 'ldsp');
   const ft = cat.FACADE_TYPES[id] || cat.FACADE_TYPES.ldsp;
   const isDefault = ft.id === 'ldsp';
-  const fdec = facadeDecor || decor;
+  const fdec = ldspFacadeDefault(facadeDecor || decor, decor);
+  // Алюминиевая рамка: ширина рамки — из профиля, заполнение — из секции,
+  // стеклянные полки внутри — только если заполнение стекло (с глухим
+  // заполнением-плитой торцы корпуса скрыты, как у обычного фасада).
+  const alu = ft.id === 'alu' ? aluFacadeOf(sec) : null;
+  // Материал фасада секции/отсека (sec.facadeMaterial, 2026-09-26) — только
+  // у ldsp/mdf/glass4; нет/невалиден → умолчание вида (см. facadeMaterialPick).
+  const pick = facadeMaterialPick(ft.id, sec.facadeMaterial, fdec.code);
   return {
     id: ft.id, name: ft.name, render: ft.render,
-    frame: ft.frame || 0, insert: ft.insert || null,
-    glassInside: !!ft.glassInside,
-    // ЛДСП-фасад режется из декора проекта, остальные — из своего материала
-    material: isDefault ? fdec.code : ft.material,
+    frame: alu ? alu.frameW : (ft.frame || 0),
+    insert: alu ? alu.fill : (ft.insert || null),
+    glassInside: alu ? alu.fillType === 'glass' : !!ft.glassInside,
+    // ЛДСП-фасад режется из декора проекта (или выбранного в секции декора),
+    // МДФ/стекло — из выбранного материала, прочие — из своего материала.
+    material: pick ? pick.code : (isDefault ? fdec.code : ft.material),
     // Толщина ЛДСП-фасада настраивается отдельно от корпуса (t — запасное
-    // значение для старых сохранений без facadeThickness); у прочих типов
-    // фасада толщина всегда своя, из каталога.
-    thickness: isDefault ? (Number(facadeThickness) || t) : ft.thickness,
+    // значение для старых сохранений без facadeThickness); у МДФ/стекла —
+    // толщина выбранного материала (нет — из FACADE_TYPES); у прочих —
+    // своя, из каталога (alu — глубина профиля).
+    thickness: isDefault ? (Number(facadeThickness) || t)
+      : (pick && pick.thickness ? pick.thickness
+        : (alu && alu.depth ? alu.depth : ft.thickness)),
     edged: ft.render === 'panel',
+    alu,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// МАТЕРИАЛ ФАСАДА СЕКЦИИ/ОТСЕКА (sec.facadeMaterial, решение 2026-09-26)
+// Допустимые материалы по виду фасада — из Библиотеки (catalog.js):
+//   ldsp   — ЛДСП/ДСП: DECORS (categoryPath[0] 'ДСП' или без категории) и
+//            FACADE_MATERIALS с categoryPath[0] 'ДСП';
+//   mdf    — МДФ-плиты: DECORS/FACADE_MATERIALS с categoryPath[0] 'МДФ-плита'
+//            (включая шпонированные);
+//   glass4 — стекло: categoryPath[0] 'Стекло' или код GLASS-*, плюс cat.GLASS.
+// Прочие виды (mdfMilled, wood, woodGlass, alu) материал из секции не берут.
+// Умолчание: ldsp — проектный facadeDecor, mdf — FAC-MDF, glass4 — GLASS-4.
+// ---------------------------------------------------------------------------
+const FACADE_MATERIAL_KINDS = { ldsp: 'ldsp', mdf: 'mdf', glass4: 'glass' };
+function facadeMaterialKind(m) {
+  if (!m) return null;
+  if (isGlassMaterial(m)) return 'glass';
+  const cp = Array.isArray(m.categoryPath) ? m.categoryPath : [];
+  if (cp[0] === 'МДФ-плита') return 'mdf';
+  if (cp[0] === 'ДСП') return 'ldsp';
+  return null;
+}
+// Для UI: [{ code, name, thickness }] — допустимые материалы вида фасада
+// (пусто — у вида выбора материала нет).
+function facadeMaterialOptions(facadeTypeId) {
+  const cat = window.Modul3D.catalog;
+  const kind = FACADE_MATERIAL_KINDS[facadeTypeId];
+  if (!kind) return [];
+  const out = [];
+  const seen = {};
+  const push = (m) => {
+    if (!m || !m.code || seen[m.code]) return;
+    seen[m.code] = true;
+    out.push({ code: m.code, name: m.name || m.code,
+      thickness: Number(m.thickness) > 0 ? Number(m.thickness) : null });
+  };
+  (cat.DECORS || []).forEach((m) => {
+    const cp = Array.isArray(m.categoryPath) ? m.categoryPath : [];
+    // Декор корпуса без категории — старые/пользовательские позиции ЛДСП.
+    const k = facadeMaterialKind(m) || (cp.length ? null : 'ldsp');
+    if (k === kind) push(m);
+  });
+  Object.values(cat.FACADE_MATERIALS || {}).forEach((m) => {
+    if (facadeMaterialKind(m) === kind) push(m);
+  });
+  if (kind === 'glass' && cat.GLASS) push(cat.GLASS);
+  return out;
+}
+// { code, thickness } материала фасада вида ftId; null — вид без выбора
+// материала. defLdspCode — код проектного facadeDecor (умолчание ldsp).
+function facadeMaterialPick(ftId, code, defLdspCode) {
+  const cat = window.Modul3D.catalog;
+  if (!FACADE_MATERIAL_KINDS[ftId]) return null;
+  const opts = facadeMaterialOptions(ftId);
+  const o = code ? opts.find((x) => x.code === code) : null;
+  if (o) return { code: o.code, thickness: o.thickness };
+  // Умолчание берём как есть, даже если его нет в списке (проектный декор
+  // может быть любым листом — как было до выбора материала в секции).
+  const defCode = ftId === 'ldsp' ? defLdspCode : ((cat.FACADE_TYPES[ftId] || {}).material);
+  const m = aluFillMaterial(defCode);
+  return { code: defCode, thickness: m && Number(m.thickness) > 0 ? Number(m.thickness) : null };
+}
+// ---------------------------------------------------------------------------
+// ВИДИМАЯ БОКОВИНА (решение пользователя 2026-09-26): «не важно, какой фасад
+// выберет пользователь, материал видимых боковин должен выбрать
+// пользователь». Видимая боковина и цоколь ВСЕГДА режутся из проектного
+// facadeDecor (поле «Видимая боковина»), при любом виде фасада секции.
+// Допустимы листовые ЛДСП/ДСП и фасадные МДФ-панели.
+// ---------------------------------------------------------------------------
+// Для UI: [{ code, name, thickness }] — что можно выбрать в «Видимую боковину».
+function visibleSideMaterialOptions() {
+  const out = facadeMaterialOptions('ldsp').slice();
+  const seen = {};
+  out.forEach((o) => { seen[o.code] = true; });
+  facadeMaterialOptions('mdf').forEach((o) => { if (!seen[o.code]) { seen[o.code] = true; out.push(o); } });
+  return out;
+}
+// Материал видимой боковины/цоколя: { code, name, kind, thickness }.
+// thickness — толщина листа: у МДФ-панели — её thickness из каталога
+// (МДФ 19), у ЛДСП — корпусная t (как было всегда). fdec — объект каталога.
+function visibleSideMaterialOf(fdec, decor, t) {
+  const m = fdec || decor;
+  const kind = facadeMaterialKind(m) === 'mdf' ? 'mdf' : 'ldsp';
+  const th = kind === 'mdf' && Number(m.thickness) > 0 ? Number(m.thickness) : t;
+  return { code: m.code, name: kind === 'mdf' ? 'МДФ' : 'ЛДСП', kind, thickness: th };
+}
+// Умолчание ЛДСП-фасада — проектный facadeDecor, но только если это ЛДСП:
+// в «Видимую боковину» теперь можно выбрать и МДФ-панель, а ЛДСП-фасад из
+// МДФ-кода (с толщиной и кромкой ЛДСП) был бы неверен — тогда декор корпуса.
+function ldspFacadeDefault(fdec, decor) {
+  const k = facadeMaterialKind(fdec);
+  return (k === 'mdf' || k === 'glass') ? decor : fdec;
+}
+
+// Для UI: материал фасада секции/отсека так, как его построит ядро.
+// sec — эффективные настройки (для отсека — zoneFacadeSettings(sec, zi));
+// proj — { decor, facadeDecor, facadeThickness, t } (decor/facadeDecor —
+// объект каталога или код). → { code, name, thickness, facadeType }.
+function facadeMaterialOf(sec, proj) {
+  const cat = window.Modul3D.catalog;
+  const pr = proj || {};
+  const asObj = (d) => (d && typeof d === 'object') ? d
+    : (d ? (aluFillMaterial(d) || { code: d }) : null);
+  const decor = asObj(pr.decor) || (cat.DECORS || [])[0] || { code: '' };
+  const fdec = asObj(pr.facadeDecor) || decor;
+  const t = Number(pr.t) || Number(decor.thickness) || 18;
+  const ft = facadeTypeOf(sec || {}, decor, t, fdec, pr.facadeThickness);
+  const m = aluFillMaterial(ft.material);
+  return { code: ft.material, name: (m && m.name) || ft.material || '', thickness: ft.thickness, facadeType: ft.id };
+}
+
+// Эффективные настройки фасада отсека (дверной зоны) = поля зоны поверх
+// полей секции, только ключи фасада (ZONE_FACADE_KEYS). Зоны действуют лишь
+// при doorZoneCount > 1 (как и сама раскладка зон в buildModuleParts); зона
+// хранится в sec.doorZones[zi]. zoneIdx вне диапазона / null → копия секции.
+// Фасады ящиков — всегда по секции (у ящиков зон нет).
+const ZONE_FACADE_KEYS = ['facadeType', 'facadeMaterial', 'aluProfile', 'aluColor', 'aluFill', 'aluPriceMode', 'aluMaker'];
+function zoneFacadeSettings(sec, zoneIdx) {
+  const s = sec || {};
+  const out = Object.assign({}, s);
+  const multi = Number(s.doorZoneCount) > 1 && Array.isArray(s.doorZones) && s.doorZones.length;
+  const z = multi && zoneIdx !== null && zoneIdx !== undefined ? s.doorZones[zoneIdx] : null;
+  if (!z || typeof z !== 'object') return out;
+  const has = (k) => z[k] !== undefined && z[k] !== null && z[k] !== '';
+  for (const k of ZONE_FACADE_KEYS) if (has(k)) out[k] = z[k];
+  // Вид сменён в зоне, а материал не задан — материал секции от другого
+  // вида не переносим (станет умолчанием вида зоны).
+  if (has('facadeType') && z.facadeType !== s.facadeType && !has('facadeMaterial')) delete out.facadeMaterial;
+  return out;
+}
+
+// ---------------------------------------------------------------------------
+// АЛЮМИНИЕВЫЙ РАМОЧНЫЙ ФАСАД (facadeType 'alu'), решения пользователя
+// 2026-09-25 (ПРАВИЛА-КОНСТРУИРОВАНИЯ.md §4):
+//   • профиль не кромится (facadeEdgeType → null);
+//   • размер заполнения (решение 2026-09-26) — по паспорту профиля:
+//     заполнение = фасад − 2·fillStop − fillGap (fillStop — от наружного края
+//     профиля до дна паза с каждой стороны, fillGap — общий зазор на размер);
+//     null в fillStop или fillGap → размер null («уточняйте по паспорту»);
+//   • петля 'aluFrame' — Blum CLIP top 95° для алюм. рамок: вместо чашки паз
+//     под механизм + 2 отверстия под саморезы (aluHingeCuts); 'standard' —
+//     чашка Ø35 как у всех фасадов;
+//   • количество петель — стандартное.
+// Параметры секции (для старых сохранений без них — умолчания ниже):
+//   sec.aluProfile   — код из catalog.ALU_PROFILES (по умолч. ALU_PROFILE_ORDER[0])
+//   sec.aluColor     — id из ALU_PROFILE_COLORS (по умолч. первый из
+//                      ALU_PROFILE_COLOR_ORDER; старые id — ALU_LEGACY_COLOR_IDS)
+//   sec.aluFill      — код материала заполнения: стекло или плита (по умолч. 'GLASS-4')
+//   sec.aluPriceMode — 'buy' (покупной, по умолч.) | 'own' (собственное изготовление)
+//   sec.aluMaker     — id из ALU_MAKERS (по умолч. ALU_MAKER_ORDER[0])
+// ---------------------------------------------------------------------------
+// Петля для узкой алюм. рамки — Blum CLIP top 95° (каталог Blum, DQDMBY; решение
+// пользователя 2026-09-26): крепится к профилю на саморезы из комплекта, чашку Ø35
+// в профиле не сверлим — вместо неё паз под пружинный механизм и 2 отверстия
+// под саморезы (размеры — ALU_FRAME_EXTRAS.hinge.mount в catalog.js, см.
+// aluHingeCuts ниже).
+const ALU_HINGE_NOTE = 'Петля Blum CLIP top 95° для алюм. рамок — на саморезы по паспорту Blum: '
+  + 'паз под механизм + 2 отверстия под саморезы вместо чашки Ø35';
+const ALU_DEFAULT_FILL = 'GLASS-4';
+// Цвета до перехода на палитру Tehmob (2026-09-26) → новые id, чтобы старые
+// сохранения открывались с близким цветом, а не падали.
+const ALU_LEGACY_COLOR_IDS = { silver: 'alu', gold: 'goldMat', black: 'blackMat', champagne: 'goldMat' };
+// Число из паспорта профиля: null/''/нечисло → null (неизвестно).
+function aluNum(v) {
+  if (v === null || v === undefined || v === '') return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+
+// Материал заполнения по коду: декоры/задняя стенка/фасадные материалы
+// (findMaterialByCode) плюс стекло полок GLASS, которого там нет.
+function aluFillMaterial(code) {
+  const cat = window.Modul3D.catalog;
+  if (!code) return null;
+  const m = cat.findMaterialByCode ? cat.findMaterialByCode(code) : null;
+  if (m) return m;
+  if (cat.GLASS && cat.GLASS.code === code) return cat.GLASS;
+  return null;
+}
+// Стекло ли материал: категория «Стекло» Библиотеки или код GLASS-*.
+function isGlassMaterial(m) {
+  if (!m) return false;
+  const cp = Array.isArray(m.categoryPath) ? m.categoryPath : [];
+  return cp[0] === 'Стекло' || /^GLASS/i.test(String(m.code || ''));
+}
+
+function aluFacadeOf(sec) {
+  const cat = window.Modul3D.catalog;
+  const s = sec || {};
+  const profiles = cat.ALU_PROFILES || {};
+  const pOrder = cat.ALU_PROFILE_ORDER || Object.keys(profiles);
+  const profileCode = profiles[s.aluProfile] ? s.aluProfile : (pOrder[0] || null);
+  const prof = (profileCode && profiles[profileCode]) || {};
+  const colors = cat.ALU_PROFILE_COLORS || {};
+  const allowed = Array.isArray(prof.colors) && prof.colors.length ? prof.colors : null;
+  const legacy = ALU_LEGACY_COLOR_IDS[s.aluColor];
+  const wantColor = colors[s.aluColor] ? s.aluColor : (legacy && colors[legacy] ? legacy : null);
+  let color = wantColor && (!allowed || allowed.indexOf(wantColor) !== -1) ? wantColor : null;
+  if (!color) {
+    color = (allowed ? allowed.find((c) => colors[c]) : null)
+      || (cat.ALU_PROFILE_COLOR_ORDER || []).find((c) => colors[c]) || Object.keys(colors)[0] || null;
+  }
+  const colorItem = (color && colors[color]) || {};
+  let fill = s.aluFill && aluFillMaterial(s.aluFill) ? s.aluFill : ALU_DEFAULT_FILL;
+  const typeOfFill = (code) => {
+    const it = aluFillMaterial(code);
+    return isGlassMaterial(it) || (!it && /^GLASS/i.test(code)) ? 'glass' : 'sheet';
+  };
+  // Профиль принимает только свой вид заполнения (prof.fillType, напр. у
+  // Tehmob — стекло 4 мм с уплотнителем): чужой (старое сохранение) → умолчание
+  // для стекла, как и список заполнений в UI (app.js aluFillOptions).
+  if (prof.fillType === 'glass' && typeOfFill(fill) !== 'glass') fill = ALU_DEFAULT_FILL;
+  // Толщина заполнения задана паспортом профиля (Tehmob: 4 мм с уплотнителем) —
+  // материал другой толщины в паз не встаёт → умолчание (UI его и не предлагает).
+  const needT = Number(prof.fillThickness) > 0 ? Number(prof.fillThickness) : null;
+  const fillT = Number((aluFillMaterial(fill) || {}).thickness);
+  if (needT && fillT > 0 && fillT !== needT) fill = ALU_DEFAULT_FILL;
+  const fillItem = aluFillMaterial(fill);
+  const fillType = typeOfFill(fill);
+  const makers = cat.ALU_MAKERS || {};
+  const mOrder = cat.ALU_MAKER_ORDER || Object.keys(makers);
+  const maker = makers[s.aluMaker] ? s.aluMaker : (mOrder[0] || null);
+  const fillStop = aluNum(prof.fillStop);
+  const fillGap = aluNum(prof.fillGap);
+  const fillThickness = Number(prof.fillThickness) > 0 ? Number(prof.fillThickness)
+    : (fillItem && Number(fillItem.thickness) > 0 ? Number(fillItem.thickness) : null);
+  const ftAlu = (cat.FACADE_TYPES && cat.FACADE_TYPES.alu) || {};
+  return {
+    profile: profileCode,
+    profileName: prof.name || '',
+    color,
+    colorName: colorItem.name || '',
+    colorHex: colorItem.hex || null,
+    fill,
+    fillName: (fillItem && fillItem.name) || fill,
+    fillType,
+    fillThickness,
+    fillStop, fillGap,
+    kind: prof.kind === 'closed' || prof.kind === 'open' ? prof.kind : null,
+    // Видимая ширина рамки: из профиля; нет данных — запасная FACADE_TYPES.alu.frame
+    frameW: Number(prof.width) > 0 ? Number(prof.width) : (Number(ftAlu.frame) || 0),
+    // Толщина фасада = толщина профиля по паспорту; нет данных — FACADE_TYPES.alu.thickness
+    depth: Number(prof.depth) > 0 ? Number(prof.depth) : (Number(ftAlu.thickness) || null),
+    priceMode: s.aluPriceMode === 'own' ? 'own' : 'buy',
+    maker,
+    hinge: prof.hinge === 'standard' ? 'standard' : 'aluFrame',
+  };
+}
+
+// Петлю «для алюминиевой рамки» не сверлим чашкой (см. блок выше) — вместо
+// неё aluHingeCuts.
+function aluSkipsHingeCup(ft) {
+  return !!(ft && ft.alu && ft.alu.hinge === 'aluFrame');
+}
+
+// Присадка под Blum CLIP top 95° для алюм. рамок (71T950A) на двери с профилем
+// hinge 'aluFrame'. Оси петель по высоте и их число — те же, что у обычной
+// чашки (hingeHoles: 100 мм от торцов, обход полок/верхней планки). На каждую
+// петлю, с тыльной стороны, в координатах детали (x — по ширине двери от её
+// левого края, y — по высоте от нижнего торца):
+//   • паз под пружинный механизм — в part.grooves, формат как у паза под
+//     заднюю стенку (ось x0,y0→x1,y1, ширина w): ось вдоль рамки длиной
+//     slotH по центру оси петли, w = slotW поперёк рамки; паз от ВНУТРЕННЕГО
+//     края рамки (frameW от наружного края со стороны петель) наружу;
+//   • 2 отверстия Ø screwD насквозь с фаской до Ø screwCsk — в part.holes,
+//     по ±screwPitch/2 от оси петли, в screwFromInner от внутреннего края рамки.
+// Ширина рамки вне паспортных rbMin..rbMax (или нет данных mount) —
+// присадку не ставим, предупреждаем. Возвращает { holes, grooves }.
+function aluHingeCuts(W, H, hingeSide, frameW, shelves, warn, secName, railBottom) {
+  const hinge = ((window.Modul3D.catalog.ALU_FRAME_EXTRAS || {}).hinge) || {};
+  const m = hinge.mount || null;
+  const out = { holes: [], grooves: [] };
+  const name = `${hinge.name || 'Петля для алюм. рамок'}${hinge.article ? ` (${hinge.article})` : ''}`;
+  if (!m || !(m.slotW > 0) || !(m.slotH > 0) || !(m.screwD > 0) || !(m.screwPitch > 0)
+      || !(m.screwFromInner > 0)) {
+    if (warn) warn(`${secName}: ${name} — нет паспортных размеров присадки, отверстия под петлю не поставлены.`);
+    return out;
+  }
+  const fw = Number(frameW);
+  if (!(fw > 0) || (Number.isFinite(m.rbMin) && fw < m.rbMin) || (Number.isFinite(m.rbMax) && fw > m.rbMax)) {
+    if (warn) {
+      warn(`${secName}: ${name} ставится на рамку шириной ${m.rbMin}–${m.rbMax} мм, `
+        + `а у профиля ${fw > 0 ? fw : '—'} мм — присадка под петлю не поставлена, подберите другую петлю или профиль.`);
+    }
+    return out;
+  }
+  // Оси петель — ровно как у обычной двери (без стеклянного варианта).
+  const axes = hingeHoles(W, H, hingeSide, shelves, warn, secName, false, railBottom).map((h) => h.y);
+  const left = hingeSide === 'left';
+  // Расстояние от наружного края двери (со стороны петель) → x детали.
+  const X = (fromOuter) => round1(left ? fromOuter : W - fromOuter);
+  const xScrew = X(fw - m.screwFromInner);
+  const xSlot = X(fw - m.slotW / 2);
+  const half = m.screwPitch / 2;
+  for (const y of axes) {
+    out.grooves.push({
+      kind: 'aluHingeSlot', x0: xSlot, y0: round1(y - m.slotH / 2), x1: xSlot, y1: round1(y + m.slotH / 2),
+      w: m.slotW, depth: m.wall || null, throughWall: true, side: 'back', hingeY: round1(y),
+      note: `Паз ${m.slotW}×${m.slotH} под механизм петли ${hinge.article || ''}`.trim(),
+    });
+    for (const dy of [-half, half]) {
+      // «насквозь» — сквозь тыльную стенку профиля (m.wall), а не через всю толщину фасада со стеклом
+      out.holes.push({ x: xScrew, y: round1(y + dy), d: m.screwD, depth: m.wall || 0, through: false, throughWall: true,
+        csk: m.screwCsk || null, cskAngle: m.screwCskAngle || null,
+        side: 'back', kind: 'aluHingeScrew', hingeY: round1(y) });
+    }
+  }
+  return out;
+}
+
+// Размер заполнения (стекла) алюм. фасада W×H, мм:
+//   заполнение = фасад − 2·fillStop − fillGap (ПРАВИЛА §4, 2026-09-26).
+// a — результат aluFacadeOf(). null в fillStop/fillGap → { fillW: null, fillH: null }.
+function aluFillDims(a, W, H) {
+  const known = !!a && a.fillStop !== null && a.fillGap !== null;
+  const fw = known ? round1(W - 2 * a.fillStop - a.fillGap) : null;
+  const fh = known ? round1(H - 2 * a.fillStop - a.fillGap) : null;
+  return { fillW: fw > 0 ? fw : null, fillH: fh > 0 ? fh : null };
+}
+// Для UI: размер заполнения по параметрам секции и габариту фасада.
+function aluFillSize(sec, W, H) {
+  return aluFillDims(aluFacadeOf(sec), Number(W), Number(H));
+}
+
+// Поля детали-фасада, зависящие от типа фасада (frameW/insertMaterial/glass
+// и у 'alu' — описание рамки aluFrame для 3D/чертежей/сметы). W×H — габарит
+// фасада, мм (длина × ширина детали).
+function facadePartFields(ft, W, H) {
+  if (!ft.alu) {
+    return { frameW: ft.frame, insertMaterial: ft.insert, glass: ft.render === 'glass' };
+  }
+  const a = ft.alu;
+  const { fillW, fillH } = aluFillDims(a, W, H);
+  return {
+    frameW: a.frameW,
+    insertMaterial: a.fill,
+    glass: a.fillType === 'glass',
+    aluFrame: {
+      profile: a.profile, kind: a.kind, color: a.color, colorHex: a.colorHex,
+      fill: a.fill, fillType: a.fillType, fillThickness: a.fillThickness,
+      fillW, fillH,
+      perimeterMm: round1(2 * (W + H)),
+      corners: ((window.Modul3D.catalog.ALU_FRAME_EXTRAS || {}).corner || {}).perFacade || 4,
+      seal: a.fillType === 'glass',
+      priceMode: a.priceMode, maker: a.maker, hinge: a.hinge,
+    },
   };
 }
 
@@ -1269,9 +1639,26 @@ function facadeTypeOf(sec, decor, t, facadeDecor, facadeThickness) {
 // фасад не стеклянный — сквозь стекло видно то, что за ним (см.
 // ПРАВИЛА-КОНСТРУИРОВАНИЯ.md §4). Секция без фасада (открытая) — торец
 // всегда виден.
+// Отсеки с разными фасадами (sec.doorZones[i].facadeType и т.п.): торец скрыт,
+// только если НИ за одним фасадом секции (зоны с дверью/фасадом ящиков по
+// секции) не стекло — консервативно: торец один на всю высоту секции.
 function sectionFrontHidden(sec, decor, t, facadeDecor, facadeThickness) {
   if (!sectionHasAnyFacade(sec)) return false;
-  return !facadeTypeOf(sec, decor, t, facadeDecor, facadeThickness).glassInside;
+  return !sectionGlassInside(sec, decor, t, facadeDecor, facadeThickness);
+}
+// Есть ли стекло хоть за одним фасадом секции: сама секция (фасады ящиков и
+// однозонная дверь) или любая дверная зона, у которой реально есть фасад.
+function sectionGlassInside(sec, decor, t, facadeDecor, facadeThickness) {
+  const multi = Number(sec.doorZoneCount) > 1 && Array.isArray(sec.doorZones) && sec.doorZones.length;
+  if (!multi) return facadeTypeOf(sec, decor, t, facadeDecor, facadeThickness).glassInside;
+  if (Number(sec.drawers) > 0
+    && facadeTypeOf(sec, decor, t, facadeDecor, facadeThickness).glassInside) return true;
+  for (let zi = 0; zi < sec.doorZoneCount; zi++) {
+    const z = sec.doorZones[zi] || {};
+    if ((z.facade || 'doorLeft') === 'open' || applianceNicheOnly(z.appliance)) continue;
+    if (facadeTypeOf(zoneFacadeSettings(sec, zi), decor, t, facadeDecor, facadeThickness).glassInside) return true;
+  }
+  return false;
 }
 
 // ПРАВИЛО ВЫБОРА КРЕПЕЖА КОРПУСА.
@@ -1352,6 +1739,9 @@ function makePart(o) {
     facadeType: o.facadeType || null,
     frameW: o.frameW || 0,
     insertMaterial: o.insertMaterial || null,
+    // Алюминиевый рамочный фасад (facadeType 'alu'): профиль/цвет/заполнение/
+    // режим цены — см. facadePartFields(). null у всех прочих деталей.
+    aluFrame: o.aluFrame || null,
     // Форма для визуализации: 'box' (по умолчанию) или 'cylinder'.
     // На геометрию/пересечения не влияет — габарит остаётся описанным боксом.
     shape: o.shape || 'box',
@@ -1942,28 +2332,16 @@ function buildModuleParts(p) {
     : (v === 'besideBottom' ? 'Сбоку дна, опирается на основание' : 'Стоит на дне'));
 
   // ВИДИМАЯ БОКОВИНА. Корпус кухни делают белым, а боковину, которую видно
-  // в интерьере, — в материале фасада. Видимой считается та, что доходит
+  // в интерьере, — в отдельном материале. Видимой считается та, что доходит
   // ДО ПОЛА или стоит СБОКУ ДНА (дно вкладное): её пласть открыта целиком.
-  // Под деревянный фасад массив на боковину не ставят — берут МДФ в шпоне.
-  const visibleSideMat = () => {
-    const sec0 = (p.sections && p.sections[0]) || {};
-    const ftv = facadeTypeOf(sec0, decor, t, p.facadeDecor, p.facadeThickness);
-    if (ftv.id === 'wood' || ftv.id === 'woodGlass') {
-      return { code: 'FAC-VENEER', name: 'МДФ шпон' };
-    }
-    // Стекло и алюминиевый профиль на боковину не годятся — идёт ЛДСП
-    // фасадный, но В ДЕКОРЕ ПРОЕКТА (как и у ldsp-фасада выше, см.
-    // facadeTypeOf()), а не безымянный каталожный код сам по себе — иначе у
-    // соседних модулей с одинаковым декором, но разным facadeType (ldsp и
-    // glass4/alu), расходится код материала цоколя/боковины, и mergePlinths()
-    // не сливает их цоколь в одну планку (ключ группировки сверяет материал
-    // буквально).
-    if (ftv.id === 'glass4' || ftv.id === 'alu') {
-      const fdec = p.facadeDecor || decor;
-      return { code: fdec.code, name: 'ЛДСП фасадный' };
-    }
-    return { code: ftv.material, name: ftv.name.replace('Фасад ', '') };
-  };
+  // Материал ВСЕГДА выбирает пользователь — проектный facadeDecor (поле
+  // «Видимая боковина», решение 2026-09-26), независимо от вида фасада
+  // секции (ldsp/mdf/wood/glass4/alu…): ЛДСП или фасадная МДФ-панель.
+  // Один код на весь проект — у соседних модулей цоколь сливается в одну
+  // планку (mergePlinths сверяет материал буквально).
+  // Толщина: у МДФ-панели — её лист (МДФ 19), у ЛДСП — корпусная t.
+  const visibleSideMat = () => visibleSideMaterialOf(p.facadeDecor, decor, t);
+  const visibleSideThick = [];
 
   // КРАЙНИЙ МОДУЛЬ. Видимая боковина стоит с торца ряда, и между корпусом и
   // стеной остаётся щель (корпус 510 при столешнице 600) — её видно. Поэтому
@@ -2000,7 +2378,7 @@ function buildModuleParts(p) {
       material: vm ? vm.code : decor.code, thickness: t,
       length: h, width: sDepth, qty: 1, grain: true, kind: 'side',
       facadeType: vm ? 'sidePanel' : null,
-      note: sideNote(s.v) + (vm ? `; видимая — в материале фасада (${vm.name})` : ''),
+      note: sideNote(s.v) + (vm ? `; видимая — из материала «Видимая боковина» (${vm.name})` : ''),
       // Передний торец — 2мм, если реально виден (открыт или за стеклом),
       // иначе техническая кромка (закрыт фасадом). Остальные стороны —
       // техническая кромка по всему периметру (включая короткие торцы у
@@ -2012,6 +2390,13 @@ function buildModuleParts(p) {
       dims: { w: t, h, d: sDepth },
     }));
     if (inGroove(s.x < 0 ? 'left' : 'right')) exactFrontZ(parts[parts.length - 1]);
+    // Толщина видимой боковины из МДФ-панели (19) отличается от корпусной t —
+    // применяется в конце сборки (см. «ТОЛЩИНА ВИДИМОЙ БОКОВИНЫ» перед
+    // applyPartOverrides): вся присадка и поиск боковины по box.x ниже по
+    // файлу считают её центр на ±sideX.
+    if (vm && vm.thickness !== t) {
+      visibleSideThick.push({ part: parts[parts.length - 1], sgn: s.x < 0 ? -1 : 1, tv: vm.thickness });
+    }
   }
   const hasVisibleSide = p.visibleSides !== false
     && (sides.left === 'floor' || sides.left === 'besideBottom'
@@ -2395,6 +2780,8 @@ function buildModuleParts(p) {
   // Цоколь бывает несущий (боковины до пола) и навесной — на клипсах к
   // регулируемым опорам. Второй вариант — стандарт для кухонь и тумб.
   const hasPlinth = (p.base.type === 'plinth' || p.base.type === 'legsPlinth') && baseH > 0;
+  // Толщина цоколя — лист материала «Видимая боковина» (ЛДСП — t, МДФ — свой).
+  const plinthT = visibleSideMat().thickness;
   const onLegs = p.base.type === 'legs' || p.base.type === 'legsPlinth';
   if (hasPlinth) {
     // В зону цоколя спускается только боковина «до пола» — она и ограничивает
@@ -2413,15 +2800,17 @@ function buildModuleParts(p) {
     const plinthMat = visibleSideMat();
     parts.push(makePart({
       name: 'Цоколь (планка передняя)', section: 'Корпус',
-      material: plinthMat.code, thickness: t, facadeType: 'plinthFace',
+      material: plinthMat.code, thickness: plinthT, facadeType: 'plinthFace',
       length: plinthLen, width: baseH, qty: 1, kind: 'plinth',
       note: (onLegs
         ? `Навесной, на клипсах к опорам, утоплен от фасада на ${PLINTH_SETBACK} мм`
         : `Утоплен от фасада на ${PLINTH_SETBACK} мм`)
-        + `; видимая деталь — в материале фасада (${plinthMat.name})`,
+        + `; видимая деталь — из материала «Видимая боковина» (${plinthMat.name})`,
       edging: { long1: EDGE_FRONT, long2: EDGE_BACK, short1: EDGE_BACK, short2: EDGE_BACK },
-      x: plinthX, y: baseH / 2, z: D / 2 - t / 2 - PLINTH_SETBACK,
-      dims: { w: plinthLen, h: baseH, d: t },
+      // Лицевая грань — всегда на утоплении PLINTH_SETBACK; более толстый
+      // лист (МДФ 19) растёт назад, к опорам (см. zFront клипс ниже).
+      x: plinthX, y: baseH / 2, z: D / 2 - plinthT / 2 - PLINTH_SETBACK,
+      dims: { w: plinthLen, h: baseH, d: plinthT },
     }));
   }
 
@@ -2513,7 +2902,7 @@ function buildModuleParts(p) {
     // хомутом клипсы и стволом опоры — по той же причине).
     const GAP_EPS = 0.5; // мм, технический зазор против z-fighting, не «конструкторский»
     const zFront = (kitchen && hasPlinth)
-      ? (D / 2 - PLINTH_SETBACK - t) - CLIP_REACH - GAP_EPS
+      ? (D / 2 - PLINTH_SETBACK - plinthT) - CLIP_REACH - GAP_EPS
       : D / 2 - LEG_INSET;
     const zBack = -D / 2 + LEG_INSET;
 
@@ -2886,7 +3275,7 @@ function buildModuleParts(p) {
         const zoneYs = getShelfYs(
           { shelves: dz.shelves, shelfMode: dz.shelfMode, shelfHeights: dz.shelfHeights },
           zBottom, zHeight, t, zBottom, null);
-        for (const y of zoneYs) shelfEntries.push({ y, fixed: false });
+        for (const y of zoneYs) shelfEntries.push({ y, fixed: false, zi });
       }
       shelfEntries.sort((a, b) => a.y - b.y);
     } else {
@@ -2918,12 +3307,19 @@ function buildModuleParts(p) {
       // За стеклянным фасадом полки делают из стекла 6 мм — их видно. Для
       // несъёмной Rastex-перегородки это не применимо: она держит корпус,
       // а не просто лежит на полкодержателях, стекло тут неуместно.
-      const glassShelf = !isFixed
-        && facadeTypeOf(sec, decor, t, p.facadeDecor, p.facadeThickness).glassInside;
+      // Съёмная полка отсека (многозонный пенал) — по фасаду СВОЕЙ зоны
+      // (sec.doorZones[zi] может переопределять вид фасада, см. zoneFacadeSettings).
+      const shelfZi = shelfEntries[si].zi;
+      const shelfSec = shelfZi !== undefined ? zoneFacadeSettings(sec, shelfZi) : sec;
+      const shelfGlassBehind = facadeTypeOf(shelfSec, decor, t, p.facadeDecor, p.facadeThickness).glassInside;
+      const glassShelf = !isFixed && shelfGlassBehind;
       const GL = window.Modul3D.catalog.GLASS;
       // Полка видна (2мм), только если секция открыта или за стеклом —
       // закрытая фасадом полка кромится технической кромкой (не видна).
-      const shelfFrontHidden = sectionFrontHidden(sec, decor, t, p.facadeDecor, p.facadeThickness);
+      // Несъёмная перегородка на стыке зон — по всей секции (консервативно).
+      const shelfFrontHidden = shelfZi !== undefined
+        ? (sectionHasAnyFacade(sec) && !shelfGlassBehind)
+        : sectionFrontHidden(sec, decor, t, p.facadeDecor, p.facadeThickness);
       parts.push(makePart({
         name: glassShelf ? 'Полка стеклянная' : 'Полка', section: secName,
         material: glassShelf ? GL.code : decor.code,
@@ -3407,7 +3803,8 @@ function buildModuleParts(p) {
     // пристыковывается перпендикулярный ряд, поэтому её ширина (плюс планки)
     // жёстко задана, а фасад забирает остаток. Стал корпус шире — шире стала
     // дверь, узел стыка остался на месте.
-    const blindFT = facadeTypeOf(sec, decor, t, p.facadeDecor, p.facadeThickness);
+    // Заглушка строится только для нижней зоны (zi === 0) — толщина по ней.
+    const blindFT = facadeTypeOf(zoneFacadeSettings(sec, 0), decor, t, p.facadeDecor, p.facadeThickness);
     const BLIND_W = Number(p.blindWidth) || 560;
     const wantW = p.blindPanel
       ? round1(fullW - BLIND_W - blindFT.thickness - 2 * gap)
@@ -3428,6 +3825,12 @@ function buildModuleParts(p) {
     const secWi = layout.widths[i];
 
     const ft = facadeTypeOf(sec, decor, t, p.facadeDecor, p.facadeThickness);
+    const ftSec = ft;
+    // Алюминиевая рамка на петле «для алюминиевой рамки» (profile.hinge ===
+    // 'aluFrame'): чашку Ø35 не сверлим — вместо неё паз и 2 отверстия под
+    // саморезы по паспорту Blum 71T950A (aluHingeCuts, 2026-09-26).
+    // Количество петель в спецификации остаётся стандартным (doorHardware).
+    const aluNoCup = aluSkipsHingeCup(ft);
     const dHeights = getDrawerHeights(sec, drawerUnitH, frontH, null, secName);
     const drawerZoneH = dHeights.reduce((s, v) => s + v, 0);
 
@@ -3494,7 +3897,7 @@ function buildModuleParts(p) {
       parts.push(makePart({
         name: `Фасад ящика ${d + 1}`, section: secName, sectionIndex: i,
         material: ft.material, thickness: ft.thickness,
-        facadeType: ft.id, frameW: ft.frame, insertMaterial: ft.insert, glass: ft.render === 'glass',
+        facadeType: ft.id, ...facadePartFields(ft, facadeW, fH),
         length: facadeW, width: fH, qty: 1, kind: 'drawerFront', grain: true,
         holes: dh.holes.concat(fixHoles),
         note: 'Накладной' + (dh.count ? `, ручка ${dh.handle.name}` : ''),
@@ -3549,6 +3952,13 @@ function buildModuleParts(p) {
 
     for (let zi = 0; zi < zonesRaw.length; zi++) {
       const zone = zonesRaw[zi];
+      // Фасад ОТСЕКА: вид/материал/алюм. настройки зоны поверх секции
+      // (zoneFacadeSettings). Затеняет ft/aluNoCup секции (фасады ящиков выше
+      // остаются по секции). Однозонная секция — ровно настройки секции.
+      const ft = zonesRaw.length > 1
+        ? facadeTypeOf(zoneFacadeSettings(sec, zi), decor, t, p.facadeDecor, p.facadeThickness)
+        : ftSec;
+      const aluNoCup = aluSkipsHingeCup(ft);
       const doorZoneH = zoneLayout.heights[zi];
       if (doorZoneH <= 0) continue;  // предупреждение уже дал layoutDoorZones
       const doorY = slotBot + zoneLayout.bottoms[zi] + doorZoneH / 2;
@@ -3571,6 +3981,9 @@ function buildModuleParts(p) {
         warnings.push(`${zoneSecName}: фасад под ${APPLIANCE_LABELS[zone.appliance]} — `
           + `${applianceHingeNote(zone.appliance)}.`);
       }
+      // aluNoCup: петля Blum для алюм. рамки на винтах — это не нехватка данных,
+      // а штатный способ крепления, поэтому в warnings не выносим (только
+      // пометка в двери, см. ALU_HINGE_NOTE ниже).
       const applianceDimsNote = (zone.applianceW || zone.applianceD)
         ? `габариты техники (Ш×Г) ${zone.applianceW ? Math.round(zone.applianceW) : '—'}×`
           + `${zone.applianceD ? Math.round(zone.applianceD) : '—'} мм`
@@ -3591,24 +4004,33 @@ function buildModuleParts(p) {
           faceZ: D / 2 + ft.thickness / 2, t: ft.thickness });
         const doorNoteParts = [`Накладная, ${hingeSide}` + (dh.count ? `, ручка ${dh.handle.name}` : '')];
         if (skipHinge) doorNoteParts.push(applianceHingeNote(zone.appliance));
+        else if (aluNoCup) doorNoteParts.push(ALU_HINGE_NOTE);
         if (applianceDimsNote) doorNoteParts.push(applianceDimsNote);
         if (zone.note) doorNoteParts.push(zone.note);
+        const aluCuts = (aluNoCup && !skipHinge)
+          ? aluHingeCuts(facadeW, doorZoneH, fac === 'doorLeft' ? 'left' : 'right', ft.alu.frameW,
+            shelvesOnFacade(secInfo, i, doorY, doorZoneH), (w) => warnings.push(w), secName,
+            isTopZone ? railBottomOnFacade(doorY, doorZoneH) : null)
+          : null;
         parts.push(makePart({
           name: `Дверь ${fac === 'doorLeft' ? 'левая' : 'правая'} (${ft.name.replace('Фасад ', '')})`,
           section: zoneSecName, sectionIndex: i, zoneIndex: zi, material: ft.material, thickness: ft.thickness,
-          facadeType: ft.id, frameW: ft.frame, insertMaterial: ft.insert, glass: ft.render === 'glass',
+          facadeType: ft.id, ...facadePartFields(ft, facadeW, doorZoneH),
           length: facadeW, width: doorZoneH, qty: 1, kind: 'door', grain: true,
-          holes: skipHinge ? dh.holes : dh.holes.concat(hingeHoles(facadeW, doorZoneH,
+          holes: aluCuts ? dh.holes.concat(aluCuts.holes)
+            : (skipHinge || aluNoCup) ? dh.holes : dh.holes.concat(hingeHoles(facadeW, doorZoneH,
             fac === 'doorLeft' ? 'left' : 'right',
             shelvesOnFacade(secInfo, i, doorY, doorZoneH),
             (w) => warnings.push(w), secName, ft.render === 'glass',
             isTopZone ? railBottomOnFacade(doorY, doorZoneH) : null)),
+          grooves: aluCuts ? aluCuts.grooves : [],
           note: doorNoteParts.join('; '),
           edging: { long1: facadeEdgeType(ft), long2: facadeEdgeType(ft), short1: facadeEdgeType(ft), short2: facadeEdgeType(ft) },
           x: fX, y: doorY, z: D / 2 + ft.thickness / 2,
           dims: { w: facadeW, h: doorZoneH, d: ft.thickness },
         }));
-        doorHardware.push({ section: zoneSecName, height: doorZoneH, leaves: 1, pushToOpen: !!sec.pushToOpen });
+        doorHardware.push({ section: zoneSecName, height: doorZoneH, leaves: 1, pushToOpen: !!sec.pushToOpen,
+          aluHinge: aluNoCup && !skipHinge });
 
         // ЗАГЛУШКА УГЛОВОГО МОДУЛЯ. Фасад узкий, остальной фронт корпуса
         // закрывает вертикальная панель из КОРПУСНОГО ЛДСП: она же служит
@@ -3642,7 +4064,7 @@ function buildModuleParts(p) {
             length: stripH, width: STRIP_W, qty: 1, kind: 'filler',
             note: `Из фасадного материала, ${STRIP_W} мм, под 90° слева от заглушки `
               + '— закрывает её торец; крепление на минификсы',
-            edging: { long1: facadeEdgeType(ft), long2: facadeEdgeType(ft), short1: facadeEdgeType(ft), short2: facadeEdgeType(ft) },
+            edging: { long1: fillerEdgeType(ft), long2: fillerEdgeType(ft), short1: fillerEdgeType(ft), short2: fillerEdgeType(ft) },
             x: stripX, y: baseH + frontH / 2,
             z: round1(D / 2 + STRIP_W / 2),
             dims: { w: ftk, h: stripH, d: STRIP_W },
@@ -3716,6 +4138,7 @@ function buildModuleParts(p) {
         const leafW = (facadeW - 2 * gap) / 2;
         const doors2NoteParts = ['двустворчатая'];
         if (skipHinge) doors2NoteParts.push(applianceHingeNote(zone.appliance));
+        else if (aluNoCup) doors2NoteParts.push(ALU_HINGE_NOTE);
         if (applianceDimsNote) doors2NoteParts.push(applianceDimsNote);
         if (zone.note) doors2NoteParts.push(zone.note);
         for (let leaf = 0; leaf < 2; leaf++) {
@@ -3728,26 +4151,34 @@ function buildModuleParts(p) {
             zoneIndex: zi, zoneCount: zonesRaw.length });
           if (dh.count) handleHardware.push({ id: dh.handle.id, qty: dh.count, name: dh.handle.name, cc: dh.handle.cc });
           const leafX = fX - facadeW / 2 + leafW / 2 + leaf * (leafW + 2 * gap);
+          const aluCuts = (aluNoCup && !skipHinge)
+            ? aluHingeCuts(leafW, doorZoneH, leaf === 0 ? 'left' : 'right', ft.alu.frameW,
+              shelvesOnFacade(secInfo, i, doorY, doorZoneH), (w) => warnings.push(w), secName,
+              isTopZone ? railBottomOnFacade(doorY, doorZoneH) : null)
+            : null;
           pushHandleParts({ parts, mounts: dh.mounts, secName: zoneSecName, handleName: dh.handle.name,
             faceX: leafX, faceY: doorY, faceW: leafW, faceH: doorZoneH,
             faceZ: D / 2 + ft.thickness / 2, t: ft.thickness });
           parts.push(makePart({
             name: `Дверь-створка (${ft.name.replace('Фасад ', '')})`,
             section: zoneSecName, sectionIndex: i, zoneIndex: zi, material: ft.material, thickness: ft.thickness,
-            facadeType: ft.id, frameW: ft.frame, insertMaterial: ft.insert, glass: ft.render === 'glass',
+            facadeType: ft.id, ...facadePartFields(ft, leafW, doorZoneH),
             length: leafW, width: doorZoneH, qty: 1, kind: 'door', grain: true,
-            holes: skipHinge ? dh.holes : dh.holes.concat(hingeHoles(leafW, doorZoneH,
+            holes: aluCuts ? dh.holes.concat(aluCuts.holes)
+              : (skipHinge || aluNoCup) ? dh.holes : dh.holes.concat(hingeHoles(leafW, doorZoneH,
               leaf === 0 ? 'left' : 'right',
               shelvesOnFacade(secInfo, i, doorY, doorZoneH),
               (w) => warnings.push(w), secName, ft.render === 'glass',
               isTopZone ? railBottomOnFacade(doorY, doorZoneH) : null)),
+            grooves: aluCuts ? aluCuts.grooves : [],
             note: 'Накладная, ' + doors2NoteParts.join('; ') + (dh.count ? `, ручка ${dh.handle.name}` : ''),
             edging: { long1: facadeEdgeType(ft), long2: facadeEdgeType(ft), short1: facadeEdgeType(ft), short2: facadeEdgeType(ft) },
             x: fX - facadeW / 2 + leafW / 2 + leaf * (leafW + 2 * gap), y: doorY, z: facadeZ,
             dims: { w: leafW, h: doorZoneH, d: t },
           }));
         }
-        doorHardware.push({ section: zoneSecName, height: doorZoneH, leaves: 2, pushToOpen: !!sec.pushToOpen });
+        doorHardware.push({ section: zoneSecName, height: doorZoneH, leaves: 2, pushToOpen: !!sec.pushToOpen,
+          aluHinge: aluNoCup && !skipHinge });
       } else if (fac === 'liftUp') {
         // Фасад откидывается ВВЕРХ: петель нет, работает подъёмный механизм.
         const dh = handleHoles({ kind: 'liftFront', width: facadeW, height: doorZoneH, handleId: sec.handle, handleCC: sec.handleCC });
@@ -3760,7 +4191,7 @@ function buildModuleParts(p) {
         parts.push(makePart({
           name: 'Фасад откидной (вверх)', section: zoneSecName, sectionIndex: i, zoneIndex: zi,
           material: ft.material, thickness: ft.thickness,
-          facadeType: ft.id, frameW: ft.frame, insertMaterial: ft.insert, glass: ft.render === 'glass',
+          facadeType: ft.id, ...facadePartFields(ft, facadeW, doorZoneH),
           length: facadeW, width: doorZoneH, qty: 1, kind: 'door', grain: true,
           holes: dh.holes,
           note: liftNoteParts.join('; '),
@@ -3790,7 +4221,7 @@ function buildModuleParts(p) {
         const blind = makePart({
           name: 'Заглушка (глухой фасад)', section: zoneSecName, sectionIndex: i, zoneIndex: zi,
           material: ft.material, thickness: ft.thickness,
-          facadeType: ft.id, frameW: ft.frame, insertMaterial: ft.insert, glass: ft.render === 'glass',
+          facadeType: ft.id, ...facadePartFields(ft, facadeW, doorZoneH),
           length: facadeW, width: doorZoneH, qty: 1, kind: 'door', grain: true,
           holes: [],
           note: blindNoteParts.join('; '),
@@ -3831,6 +4262,39 @@ function buildModuleParts(p) {
       }
       // zone.facade === 'open' → фасада нет (открытая зона)
     }
+  }
+
+  // ТОЛЩИНА ВИДИМОЙ БОКОВИНЫ. Боковина из МДФ-панели (поле «Видимая
+  // боковина», лист 19 мм) толще корпусной t. Внутренняя пласть остаётся на
+  // месте — дно, полки, петли, паз и вся присадка (координаты по длине/
+  // ширине пласти от толщины не зависят) не меняются; лишняя толщина уходит
+  // НАРУЖУ, габарит модуля по ширине больше на разницу — об этом warning.
+  // Шаг после всей присадки: поиск боковины по box.x (±sideX) выше по файлу.
+  for (const vs of visibleSideThick) {
+    const q = vs.part;
+    const dt = vs.tv - t;
+    const oldX = q.box.x;
+    q.thickness = vs.tv;
+    q.box.w = round1(vs.tv);
+    q.box.x = round1(oldX + vs.sgn * dt / 2);
+    // Растикс столешницы в торце боковины: глубина чашки — по толщине листа,
+    // шкант в столешнице — по новому центру торца.
+    for (const h of q.holes || []) {
+      if (h.kind === 'minifixCam' && h.forJoint === 'countertop') h.depth = RASTEX.camDepthFor(vs.tv);
+    }
+    const ct = parts.find((pp) => pp.kind === 'countertop');
+    if (ct && ct.holes) {
+      const ctLeftX = ct.box.x - ct.box.w / 2;
+      for (const h of ct.holes) {
+        if (h.forJoint === 'countertop' && h.kind === 'minifixDowel'
+          && Math.abs(h.x - (oldX - ctLeftX)) < 0.2) h.x = round1(q.box.x - ctLeftX);
+      }
+    }
+    warnings.push(dt > 0
+      ? `${q.name}: лист «Видимая боковина» ${vs.tv} мм толще корпуса (${t} мм) — `
+        + `боковина выступает наружу на ${round1(dt)} мм, модуль шире на ${round1(dt)} мм.`
+      : `${q.name}: лист «Видимая боковина» ${vs.tv} мм тоньше корпуса (${t} мм) — `
+        + `модуль уже на ${round1(-dt)} мм.`);
   }
 
   // Ручные правки конкретных деталей — см. applyPartOverrides выше. Строго
@@ -4145,7 +4609,7 @@ function buildModel(project) {
             length: frontH, width: FILLER_W, qty: 1, kind: 'filler', grain: true,
             note: `Фасадный элемент для стыка в углу, ${FILLER_W} мм; `
               + `корпус соседнего ряда отставлен ещё на ${FILLER_GAP} мм`,
-            edging: { long1: facadeEdgeType(ftc), long2: facadeEdgeType(ftc), short1: facadeEdgeType(ftc), short2: facadeEdgeType(ftc) },
+            edging: { long1: fillerEdgeType(ftc), long2: fillerEdgeType(ftc), short1: fillerEdgeType(ftc), short2: fillerEdgeType(ftc) },
             x: round1(gx), y: mBaseH + frontH / 2, z: round1(gz),
             dims: swap
               ? { w: FILLER_W, h: frontH, d: ftc.thickness }
@@ -4629,6 +5093,10 @@ function mergeKey(part) {
     // присадкой (например, деталь с ручными правками из part.overrides)
     // молча склеятся в одну строку и потеряют/задвоят отверстия.
     part.holes, part.grooves, part.facadeType,
+    // Алюм. фасады одного размера, но другого профиля/цвета/заполнения/
+    // режима цены — разные строки (и разные позиции сметы).
+    part.aluFrame ? [part.aluFrame.profile, part.aluFrame.color, part.aluFrame.fill,
+      part.aluFrame.priceMode, part.aluFrame.maker] : null,
     // Деталь с ручной правкой (applyPartOverrides, part.overridden === true)
     // не склеивается вообще ни с чем — даже с другой такой же вручную
     // отредактированной деталью — у каждой своя причина отличия от проекта.
@@ -5250,6 +5718,18 @@ window.Modul3D.engine = {
   BACK_GROOVE_DEFAULTS,
   // Высота, выше которой некухонный модуль — «шкаф» (крыша без паза в авто).
   BACK_GROOVE_TALL_H,
+  // Алюминиевый рамочный фасад: нормализованные параметры секции (с
+  // умолчаниями для старых сохранений) — одни и те же для UI/3D/сметы.
+  aluFacadeOf, aluFillSize, ALU_HINGE_NOTE,
+  // Материал фасада секции/отсека (ldsp/mdf/glass4) и эффективные настройки
+  // фасада отсека — UI берёт список допустимых материалов и итог из ядра:
+  //   facadeMaterialOptions(facadeTypeId) → [{ code, name, thickness }]
+  //   facadeMaterialOf(sec, { decor, facadeDecor, facadeThickness, t })
+  //     → { code, name, thickness, facadeType }
+  //   zoneFacadeSettings(sec, zoneIdx) → копия sec с полями фасада зоны поверх
+  facadeMaterialOptions, facadeMaterialOf, zoneFacadeSettings, ZONE_FACADE_KEYS,
+  // «Видимая боковина» (проектный facadeDecor): ЛДСП/ДСП + фасадные МДФ-панели.
+  visibleSideMaterialOptions,
   // Чистая функция раскладки вертикальных зон фасада — переиспользуется в
   // app.js (контекстное «Разделить на секции» из 3D), чтобы не дублировать
   // формулу стыков между зонами.

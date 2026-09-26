@@ -1338,7 +1338,7 @@ function renderHud() {
     '<div class="hud-dims">' +
       hudDim('В', 'm-height') + hudDim('Ш', 'm-width') + hudDim('Г', 'm-depth') +
     '</div>' +
-    '<div class="hud-meta">Материал: ' + escapeHtml(selectedText('p-decor')) + '</div>' +
+    '<div class="hud-meta">Материал: ' + escapeHtml((hudState && hudState.materialName) || selectedText('p-decor')) + '</div>' +
     rotateHtml +
     '<div class="hud-actions">' +
       '<button type="button" class="btn" data-hud-open="params">Параметры</button>' +
@@ -1369,11 +1369,21 @@ function hudDim(label, id) {
     '<input type="number" step="10" data-hud-field="' + id + '" value="' + escapeHtml(fieldVal(id)) + '"></label>';
 }
 
+// Подпись текущего значения поля панели: для <select> — текст выбранной
+// опции; для плашки выбора материала (<button class="mat-pick">, см.
+// app.js: matPickPlashkaHtml — #p-decor/#p-facadeDecor/#p-back теперь не
+// <select>) — название из .alu-fill-name внутри кнопки, иначе data-code.
 function selectedText(id) {
   var el = document.getElementById(id);
-  if (!el || el.selectedIndex < 0) return '—';
-  var opt = el.options[el.selectedIndex];
-  return opt ? opt.text : '—';
+  if (!el) return '—';
+  if (el.options && typeof el.selectedIndex === 'number') {
+    var opt = el.selectedIndex >= 0 ? el.options[el.selectedIndex] : null;
+    return opt ? opt.text : '—';
+  }
+  var nameEl = el.querySelector ? el.querySelector('.alu-fill-name') : null;
+  var txt = nameEl ? (nameEl.textContent || '').trim() : '';
+  if (!txt && el.getAttribute) txt = el.getAttribute('data-code') || '';
+  return txt || '—';
 }
 
 function showHud(name) {
@@ -1506,10 +1516,12 @@ function initHud() {
   });
 
   // Подключаемся к выбору модуля, не перебивая обработчик app.js
+  // Если сцена уже создана (app.js поднимает её до uiShell.start()) —
+  // подключаемся сразу, иначе ждём её по таймеру, как раньше.
   var tries = 0;
-  var timer = setInterval(function () {
-    if (!viewerInstance) { if (++tries > 40) clearInterval(timer); return; }
-    clearInterval(timer);
+  var timer = null;
+  function hookViewerEvents() {
+    if (!viewerInstance) return false;
     var prev = viewerInstance.onSelectModule;
     viewerInstance.onSelectModule = function (name) {
       if (typeof prev === 'function') prev.call(viewerInstance, name);
@@ -1534,7 +1546,13 @@ function initHud() {
       hideHud();
       if (typeof prevSelectZone === 'function') prevSelectZone.call(viewerInstance, payload);
     };
-  }, 60);
+    return true;
+  }
+  if (!hookViewerEvents()) {
+    timer = setInterval(function () {
+      if (hookViewerEvents() || ++tries > 40) clearInterval(timer);
+    }, 60);
+  }
 }
 
 /* ---------------------------------------------------------------------------

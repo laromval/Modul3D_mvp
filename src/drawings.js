@@ -710,10 +710,42 @@ function buildModuleDrawing(model, mod, scale) {
 // Фасады
 // ---------------------------------------------------------------------------
 // Короткая сводка по присадке для подписи под чертежом фасада.
+// Число без хвоста «.0»: 6.9 → «6.9», 28 → «28» (для размеров присадки
+// алюм. рамки, где десятые доли — не округление, а паспорт петли).
+function mm1(v) { return String(Math.round(v * 10) / 10); }
+
+// Петля для алюм. рамки из каталога (Blum 71T950A) — для подписей чертежа.
+function aluHingeTitle() {
+  const hg = (window.Modul3D && window.Modul3D.catalog && window.Modul3D.catalog.ALU_FRAME_EXTRAS
+    && window.Modul3D.catalog.ALU_FRAME_EXTRAS.hinge) || {};
+  const brand = /blum/i.test(hg.name || '') ? 'Blum ' : '';
+  return `${brand}${hg.article || ''}`.trim() || 'для алюм. рамок';
+}
+// Описание отверстия под саморез петли алюм. рамки (engine.js aluHingeCuts):
+// «Ø5, зенк. 90° до Ø7, сквозь тыльную стенку профиля 1.2».
+function aluScrewText(h) {
+  let t = `Ø${mm1(h.d)}`;
+  if (h.csk > h.d) t += `, зенк.${h.cskAngle ? ` ${h.cskAngle}°` : ''} до Ø${mm1(h.csk)}`;
+  t += h.throughWall ? `, сквозь тыльную стенку профиля${h.depth ? ` ${mm1(h.depth)}` : ''}`
+    : (h.through ? ' насквозь' : ` глуб. ${h.depth}`);
+  return t;
+}
+// Размеры паза под механизм петли по его оси (x0,y0)-(x1,y1) и ширине w:
+// { a — поперёк оси (ширина), b — вдоль оси (длина) }.
+function slotSize(g) {
+  return { a: g.w, b: Math.round(Math.hypot(g.x1 - g.x0, g.y1 - g.y0) * 10) / 10 };
+}
+function aluSlotText(g) {
+  const z = slotSize(g);
+  return `паз ${mm1(z.a)}×${mm1(z.b)} под механизм петли ${aluHingeTitle()}`
+    + (g.throughWall ? `, сквозь тыльную стенку профиля${g.depth ? ` ${mm1(g.depth)}` : ''}` : '');
+}
+
 function holeSummary(p) {
   const byD = {};
   for (const h of (p.holes || [])) {
-    const key = `Ø${h.d}${h.through ? ' насквозь' : ' глуб. ' + h.depth}`;
+    const key = h.kind === 'aluHingeScrew' ? aluScrewText(h)
+      : `Ø${h.d}${h.through ? ' насквозь' : ' глуб. ' + h.depth}`;
     byD[key] = (byD[key] || 0) + 1;
   }
   return Object.keys(byD).map((k) => `${byD[k]}×${k}`).join(', ');
@@ -746,7 +778,8 @@ function packDims(items, baseLevel) {
 
 function facadeHoles(p, x0, y0, fw, fh, scale) {
   const holes = p.holes || [];
-  if (!holes.length) return '';
+  const aluSlots = (p.grooves || []).filter((g) => g.kind === 'aluHingeSlot');
+  if (!holes.length && !aluSlots.length) return '';
   const px = (v) => x0 + v * scale;
   const py = (v) => y0 + fh - v * scale;   // деталь снизу вверх
   const LEFT = x0, RIGHT = x0 + fw, TOP = y0, BOTTOM = y0 + fh;
@@ -758,30 +791,46 @@ function facadeHoles(p, x0, y0, fw, fh, scale) {
     if (h.side === 'edge') continue;
     const cx = px(h.x), cy = py(h.y);
     const rr = Math.max((h.d * scale) / 2, 1.6);
+    if (h.kind === 'aluHingeScrew' && h.csk > h.d) {
+      // фаска (зенковка) — концентрическая окружность Ø фаски
+      body += `<circle cx="${r(cx)}" cy="${r(cy)}" r="${r(Math.max((h.csk * scale) / 2, rr + 0.8))}" class="dw-thin" style="fill:none"/>`;
+    }
     body += `<circle cx="${r(cx)}" cy="${r(cy)}" r="${r(rr)}" class="dw-hole"/>`;
     body += line(cx - rr - 4, cy, cx + rr + 4, cy, 'dw-axis');
     body += line(cx, cy - rr - 4, cx, cy + rr + 4, 'dw-axis');
+  }
+  // Паз под механизм петли алюм. рамки — прямоугольник по его оси и ширине
+  // (с тыльной стороны, как и чашки петель у обычных дверей).
+  for (const g of aluSlots) {
+    const half = g.w / 2;
+    const vert = Math.abs(g.x1 - g.x0) < 0.01;
+    const xa = vert ? g.x0 - half : Math.min(g.x0, g.x1), xb = vert ? g.x0 + half : Math.max(g.x0, g.x1);
+    const ya = vert ? Math.min(g.y0, g.y1) : g.y0 - half, yb = vert ? Math.max(g.y0, g.y1) : g.y0 + half;
+    body += rect(px(xa), py(yb), (xb - xa) * scale, (yb - ya) * scale, 'dw-hole');
   }
 
   const dims = { bottom: [], top: [], left: [], right: [] };
   // Цепочка: край → отверстие → отверстие → … → край. Все звенья не
   // перекрываются, поэтому встают в ОДНУ линию — как на чертеже из цеха.
-  const chainY = (vals, side) => {
+  // fine — подпись с десятыми (присадка алюм. рамки по паспорту петли:
+  // 12.8 — это не 13); у остальной присадки — как раньше, целые мм.
+  const lab = (d, fine) => (fine ? mm1(d) : String(Math.round(d)));
+  const chainY = (vals, side, fine) => {
     const ys = vals.slice().sort((a, b) => a - b);
     const pts = [0].concat(ys, [p.width]);
     for (let k = 0; k < pts.length - 1; k++) {
       const d = pts[k + 1] - pts[k];
       if (d < 1) continue;
-      dims[side].push({ a: py(pts[k + 1]), b: py(pts[k]), label: String(Math.round(d)) });
+      dims[side].push({ a: py(pts[k + 1]), b: py(pts[k]), label: lab(d, fine) });
     }
   };
-  const chainX = (vals, side) => {
+  const chainX = (vals, side, fine) => {
     const xs = vals.slice().sort((a, b) => a - b);
     const pts = [0].concat(xs, [p.length]);
     for (let k = 0; k < pts.length - 1; k++) {
       const d = pts[k + 1] - pts[k];
       if (d < 1) continue;
-      dims[side].push({ a: px(pts[k]), b: px(pts[k + 1]), label: String(Math.round(d)) });
+      dims[side].push({ a: px(pts[k]), b: px(pts[k + 1]), label: lab(d, fine) });
     }
   };
   // Размер всегда от БЛИЖНЕГО края детали
@@ -810,7 +859,10 @@ function facadeHoles(p, x0, y0, fw, fh, scale) {
 
   const hand = holes.filter((h) => h.kind === 'handle');
   const cups = holes.filter((h) => h.kind === 'hingeCup' || h.kind === 'hingeGlass');
-  const other = holes.filter((h) => h.kind !== 'handle' && h.kind !== 'hingeCup' && h.kind !== 'hingeGlass');
+  // Отверстия под саморезы петли алюм. рамки — своя разметка ниже.
+  const aluScrews = holes.filter((h) => h.kind === 'aluHingeScrew');
+  const other = holes.filter((h) => h.kind !== 'handle' && h.kind !== 'hingeCup' && h.kind !== 'hingeGlass'
+    && h.kind !== 'aluHingeScrew');
   // Пользовательские отверстия (экран «Деталь», добавлены вручную, kind:'custom')
   // размечаем полноценными размерными цепочками, как ручку/петли — иначе
   // на чертеже видно только первое из них, а остальные без размеров и подписи.
@@ -830,13 +882,41 @@ function facadeHoles(p, x0, y0, fw, fh, scale) {
                  hingeLeft ? 'start' : 'end');
   }
 
+  // ПЕТЛИ АЛЮМ. РАМКИ (Blum 71T950A): как у чашек — цепочка осей петель по
+  // высоте со стороны петель и ОДИН размер от края фасада до оси саморезов
+  // (он у всех петель одинаковый — на каждой не повторяем). Шаг 28, 6.9 от
+  // внутреннего края рамки и размеры паза — на выносном элементе «А»
+  // (aluHingeNode), в масштабе всего фасада их не прочитать.
+  if (aluScrews.length && !cups.length) {
+    hingeLeft = aluScrews[0].x < p.length / 2;
+    const vside = hingeLeft ? 'left' : 'right';
+    const axes = [];
+    for (const h of aluScrews) {
+      const y = h.hingeY != null ? h.hingeY : h.y;
+      if (!axes.some((a) => Math.abs(a - y) < 0.05)) axes.push(y);
+    }
+    chainY(axes, vside, true);
+    chainX([aluScrews[0].x], 'bottom', true);
+    // Обозначение выносного элемента «А» — тонкая окружность вокруг первой
+    // (нижней) петли и буква на полке линии-выноски.
+    const a0 = Math.min.apply(null, axes);
+    const xc = px(aluScrews[0].x), yc = py(a0);
+    const rr = Math.max(22 * scale, 9);
+    body += `<circle cx="${r(xc)}" cy="${r(yc)}" r="${r(rr)}" class="dw-thin" style="fill:none"/>`;
+    const lx = xc + (hingeLeft ? rr * 0.7 : -rr * 0.7), ly = yc - rr * 0.7;
+    const tx = lx + (hingeLeft ? 10 : -10), ty = ly - 8;
+    body += line(lx, ly, tx, ty, 'dw-thin') + line(tx, ty, tx + (hingeLeft ? 9 : -9), ty, 'dw-thin');
+    body += text(tx + (hingeLeft ? 4.5 : -4.5), ty - 2, 'А', 'dw-t', 'middle');
+  }
+
   // РУЧКА
   if (hand.length) {
     const xs = hand.map((h) => h.x), ys = hand.map((h) => h.y);
     const minX = Math.min.apply(null, xs), maxX = Math.max.apply(null, xs);
     const minY = Math.min.apply(null, ys), maxY = Math.max.apply(null, ys);
     const rightSide = maxX > p.length / 2;
-    const vside = cups.length ? (hingeLeft ? 'right' : 'left') : (rightSide ? 'right' : 'left');
+    const hinged = cups.length || aluScrews.length;
+    const vside = hinged ? (hingeLeft ? 'right' : 'left') : (rightSide ? 'right' : 'left');
     if (maxY - minY > 0.5) chainY(ys, vside); else chainY([minY], vside);
     if (maxX - minX > 0.5) chainX(xs, 'top'); else chainX([minX], 'top');
   }
@@ -854,10 +934,11 @@ function facadeHoles(p, x0, y0, fw, fh, scale) {
     // свободную; если свободной нет — ориентируемся на то, к какому краю
     // сами кастомные отверстия ближе (тот же принцип, что у ручки выше).
     const usedV = new Set();
-    if (cups.length) usedV.add(hingeLeft ? 'left' : 'right');
+    const hinged = cups.length || aluScrews.length;
+    if (hinged) usedV.add(hingeLeft ? 'left' : 'right');
     if (hand.length) {
       const handRight = Math.max.apply(null, hand.map((h) => h.x)) > p.length / 2;
-      usedV.add(cups.length ? (hingeLeft ? 'right' : 'left') : (handRight ? 'right' : 'left'));
+      usedV.add(hinged ? (hingeLeft ? 'right' : 'left') : (handRight ? 'right' : 'left'));
     }
     const avgX = xs.reduce((s, v) => s + v, 0) / xs.length;
     const preferred = avgX > p.length / 2 ? 'right' : 'left';
@@ -897,6 +978,126 @@ function facadeHoles(p, x0, y0, fw, fh, scale) {
   return body;
 }
 
+// ВЫНОСНОЙ ЭЛЕМЕНТ «А» — узел крепления петли алюм. рамки (Blum 71T950A)
+// в увеличенном виде: кусок стойки рамки у нижней петли, паз под механизм,
+// 2 отверстия под саморезы с фаской и их размеры. На всём фасаде эти
+// 5–16 мм не прочитать, а цеху/заказу профиля они нужны точно.
+// Все числа — из самой детали (p.holes / p.grooves / p.frameW), не константы.
+// Возвращает '' если у детали нет такой присадки.
+function aluHingeNode(p) {
+  const screws = (p.holes || []).filter((h) => h.kind === 'aluHingeScrew');
+  const slots = (p.grooves || []).filter((g) => g.kind === 'aluHingeSlot');
+  if (!screws.length || !(p.frameW > 0)) return '';
+  const hyOf = (h) => (h.hingeY != null ? h.hingeY : h.y);
+  const hy = Math.min.apply(null, screws.map(hyOf));
+  const sc = screws.filter((h) => Math.abs(hyOf(h) - hy) < 0.05);
+  const sl = slots.filter((g) => Math.abs((g.hingeY != null ? g.hingeY : (g.y0 + g.y1) / 2) - hy) < 0.05)[0] || null;
+  const left = sc[0].x < p.length / 2;
+  const xIn = left ? p.frameW : p.length - p.frameW;      // внутренний край рамки
+  const xOut = left ? 0 : p.length;                       // наружный край фасада
+  // Окно узла (мм детали): стойка рамки + 8 мм заполнения, ±22 мм от оси петли.
+  const xmin = left ? 0 : p.length - p.frameW - 8;
+  const xmax = left ? p.frameW + 8 : p.length;
+  const ymin = hy - 22, ymax = hy + 22;
+  const S = 6;                                            // px на мм
+  const PADX = 60, PADY = 52;
+  const NX = (x) => PADX + (x - xmin) * S;
+  const NY = (y) => PADY + (ymax - y) * S;
+  const W = (xmax - xmin) * S + 2 * PADX, H = (ymax - ymin) * S + 2 * PADY;
+  let b = '';
+  // Наружный край фасада — основная линия, внутренний край рамки (граница
+  // с заполнением) — тонкая; сверху и снизу — линии обрыва (тонкие).
+  b += line(NX(xOut), NY(ymax), NX(xOut), NY(ymin), 'dw-wire');
+  b += line(NX(xIn), NY(ymax), NX(xIn), NY(ymin), 'dw-thin');
+  b += line(NX(xmin), NY(ymax), NX(xmax), NY(ymax), 'dw-thin');
+  b += line(NX(xmin), NY(ymin), NX(xmax), NY(ymin), 'dw-thin');
+  // ось петли
+  b += line(NX(xmin) - 6, NY(hy), NX(xmax) + 6, NY(hy), 'dw-axis');
+  // паз
+  let slA = null, slB = null;   // края паза по X (мм детали)
+  if (sl) {
+    const half = sl.w / 2;
+    slA = sl.x0 - half; slB = sl.x0 + half;
+    const ya = Math.min(sl.y0, sl.y1), yb = Math.max(sl.y0, sl.y1);
+    b += rect(NX(slA), NY(yb), (slB - slA) * S, (yb - ya) * S, 'dw-hole');
+  }
+  // отверстия: Ø отверстия + концентрическая Ø фаски
+  const xs = sc[0].x;
+  for (const h of sc) {
+    const cx = NX(h.x), cy = NY(h.y);
+    const rc = (h.csk > h.d ? h.csk : h.d) / 2 * S;
+    if (h.csk > h.d) b += `<circle cx="${r(cx)}" cy="${r(cy)}" r="${r(rc)}" class="dw-thin" style="fill:none"/>`;
+    b += `<circle cx="${r(cx)}" cy="${r(cy)}" r="${r(h.d / 2 * S)}" class="dw-hole"/>`;
+    b += line(cx - rc - 4, cy, cx + rc + 4, cy, 'dw-axis');
+  }
+  const ysc = sc.map((h) => h.y).sort((a, c) => a - c);
+  b += line(NX(xs), NY(ysc[ysc.length - 1]) - 26, NX(xs), NY(ysc[0]) + 26, 'dw-axis');
+
+  // --- размеры ---
+  const TOP = NY(ymax), BOT = NY(ymin);
+  const fillSide = left ? NX(xmax) : NX(xmin);            // сторона заполнения
+  const dirV = left ? 1 : -1;
+  // от внутреннего края рамки до центров отверстий (сверху)
+  b += line(NX(xs), NY(ysc[ysc.length - 1]), NX(xs), TOP, 'dw-ext');
+  b += dimH(Math.min(NX(xs), NX(xIn)), Math.max(NX(xs), NX(xIn)), TOP, 0, mm1(Math.abs(xIn - xs)), -1);
+  if (sl) {
+    // ширина паза — от внутреннего края рамки (снизу)
+    const xFar = left ? slA : slB;
+    const ya = Math.min(sl.y0, sl.y1), yb = Math.max(sl.y0, sl.y1);
+    b += line(NX(xFar), NY(ya), NX(xFar), BOT, 'dw-ext');
+    // подпись — сама ширина паза w (паз по паспорту идёт от внутреннего края
+    // рамки; координата оси в engine.js округлена до 0.1, и разность дала бы
+    // 16.4 вместо 16.5)
+    b += dimH(Math.min(NX(xFar), NX(xIn)), Math.max(NX(xFar), NX(xIn)), BOT, 0, mm1(sl.w), 1);
+    // длина паза — со стороны заполнения, ближе к детали
+    const xNear = left ? slB : slA;
+    b += line(NX(xNear), NY(yb), fillSide, NY(yb), 'dw-ext') + line(NX(xNear), NY(ya), fillSide, NY(ya), 'dw-ext');
+    b += dimV(NY(yb), NY(ya), fillSide, 0, mm1(yb - ya), dirV);
+  }
+  if (sc.length > 1) {
+    // шаг саморезов — там же, следующим уровнем
+    const y0 = ysc[0], y1 = ysc[ysc.length - 1];
+    b += line(NX(xs), NY(y1), fillSide, NY(y1), 'dw-ext') + line(NX(xs), NY(y0), fillSide, NY(y0), 'dw-ext');
+    b += dimV(NY(y1), NY(y0), fillSide, sl ? 1 : 0, mm1(y1 - y0), dirV);
+  }
+  // линия-выноска на верхнее отверстие: «2 отв. Ø5»
+  const h0 = sc[sc.length - 1];
+  const rc0 = (h0.csk > h0.d ? h0.csk : h0.d) / 2 * S;
+  const lx0 = NX(h0.x) + (left ? -1 : 1) * rc0 * 0.7, ly0 = NY(h0.y) - rc0 * 0.7;
+  const lx1 = NX(xOut) + (left ? -18 : 18), ly1 = TOP - 30;
+  const shelf = left ? -44 : 44;
+  b += line(lx0, ly0, lx1, ly1, 'dw-thin') + line(lx1, ly1, lx1 + shelf, ly1, 'dw-thin');
+  b += text(lx1 + shelf / 2, ly1 - 3, `${sc.length} отв. Ø${mm1(h0.d)}`, 'dw-t', 'middle');
+  // Атрибут перед width — чтобы unifyBlocks() не растягивал выносной
+  // элемент до формата листа соседних чертежей (он у нас свой, маленький).
+  const svg = svgTag(W, H, b).replace('<svg width=', '<svg data-node="A" width=');
+  return `<div class="dw-note">А (увеличено) — узел петли ${esc(aluHingeTitle())}, присадка с тыльной стороны</div>${svg}`;
+}
+
+// Таблица присадки алюм. рамки под петлю — что и сколько делать на этом
+// фасаде (для заказа у производителя или цеха). '' — такой присадки нет.
+function aluHingeTable(p) {
+  const screws = (p.holes || []).filter((h) => h.kind === 'aluHingeScrew');
+  const slots = (p.grooves || []).filter((g) => g.kind === 'aluHingeSlot');
+  if (!screws.length && !slots.length) return '';
+  const wallTxt = (o) => (o.throughWall ? `сквозь тыльную стенку профиля${o.depth ? ` ${mm1(o.depth)}` : ''}` : '');
+  const rows = [];
+  if (slots.length) {
+    const z = slotSize(slots[0]);
+    rows.push(['▭', `Паз ${mm1(z.a)}×${mm1(z.b)} под механизм петли ${aluHingeTitle()}`, slots.length, wallTxt(slots[0])]);
+  }
+  if (screws.length) {
+    const h = screws[0];
+    let t = `Ø${mm1(h.d)}`;
+    if (h.csk > h.d) t += `, зенк.${h.cskAngle ? ` ${h.cskAngle}°` : ''} до Ø${mm1(h.csk)}`;
+    rows.push(['◎', `Отверстие под саморез ${t}`, screws.length, wallTxt(h)]);
+  }
+  return `<table class="dw-legend"><thead><tr><th>Обозн.</th><th>Присадка (с тыльной стороны)</th>`
+    + `<th>Кол.</th><th>Примечание</th></tr></thead><tbody>`
+    + rows.map((x) => `<tr><td>${x[0]}</td><td>${esc(x[1])}</td><td>${x[2]}</td><td>${esc(x[3])}</td></tr>`).join('')
+    + `</tbody></table>`;
+}
+
 // Чертежи ДЕТАЛЕЙ: фасады и любые другие детали с присадкой или пазом.
 // Раньше свой лист был только у фасада, и присадку остальных деталей
 // (стенки ящика, боковины, планки) на чертежах было просто не видно.
@@ -909,6 +1110,8 @@ function buildPartDrawings(model, scale, pick, emptyText) {
   // по одному шаблону. В заголовке перечисляются все их позиции.
   const sign = (f) => [
     Math.round(f.length), Math.round(f.width), f.thickness, f.material,
+    // Алюминиевые фасады с разной рамкой/заполнением — разные чертежи.
+    f.aluFrame ? `alu:${f.aluFrame.profile}:${f.frameW}:${f.aluFrame.fill}` : '',
     (f.holes || []).map((h) => `${h.kind}:${h.x}:${h.y}:${h.d}:${h.depth || 0}`)
       .sort().join('|'),
   ].join('/');
@@ -938,6 +1141,19 @@ function buildPartDrawings(model, scale, pick, emptyText) {
     const PAD_B = PAD;
     const W = fw + PAD_L + PAD_R, H = fh + PAD_T + PAD_B;
     let body = rect(PAD_L, PAD_T, fw, fh, 'dw-facade');
+    // Алюминиевый фасад из профиля (engine.js, part.aluFrame): внутренний
+    // контур рамки шириной frameW — граница профиля и заполнения. Рисуем его
+    // только если ширина рамки реально указана у профиля в каталоге
+    // (ALU_PROFILES[код].width): иначе engine.js берёт запасную ширину, и
+    // рисовать по ней контур (и писать её в подписи) было бы выдумкой.
+    const aluProf = p.aluFrame && window.Modul3D && window.Modul3D.catalog
+      && window.Modul3D.catalog.ALU_PROFILES
+      ? window.Modul3D.catalog.ALU_PROFILES[p.aluFrame.profile] : null;
+    const aluKnownW = !!(aluProf && aluProf.width > 0);
+    const aluFw = (p.aluFrame && aluKnownW && p.frameW > 0) ? p.frameW * scale : 0;
+    if (aluFw > 0 && fw > 2 * aluFw && fh > 2 * aluFw) {
+      body += rect(PAD_L + aluFw, PAD_T + aluFw, fw - 2 * aluFw, fh - 2 * aluFw, 'dw-drawer');
+    }
     body += callout(PAD_L + fw / 2, PAD_T + fh / 2, p.num);
     // Сначала цепочка присадки — она ближе к детали, потом габарит снаружи.
     body += facadeHoles(p, PAD_L, PAD_T, fw, fh, scale);
@@ -947,13 +1163,22 @@ function buildPartDrawings(model, scale, pick, emptyText) {
     const drill = (p.holes || []).length
       ? ` · присадка: ${holeSummary(p)}`
       : '';
-    const paz = (p.grooves || []).length
-      ? ` · паз ${p.grooves[0].w}×${p.grooves[0].depth} мм`
-      : '';
+    const aluSl = (p.grooves || []).filter((g) => g.kind === 'aluHingeSlot');
+    const otherGr = (p.grooves || []).filter((g) => g.kind !== 'aluHingeSlot');
+    const paz = (otherGr.length
+      ? ` · паз ${otherGr[0].w}×${otherGr[0].depth} мм`
+      : '') + (aluSl.length ? ` · ${aluSl.length}×${aluSlotText(aluSl[0])}` : '');
+    // Выносной элемент «А» и таблица присадки петли алюм. рамки (если есть).
+    const aluNode = aluHingeNode(p);
+    const aluTable = aluHingeTable(p);
     return `<div class="dw-block">
       <div class="dw-title">Поз. ${g.nums.sort((a, b2) => a - b2).join(', ')} · ${esc(p.name)} · ${g.qty} шт</div>
-      ${svgTag(W, H, body)}
-      <div class="dw-note">${esc(p.module)} · ${esc(p.section)} · кромка ${esc(p.edging.long1 || '—')} по периметру${drill}${paz}</div>
+      ${(aluNode || aluTable)
+        ? `<div class="dw-secrow">${svgTag(W, H, body)}<div class="dw-node">${aluNode}${aluTable}</div></div>`
+        : svgTag(W, H, body)}
+      <div class="dw-note">${esc(p.module)} · ${esc(p.section)} · ${p.aluFrame
+        ? `алюм. профиль ${esc(p.aluFrame.profile || '')}, ${aluKnownW ? `рамка ${Math.round((p.frameW || 0) * 10) / 10} мм` : 'рамка — по паспорту профиля'}, без кромки`
+        : `кромка ${esc((p.edging && p.edging.long1) || '—')} по периметру`}${drill}${paz}</div>
     </div>`;
   }).join('');
 }
@@ -1008,7 +1233,8 @@ function grooveRects(p, x0, y0, fw, fh, scale) {
     }
     const gx = px(xa), gy = py(yb), gw = (xb - xa) * scale, gh = (yb - ya) * scale;
     body += rect(gx, gy, gw, gh, 'dw-open');
-    body += text(gx + gw / 2, gy - 3, `${esc(g.note || 'паз')} ${g.w}×${g.depth}`, 'dw-t', 'middle');
+    body += text(gx + gw / 2, gy - 3, g.kind === 'aluHingeSlot' ? `паз ${mm1(g.w)}×${mm1(slotSize(g).b)}`
+      : `${g.note || 'паз'} ${g.w}×${g.depth}`, 'dw-t', 'middle');
   }
   return body;
 }

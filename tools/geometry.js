@@ -1213,8 +1213,10 @@ for (const sd of ['floor', 'besideBottom', 'onBottom']) {
     const door = model.parts.filter((p) => p.kind === 'door')[0];
     const df = model.parts.filter((p) => p.kind === 'drawerFront')[0];
     const shelf = model.parts.filter((p) => p.kind === 'shelf')[0];
-    if (door.thickness !== info.thickness) problems.push(`фасад ${id}: дверь ${door.thickness} вместо ${info.thickness}`);
-    if (df && df.thickness !== info.thickness) problems.push(`фасад ${id}: фасад ящика другой толщины`);
+    // У алюм. фасада толщина — из профиля (engine.aluFacadeOf().depth), у прочих — из FACADE_TYPES.
+    const expT = id === 'alu' ? (window.Modul3D.engine.aluFacadeOf({}).depth || info.thickness) : info.thickness;
+    if (door.thickness !== expT) problems.push(`фасад ${id}: дверь ${door.thickness} вместо ${expT}`);
+    if (df && df.thickness !== expT) problems.push(`фасад ${id}: фасад ящика другой толщины`);
     if (id !== 'ldsp' && door.material === DECORS[0].code) problems.push(`фасад ${id}: материал не сменился`);
     if (info.glassInside) {
       if (!shelf.glass || shelf.thickness !== 6) problems.push(`фасад ${id}: полка не стеклянная`);
@@ -1225,11 +1227,294 @@ for (const sd of ['floor', 'besideBottom', 'onBottom']) {
     // ЛДСП-фасад режется из декора проекта, у остальных материал свой
     const wantCode = id === 'ldsp' ? DECORS[0].code : info.material;
     const sp = buildSpecification(model);
-    if (!(sp.sheetMaterials || []).some((r) => r.code === wantCode)) {
+    if (id === 'alu') {
+      // Алюминиевый рамочный фасад — не лист: отдельный блок aluFacades
+      if ((sp.sheetMaterials || []).some((r) => r.code === wantCode)) {
+        problems.push(`фасад alu: ${wantCode} попал в раскрой листа`);
+      }
+      if (!(sp.aluFacades || []).length) problems.push('фасад alu: нет строк aluFacades в смете');
+    } else if (!(sp.sheetMaterials || []).some((r) => r.code === wantCode)) {
       problems.push(`фасад ${id}: материал ${wantCode} не попал в смету`);
     }
     cases += 1;
   }
+}
+
+// --- материал фасада секции/отсека (sec.facadeMaterial, 2026-09-26) --------
+{
+  const cat = window.Modul3D.catalog;
+  const eng = window.Modul3D.engine;
+  const bad = (m) => problems.push(`материал фасада: ${m}`);
+  const mkF = (sec, mod) => buildModel(Object.assign({}, base, {
+    modules: [Object.assign({ name: 'М', width: 600, height: 820, depth: 560, topType: 'rails',
+      leftSide: 'onBottom', rightSide: 'onBottom', base: { type: 'legsPlinth', legHeight: 100 },
+      sections: [Object.assign({ shelves: 2, drawers: 1, facade: 'doorLeft', drawerSystem: 'ballBearing' }, sec)] }, mod || {})],
+  }));
+  const doorOf = (m) => m.partsRaw.filter((p) => p.kind === 'door')[0];
+  const dfOf = (m) => m.partsRaw.filter((p) => p.kind === 'drawerFront')[0];
+  const otherDecor = DECORS.filter((d) => d.code !== DECORS[0].code
+    && (d.categoryPath || [])[0] === 'ДСП')[0];
+  // ldsp с другим декором секции → дверь и фасад ящика из него, толщина проектная
+  {
+    const m = mkF({ facadeType: 'ldsp', facadeMaterial: otherDecor.code },
+      { leftSide: 'floor', rightSide: 'floor', base: { type: 'plinth', plinthHeight: 100 } });
+    inspect(m, 'ldsp с декором секции');
+    const d = doorOf(m);
+    if (d.material !== otherDecor.code || d.thickness !== 18) bad(`ldsp: дверь ${d.material}/${d.thickness}`);
+    if (dfOf(m).material !== otherDecor.code) bad('ldsp: фасад ящика не из декора секции');
+    const side = m.partsRaw.filter((p) => p.kind === 'side' && /видимая/.test(p.name))[0];
+    if (!side || side.material !== DECORS[0].code) bad(`видимая боковина не в проектном декоре: ${side && side.material}`);
+    if (!(buildSpecification(m).sheetMaterials || []).some((r) => r.code === otherDecor.code)) bad('ldsp: декор секции не в смете');
+  }
+  // mdf с выбранной МДФ-плитой — толщина из материала (временная плита 16 мм)
+  {
+    cat.FACADE_MATERIALS['TEST-MDF-16'] = { code: 'TEST-MDF-16', name: 'МДФ тест 16', unit: 'м²',
+      sheetW: 2800, sheetH: 2070, sheetPrice: 1000, thickness: 16, categoryPath: ['МДФ-плита', 'Тест'] };
+    const opts = eng.facadeMaterialOptions('mdf').map((o) => o.code);
+    if (opts.indexOf('TEST-MDF-16') < 0 || opts.indexOf('FAC-MDF') < 0) bad('mdf: нет плиты в списке ' + opts.join(','));
+    if (opts.some((c) => c === DECORS[0].code || /^GLASS/.test(c))) bad('mdf: в списке чужие материалы');
+    const m = mkF({ facadeType: 'mdf', facadeMaterial: 'TEST-MDF-16' });
+    inspect(m, 'mdf с выбранной плитой');
+    const d = doorOf(m);
+    if (d.material !== 'TEST-MDF-16' || d.thickness !== 16) bad(`mdf: дверь ${d.material}/${d.thickness}`);
+    if (dfOf(m).thickness !== 16) bad('mdf: фасад ящика не 16');
+    const row = (buildSpecification(m).sheetMaterials || []).filter((r) => r.code === 'TEST-MDF-16')[0];
+    if (!row || row.price !== 1000) bad('mdf: плита не по своей цене в смете');
+    const r0 = eng.facadeMaterialOf({ facadeType: 'mdf', facadeMaterial: 'TEST-MDF-16' }, { decor: DECORS[0], t: 18 });
+    if (r0.code !== 'TEST-MDF-16' || r0.thickness !== 16) bad('facadeMaterialOf mdf: ' + JSON.stringify(r0));
+    delete cat.FACADE_MATERIALS['TEST-MDF-16'];
+    const mD = mkF({ facadeType: 'mdf' });
+    if (doorOf(mD).material !== 'FAC-MDF' || doorOf(mD).thickness !== 19) bad('mdf по умолчанию не FAC-MDF 19');
+  }
+  // glass4 со стеклом GLASS-6 → толщина 6, стекло по площади, без дублей строк
+  {
+    const m = mkF({ facadeType: 'glass4', facadeMaterial: 'GLASS-6' });
+    inspect(m, 'glass4 со стеклом 6 мм');
+    const d = doorOf(m);
+    if (d.material !== 'GLASS-6' || d.thickness !== 6 || !d.glass) bad(`glass4: дверь ${d.material}/${d.thickness}`);
+    const rows = (buildSpecification(m).sheetMaterials || []).filter((r) => r.code === 'GLASS-6');
+    if (rows.length !== 1 || rows[0].sheets !== null) bad('glass4: GLASS-6 в смете ' + JSON.stringify(rows));
+    const mD = mkF({ facadeType: 'glass4' });
+    if (doorOf(mD).material !== 'GLASS-4' || doorOf(mD).thickness !== 4) bad('glass4 по умолчанию не GLASS-4 4');
+    if (eng.facadeMaterialOptions('glass4').map((o) => o.code).indexOf('GLASS-6') < 0) bad('glass4: GLASS-6 нет в списке');
+  }
+  // невалидный код → умолчание вида
+  {
+    if (doorOf(mkF({ facadeType: 'ldsp', facadeMaterial: 'GLASS-4' })).material !== DECORS[0].code) bad('ldsp: стекло принято как декор');
+    if (doorOf(mkF({ facadeType: 'mdf', facadeMaterial: DECORS[0].code })).material !== 'FAC-MDF') bad('mdf: ЛДСП принят как МДФ');
+    const g = doorOf(mkF({ facadeType: 'glass4', facadeMaterial: 'NO-SUCH' }));
+    if (g.material !== 'GLASS-4' || g.thickness !== 4) bad('glass4: несуществующий код не сброшен');
+    if (eng.facadeMaterialOptions('wood').length) bad('wood: список материалов не пуст');
+  }
+  // отсек: зона 2 — стекло при секции ЛДСП
+  {
+    const sec = { facadeType: 'ldsp', drawers: 0, shelves: 0, doorZoneCount: 2,
+      doorZones: [{ facade: 'doorLeft', height: 0, shelves: 1 },
+                  { facade: 'doorLeft', height: 0, shelves: 2, facadeType: 'glass4' }] };
+    const zs = eng.zoneFacadeSettings(sec, 1);
+    if (zs.facadeType !== 'glass4' || eng.zoneFacadeSettings(sec, 0).facadeType !== 'ldsp') bad('zoneFacadeSettings');
+    const m = mkF(sec, { height: 2000, leftSide: 'floor', rightSide: 'floor', base: { type: 'plinth', plinthHeight: 100 } });
+    inspect(m, 'отсек со стеклом');
+    const doors = m.partsRaw.filter((p) => p.kind === 'door');
+    const d0 = doors.filter((p) => p.zoneIndex === 0)[0];
+    const d1 = doors.filter((p) => p.zoneIndex === 1)[0];
+    if (!d0 || d0.facadeType !== 'ldsp' || d0.material !== DECORS[0].code) bad('отсек 1 не ЛДСП');
+    if (!d1 || d1.facadeType !== 'glass4' || d1.material !== 'GLASS-4' || d1.thickness !== 4) bad('отсек 2 не стекло');
+    const shelves = m.partsRaw.filter((p) => p.kind === 'shelf' && !p.fixed);
+    const gl = shelves.filter((p) => p.glass).length;
+    if (gl !== 2 || shelves.length !== 3) bad(`полки отсеков: стекл. ${gl} из ${shelves.length}`);
+    // торец боковины виден (за одним из отсеков стекло) — консервативно
+    const side = m.partsRaw.filter((p) => p.kind === 'side')[0];
+    if (side.edging.long1 !== window.Modul3D.engine.EDGE_FRONT) bad('торец боковины за стеклом отсека скрыт');
+  }
+  cases += 1;
+}
+
+// --- алюминиевый рамочный фасад (решения пользователя 2026-09-25) ----------
+{
+  const cat = window.Modul3D.catalog;
+  const mkA = (sec) => buildModel(Object.assign({}, base, {
+    modules: [{ name: 'М', width: 600, height: 820, depth: 560, topType: 'rails',
+      leftSide: 'onBottom', rightSide: 'onBottom', base: { type: 'legsPlinth', legHeight: 100 },
+      sections: [Object.assign({ shelves: 2, drawers: 1, facade: 'doorLeft', facadeType: 'alu',
+        drawerSystem: 'ballBearing' }, sec)] }],
+  }));
+  const bad = (m) => problems.push(`алюм. фасад: ${m}`);
+  // по умолчанию: 1-й профиль, серебро, стекло, покупной
+  const m0 = mkA({});
+  inspect(m0, 'алюм. фасад по умолчанию');
+  const d0 = m0.parts.filter((p) => p.kind === 'door')[0];
+  const a0 = d0 && d0.aluFrame;
+  if (!a0) bad('у двери нет aluFrame');
+  else {
+    const prof = cat.ALU_PROFILES[cat.ALU_PROFILE_ORDER[0]];
+    if (a0.profile !== prof.code || a0.color !== cat.ALU_PROFILE_COLOR_ORDER[0] || a0.fill !== 'GLASS-4' || a0.priceMode !== 'buy') {
+      bad('умолчания не те: ' + JSON.stringify(a0));
+    }
+    if (d0.frameW !== (prof.width || cat.FACADE_TYPES.alu.frame)) bad(`frameW ${d0.frameW}`);
+    if (Math.abs(a0.perimeterMm - 2 * (d0.length + d0.width)) > 0.2) bad('периметр не 2×(Ш+В)');
+    const fwExp = Math.round((d0.length - 2 * prof.fillStop - prof.fillGap) * 10) / 10;
+    const fhExp = Math.round((d0.width - 2 * prof.fillStop - prof.fillGap) * 10) / 10;
+    if (a0.fillW !== fwExp || a0.fillH !== fhExp) bad(`размер заполнения ${a0.fillW}×${a0.fillH}, ждали ${fwExp}×${fhExp}`);
+    if (!d0.glass || a0.fillType !== 'glass' || !a0.seal) bad('стеклянное заполнение не распознано');
+  }
+  const edged = m0.parts.filter((p) => p.aluFrame).some((p) =>
+    p.edging.long1 || p.edging.long2 || p.edging.short1 || p.edging.short2);
+  if (edged) bad('профиль кромится');
+  if (m0.parts.some((p) => p.aluFrame && (p.holes || []).some((h) => h.kind === 'hingeCup' || h.kind === 'hingeGlass'))) {
+    bad('петля aluFrame: чашка всё равно просверлена');
+  }
+  // Присадка Blum 71T950A (паспорт + уточнение 2026-09-26): на каждую петлю паз
+  // 16.5×14 от внутреннего края рамки и 2 отверстия Ø5/Ø7 в 6.9 от него, ±14 от оси.
+  const checkAluHinge = (door, side, tag) => {
+    const mt = cat.ALU_FRAME_EXTRAS.hinge.mount, fw = door.frameW, W = door.length;
+    const X = (v) => Math.round((side === 'left' ? v : W - v) * 10) / 10;
+    const slots = (door.grooves || []).filter((g) => g.kind === 'aluHingeSlot');
+    const screws = (door.holes || []).filter((h) => h.kind === 'aluHingeScrew');
+    if (slots.length < 2) { bad(`${tag}: пазов под петлю ${slots.length}`); return; }
+    if (screws.length !== 2 * slots.length) bad(`${tag}: отверстий ${screws.length} на ${slots.length} петель`);
+    for (const g of slots) {
+      const y = g.hingeY;
+      if (g.x0 !== X(fw - mt.slotW / 2) || g.x1 !== g.x0 || g.w !== mt.slotW || g.side !== 'back'
+          || Math.abs((g.y1 - g.y0) - mt.slotH) > 0.11 || Math.abs((g.y0 + g.y1) / 2 - y) > 0.11) {
+        bad(`${tag}: паз не по правилу ${JSON.stringify(g)}`);
+      }
+      const sc = screws.filter((h) => h.hingeY === y).map((h) => h.y).sort((a, b) => a - b);
+      if (sc.length !== 2 || Math.abs(sc[0] - (y - 14)) > 0.11 || Math.abs(sc[1] - (y + 14)) > 0.11) bad(`${tag}: саморезы у петли y=${y}: ${sc}`);
+    }
+    if (screws.some((h) => h.x !== X(fw - 6.9) || h.d !== 5 || h.csk !== 7 || !h.throughWall || h.depth !== 1.2 || h.side !== 'back')) {
+      bad(`${tag}: отверстие под саморез не по правилу ${JSON.stringify(screws[0])}`);
+    }
+  };
+  checkAluHinge(d0, 'left', 'LXD3080 дверь левая');
+  {  // явные числа для LXD3080 (19.7), петли слева: паз 3.2…19.7, саморезы x=12.8
+    const g = ((d0 && d0.grooves) || []).filter((q) => q.kind === 'aluHingeSlot')[0];
+    const s = ((d0 && d0.holes) || []).filter((h) => h.kind === 'aluHingeScrew')[0];
+    if (!g || Math.abs(g.x0 - g.w / 2 - 3.2) > 0.06 || Math.abs(g.x0 + g.w / 2 - 19.7) > 0.06) bad('LXD3080 левая: паз не 3.2…19.7');
+    if (!s || s.x !== 12.8) bad('LXD3080 левая: саморез не x=12.8');
+  }
+  {
+    const mR = mkA({ facade: 'doorRight' });
+    checkAluHinge(mR.parts.filter((p) => p.kind === 'door')[0], 'right', 'LXD3080 дверь правая');
+    const m2 = buildModel(Object.assign({}, base, {
+      modules: [{ name: 'М', width: 800, height: 2100, depth: 560, topType: 'rails',
+        leftSide: 'onBottom', rightSide: 'onBottom', base: { type: 'legsPlinth', legHeight: 100 },
+        sections: [{ shelves: 4, drawers: 0, facade: 'doors2', facadeType: 'alu', drawerSystem: 'ballBearing' }] }],
+    }));
+    inspect(m2, 'алюм. фасад doors2 2100');
+    const leaves = m2.parts.filter((p) => p.kind === 'door');
+    if (leaves.length !== 2) bad('doors2: створок ' + leaves.length);
+    else {
+      checkAluHinge(leaves[0], 'left', 'LXD3080 створка левая');
+      checkAluHinge(leaves[1], 'right', 'LXD3080 створка правая');
+      if (leaves[0].grooves.filter((g) => g.kind === 'aluHingeSlot').length < 4) bad('doors2 2100: меньше 4 петель на створку');
+    }
+    // рамка вне паспортных 19–22 мм → не сверлим, предупреждаем
+    const p3 = cat.ALU_PROFILES['ALU-LXD3080'], keepW = p3.width;
+    p3.width = 25;
+    const mW = mkA({});
+    p3.width = keepW;
+    const dW = mW.parts.filter((p) => p.kind === 'door')[0];
+    if ((dW.grooves || []).some((g) => g.kind === 'aluHingeSlot') || (dW.holes || []).some((h) => /hinge/i.test(h.kind))) {
+      bad('рамка 25 мм: присадка под петлю всё равно поставлена');
+    }
+    if (!mW.warnings.some((w) => /19–22/.test(w) && /25 мм/.test(w))) bad('рамка 25 мм: нет предупреждения');
+  }
+  // Петля Blum для алюм. рамки — штатное крепление на винты, не предупреждение (2026-09-26).
+  if (m0.warnings.some((w) => /алюм/i.test(w) && /петл/i.test(w))) bad('лишнее предупреждение про петлю алюм. рамки');
+  const s0 = buildSpecification(m0);
+  const hingeRow = (s0.hardware || []).filter((r) => /для алюм\. рамок/.test(r.name))[0];
+  if (!hingeRow || hingeRow.qty !== 2 || hingeRow.article !== '71T950A' || hingeRow.sum !== 2 * cat.ALU_FRAME_EXTRAS.hinge.price) bad('петли рамки в смете: ' + JSON.stringify(hingeRow));
+  const buy = (s0.aluFacades || []).filter((r) => r.mode === 'buy');
+  if (buy.length !== 1 || buy[0].sum !== null || !/Уточняйте цену у производителя/.test(buy[0].note)) {
+    bad('покупной без цены: ' + JSON.stringify(buy));
+  }
+  if (!s0.totalIncomplete) bad('итог не помечен как неполный');
+  const shelf0 = m0.parts.filter((p) => p.kind === 'shelf')[0];
+  if (!shelf0 || !shelf0.glass) bad('со стеклом полка не стеклянная');
+
+  // профиль «только стекло» (Tehmob): плита из старого сохранения → стекло
+  const mG = mkA({ aluFill: 'FAC-LDSP' });
+  const dG = mG.parts.filter((p) => p.kind === 'door')[0];
+  if (!dG.aluFrame || dG.aluFrame.fill !== 'GLASS-4' || dG.aluFrame.fillType !== 'glass') bad('профиль под стекло принял плиту');
+  // заполнение плитой (профиль, допускающий любое заполнение — fillType null):
+  // глухой фасад — полка обычная, уплотнителя нет
+  // стекло другой толщины, чем паспорт профиля (6 мм в паз под 4 мм) — ядро берёт умолчание
+  if (window.Modul3D.engine.aluFacadeOf({ facadeType: 'alu', aluFill: 'GLASS-6' }).fill !== 'GLASS-4') bad('стекло 6 мм принято профилем под 4 мм');
+  // открытый профиль, своё изготовление — полировка кромки стекла по периметру стекла
+  {
+    const mE = mkA({ aluProfile: 'ALU-LXD-1204', aluPriceMode: 'own' });
+    const rowE = (buildSpecification(mE).aluFacades || []).filter((r) => /Полировка кромки стекла/.test(r.name))[0];
+    // все стеклянные алюм. фасады секции (дверь и фасад ящика), периметр стекла
+    const expE = Math.round(mE.parts.filter((p) => p.aluFrame && p.aluFrame.kind === 'open' && p.aluFrame.fillType === 'glass')
+      .reduce((a, p) => a + 2 * (p.aluFrame.fillW + p.aluFrame.fillH) * p.qty, 0) / 10) / 100;
+    if (!rowE || rowE.qty !== expE) bad('полировка кромки у открытого профиля: ' + JSON.stringify(rowE) + ' ожидалось ' + expE);
+    const mC = mkA({ aluProfile: 'ALU-LXD-1203', aluPriceMode: 'own' });
+    if ((buildSpecification(mC).aluFacades || []).some((r) => /Полировка кромки стекла/.test(r.name))) bad('полировка кромки у закрытого профиля');
+  }
+  const pDef = cat.ALU_PROFILES[cat.ALU_PROFILE_ORDER[0]], keepFT = pDef.fillType, keepFTh = pDef.fillThickness;
+  pDef.fillType = null; pDef.fillThickness = null;   // и без ограничения толщины заполнения 4 мм
+  const m1 = mkA({ aluFill: 'FAC-LDSP', aluPriceMode: 'own', aluColor: 'black' });
+  pDef.fillType = keepFT; pDef.fillThickness = keepFTh;
+  const d1 = m1.parts.filter((p) => p.kind === 'door')[0];
+  if (!d1.aluFrame || d1.aluFrame.fillType !== 'sheet' || d1.glass) bad('плитное заполнение не распознано');
+  const shelf1 = m1.parts.filter((p) => p.kind === 'shelf')[0];
+  if (shelf1 && shelf1.glass) bad('с плитой полка стеклянная');
+  const s1 = buildSpecification(m1);
+  const own = s1.aluFacades || [];
+  const nAlu = m1.parts.filter((p) => p.aluFrame).reduce((s, p) => s + p.qty, 0);
+  const prof = own.filter((r) => /^Профиль/.test(r.name))[0];
+  const perim = m1.parts.filter((p) => p.aluFrame).reduce((s, p) => s + p.aluFrame.perimeterMm * p.qty, 0) / 1000;
+  if (!prof || Math.abs(prof.qty - Math.round(perim * 100) / 100) > 0.011) bad('профиль: длина не Σ периметров');
+  const corner = own.filter((r) => r.article === cat.ALU_FRAME_EXTRAS.corner.article)[0];
+  if (!corner || corner.qty !== 4 * nAlu) bad('уголки не 4 на фасад');
+  if (own.some((r) => r.name === cat.ALU_FRAME_EXTRAS.seal.name)) bad('уплотнитель при плитном заполнении');
+  const fill = own.filter((r) => /^Заполнение/.test(r.name))[0];
+  if (d1.aluFrame.color !== 'blackMat') bad('старый цвет black не переведён в blackMat: ' + d1.aluFrame.color);
+  const fa1 = m1.parts.filter((p) => p.aluFrame).reduce((s, p) => s + p.aluFrame.fillW * p.aluFrame.fillH * p.qty, 0) / 1e6;
+  if (!fill || Math.abs(fill.qty - Math.round(fa1 * 100) / 100) > 0.011 || /паспорту профиля/.test(fill.note)) {
+    bad('заполнение: площадь не Σ fillW×fillH ' + JSON.stringify(fill));
+  }
+
+  // размер стекла = фасад − 2·fillStop − fillGap (решение 2026-09-26), 600×700
+  const eng = window.Modul3D.engine;
+  const fs3080 = eng.aluFillSize({ aluProfile: 'ALU-LXD3080' }, 600, 700);
+  if (fs3080.fillW !== 572 || fs3080.fillH !== 672) bad('LXD3080 600×700 → ' + JSON.stringify(fs3080));
+  ['ALU-LXD-1203', 'ALU-LXD-1204'].forEach((code) => {
+    const f = eng.aluFillSize({ aluProfile: code }, 600, 700);
+    if (f.fillW !== 594.6 || f.fillH !== 694.6) bad(code + ' 600×700 → ' + JSON.stringify(f));
+  });
+  // нет данных о пазе → размер не выдумываем
+  const p3080 = cat.ALU_PROFILES['ALU-LXD3080'], keepStop = p3080.fillStop;
+  p3080.fillStop = null;
+  const fNull = eng.aluFillSize({ aluProfile: 'ALU-LXD3080' }, 600, 700);
+  const sN = buildSpecification(mkA({ aluPriceMode: 'own' }));
+  p3080.fillStop = keepStop;
+  if (fNull.fillW !== null || fNull.fillH !== null) bad('fillStop null — размер всё равно посчитан');
+  const fillN = (sN.aluFacades || []).filter((r) => /^Заполнение/.test(r.name))[0];
+  if (!fillN || fillN.sum !== null || !/паспорту профиля/.test(fillN.note)) bad('заполнение без fillStop посчитано');
+
+  // своё изготовление со стеклом: профиль за метр + хлысты 5.8, уплотнитель по 3 м
+  const s2 = buildSpecification(mkA({ aluPriceMode: 'own' }));
+  const own2 = s2.aluFacades || [];
+  const prof2 = own2.filter((r) => /^Профиль/.test(r.name))[0];
+  if (!prof2 || prof2.price !== 60 || !/хлыстов по 5.8 м/.test(prof2.note) || /не подтверждена/.test(prof2.note)) {
+    bad('профиль LXD3080 за метр: ' + JSON.stringify(prof2));
+  }
+  const seal2 = own2.filter((r) => r.name === cat.ALU_FRAME_EXTRAS.seal.name)[0];
+  if (!seal2 || seal2.sum !== null || !/продаётся по 3 м/.test(seal2.note)) bad('уплотнитель: ' + JSON.stringify(seal2));
+
+  // LXD-1203/1204 — обычная петля: чашка сверлится, предупреждения нет
+  ['ALU-LXD-1203', 'ALU-LXD-1204'].forEach((code) => {
+    const m = mkA({ aluProfile: code });
+    inspect(m, 'алюм. фасад ' + code);
+    const d = m.parts.filter((p) => p.kind === 'door')[0];
+    if (!d.aluFrame || d.aluFrame.hinge !== 'standard') bad(code + ': петля не standard');
+    if (d.frameW !== 45) bad(code + ': frameW ' + d.frameW);
+    if (!(d.holes || []).some((h) => h.kind === 'hingeCup' || h.kind === 'hingeGlass')) bad(code + ': чашка петли не просверлена');
+    if (m.warnings.some((w) => /петлю для алюминиевой рамки/.test(w))) bad(code + ': лишнее предупреждение про петлю');
+  });
+  cases += 1;
 }
 
 // --- совместимость: старый флажок «стекло» ---------------------------------
@@ -1992,30 +2277,36 @@ for (const glass of [false, true]) {
   cases += 1;
 }
 
-// --- видимая боковина режется в материале фасада ---------------------------
-// Корпус кухни белый, но боковину, которую видно (до пола или сбоку дна),
-// делают в материале фасада; под деревянный фасад — МДФ шпон.
+// --- видимая боковина: материал выбирает пользователь ---------------------
+// Решение 2026-09-26: «не важно, какой фасад выберет пользователь, материал
+// видимых боковин должен выбрать пользователь» — видимая боковина (до пола или
+// сбоку дна) и цоколь ВСЕГДА из проектного facadeDecor (поле «Видимая
+// боковина»), при любом виде фасада секции. Можно ЛДСП или МДФ-панель.
 {
-  const { DECORS } = window.Modul3D.catalog;
+  const { DECORS, FACADE_MATERIALS } = window.Modul3D.catalog;
+  const eng = window.Modul3D.engine;
   const white = DECORS.filter((d) => /бел/i.test(d.name))[0] || DECORS[1];
   const oak = DECORS[0];
-  const mk = (side, facadeType) => buildModel(Object.assign({}, base, {
-    decor: white, facadeDecor: oak,
-    modules: [{
+  const mdfPanel = Object.values(FACADE_MATERIALS).filter((m) => (m.categoryPath || [])[0] === 'МДФ-плита'
+    && Number(m.thickness) > 0)[0];
+  const mk = (side, facadeType, fdec, extra) => buildModel(Object.assign({}, base, {
+    decor: white, facadeDecor: fdec || oak,
+    modules: [Object.assign({
       name: 'М', width: 600, height: 820, depth: 510, topType: 'rails',
       leftSide: side, rightSide: 'onBottom', base: { type: 'legsPlinth', legHeight: 100 },
       sections: [{ shelves: 1, drawers: 0, facade: 'doorLeft', facadeType, handle: 'bow160' }],
-    }],
+    }, extra || {})],
   }));
   // partsRaw, не parts: ищем КОНКРЕТНУЮ (левую/правую) физическую боковину по
   // имени — в уже склеенном model.parts одинаковые боковины теперь могут
   // схлопнуться в одну строку «Боковины» (см. mergeEqualParts/mergeNameKey
   // в engine.js), и по регулярке искать там нечего.
-  const sideMat = (m, re) => (m.partsRaw.filter((p) => re.test(p.name))[0] || {}).material;
+  const sideOf = (m, re) => m.partsRaw.filter((p) => re.test(p.name))[0] || {};
+  const sideMat = (m, re) => sideOf(m, re).material;
   for (const side of ['floor', 'besideBottom']) {
     const m = mk(side, 'ldsp');
     if (sideMat(m, /Боковина левая/) !== oak.code) {
-      problems.push(`видимая боковина «${side}»: не в декоре фасада`);
+      problems.push(`видимая боковина «${side}»: не в материале «Видимая боковина»`);
     }
     if (sideMat(m, /Боковина правая/) !== white.code) {
       problems.push(`скрытая боковина при «${side}»: не в декоре корпуса`);
@@ -2023,36 +2314,64 @@ for (const glass of [false, true]) {
   }
   const hidden = mk('onBottom', 'ldsp');
   if (sideMat(hidden, /Боковина левая/) !== white.code) {
-    problems.push('боковина «на дно» не видна снаружи, а режется из фасадного материала');
+    problems.push('боковина «на дно» не видна снаружи, а режется из материала видимой боковины');
   }
-  const wood = mk('floor', 'wood');
-  if (sideMat(wood, /Боковина левая/) !== 'FAC-VENEER') {
-    problems.push('под деревянный фасад видимая боковина не из МДФ шпона');
-  }
-  const mdf = mk('floor', 'mdf');
-  if (sideMat(mdf, /Боковина левая/) !== 'FAC-MDF') {
-    problems.push('под фасад МДФ видимая боковина не из МДФ');
-  }
-  const glass = mk('floor', 'glass4');
-  if (sideMat(glass, /Боковина левая/) === 'GLASS-4') {
-    problems.push('видимая боковина сделана из стекла — так нельзя');
-  }
-  // Цоколь — тоже видимая деталь: он в материале фасада, а под дерево — шпон
-  for (const [ft, want] of [['ldsp', oak.code], ['mdf', 'FAC-MDF'],
-    ['wood', 'FAC-VENEER'], ['glass4', oak.code]]) {
-    const mm = mk('onBottom', ft);
-    const pl = mm.parts.filter((q) => q.kind === 'plinth')[0];
-    if (!pl) { problems.push(`цоколь не построен при фасаде ${ft}`); continue; }
-    if (pl.material !== want) {
-      problems.push(`цоколь при фасаде ${ft}: ${pl.material} вместо ${want}`);
+  // Любой вид фасада секции → видимая боковина и цоколь из facadeDecor,
+  // толщина ЛДСП — корпусная, как раньше.
+  for (const ft of ['ldsp', 'mdf', 'mdfMilled', 'wood', 'woodGlass', 'glass4', 'alu']) {
+    const m = mk('floor', ft);
+    const sd = sideOf(m, /Боковина левая/);
+    if (sd.material !== oak.code) problems.push(`фасад ${ft}: видимая боковина ${sd.material} вместо ${oak.code}`);
+    if (sd.thickness !== base.bodyThickness || sd.box.w !== base.bodyThickness) {
+      problems.push(`фасад ${ft}: толщина видимой ЛДСП-боковины ${sd.thickness}/${sd.box && sd.box.w} вместо ${base.bodyThickness}`);
     }
-    if (pl.material === white.code) problems.push('цоколь остался в корпусном декоре — он виден');
+    const pl = mk('onBottom', ft).parts.filter((q) => q.kind === 'plinth')[0];
+    if (!pl) { problems.push(`цоколь не построен при фасаде ${ft}`); continue; }
+    if (pl.material !== oak.code) problems.push(`цоколь при фасаде ${ft}: ${pl.material} вместо ${oak.code}`);
   }
-
-  // смета обязана знать новый материал
-  const sp = buildSpecification(wood);
-  if (!JSON.stringify(sp.sheetMaterials).includes('FAC-VENEER')) {
-    problems.push('смета: МДФ шпон не попал в листовые материалы');
+  // Поле «Видимая боковина» = МДФ-панель → боковина и цоколь МДФ её толщины;
+  // лишняя толщина уходит наружу, внутренняя пласть на месте.
+  if (!mdfPanel) problems.push('в каталоге нет МДФ-панели с толщиной для проверки видимой боковины');
+  else {
+    const T = base.bodyThickness;
+    const ref = mk('floor', 'glass4');
+    const m = mk('floor', 'glass4', mdfPanel);
+    const sd = sideOf(m, /Боковина левая/);
+    const sr = sideOf(ref, /Боковина левая/);
+    if (sd.material !== mdfPanel.code) problems.push(`МДФ-панель: видимая боковина ${sd.material}`);
+    if (sd.thickness !== mdfPanel.thickness || sd.box.w !== mdfPanel.thickness) {
+      problems.push(`МДФ-панель: толщина боковины ${sd.thickness}/${sd.box.w} вместо ${mdfPanel.thickness}`);
+    }
+    const innerFace = (q) => q.box.x + q.box.w / 2; // левая боковина — внутренняя пласть справа
+    if (Math.abs(innerFace(sd) - innerFace(sr)) > 0.11) {
+      problems.push(`МДФ-панель: внутренняя пласть боковины сдвинулась (${innerFace(sd)} вместо ${innerFace(sr)})`);
+    }
+    if (JSON.stringify(sd.holes.map((h) => [h.kind, h.x, h.y])) !== JSON.stringify(sr.holes.map((h) => [h.kind, h.x, h.y]))) {
+      problems.push('МДФ-панель: присадка видимой боковины изменилась от толщины листа');
+    }
+    if (mdfPanel.thickness !== T && !(m.warnings || []).some((w) => /Видимая боковина/.test(w))) {
+      problems.push('МДФ-панель толще/тоньше корпуса — нет предупреждения о габарите');
+    }
+    if (sideMat(m, /Боковина правая/) !== white.code) problems.push('МДФ-панель: скрытая боковина не в декоре корпуса');
+    const pl = mk('onBottom', 'ldsp', mdfPanel).parts.filter((q) => q.kind === 'plinth')[0];
+    const plRef = mk('onBottom', 'ldsp').parts.filter((q) => q.kind === 'plinth')[0];
+    if (!pl || pl.material !== mdfPanel.code || pl.thickness !== mdfPanel.thickness) {
+      problems.push(`МДФ-панель: цоколь ${pl && pl.material}/${pl && pl.thickness}`);
+    } else if (Math.abs((pl.box.z + pl.box.d / 2) - (plRef.box.z + plRef.box.d / 2)) > 0.11) {
+      problems.push('МДФ-панель: лицевая грань цоколя сдвинулась с утопления');
+    }
+    // ЛДСП-фасад без своего материала не режется из МДФ «Видимой боковины».
+    const ldspDoor = mk('floor', 'ldsp', mdfPanel).partsRaw.filter((q) => q.kind === 'door')[0];
+    if (ldspDoor && ldspDoor.material === mdfPanel.code) problems.push('ЛДСП-дверь взяла МДФ-код из «Видимой боковины»');
+    // смета обязана знать МДФ-панель
+    const sp = buildSpecification(m);
+    if (!JSON.stringify(sp.sheetMaterials).includes(mdfPanel.code)) {
+      problems.push('смета: МДФ-панель видимой боковины не попала в листовые материалы');
+    }
+    // UI-список «Видимая боковина» = ЛДСП ∪ МДФ-панели, без стекла/алюминия
+    const opts = eng.visibleSideMaterialOptions().map((o) => o.code);
+    if (opts.indexOf(mdfPanel.code) < 0 || opts.indexOf(oak.code) < 0) problems.push('visibleSideMaterialOptions: нет МДФ-панели или ЛДСП');
+    if (opts.some((c) => /^GLASS|^FAC-ALU/.test(c))) problems.push('visibleSideMaterialOptions: стекло/алюминий в списке');
   }
   cases += 1;
 }

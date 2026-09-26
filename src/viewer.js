@@ -71,6 +71,24 @@ function woodTexture() {
   return _woodTex;
 }
 
+// Общая текстура «под древесину» для листового заполнения алюминиевых
+// фасадов. Создаётся один раз (клон woodTexture с repeat = 1 тайл на
+// WOOD_TILE_M метров) и дальше переиспользуется всеми такими фасадами при
+// каждом пересчёте — новой GPU-текстуры на каждый пересчёт не появляется.
+// Размер конкретной вставки учитывается в UV её геометрии (makeFramedFacade).
+let _aluInsTex = null;
+function aluInsetWoodTexture() {
+  if (_aluInsTex) return _aluInsTex;
+  const base = woodTexture();
+  if (!base) return null;
+  _aluInsTex = base.clone();
+  _aluInsTex.needsUpdate = true;
+  _aluInsTex.wrapS = THREE.RepeatWrapping;
+  _aluInsTex.wrapT = THREE.RepeatWrapping;
+  _aluInsTex.repeat.set(1 / WOOD_TILE_M, 1 / WOOD_TILE_M);
+  return _aluInsTex;
+}
+
 // НЕПРЕРЫВНОСТЬ РИСУНКА ВОЛОКНА МЕЖДУ СОСЕДНИМИ ДЕТАЛЯМИ.
 // UV детали в buildSlabGeometry — «сырые» координаты ЕЁ ПЛАСТИ в метрах,
 // от центра детали (см. spec.uv там же): это специально, чтобы густота
@@ -936,6 +954,9 @@ function slabCutsForPart(row, locW, locD) {
     let worldPlus = frontIsPlus;
     if (planeIsY) worldPlus = row.kind !== 'top';
     if (g.side === 'outer') worldPlus = !worldPlus;
+    // side:'back' — тыльная грань детали (у фасада — сторона, обращённая
+    // внутрь шкафа), как у отверстий с side:'back' выше.
+    if (g.side === 'back') worldPlus = !frontIsPlus;
     slabGrooves.push({
       u0: Math.min(gu0, gu1), u1: Math.max(gu0, gu1),
       v0: Math.min(gv0, gv1), v1: Math.max(gv0, gv1),
@@ -976,6 +997,9 @@ const DRILL_COLOR = {
   runnerPinCabinet: 0x2f6d8e,
   dowelEdge: 0xb07a2b,
   dowelFace: 0xd9a05b,
+  // Алюм. рамка под петлю Blum 71T950A (engine.js aluHingeCuts)
+  aluHingeScrew: 0xe0402a,
+  aluHingeSlot: 0x1f6fd1,
 };
 const DRILL_TITLE = {
   minifixCam: 'Rastex, эксцентрик Ø15',
@@ -1001,6 +1025,8 @@ const DRILL_TITLE = {
   runnerPinCabinet: 'Передний штифт направляющей',
   dowelEdge: 'Нагель Ø8 в торец',
   dowelFace: 'Нагель Ø8 в пласть',
+  aluHingeScrew: 'Петля алюм. рамки, саморез Ø5 (зенк. до Ø7)',
+  aluHingeSlot: 'Петля алюм. рамки, паз под механизм',
 };
 
 // Стеклянный фасад (материал GLASS-4, «сатин бронз») — тёплый тонированный
@@ -1069,19 +1095,159 @@ const SECTION_HI_OPACITY = 0.75;
 // двумя секциями, однозначного владельца-отсека у неё нет).
 const SECTION_SCOPED_EXCLUDE = new Set(['side', 'top', 'bottom', 'plinth', 'back', 'divider', 'countertop']);
 
+// ---------------------------------------------------------------------------
+// Алюминиевая рамка по РЕАЛЬНОМУ сечению профиля (catalog.ALU_PROFILES[код].
+// section). Сечение задано в мм: X — от наружного края профиля к центру
+// фасада, Y — по толщине, меньший Y — лицевая (наружная) сторона. Каждая из
+// четырёх сторон рамки — это сечение, «протянутое» вдоль стороны
+// (ExtrudeGeometry), с запилом на ус 45° на обоих концах.
+// ---------------------------------------------------------------------------
+
+// Сечение профиля по коду из каталога (или null, если чертежа сечения нет —
+// тогда рамка рисуется упрощённо, четырьмя брусками).
+function aluSectionOf(code) {
+  const cat = (typeof window !== 'undefined' && window.Modul3D && window.Modul3D.catalog) || {};
+  const prof = (cat.ALU_PROFILES || {})[code];
+  const s = prof && prof.section;
+  if (!s || !(s.w > 0) || !Array.isArray(s.outlines) || !s.outlines.length
+      || !Array.isArray(s.outlines[0]) || s.outlines[0].length < 3) return null;
+  return s;
+}
+
+// Форма сечения (THREE.Shape: наружный контур + полости) — одна на профиль и
+// толщину фасада, кешируется. Координаты формы — уже в метрах:
+//   x формы = расстояние от наружного края профиля (к центру фасада),
+//   y формы = положение по толщине фасада (+T/2 — лицо, −T/2 — тыл).
+const _aluShapeCache = new Map();
+function aluSectionShape(code, section, T) {
+  const key = code + '|' + T.toFixed(5);
+  if (_aluShapeCache.has(key)) return _aluShapeCache.get(key);
+  const outer = section.outlines[0];
+  let yMin = Infinity, yMax = -Infinity;
+  for (const p of outer) { yMin = Math.min(yMin, p[1]); yMax = Math.max(yMax, p[1]); }
+  // Толщина профиля по чертежу (yMax − yMin) должна совпадать с толщиной
+  // детали из engine.js; если нет — подгоняем сечение по толщине детали.
+  const k = (yMax - yMin) > 0 ? (T / MM) / (yMax - yMin) : 1;
+  const toZ = (y) => (T / 2) - (y - yMin) * k * MM;   // Y сечения → Z фасада
+  const trace = (path, pts) => {
+    path.moveTo(pts[0][0] * MM, toZ(pts[0][1]));
+    for (let i = 1; i < pts.length; i++) path.lineTo(pts[i][0] * MM, toZ(pts[i][1]));
+    path.closePath();
+  };
+  const shape = new THREE.Shape();
+  trace(shape, outer);
+  for (let i = 1; i < section.outlines.length; i++) {
+    const h = section.outlines[i];
+    if (!Array.isArray(h) || h.length < 3) continue;
+    const hole = new THREE.Path();
+    trace(hole, h);
+    shape.holes.push(hole);
+  }
+  const res = { shape, toZ, k };
+  _aluShapeCache.set(key, res);
+  return res;
+}
+
+// Брусок рамки длиной L (м, по наружному краю) — геометрия кешируется по
+// (профиль, толщина, длина): у одинаковых фасадов она общая, при пересчёте
+// не создаётся заново. Система координат бруска:
+//   X — вдоль стороны (0..L), Y — от наружного края к центру фасада,
+//   Z — по толщине (+Z — лицо фасада).
+// Запил 45°: вершина сечения, стоящая на расстоянии x от наружного края,
+// на каждом конце сдвигается внутрь бруска на x — торцы становятся косыми,
+// и четыре бруска сходятся на углах без щелей и нахлёстов.
+const _aluBarCache = new Map();
+function aluBarGeometry(code, section, T, L) {
+  const key = code + '|' + T.toFixed(5) + '|' + L.toFixed(4);
+  if (_aluBarCache.has(key)) return _aluBarCache.get(key);
+  // Ограничиваем кеш: при переполнении освобождаем всё (меши текущей сцены
+  // при необходимости просто перезальют геометрию на видеокарту).
+  if (_aluBarCache.size > 300) {
+    for (const g of _aluBarCache.values()) if (g && g.dispose) g.dispose();
+    _aluBarCache.clear();
+  }
+  const { shape } = aluSectionShape(code, section, T);
+  const geo = new THREE.ExtrudeGeometry(shape, { depth: L, steps: 1, bevelEnabled: false, curveSegments: 1 });
+  const pos = geo.attributes && geo.attributes.position;
+  if (pos && pos.array) {
+    // ExtrudeGeometry кладёт сечение в плоскость XY и тянет по Z. Переставляем
+    // оси по кругу (x,y,z) → (z,x,y): это поворот, а не зеркало, поэтому
+    // лицевые стороны треугольников остаются наружу.
+    const a = pos.array;
+    for (let i = 0; i < a.length; i += 3) {
+      const sx = a[i], sz = a[i + 1], e = a[i + 2];
+      const along = e < L / 2 ? sx : L - sx;          // запил на ус
+      a[i] = along; a[i + 1] = sx; a[i + 2] = sz;
+    }
+    pos.needsUpdate = true;
+    // Нормали пересчитываем после перестановки; «плоские» (у каждой грани
+    // своя), т.к. ExtrudeGeometry без индекса — рёбра профиля остаются чёткими.
+    if (geo.computeVertexNormals) geo.computeVertexNormals();
+    if (geo.computeBoundingBox) geo.computeBoundingBox();
+    if (geo.computeBoundingSphere) geo.computeBoundingSphere();
+  }
+  _aluBarCache.set(key, geo);
+  return geo;
+}
+
+// Собирает рамку по сечению в группу g фасада W×H×T (м, центр группы — центр
+// фасада, +Z — лицо). Возвращает { glassZ, glassT } — где по толщине лежит
+// стекло/заполнение (из section.glass), или null, если строить нечем
+// (фасад слишком мал для этого профиля — тогда рисуем упрощённо).
+function addAluSectionFrame(g, code, section, W, H, T, matFrame) {
+  const w = section.w * MM;
+  if (!(W > 2 * w + 0.002 && H > 2 * w + 0.002 && T > 0)) return null;
+  // Четыре бруска: у всех «наружный край» — по габариту фасада, X бруска
+  // идёт вдоль стороны, Y бруска — к центру фасада.
+  const sides = [
+    { L: W, x: -W / 2, y: -H / 2, rz: 0 },             // низ
+    { L: W, x: W / 2, y: H / 2, rz: Math.PI },         // верх
+    { L: H, x: -W / 2, y: H / 2, rz: -Math.PI / 2 },   // левая стойка
+    { L: H, x: W / 2, y: -H / 2, rz: Math.PI / 2 },    // правая стойка
+  ];
+  for (const s of sides) {
+    const m = new THREE.Mesh(aluBarGeometry(code, section, T, s.L), matFrame);
+    m.position.set(s.x, s.y, 0);
+    m.rotation.z = s.rz;
+    g.add(m);
+  }
+  const { toZ, k } = aluSectionShape(code, section, T);
+  const gl = Array.isArray(section.glass) && section.glass.length === 4 ? section.glass : null;
+  if (!gl) return { glassFrontZ: null, glassT: null };
+  return {
+    glassFrontZ: Math.max(toZ(gl[1]), toZ(gl[3])),   // лицо стекла (ближе к наружной стороне)
+    glassT: Math.abs(gl[3] - gl[1]) * k * MM,
+  };
+}
+
 // Рамочный фасад: четыре бруска рамки и вставка. У витражных и алюминиевых
 // вставка стеклянная и прозрачная, у глухого деревянного — филёнка из того же
 // материала, утопленная в рамку.
-function makeFramedFacade(box, row, isActive, ghost, sectionHi) {
+function makeFramedFacade(box, row, isActive, ghost, sectionHi, drillCheck, drillOnly) {
   const g = new THREE.Group();
   const sw = row.rot === 90 || row.rot === 270;
   const W = (sw ? box.d : box.w) * MM, H = box.h * MM, T = (sw ? box.w : box.d) * MM;
   const fw = Math.min((row.frameW || 70) * MM, Math.min(W, H) / 2 - 0.005);
+  // Алюминиевый фасад из профиля (engine.js, part.aluFrame): цвет рамки —
+  // выбранный цвет профиля (серебро/шампань/золото/чёрный), заполнение —
+  // стекло или листовой материал. Старые данные без aluFrame — как раньше.
+  const alu = row.facadeType === 'alu' && row.aluFrame ? row.aluFrame : null;
+  let aluColor = null;
+  if (alu && typeof alu.colorHex === 'string' && /^#[0-9a-f]{6}$/i.test(alu.colorHex)) {
+    aluColor = new THREE.Color(alu.colorHex).getHex();
+  }
   const frameColor = sectionHi ? SECTION_HI_COLOR
-    : isActive ? 0x6fa3cd : (row.insertMaterial === 'GLASS-4' && row.facadeType === 'alu' ? 0x8d9296 : 0xc9a76a);
+    : isActive ? 0x6fa3cd
+    : (aluColor !== null ? aluColor
+      : (row.insertMaterial === 'GLASS-4' && row.facadeType === 'alu' ? 0x8d9296 : 0xc9a76a));
+  // Металл рамки — умеренный: карты окружения (envMap) в сцене нет, и при
+  // высокой metalness профиль отражал бы «пустоту» и выглядел почти чёрным
+  // при любом цвете. С metalness 0.35 и roughness 0.45 цвет профиля читается
+  // (серебро — светло-серое, золото/шампань — тёплые, чёрный — чёрный), а
+  // лёгкий металлический отблеск от источников света остаётся.
   const matFrame = new THREE.MeshStandardMaterial({
-    color: frameColor, roughness: row.facadeType === 'alu' ? 0.3 : 0.7,
-    metalness: row.facadeType === 'alu' ? 0.8 : 0.05,
+    color: frameColor, roughness: row.facadeType === 'alu' ? 0.45 : 0.7,
+    metalness: row.facadeType === 'alu' ? 0.35 : 0.05,
     emissive: sectionHi ? SECTION_HI_EMISSIVE : 0x000000,
     transparent: ghost || sectionHi || isActive,
     opacity: sectionHi ? SECTION_HI_OPACITY : (ghost ? 0.22 : (isActive ? ACTIVE_MODULE_OPACITY : 1)),
@@ -1092,17 +1258,40 @@ function makeFramedFacade(box, row, isActive, ghost, sectionHi) {
     m.position.set(x, y, 0);
     g.add(m);
   };
-  addBar(W, fw, 0, H / 2 - fw / 2);          // верх
-  addBar(W, fw, 0, -H / 2 + fw / 2);         // низ
-  addBar(fw, H - 2 * fw, -W / 2 + fw / 2, 0); // левая стойка
-  addBar(fw, H - 2 * fw, W / 2 - fw / 2, 0);  // правая стойка
+  // Алюминиевый фасад с чертежом сечения профиля — рамка по реальному
+  // сечению (с уступом/карманом/пазом под стекло), см. addAluSectionFrame.
+  // Нет чертежа (старые данные) или фасад слишком мал — упрощённые бруски.
+  const aluSection = alu ? aluSectionOf(alu.profile) : null;
+  const aluFit = aluSection ? addAluSectionFrame(g, alu.profile, aluSection, W, H, T, matFrame) : null;
+  if (!aluFit) {
+    addBar(W, fw, 0, H / 2 - fw / 2);          // верх
+    addBar(W, fw, 0, -H / 2 + fw / 2);         // низ
+    addBar(fw, H - 2 * fw, -W / 2 + fw / 2, 0); // левая стойка
+    addBar(fw, H - 2 * fw, W / 2 - fw / 2, 0);  // правая стойка
+  }
 
-  // вставка
-  const iw = Math.max(W - 2 * fw + 0.006, 0.001);
-  const ih = Math.max(H - 2 * fw + 0.006, 0.001);
-  const isGlass = row.insertMaterial === 'GLASS-4';
+  // вставка. У рамки по сечению — ровно посчитанный размер стекла/заполнения
+  // (aluFrame.fillW × fillH из engine.js), по центру фасада.
+  const fillOk = aluFit && alu.fillW > 0 && alu.fillH > 0;
+  const iw = fillOk ? alu.fillW * MM : Math.max(W - 2 * fw + 0.006, 0.001);
+  const ih = fillOk ? alu.fillH * MM : Math.max(H - 2 * fw + 0.006, 0.001);
+  // Стекло: у алюминиевого фасада — по типу заполнения (любой код стекла
+  // рисуется тем же видом, что GLASS-4), у остальных рамочных — как раньше.
+  const isGlass = alu ? alu.fillType === 'glass' : row.insertMaterial === 'GLASS-4';
+  // Листовое заполнение алюминиевой рамки (ЛДСП/МДФ): цвет декора по коду
+  // материала (тот же decorLook, что у обычных панелей), у древесных декоров —
+  // ещё и текстура «под древесину».
+  const sheetLook = (alu && !isGlass) ? decorLook(row.insertMaterial) : null;
+  const insColor = isGlass ? GLASS4_COLOR
+    : (isActive ? 0x7fb0d8 : (sheetLook ? sheetLook.color : 0xd8c8a8));
+  // Текстура одна на все вставки (aluInsetWoodTexture) — чтобы не плодить
+  // новую GPU-текстуру на каждом пересчёте. Размер вставки учитываем не в
+  // текстуре, а в UV самой геометрии (см. ниже, после создания вставки).
+  const insTex = (sheetLook && sheetLook.wood && !isActive && !sectionHi)
+    ? aluInsetWoodTexture() : null;
   const matIns = new THREE.MeshStandardMaterial({
-    color: sectionHi ? SECTION_HI_COLOR : (isGlass ? GLASS4_COLOR : (isActive ? 0x7fb0d8 : 0xd8c8a8)),
+    color: sectionHi ? SECTION_HI_COLOR : insColor,
+    map: insTex,
     roughness: isGlass ? 0.08 : 0.7, metalness: 0.02,
     emissive: sectionHi ? SECTION_HI_EMISSIVE : 0x000000,
     transparent: isGlass || ghost || sectionHi || isActive,
@@ -1110,15 +1299,149 @@ function makeFramedFacade(box, row, isActive, ghost, sectionHi) {
       : (ghost ? 0.2 : (isGlass ? GLASS4_OPACITY : (isActive ? ACTIVE_MODULE_OPACITY : 1))),
     depthWrite: !(isGlass || ghost || sectionHi || isActive),
   });
-  const ins = new THREE.Mesh(new THREE.BoxGeometry(iw, ih, T * (isGlass ? 0.25 : 0.6)), matIns);
-  ins.position.z = isGlass ? 0 : -T * 0.15;
+  // Толщина и глубина вставки. Рамка по сечению: толщина — из чертежа
+  // (section.glass, 4 мм), глубина — там же: у LXD-1204 стекло лежит на полке
+  // вровень с наружной стенкой, у LXD-1203 — в кармане под нахлёстом, у
+  // LXD3080 — в пазу. Иначе — как раньше (доля толщины фасада).
+  // Листовое заполнение (ЛДСП/МДФ) — своей толщины fillThickness, лицом
+  // на том же месте, где лицо стекла.
+  let insT = T * (isGlass ? 0.25 : 0.6);
+  if (aluFit) {
+    if (isGlass && aluFit.glassT > 0) insT = aluFit.glassT;
+    else if (alu.fillThickness > 0) insT = alu.fillThickness * MM;
+    else if (aluFit.glassT > 0) insT = aluFit.glassT;
+  }
+  const insGeo = new THREE.BoxGeometry(iw, ih, insT);
+  if (insTex) {
+    // UV у BoxGeometry 0..1 на грань — растягиваем их до метров вставки:
+    // вместе с repeat = 1/WOOD_TILE_M у общей текстуры густота волокна
+    // получается такой же, как у остальных деталей.
+    const uv = insGeo.attributes.uv;
+    for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) * iw, uv.getY(i) * ih);
+    uv.needsUpdate = true;
+  }
+  const ins = new THREE.Mesh(insGeo, matIns);
+  ins.position.z = (aluFit && aluFit.glassFrontZ != null) ? aluFit.glassFrontZ - insT / 2
+    : (isGlass ? 0 : -T * 0.15);
   g.add(ins);
+
+  // Паз и отверстия под петлю алюм. рамки — на тыльной грани (см. addAluHingeCuts).
+  if (alu) addAluHingeCuts(g, row, W, H, T, drillCheck, drillOnly);
 
   g.position.set(box.x * MM, box.y * MM, box.z * MM);
   g.rotation.y = ((row.rot || 0) * Math.PI) / 180;
   g.userData.module = row.module;
   g.traverse((o) => { o.userData.module = row.module; });
   return g;
+}
+
+// ПРИСАДКА В АЛЮМИНИЕВОЙ РАМКЕ под петлю Blum 71T950A (engine.js
+// aluHingeCuts): паз под механизм (row.grooves, kind 'aluHingeSlot') и два
+// отверстия под саморезы с фаской (row.holes, kind 'aluHingeScrew'). Всё —
+// с тыльной стороны фасада (side 'back'), сквозь тыльную стенку профиля.
+// Экструзию профиля мы НЕ режем (булево вычитание дорогое и дробит
+// геометрию) — вместо этого на тыльной грани рамки рисуем тёмные «проёмы»
+// точно по размерам выреза: так их видно, если развернуть модуль спиной
+// или открыть дверь. В режиме «Проверка присадки» поверх ставим цветные
+// метки, как у остальной присадки.
+// Геометрия и материалы общие на всю сцену (кеш ниже) — меняется только
+// положение меша, поэтому на десятке дверей не плодим новых буферов.
+const _aluCutGeoCache = new Map();
+function aluCutGeo(key, make) {
+  if (!_aluCutGeoCache.has(key)) _aluCutGeoCache.set(key, make());
+  return _aluCutGeoCache.get(key);
+}
+let _aluCutMats = null;
+function aluCutMaterials() {
+  if (_aluCutMats) return _aluCutMats;
+  // Проём в металле — почти чёрный, фаска — чуть светлее (видна как ободок).
+  _aluCutMats = {
+    hole: new THREE.MeshBasicMaterial({ color: 0x151515, side: THREE.DoubleSide }),
+    csk: new THREE.MeshBasicMaterial({ color: 0x6b6b6b, side: THREE.DoubleSide }),
+    drill: {},   // метки режима проверки — по цвету назначения
+  };
+  return _aluCutMats;
+}
+function aluDrillMat(kind) {
+  const mats = aluCutMaterials();
+  if (!mats.drill[kind]) {
+    mats.drill[kind] = new THREE.MeshStandardMaterial({
+      color: DRILL_COLOR[kind] || 0x555555, roughness: 0.35, metalness: 0.1,
+      // как у остальных меток — поверх полупрозрачных деталей
+      depthTest: false, transparent: true, opacity: 0.98,
+    });
+  }
+  return mats.drill[kind];
+}
+//   g   — группа рамочного фасада (makeFramedFacade): центр — центр фасада,
+//         +Z — лицо, −Z — тыл; W/H/T — её размеры в метрах;
+//   row — деталь из engine.js (координаты присадки: x — от левого края
+//         двери по ширине, y — от нижнего торца по высоте, мм).
+function addAluHingeCuts(g, row, W, H, T, drillCheck, drillOnly) {
+  const holes = (row.holes || []).filter((h) => h.kind === 'aluHingeScrew' && h.d > 0);
+  const slots = (row.grooves || []).filter((s) => s.kind === 'aluHingeSlot' && s.w > 0);
+  if (!holes.length && !slots.length) return;
+  const mats = aluCutMaterials();
+  const LX = (x) => -W / 2 + x * MM;    // координата детали → локальная X группы
+  const LY = (y) => -H / 2 + y * MM;
+  const zBack = -T / 2 - 0.0002;        // чуть за тыльной гранью, чтобы не мерцало
+  const wall = (v) => Math.max(v || 0, 0);
+  for (const s of slots) {
+    const half = s.w / 2;
+    const vert = Math.abs(s.x1 - s.x0) < 0.01;          // ось паза вдоль высоты
+    const xa = vert ? s.x0 - half : Math.min(s.x0, s.x1);
+    const xb = vert ? s.x0 + half : Math.max(s.x0, s.x1);
+    const ya = vert ? Math.min(s.y0, s.y1) : s.y0 - half;
+    const yb = vert ? Math.max(s.y0, s.y1) : s.y0 + half;
+    const sw = (xb - xa) * MM, sh = (yb - ya) * MM;
+    if (!(sw > 0 && sh > 0)) continue;
+    const cx = LX((xa + xb) / 2), cy = LY((ya + yb) / 2);
+    const m = new THREE.Mesh(aluCutGeo(`slot|${sw.toFixed(5)}|${sh.toFixed(5)}`,
+      () => new THREE.PlaneGeometry(sw, sh)), mats.hole);
+    m.position.set(cx, cy, zBack);
+    m.userData.aluCut = s.kind;
+    g.add(m);
+    if (drillCheck && (!drillOnly || drillOnly === s.kind)) {
+      // метка паза: брусок на глубину стенки профиля (не меньше 4 мм — иначе
+      // её не видно), от тыльной грани внутрь
+      const dep = Math.max(wall(s.depth), 4) * MM;
+      const k = drillOnly ? 1.4 : 1;
+      const mk = new THREE.Mesh(aluCutGeo(`slotMk|${(sw * k).toFixed(5)}|${(sh * k).toFixed(5)}|${dep.toFixed(5)}`,
+        () => new THREE.BoxGeometry(sw * k, sh * k, dep)), aluDrillMat(s.kind));
+      mk.position.set(cx, cy, -T / 2 + dep / 2);
+      mk.renderOrder = 999;
+      mk.userData.drill = s.kind;
+      g.add(mk);
+    }
+  }
+  for (const h of holes) {
+    const r = (h.d / 2) * MM;
+    const cx = LX(h.x), cy = LY(h.y);
+    const hole = new THREE.Mesh(aluCutGeo(`hole|${r.toFixed(5)}`,
+      () => new THREE.CircleGeometry(r, 20)), mats.hole);
+    hole.position.set(cx, cy, zBack - 0.0001);
+    hole.userData.aluCut = h.kind;
+    g.add(hole);
+    if (h.csk > h.d) {
+      // фаска (зенковка) — кольцо от Ø отверстия до Ø фаски
+      const rc = (h.csk / 2) * MM;
+      const ring = new THREE.Mesh(aluCutGeo(`csk|${r.toFixed(5)}|${rc.toFixed(5)}`,
+        () => new THREE.RingGeometry(r, rc, 20)), mats.csk);
+      ring.position.set(cx, cy, zBack);
+      g.add(ring);
+    }
+    if (drillCheck && (!drillOnly || drillOnly === h.kind)) {
+      const dep = Math.max(wall(h.depth), 4) * MM;
+      const rr = Math.max(h.d / 2, 1.2) * (drillOnly ? 2.2 : 1) * MM;
+      const mk = new THREE.Mesh(aluCutGeo(`holeMk|${rr.toFixed(5)}|${dep.toFixed(5)}`,
+        () => new THREE.CylinderGeometry(rr, rr, dep, 14)), aluDrillMat(h.kind));
+      mk.rotation.x = Math.PI / 2;               // ось цилиндра — по толщине фасада
+      mk.position.set(cx, cy, -T / 2 + dep / 2);
+      mk.renderOrder = 999;
+      mk.userData.drill = h.kind;               // метка присадки — для прогона
+      g.add(mk);
+    }
+  }
 }
 
 // Ручка на фасаде: кнопка — грибок на ножке, скоба — перекладина на двух
@@ -3012,7 +3335,8 @@ class Viewer3D {
       if (framed) {
         for (const box of row.boxes) {
           // xray делает рамочный фасад полупрозрачным так же, как «Скрыть фасады».
-          const framedMesh = makeFramedFacade(box, row, isActive, ghostLike || xray, hiCyan);
+          const framedMesh = makeFramedFacade(box, row, isActive, ghostLike || xray, hiCyan,
+            drillCheck, drillOnly);
           // partKey — как у обычных деталей ниже. userData.kind у рамочного
           // фасада нет (так было и раньше), поэтому клик по нему в изоляции
           // пока идёт в onFocusMiss, а не в onSelectPart; ключ лежит «про запас».

@@ -44,6 +44,25 @@ const CATALOG_KEY_TO_CONST = {
   handles: 'HANDLES',
   lifts: 'LIFTS',
   fasteners: 'FASTENER_PRICES',
+  // Алюминиевые рамочные фасады (v311) — см. ALU_EDITABLE_FIELDS ниже:
+  // эти три константы заменяются НЕ целиком, а только по редактируемым полям.
+  aluProfiles: 'ALU_PROFILES',
+  aluFrameExtras: 'ALU_FRAME_EXTRAS',
+  aluMakers: 'ALU_MAKERS',
+};
+
+// Для алюминиевых коллекций публикуем только поля, которые пользователь
+// правит в Библиотеке, — ровно те же, что восстанавливает клиент
+// (ALU_CATALOG_EDITABLE / restoreAluCatalogFrom в src/app.js). Остальное
+// (сечение, fillStop/fillGap, петля, контакты производителя, ссылки на общую
+// константу ALU_PRICE_NOTE) остаётся как в текущем catalog.js: снимок
+// разработчика мог быть сохранён раньше, чем в catalog.js добавили данные
+// паспорта профиля, и полная замена молча откатила бы их. Новые позиции
+// (коды, которых нет в catalog.js) не добавляются — в UI их и нельзя завести.
+const ALU_EDITABLE_FIELDS = {
+  aluProfiles: ['price', 'priceUnit', 'barLength'],
+  aluFrameExtras: ['price'],
+  aluMakers: ['pricePerM2'],
 };
 
 // Свойства объекта `const state = { ... }` в src/app.js, отвечающие за
@@ -155,7 +174,7 @@ function assertValidJs(source, label) {
 }
 
 /**
- * Собирает новый текст src/catalog.js, подставив в него 10 коллекций из
+ * Собирает новый текст src/catalog.js, подставив в него коллекции из
  * blob (см. snapshotCatalogCollections() в src/app.js). Ключи, которых нет
  * в blob (старый снимок, сохранённый до появления какой-то коллекции),
  * просто пропускаются — соответствующая константа в файле не трогается.
@@ -165,20 +184,80 @@ function assertValidJs(source, label) {
  * @returns {{ newSource: string, changedKeys: string[] }}
  * @throws {CatalogPublishCodegenError}
  */
+// Имя ключа свойства объектного литерала: `foo:` или `'foo':` (без computed).
+function propKeyName(prop) {
+  if (prop.type !== 'Property' || prop.computed || !prop.key) return null;
+  if (prop.key.type === 'Identifier') return prop.key.name;
+  if (prop.key.type === 'Literal' && typeof prop.key.value === 'string') return prop.key.value;
+  return null;
+}
+
+// Точечные правки для алюминиевой коллекции: { code: { field: value } } из
+// blob -> замены значений соответствующих свойств внутри `const X = { code:
+// { ... } }`. Отсутствующее во вложенном объекте поле дописывается в конец.
+function aluFieldEdits(node, saved, fields, constName, label) {
+  if (node.type !== 'ObjectExpression') {
+    throw new CatalogPublishCodegenError(`${label}: '${constName}' — не объектный литерал, точечная замена невозможна.`);
+  }
+  const edits = [];
+  if (!saved || typeof saved !== 'object' || Array.isArray(saved)) return edits;
+  node.properties.forEach((prop) => {
+    const code = propKeyName(prop);
+    if (code === null || !Object.prototype.hasOwnProperty.call(saved, code)) return;
+    const item = saved[code];
+    const inner = prop.value;
+    if (!item || typeof item !== 'object' || !inner || inner.type !== 'ObjectExpression') return;
+    const innerProps = new Map();
+    inner.properties.forEach((p) => { const n = propKeyName(p); if (n !== null) innerProps.set(n, p); });
+    const appended = [];
+    fields.forEach((field) => {
+      if (!Object.prototype.hasOwnProperty.call(item, field) || item[field] === undefined) return;
+      // Как keepFresh в app.js (restoreAluCatalogFrom): null в старом снимке
+      // правок у единицы цены/длины хлыста не затирает паспортные данные.
+      if (item[field] === null && (field === 'priceUnit' || field === 'barLength')) return;
+      const text = JSON.stringify(item[field]);
+      const p = innerProps.get(field);
+      if (p) {
+        if (p.shorthand) {
+          edits.push({ start: p.start, end: p.end, text: `${field}: ${text}` });
+        } else {
+          edits.push({ start: p.value.start, end: p.value.end, text });
+        }
+      } else {
+        appended.push(`${field}: ${text}`);
+      }
+    });
+    if (appended.length) {
+      const last = inner.properties[inner.properties.length - 1];
+      edits.push(last
+        ? { start: last.end, end: last.end, text: ', ' + appended.join(', ') }
+        : { start: inner.start + 1, end: inner.start + 1, text: ' ' + appended.join(', ') + ' ' });
+    }
+  });
+  return edits;
+}
+
 function buildCatalogSource(originalSource, blob) {
   const label = 'src/catalog.js';
   const ast = parseSource(originalSource, label);
   const body = findIifeBody(ast, label);
-  const constNames = Object.values(CATALOG_KEY_TO_CONST);
-  const inits = findTopLevelConstInits(body, constNames, label);
+  // Ищем только константы тех ключей, что есть в blob: старый снимок без
+  // алюминиевых ключей не должен падать на catalog.js, где их ещё нет, и
+  // наоборот. Отсутствие нужной константы — по-прежнему ошибка (422).
+  const presentKeys = Object.keys(CATALOG_KEY_TO_CONST).filter((key) =>
+    Object.prototype.hasOwnProperty.call(blob, key) && blob[key] !== undefined);
+  const inits = findTopLevelConstInits(body, presentKeys.map((k) => CATALOG_KEY_TO_CONST[k]), label);
 
   const edits = [];
   const changedKeys = [];
-  Object.keys(CATALOG_KEY_TO_CONST).forEach((key) => {
-    if (!Object.prototype.hasOwnProperty.call(blob, key) || blob[key] === undefined) return;
+  presentKeys.forEach((key) => {
     const constName = CATALOG_KEY_TO_CONST[key];
     const node = inits.get(constName);
-    edits.push({ start: node.start, end: node.end, text: JSON.stringify(blob[key], null, 2) });
+    if (ALU_EDITABLE_FIELDS[key]) {
+      edits.push(...aluFieldEdits(node, blob[key], ALU_EDITABLE_FIELDS[key], constName, label));
+    } else {
+      edits.push({ start: node.start, end: node.end, text: JSON.stringify(blob[key], null, 2) });
+    }
     changedKeys.push(key);
   });
 
@@ -247,6 +326,7 @@ function buildAppSource(originalSource, blob) {
 module.exports = {
   CatalogPublishCodegenError,
   CATALOG_KEY_TO_CONST,
+  ALU_EDITABLE_FIELDS,
   APP_STATE_KEYS,
   buildCatalogSource,
   buildAppSource,

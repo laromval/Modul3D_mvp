@@ -332,11 +332,6 @@ select:focus-visible {
   color: var(--accent); font-size: var(--fs-xs); font-family: inherit;
   cursor: pointer; text-decoration: underline; text-underline-offset: 2px;
 }
-/* «+ Добавить материал»/«Удалить материал» под Материал корпуса/Материал
-   фасада/Задняя стенка в «Параметрах проекта» (см. app.js:
-   materialPickActionsHtml) — та же пара ссылок, что и в «Библиотеке», в ряд
-   под своим <select>. */
-.lib-pick-actions { display: flex; gap: var(--sp-3); margin-top: 5px; }
 /* иконочная кнопка */
 .icon-btn {
   display: inline-flex; align-items: center; justify-content: center;
@@ -1982,7 +1977,7 @@ body.lib-dragging .drawer-body { touch-action: none; }
 }
 .lib-add { display: inline-block; margin: 0 0 var(--sp-4); }
 /* «+ Добавить материал»/«− Удалить материал» под таблицей листа (app.js:
-   libLeafTableHtml) — в ряд, как .lib-pick-actions выше; собственный нижний
+   libLeafTableHtml) — в ряд; собственный нижний
    отступ несёт сам .lib-leaf-actions, у кнопок внутри него он обнулён —
    иначе рассинхронились бы по вертикали между собой (у «+ Добавить позицию»
    фурнитуры вне этой обёртки .lib-add остаётся как был). */
@@ -2553,3 +2548,107 @@ body.is-focus .scrim { opacity: 0 !important; }
    нестандартную толщину, материал заводится отдельной позицией в Библиотеке
    материалов, см. комментарий у ctopMaterial change в bindCountertopEvents). */
 .ctop-decor-thickness { margin-top: 6px; font-size: var(--fs-xs); color: var(--muted); }
+
+/* Алюминиевый рамочный фасад (app.js: aluSummaryPlashkaHtml — плашка-итог
+   в секции и в поле «Фасад», libAluConstructorHtml/libAluFacadesHtml —
+   конструктор и таблицы в Библиотеке → Двери). Схема разреза профиля —
+   inline SVG, цвет корпуса профиля берётся из выбранного цвета (style fill),
+   остальное — переменные темы, чтобы схема читалась и в светлой, и в
+   тёмной теме. */
+.alu-block { margin-top: var(--sp-2); padding-top: var(--sp-2); border-top: 1px dashed var(--border); }
+.alu-block select { width: 100%; }
+/* Схема — сверху, пояснение — под ней на всю ширину секции (рядом со
+   схемой текст сжимался в столбик по 1–2 слова). */
+.alu-schema-wrap { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; margin: 6px 0 2px; }
+.alu-schema-wrap .hint { margin: 0; width: 100%; }
+.alu-schema { flex: none; display: block; }
+/* Чертёж сечения профиля (app.js aluProfileSectionHtml): viewBox в мм,
+   толщина линий — в экранных px (vector-effect), тело стенок — лёгкая
+   заливка (цвет профиля приходит inline, прозрачность — здесь), полости
+   пустые, стекло — голубая полоса. */
+.alu-sec { width: 100%; max-width: 280px; height: auto; max-height: 190px; }
+.alu-sec.alu-schema-sm { width: 76px; max-height: 48px; }
+.alu-sec-body { fill: var(--muted); fill-opacity: .28; stroke: var(--text); stroke-width: 1.1px;
+  vector-effect: non-scaling-stroke; stroke-linejoin: miter; }
+.alu-schema-sm .alu-sec-body { stroke-width: .8px; }
+.alu-sec-glass { fill: #4fb3ea; fill-opacity: .32; stroke: none; }
+.alu-sec-glass-edge { fill: none; stroke: #1e88c8; stroke-width: 1px; vector-effect: non-scaling-stroke; }
+.alu-sec-break { fill: none; stroke: #1e88c8; stroke-width: .8px; vector-effect: non-scaling-stroke; }
+.alu-sec-dim, .alu-sec-ext { stroke: var(--muted); stroke-width: .7px; vector-effect: non-scaling-stroke; }
+.alu-sec-arrow { fill: var(--muted); stroke: none; }
+.alu-sec-txt { fill: var(--text); font-family: var(--ff); paint-order: stroke;
+  stroke: var(--surface-solid, #fff); stroke-linejoin: round; }
+/* Своя картинка сечения — на белой подложке (чертёж производителя обычно
+   чёрным по белому, в тёмной теме без подложки не читается). */
+.alu-schema-img { display: block; max-width: 100%; width: auto; max-height: 190px; background: #fff;
+  border: 1px solid var(--border); border-radius: var(--r-sm); }
+.alu-schema-img.alu-schema-sm { max-width: 76px; max-height: 52px; }
+.alu-schema-empty { box-sizing: border-box; width: 100%; max-width: 280px; padding: 14px 10px; text-align: center;
+  border: 1px dashed var(--border-strong); border-radius: var(--r-sm); color: var(--muted); font-size: var(--fs-xs); }
+.alu-schema-empty.alu-schema-sm { width: 76px; padding: 6px 4px; font-size: 10px; line-height: 1.2; }
+.lib-alu-img-btns { display: flex; flex-direction: column; align-items: center; gap: 2px; margin-top: 4px; }
+.lib-alu-img-btns .link-btn { font-size: var(--fs-xs); padding: 0; }
+.lib-alu-img-btns .lib-alu-img-del { color: var(--danger); }
+.alu-select-row { display: flex; align-items: center; gap: 6px; }
+.alu-select-row select { flex: 1; min-width: 0; }
+.alu-swatch { flex: none; display: inline-block; width: 18px; height: 18px; border-radius: 4px;
+  border: 1px solid var(--border); vertical-align: middle; }
+.alu-swatch-lg { width: 40px; height: 18px; }
+/* «Заполнение» рамки — плашка-кнопка, открывает подбор в Библиотеке. */
+.alu-fill-pick { display: flex; align-items: center; gap: 8px; width: 100%; box-sizing: border-box;
+  padding: 6px 8px; border: 1px solid var(--border-strong); border-radius: var(--r-sm);
+  background: var(--surface-solid); color: var(--text); font: inherit; text-align: left; cursor: pointer; }
+.alu-fill-pick:hover { border-color: var(--accent); background: var(--accent-soft); }
+.alu-fill-pick:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.alu-fill-sw { flex: none; width: 26px; height: 26px; border-radius: 4px; border: 1px solid var(--border-strong);
+  background-size: cover; background-position: center; }
+.alu-fill-sw-glass { background: linear-gradient(135deg, #cfeaf7 0%, #9fd3ee 55%, #d9f0fa 100%); }
+.alu-fill-sw-sheet { background: var(--border); }
+.alu-fill-txt { display: flex; flex-direction: column; min-width: 0; }
+.alu-fill-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.alu-fill-sub { font-size: var(--fs-xs); color: var(--accent); }
+.alu-contacts a { white-space: nowrap; }
+.alu-ask-price { color: var(--text); }
+/* Плашки выбора материала на экране «Материалы» (корпус, видимая боковина,
+   задняя стенка, фасад) — тот же вид, что у «Заполнения» рамки. */
+.mat-pick, .alu-summary { margin-top: 2px; }
+/* Итог алюм. фасада длинный («LXD-1204 открытый · Алюминий · Стекло …») —
+   переносим строки, а не обрезаем многоточием. */
+.alu-summary .alu-fill-name { white-space: normal; }
+/* Поле «Фасад»: переключатель цели «Секция N» / «Отсек K». */
+.mat-facade-targets { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 6px; }
+.mat-facade-target { padding: 4px 10px; border: 1px solid var(--border-strong); border-radius: var(--r-sm);
+  background: var(--surface-solid); color: var(--text); font: inherit; font-size: var(--fs-sm); cursor: pointer; }
+.mat-facade-target:hover { border-color: var(--accent); }
+.mat-facade-target.active { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+.mat-facade-target:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+#matFacadeField select { width: 100%; }
+.mat-facade-all { display: inline-block; margin-top: var(--sp-2); }
+/* Конструктор алюм. фасада вверху раздела Библиотеки. */
+.alu-ctor { margin-top: 0; padding: var(--sp-2) 0 var(--sp-3); border-top: none; border-bottom: 1px dashed var(--border); }
+.alu-ctor .lib-alu-sub { margin-top: 0; }
+.alu-ctor label { display: block; }
+.alu-ctor-target { margin-bottom: 4px; }
+.alu-ctor-actions { margin-top: var(--sp-2); display: flex; justify-content: flex-end; }
+.alu-ctor-actions .btn[disabled] { opacity: .5; cursor: not-allowed; }
+/* Библиотека: таблицы раздела — те же .lib-table фиксированной ширины (не
+   шире панели), поля ввода цен — компактные, на всю ширину ячейки. */
+.lib-alu-body { margin-top: 4px; }
+.lib-alu-sub { margin: var(--sp-3) 0 4px; font-size: var(--fs-sm); font-weight: 700; color: var(--text); }
+.lib-alu-table td { vertical-align: top; white-space: normal; }
+/* Четыре таблицы раздела идут подряд в одной прокрутке — общий sticky у th
+   (см. выше) залеплял бы заголовками соседних таблиц строки друг друга. */
+.lib-alu-table th { position: static; }
+.lib-alu-table .dim { font-size: var(--fs-xs); margin-top: 2px; word-break: break-word; }
+.lib-alu-table .lib-alu-input { display: block; width: 100%; box-sizing: border-box; padding: 3px 5px; font-size: var(--fs-sm);
+  border: 1px solid var(--border); border-radius: var(--r-sm); background: var(--surface-solid, #fff); color: var(--text); font-family: inherit; }
+.lib-alu-table .lib-alu-input.invalid { border-color: #d9534f; }
+.lib-alu-table .lib-alu-unit { margin-top: 4px; }
+.lib-alu-bar { margin-top: 4px; font-size: var(--fs-xs); color: var(--muted); }
+.lib-alu-bar .lib-alu-input { margin-top: 2px; }
+.lib-alu-schema-cell .alu-schema { margin: 0 auto; }
+.lib-alu-contacts { word-break: break-word; font-size: var(--fs-xs); }
+/* Спецификация: пометка к строке без цены («Уточняйте цену…», см. app.js
+   renderSpecTable) и к итогу, если в нём не учтены позиции без цены. */
+.spec-note { font-size: var(--fs-xs); color: var(--muted); margin-top: 2px; }
+.spec-total-note { font-size: var(--fs-xs); font-weight: 400; color: var(--muted); margin-left: 6px; }

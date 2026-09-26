@@ -447,7 +447,7 @@
   },
   "GLASS-4": {
     "code": "GLASS-4",
-    "name": "Стекло сатин бронз 4 мм (фасад)",
+    "name": "Стекло сатин бронз 4 мм",
     "unit": "м²",
     "image": null,
     "priceNote": "приближённая — уточняйте у поставщика",
@@ -570,7 +570,7 @@
   const FACADE_TYPES = {
     ldsp:      { id: 'ldsp', name: 'Фасад ЛДСП', material: 'FAC-LDSP', thickness: 18,
                  render: 'panel', glassInside: false },
-    mdf:       { id: 'mdf', name: 'Фасад МДФ (плёнка/эмаль)', material: 'FAC-MDF', thickness: 19,
+    mdf:       { id: 'mdf', name: 'Фасадные панели МДФ', material: 'FAC-MDF', thickness: 19,
                  render: 'panel', glassInside: false },
     mdfMilled: { id: 'mdfMilled', name: 'Фасад МДФ фрезерованный', material: 'FAC-MDF', thickness: 19,
                  render: 'milled', frame: 80, glassInside: false },
@@ -584,6 +584,182 @@
                  render: 'frameGlass', frame: 24, insert: 'GLASS-4', glassInside: true },
   };
   const FACADE_TYPE_ORDER = ['ldsp', 'mdf', 'mdfMilled', 'glass4', 'wood', 'woodGlass', 'alu'];
+
+  // ---------------------------------------------------------------------------
+  // АЛЮМИНИЕВЫЙ РАМОЧНЫЙ ФАСАД (facadeType 'alu') — решения пользователя
+  // 2026-09-25. Профиль НЕ кромится. Нормализация параметров секции
+  // (sec.aluProfile/aluColor/aluFill/aluPriceMode/aluMaker) — aluFacadeOf()
+  // в engine.js; смета — specification.js (фасад не идёт в раскрой листа).
+  // null в цене/размере = неизвестно: ничего не подставляем, пишем пометку.
+  // ---------------------------------------------------------------------------
+  // Цвета профиля — по ответу Tehmob (письмо 2026-09-25): алюминий, алюминий
+  // браш, золото мат, золото браш, белый, чёрный мат. hex — только для
+  // отображения в 3D/UI (не паспортные). Цена зависит от цвета, но цифры
+  // поставщик не дал → colorPrices у профилей null.
+  // Старые id (silver/champagne/gold/black) переводятся в новые в
+  // aluFacadeOf() (engine.js, ALU_LEGACY_COLOR_IDS).
+  const ALU_PROFILE_COLORS = {
+    alu:       { id: 'alu',       name: 'Алюминий',        hex: '#c3c6c9' },
+    aluBrush:  { id: 'aluBrush',  name: 'Алюминий браш',   hex: '#b4b8bb' },
+    goldMat:   { id: 'goldMat',   name: 'Золото матовое',  hex: '#c8a45a' },
+    goldBrush: { id: 'goldBrush', name: 'Золото браш',     hex: '#bf9a52' },
+    white:     { id: 'white',     name: 'Белый',           hex: '#f1f1ef' },
+    blackMat:  { id: 'blackMat',  name: 'Чёрный матовый',  hex: '#2a2a2c' },
+  };
+  const ALU_PROFILE_COLOR_ORDER = ['alu', 'aluBrush', 'goldMat', 'goldBrush', 'white', 'blackMat'];
+
+  // Реальные позиции Tehmob.md (сайт 2026-09-25 + ответ поставщика 2026-09-25,
+  // решения пользователя 2026-09-26; ПРАВИЛА-КОНСТРУИРОВАНИЯ.md §4).
+  //   width/depth   — видимая ширина рамки / толщина профиля по паспорту, мм
+  //   kind          — 'closed' (закрытый: край стекла под нахлёстом паза) |
+  //                   'open' (открытый: край стекла не закрыт профилем) | null
+  //   fillType      — 'glass' | 'sheet' | null (не указано — допускаем любое)
+  //   fillThickness — толщина заполнения по паспорту, мм
+  //   fillStop      — от наружного края профиля до дна паза, мм С КАЖДОЙ стороны
+  //   fillGap       — общий зазор на размер, мм (всего, НЕ с каждой стороны)
+  //                   Размер заполнения = фасад − 2·fillStop − fillGap;
+  //                   null в любом из двух — размер заполнения не считаем
+  //   priceUnit     — 'm' (за пог.м) | 'bar' (за хлыст) | null (не подтверждено →
+  //                   считаем как за метр с пометкой)
+  //   barLength     — длина хлыста, м: при 'bar' цена делится на неё; при 'm' —
+  //                   только для пометки «хлыстов по N м»
+  //   colorPrices   — {colorId: price}, если цена зависит от цвета; null — одна цена
+  //   colors        — доступные colorId; null — все
+  //   hinge         — 'standard' (обычная мебельная петля, чашка Ø35 как у всех
+  //                   фасадов) | 'aluFrame' (спец. петля для узкого алюм.
+  //                   профиля: присадки в правилах нет — не сверлим)
+  //   section       — чертёж сечения для UI (app.js aluProfileSectionHtml), только
+  //                   отображение (чертёж в UI и
+  //                   экструзия рамки в 3D, viewer.js aluSectionOf), в расчёт НЕ идёт. Обведено по паспорту Tehmob:
+  //                   X — в плоскости фасада от наружного края (0) к центру
+  //                   фасада, Y — по толщине, мм. outlines — замкнутые контуры
+  //                   (первый — наружный, остальные — полости; рисуются с
+  //                   fill-rule evenodd); glass — [x1, y1, x2, y2] прямоугольник
+  //                   стекла (x2 > w — стекло уходит за профиль); dims — размеры
+  //                   { from:[x,y], to:[x,y], label, side:'top'|'bottom'|'left'|
+  //                   'right', at } (at — координата размерной линии, мм).
+  //                   Подписи — ТОЛЬКО числа из паспорта; где контур между
+  //                   образмеренными точками в паспорте не задан, форма приближённая.
+  const ALU_SECTION_1203_1204_TUBE = [[1.2, 9.1], [43.8, 9.1], [43.8, 16.2], [42.3, 16.2], [42.3, 17.4], [43.8, 17.4],
+    [43.8, 19.8], [1.2, 19.8], [1.2, 17.4], [2.7, 17.4], [2.7, 16.2], [1.2, 16.2]];
+  const ALU_PRICE_NOTE = 'цена зависит от цвета — уточняйте у поставщика на момент заказа (Tehmob, 060 233 325)';
+  const ALU_PROFILES = {
+    'ALU-LXD3080': { code: 'ALU-LXD3080', name: 'Профиль рамочный 20×20 алюминий', article: 'LXD3080',
+      supplier: 'Tehmob', sourceUrl: 'https://tehmob.md/15633-profil-ramochnyj-2020-alyuminij.html',
+      width: 19.7, depth: 21.1, kind: null,
+      fillType: 'glass', fillThickness: 4, fillStop: 12.5, fillGap: 3,
+      price: 60, priceUnit: 'm', barLength: 5.8, colorPrices: null, colors: null,
+      hinge: 'aluFrame', priceNote: ALU_PRICE_NOTE,
+      // Паспорт: 21.1 × 19.7, стенки 1.2, стекло входит в паз, дно паза — 12.5
+      // от наружного края (показано в повёрнутом виде, как на схеме со стеклом).
+      section: { w: 19.7, h: 21.1,
+        outlines: [
+          [[0, 21.1], [0, 0], [19.7, 0], [19.7, 2.025], [18.5, 2.025], [18.5, 1.2], [12.5, 1.2], [12.5, 8],
+            [18.5, 8], [18.5, 7.175], [19.7, 7.175], [19.7, 21.1]],
+          [[1.2, 19.9], [1.2, 15.4], [3.7, 15.4], [3.7, 14.1], [1.2, 14.1], [1.2, 1.2], [11.3, 1.2], [11.3, 9.2],
+            [18.5, 9.2], [18.5, 14.1], [16, 14.1], [16, 15.4], [18.5, 15.4], [18.5, 19.9]],
+        ],
+        glass: [14, 2.6, 26, 6.6],
+        dims: [
+          { from: [0, 21.1], to: [19.7, 21.1], label: '19.7', side: 'bottom', at: 24 },
+          { from: [0, 0], to: [0, 21.1], label: '21.1', side: 'left', at: -3 },
+          { from: [0, 0], to: [12.5, 1.2], label: '12.5', side: 'top', at: -2.6 },
+          { from: [19.7, 2.025], to: [19.7, 7.175], label: '5.15', side: 'right', at: 23 },
+        ] } },
+    'ALU-LXD-1203': { code: 'ALU-LXD-1203', name: 'Профиль рамочный алюминиевый (закрытый)', article: 'LXD-1203',
+      supplier: 'Tehmob', sourceUrl: 'https://tehmob.md/15636-profil-ramochnyj-alyuminievyj-.html',
+      width: 45, depth: 21, kind: 'closed',
+      fillType: 'glass', fillThickness: 4, fillStop: 1.2, fillGap: 3,
+      price: 100, priceUnit: null, barLength: null, colorPrices: null, colors: null,
+      hinge: 'standard', priceNote: ALU_PRICE_NOTE + '; единица цены не названа',
+      // Паспорт: 45 × 21, короб 13.8 (полка 13.1), карман 8 с нахлёстом 1.1,
+      // паз под стекло 5.2.
+      section: { w: 45, h: 21,
+        outlines: [
+          [[0, 0], [9.1, 0], [9.1, 2.7], [8, 2.7], [8, 1.2], [1.2, 1.2], [1.2, 7.9], [43.8, 7.9], [43.8, 7.2],
+            [45, 7.2], [45, 21], [0, 21]],
+          ALU_SECTION_1203_1204_TUBE,
+        ],
+        glass: [2.7, 3.3, 54, 7.3],
+        dims: [
+          { from: [0, 21], to: [45, 21], label: '45', side: 'bottom', at: 25.5 },
+          { from: [0, 0], to: [0, 21], label: '21', side: 'left', at: -9 },
+          { from: [1.2, 7.9], to: [0, 21], label: '13.1', side: 'left', at: -4.5 },
+          { from: [45, 7.2], to: [45, 21], label: '13.8', side: 'right', at: 49.5 },
+          { from: [0, 0], to: [8, 0], label: '8', side: 'top', at: -4.5 },
+          { from: [8, 0], to: [9.1, 0], label: '1.1', side: 'top', at: -4.5 },
+          { from: [9.1, 2.7], to: [9.1, 7.9], label: '5.2', side: 'right', at: 14 },
+        ] } },
+    'ALU-LXD-1204': { code: 'ALU-LXD-1204', name: 'Профиль рамочный алюминий (открытый)', article: 'LXD-1204',
+      supplier: 'Tehmob', sourceUrl: 'https://tehmob.md/15635-profil-ramochnyj-alyuminij-.html',
+      width: 45, depth: 17.1, kind: 'open',
+      fillType: 'glass', fillThickness: 4, fillStop: 1.2, fillGap: 3,
+      price: 100, priceUnit: null, barLength: null, colorPrices: null, colors: null,
+      hinge: 'standard', priceNote: ALU_PRICE_NOTE + '; единица цены не названа',
+      // Паспорт: как LXD-1203, но без кармана/нахлёста — стекло лежит на
+      // полке 13.1 и упирается в стенку 1.2. Стенка выступает над полкой
+      // на 4 мм — вровень со стеклом, выше стекла не торчит (уточнение
+      // пользователя 2026-09-26; «21» с чертежа 1203 к 1204 не относится,
+      // толщина 13.1 + 4 = 17.1).
+      section: { w: 45, h: 21,
+        outlines: [
+          [[0, 3.9], [1.2, 3.9], [1.2, 7.9], [43.8, 7.9], [43.8, 7.2], [45, 7.2], [45, 21], [0, 21]],
+          ALU_SECTION_1203_1204_TUBE,
+        ],
+        glass: [2.7, 3.9, 54, 7.9],
+        dims: [
+          { from: [0, 21], to: [45, 21], label: '45', side: 'bottom', at: 25.5 },
+          { from: [0, 3.9], to: [0, 7.9], label: '4', side: 'left', at: -9 },
+          { from: [1.2, 7.9], to: [0, 21], label: '13.1', side: 'left', at: -4.5 },
+          { from: [45, 7.2], to: [45, 21], label: '13.8', side: 'right', at: 49.5 },
+        ] } },
+  };
+  const ALU_PROFILE_ORDER = ['ALU-LXD3080', 'ALU-LXD-1203', 'ALU-LXD-1204'];
+
+  const ALU_FRAME_EXTRAS = {
+    corner: { code: 'ALU-CORNER-AF04', name: 'Уголок монтажный рамочный', article: 'AF 04', supplier: 'Tehmob',
+              sourceUrl: 'https://tehmob.md/15653-ugolok-montazhnyj-ramochnyj-.html', price: 12, unit: 'шт', perFacade: 4 },
+    // Пластиковый, продаётся длиной 3 м (Tehmob, 2026-09-25); цена не указана.
+    seal:   { code: 'ALU-SEAL', name: 'Уплотнитель для стекла', supplier: 'Tehmob', price: null, unit: 'пог.м',
+              barLength: 3, priceNote: 'уточняйте у поставщика' },
+    // Петля для узкого алюм. профиля (LXD3080, hinge 'aluFrame'): Blum CLIP top 95°
+    // для алюминиевых рамок, накладная, с пружиной (каталог Blum, веб-код DQDMBY).
+    // Варианты: 71T950AB — под доводчик BLUMOTION 973A (973A0500.01), 70T950A.TL — без
+    // пружины; полунакладная 71T960A, вкладная 71T970A. Паспорт Blum (DQDMBY):
+    // ширина рамки RB 19–22 мм (LXD3080 — 19.7), монтаж на саморезы.
+    // Реальная позиция: sebas.md (Accemob), 110 MDL/шт, 2026-09-26; ответная
+    // планка в комплект НЕ входит — заказывается отдельно.
+    hinge:  { code: 'ALU-HINGE-BLUM-71T950A', name: 'Петля Blum CLIP top 95° для алюм. рамок, накладная', article: '71T950A',
+              supplier: 'Sebas (Accemob)', sourceUrl: 'https://sebas.md/ru/shop/petlya-dlya-alyuminievykh-ramok-blum/',
+              price: 110, unit: 'шт', priceNote: 'крепится на винты (в комплекте); ответная планка — отдельно',
+              // Присадка в профиле под эту петлю (паспорт Blum 71T950A, «Монтаж на
+              // саморезы», sebas.md/wp-content/uploads/2024/11/71T950A_ru.pdf стр. 2 +
+              // уточнение пользователя 2026-09-26), с тыльной стороны фасада, мм:
+              //   паз под пружинный механизм slotW (поперёк рамки, от ВНУТРЕННЕГО края
+              //   рамки наружу) × slotH (вдоль рамки, по центру оси петли);
+              //   2 отверстия под саморезы Ø screwD насквозь, фаска 90° до Ø screwCsk,
+              //   шаг screwPitch (по ±pitch/2 от оси петли), центр — screwFromInner от
+              //   внутреннего края рамки; ширина рамки RB — от rbMin до rbMax.
+              mount: { slotW: 16.5, slotH: 14, screwD: 5, screwCsk: 7, screwCskAngle: 90,
+                       screwPitch: 28, screwFromInner: 6.9, rbMin: 19, rbMax: 22,
+                       // профиль полый: паз и отверстия — сквозь ТЫЛЬНУЮ стенку профиля
+                       // (стенка 1.2 мм по паспорту Tehmob LXD3080), не через весь фасад
+                       wall: 1.2 } },
+    // Полировка кромки стекла по периметру — у ОТКРЫТОГО профиля (kind 'open',
+    // LXD-1204) край стекла виден (решение пользователя 2026-09-26). Открытых цен
+    // за пог.м у молдавских стекольщиков нет (проверено 2026-09-26) — цена null.
+    glassEdge: { code: 'ALU-GLASS-EDGE', name: 'Полировка кромки стекла по периметру', price: null, unit: 'пог.м',
+                 priceNote: 'уточняйте у стекольщика (RADEVA +373 68 111 020, Geam Ess Sistem +373 60 004 489)' },
+    labour: { code: 'ALU-LABOUR', name: 'Сборка алюминиевого фасада', price: null, unit: 'шт', priceNote: 'укажите свою стоимость работы' },
+  };
+
+  // Производители готовых алюминиевых фасадов (режим «покупной»).
+  const ALU_MAKERS = {
+    furnimob: { id: 'furnimob', name: 'Furnimob', city: 'Кишинёв', address: 'ул. Узинелор, 21',
+                phone: '+373 78 00 99 70', email: 'info@furnimob.md', url: 'https://furnimob.md/',
+                pricePerM2: null, priceNote: 'Уточняйте цену у производителя' },
+  };
+  const ALU_MAKER_ORDER = ['furnimob'];
 
   // Значение — объект {price, unit, image}, а не голое число: библиотека
   // (вкладка «Материалы») редактирует price/image на месте, единственная
@@ -1525,6 +1701,8 @@
     DECORS, BACK_MATERIALS, COUNTERTOP_MATERIALS, EDGE_PRICES, HARDWARE_PRICES, FASTENER_PRICES, JOINT_LABEL,
     DRAWER_SYSTEMS, DRAWER_SYSTEM_ORDER, pickNL, GLASS,
     FACADE_TYPES, FACADE_TYPE_ORDER, FACADE_MATERIALS,
+    ALU_PROFILE_COLORS, ALU_PROFILE_COLOR_ORDER, ALU_PROFILES, ALU_PROFILE_ORDER,
+    ALU_FRAME_EXTRAS, ALU_MAKERS, ALU_MAKER_ORDER,
     HANDLES, HANDLE_ORDER, HANDLE_HOLE_D, LIFTS, LIFT_ORDER,
     HARDWARE_CATEGORY_LABEL, HARDWARE_CATEGORY_ORDER,
     findMaterialByCode, findCountertopMaterialByCode, decorHasPattern,

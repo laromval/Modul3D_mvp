@@ -360,11 +360,15 @@ const SRC_ORDER = (fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8')
   .match(/src="src\/([\w.-]+\.js)(?:\?[\w.-]+)?"/g) || [])
   .map((x) => /src\/([\w.-]+\.js)/.exec(x)[1])
   .filter((f) => f !== 'viewer.js' && f !== 'app.js');
-for (const f of SRC_ORDER) {
+// viewer.js требует WebGL — подменяем заглушкой: приложение создаёт его в
+// try/catch и обязано работать даже без 3D. Заглушку ставим на МЕСТО
+// viewer.js (до ui-shell.js), как в index.html: ui-shell.js при загрузке
+// оборачивает Viewer3D (hookViewer), чтобы подцепить HUD к клику по модулю —
+// без этого HUD в прогоне вообще не участвовал.
+const UI_SHELL_AT = SRC_ORDER.indexOf('ui-shell.js');
+for (const f of SRC_ORDER.slice(0, UI_SHELL_AT < 0 ? SRC_ORDER.length : UI_SHELL_AT)) {
   vm.runInContext(fs.readFileSync(path.join(ROOT, 'src', f), 'utf8'), sandbox, { filename: f });
 }
-// viewer.js требует WebGL — подменяем заглушкой: приложение создаёт его в
-// try/catch и обязано работать даже без 3D.
 sandbox.Modul3D.viewer = {
   Viewer3D: class {
     // viewName/onViewChange — как у настоящего Viewer3D (гизма видов):
@@ -375,6 +379,9 @@ sandbox.Modul3D.viewer = {
     canvasSize() { return { w: 900, h: 600 }; }
   },
 };
+for (const f of UI_SHELL_AT < 0 ? [] : SRC_ORDER.slice(UI_SHELL_AT)) {
+  vm.runInContext(fs.readFileSync(path.join(ROOT, 'src', f), 'utf8'), sandbox, { filename: f });
+}
 vm.runInContext(fs.readFileSync(path.join(ROOT, 'src', 'app.js'), 'utf8'), sandbox, { filename: 'app.js' });
 
 // ---------------------------------------------------------------------------
@@ -436,18 +443,126 @@ check('корпус по умолчанию 18 мм', () => {
   const el = document.getElementById('p-bodyThickness');
   return !!el && Number(el.attrs.value) === 18;
 });
-for (const id of ['p-decor', 'p-back']) {
-  const el0 = document.getElementById(id);
-  if (!el0) { fails.push('нет элемента #' + id); continue; }
-  for (const v of (el0._options || [el0.value])) {
-    check(id + ' = ' + v, () => {
-      const cur = document.getElementById(id);   // панель могла перерисоваться
-      if (!cur) return false;
-      cur.value = v;
-      cur.dispatch('change', { target: cur });
-      return !/Ошибка/.test($('paramsPanel').innerHTML);
-    });
-  }
+// Материалы (2026-09-26): не выпадающие списки, а плашки с выбранным
+// материалом (data-mat-pick) — клик открывает Библиотеку в режиме подбора
+// сразу в нужной категории, «Выбрать» только у подходящих строк; ссылок
+// «+ Добавить материал»/«Удалить материал» под полями больше нет.
+{
+  const panelHtml = () => String($('paramsPanel').innerHTML || '');
+  const libHtml = () => String(libPanelEl().innerHTML || '');
+  const pickBtns = () => libPanelEl().querySelectorAll('.lib-pick-btn');
+  const pickBy = (code) => pickBtns().filter((x) => x.attrs['data-pick-code'] === code)[0];
+  const choose = (pb) => { if (!pb) return false; libPanelEl().dispatch('click', { target: pb }); return true; };
+  check('материалы: плашки корпус/боковина/задняя стенка/фасад, без списков и ссылок', () =>
+    ['decor', 'facadeDecor', 'back', 'facade'].every((r) => panelHtml().indexOf(`data-mat-pick="${r}"`) !== -1)
+    && !/<select id="p-(decor|facadeDecor|back)"/.test(panelHtml())
+    && !/data-material-(add|del)/.test(panelHtml()) && /Видимая боковина/.test(panelHtml()));
+  check('материалы: корпус — «Выбрать» в «Листовых материалах», без ХДФ', () => {
+    const b = document.getElementById('p-decor');
+    if (!b) return false;
+    b.click();
+    return pickBtns().length > 0 && !/data-pick-group="back"/.test(libHtml());
+  });
+  check('материалы: корпус — выбор пишется в проект, подбор снят', () => {
+    const pb = pickBtns().filter((x) => x.attrs['data-pick-group'] === 'decors')[1] || pickBtns()[0];
+    const code = pb && pb.attrs['data-pick-code'];
+    return choose(pb) && new RegExp(`id="p-decor" data-mat-pick="decor" data-code="${code}"`).test(panelHtml())
+      && !/lib-pick-btn/.test(libHtml());
+  });
+  check('материалы: задняя стенка — «Выбрать» только у ХДФ', () => {
+    const b = document.getElementById('p-back');
+    if (!b) return false;
+    b.click();
+    const btns = pickBtns();
+    return btns.length > 0 && btns.every((x) => x.attrs['data-pick-group'] === 'back');
+  });
+  check('материалы: задняя стенка — выбор пишется в проект', () => {
+    const pb = pickBtns()[0];
+    const code = pb && pb.attrs['data-pick-code'];
+    return choose(pb) && new RegExp(`id="p-back" data-mat-pick="back" data-code="${code}"`).test(panelHtml());
+  });
+  // «Видимая боковина» (2026-09-26): ЛДСП/ДСП или фасадная МДФ-панель —
+  // «Выбрать» только у engine.visibleSideMaterialOptions(); код пишется
+  // напрямую в state.facadeDecorCode, без копии в DECORS.
+  check('материалы: видимая боковина — «Выбрать» только у ЛДСП и МДФ-панелей', () => {
+    const b = document.getElementById('p-facadeDecor');
+    if (!b) return false;
+    b.click();
+    const allowed = sandbox.Modul3D.engine.visibleSideMaterialOptions().map((o) => o.code);
+    const btns = pickBtns();
+    return btns.length > 0 && btns.every((x) => allowed.indexOf(x.attrs['data-pick-code']) !== -1);
+  });
+  check('материалы: видимая боковина — выбор МДФ-панели, без копии в каталог', () => {
+    const cat = sandbox.Modul3D.catalog;
+    const allowed = sandbox.Modul3D.engine.visibleSideMaterialOptions().map((o) => o.code);
+    const mdf = cat.DECORS.filter((m) => (m.categoryPath || [])[0] === 'МДФ-плита'
+      && allowed.indexOf(m.code) !== -1)[0];
+    if (!mdf) return false;
+    // Подбор открыт на листе «ДСП» (фокус листа) — клик по строке раздела
+    // возвращает дерево, в нём — лист МДФ-плит.
+    const top = libPanelEl().querySelectorAll('[data-tree-node]').filter((r) => r.dataset.kind === 'top' && r.dataset.top === 'sheet')[0];
+    if (top) libPanelEl().dispatch('click', { target: top });
+    const leaf = libPanelEl().querySelectorAll('[data-tree-node]').filter((r) => r.dataset.kind === 'leaf'
+      && r.dataset.top === 'sheet' && r.dataset.path === mdf.categoryPath.join('::'))[0];
+    if (!leaf) return false;
+    libPanelEl().dispatch('click', { target: leaf });
+    const nDecors = cat.DECORS.length;
+    return choose(pickBy(mdf.code))
+      && new RegExp(`id="p-facadeDecor" data-mat-pick="facadeDecor" data-code="${mdf.code}"`).test(panelHtml())
+      && cat.DECORS.length === nDecors && !/lib-pick-btn/.test(libHtml());
+  });
+  // Поле «Фасад» активной секции: вид ЛДСП → «Выбрать» только у допустимых
+  // материалов вида (engine.facadeMaterialOptions), выбор — в sec.facadeMaterial.
+  check('материалы: фасад секции — «Выбрать» только у материалов вида', () => {
+    const b = document.getElementById('paramsPanel').querySelectorAll('[data-mat-pick]').filter((x) => x.attrs['data-mat-pick'] === 'facade')[0];
+    if (!b) return false;
+    b.click();
+    const allowed = sandbox.Modul3D.engine.facadeMaterialOptions('ldsp').map((o) => o.code);
+    const btns = pickBtns();
+    return btns.length > 0 && btns.every((x) => allowed.indexOf(x.attrs['data-pick-code']) !== -1);
+  });
+  check('материалы: фасад секции — выбранный материал в поле «Фасад»', () => {
+    const pb = pickBy('U702ST9') || pickBtns()[0];
+    const code = pb && pb.attrs['data-pick-code'];
+    return choose(pb) && new RegExp(`data-mat-pick="facade" data-code="${code}"`).test(panelHtml());
+  });
+  check('материалы: «Заменить фасады на весь проект» есть и не падает', () => {
+    const b = document.getElementById('p-facadeApplyAll');
+    if (!b) return false;
+    b.click();
+    return !/Ошибка/.test(panelHtml()) && /data-mat-pick="facade" data-code="U702ST9"/.test(panelHtml());
+  });
+  // Отсеки: при doorZoneCount > 1 — переключатель «Секция N / Отсек K» и свой
+  // вид фасада отсека (p-zoneFacadeType), «как у секции» — без переопределения.
+  check('материалы: отсек — свой вид фасада', () => {
+    const api = sandbox.Modul3D.app;
+    const names = (panelHtml().match(/<h3>Фасад · ([^,<]+),/) || [])[1];
+    if (!api || !api.setModuleDoorZoneCount || !names) return false;
+    api.setModuleDoorZoneCount(names, 2);
+    const mb = document.getElementById('materialsLinkBtn');
+    if (mb && !/data-mat-facade-target/.test(panelHtml())) mb.click();
+    const t = document.getElementById('paramsPanel').querySelectorAll('[data-mat-facade-target]').filter((x) => x.attrs['data-mat-facade-target'] === '1')[0];
+    if (!t) return false;
+    t.click();
+    const s = document.getElementById('p-zoneFacadeType');
+    if (!s) return false;
+    s.value = 'glass4';
+    s.dispatch('change', { target: s });
+    const ok = /Толщина фасада 4 мм/.test(panelHtml());
+    const s2 = document.getElementById('p-zoneFacadeType');
+    s2.value = '';
+    s2.dispatch('change', { target: s2 });
+    const back = !/Толщина фасада 4 мм/.test(panelHtml());
+    api.setModuleDoorZoneCount(names, 1);
+    return ok && back;
+  });
+  check('материалы: Библиотека обратно на «Базу модулей»', () => {
+    const tabs = document.getElementById('libTabs');
+    const modTab = Array.from(document.querySelectorAll('.lib-tab-btn')).filter((b) => b.dataset.libtab === 'modules')[0];
+    if (!tabs || !modTab) return false;
+    tabs.dispatch('click', { target: modTab });
+    return /База модулей/.test(libHtml());
+  });
 }
 check('кнопка «назад» возвращает на экран модуля', () => {
   const b = document.getElementById('panelBack');
@@ -511,6 +626,87 @@ check('тип опоры при цоколе с ножками — только 
 });
 check('в секции есть выбор ручек', () => /data-field="handle"/.test($('sectionsList').innerHTML));
 check('в списке фасадов есть открывание вверх', () => /value="liftUp"/.test($('sectionsList').innerHTML));
+// Алюминиевый рамочный фасад (2026-09-26): в секции «Вид фасада» = alu даёт
+// одну плашку-итог (data-alu-open), а профиль/схема/цвет/заполнение/цена —
+// в конструкторе фасада Библиотеки (Двери → Алюминиевые фасады, app.js
+// libAluConstructorHtml): черновик state.aluDraft, «Выбрать» пишет его в
+// секцию. В конце возвращаем ЛДСП, чтобы не влиять на остальные проверки.
+{
+  const aluFld = (name) => document.getElementById('sectionsList')
+    .querySelectorAll('[data-field]').filter((e) => e.attrs['data-field'] === name)[0];
+  const aluSet = (name, v) => { const el = aluFld(name); if (!el) return false; el.value = v; el.dispatch('change', { target: el }); return true; };
+  const secHtml = () => String($('sectionsList').innerHTML || '');
+  const libHtml = () => String(libPanelEl().innerHTML || '');
+  const ctorEl = (sel, val) => libPanelEl().querySelectorAll(sel).filter((x) => val === undefined || Object.values(x.attrs).indexOf(val) !== -1)[0];
+  const ctorSet = (field, v) => {
+    const el = libPanelEl().querySelectorAll('[data-alu-draft]').filter((x) => x.attrs['data-alu-draft'] === field)[0];
+    if (!el) return false;
+    el.value = v;
+    libPanelEl().dispatch('change', { target: el });
+    return true;
+  };
+  check('алюм. фасад: выбирается в «Вид фасада»', () => /<label>Вид фасада<\/label>/.test(secHtml()) && aluSet('facadeType', 'alu'));
+  check('алюм. фасад: в секции одна плашка-итог, без полей профиля', () =>
+    /data-alu-open="\d+"/.test(secHtml()) && !/data-field="alu/.test(secHtml()) && /LXD3080/.test(secHtml()));
+  check('алюм. фасад: плашка открывает конструктор в Библиотеке', () => {
+    const b = document.getElementById('sectionsList').querySelectorAll('[data-alu-open]')[0];
+    if (!b) return false;
+    b.click();
+    return /id="libAluCtor"/.test(libHtml())
+      && ['aluProfile', 'aluColor', 'aluPriceMode', 'aluMaker'].every((f) => libHtml().indexOf(`data-alu-draft="${f}"`) !== -1)
+      && /data-alu-draft-fill="1"/.test(libHtml()) && /Для: <b>/.test(libHtml())
+      && !/data-alu-draft-apply="1" disabled/.test(libHtml());
+  });
+  check('алюм. фасад: чертёж сечения с паспортными размерами', () => /class="alu-schema alu-sec/.test(libHtml()) && />12.5</.test(libHtml()) && /Ширина рамки 19.7 мм/.test(libHtml()));
+  check('алюм. фасад: размер стекла по правилу профиля', () => /Стекло[^<]*2×12.5 − 3/.test(libHtml()));
+  // профили Tehmob — только стекло 4 мм (catalog fillType 'glass'): листовых нет.
+  // «Заполнение» — не список, а плашка: клик открывает Библиотеку в режиме
+  // подбора (роль aluFill), «Выбрать» — только у стёкол; выбор пишет код в
+  // черновик и возвращает в конструктор.
+  check('алюм. фасад: заполнение — выбор в Библиотеке, только стекло', () => {
+    const b = ctorEl('[data-alu-draft-fill]');
+    if (!b) return false;
+    libPanelEl().dispatch('click', { target: b });
+    // Профиль Tehmob — стекло 4 мм: GLASS-4 («Двери → Виды фасадов → Стекло»)
+    // выбрать можно, стекло 6 мм — нет (толщина по паспорту профиля).
+    return /data-pick-code="GLASS-4"/.test(libHtml()) && !/data-pick-code="GLASS-6"/.test(libHtml())
+      && !/data-pick-group="decors"/.test(libHtml()) && !/data-pick-group="back"/.test(libHtml());
+  });
+  check('алюм. фасад: «Выбрать» стекло 4 мм — в черновике конструктора', () => {
+    const pb = libPanelEl().querySelectorAll('.lib-pick-btn').filter((x) => x.attrs['data-pick-code'] === 'GLASS-4')[0];
+    if (!pb) return false;
+    libPanelEl().dispatch('click', { target: pb });
+    return /id="libAluCtor"/.test(libHtml()) && /class="alu-fill-name">Стекло сатин бронз 4 мм/.test(libHtml())
+      && !/lib-pick-btn/.test(libHtml()) && /Для: <b>/.test(libHtml());
+  });
+  check('алюм. фасад: цена производителя не выдумана', () => /Уточняйте цену у производителя/.test(libHtml()) && /href="tel:/.test(libHtml()));
+  check('алюм. фасад: смена профиля — сечение LXD-1204', () => ctorSet('aluProfile', 'ALU-LXD-1204') && /Ширина рамки 45 мм/.test(libHtml()));
+  check('алюм. фасад: собственное изготовление', () => ctorSet('aluPriceMode', 'own') && !/data-alu-draft="aluMaker"/.test(libHtml()));
+  check('алюм. фасад: покупной снова с производителем', () => ctorSet('aluPriceMode', 'buy') && /data-alu-draft="aluMaker"/.test(libHtml()));
+  check('алюм. фасад: «Выбрать» конструктора — фасад в секции', () => {
+    const b = ctorEl('[data-alu-draft-apply]');
+    if (!b) return false;
+    libPanelEl().dispatch('click', { target: b });
+    return /data-alu-open="\d+"[\s\S]*LXD-1204 открытый · [^<]+ · Стекло сатин бронз 4 мм/.test(secHtml()) && !/Для: <b>/.test(libHtml());
+  });
+  check('алюм. фасад: в спецификации свой блок, итог помечен неполным', () => {
+    const html = String(docsTab('spec').innerHTML || '');
+    return /Алюминиевые фасады/.test(html) && /без учёта позиций без цены/.test(html) && !/>null</.test(html);
+  });
+  // Конструктор без цели подбора — смотреть можно, «Выбрать» неактивна.
+  check('алюм. фасад: конструктор без цели — «Выбрать» неактивна', () =>
+    /id="libAluCtor"/.test(libHtml()) && /data-alu-draft-apply="1" disabled/.test(libHtml()));
+  // Подбор переключил Библиотеку на «Двери» — возвращаем «Базу модулей»,
+  // её ждут проверки ниже.
+  check('алюм. фасад: Библиотека обратно на «Базу модулей»', () => {
+    const tabs = document.getElementById('libTabs');
+    const modTab = Array.from(document.querySelectorAll('.lib-tab-btn')).filter((b) => b.dataset.libtab === 'modules')[0];
+    if (!tabs || !modTab) return false;
+    tabs.dispatch('click', { target: modTab });
+    return /База модулей/.test(libHtml());
+  });
+  check('алюм. фасад: вернуть ЛДСП', () => aluSet('facadeType', 'ldsp') && !/data-alu-open/.test(secHtml()));
+}
 check('есть кнопки выгрузки присадки', () =>
   !!document.getElementById('exportDrillCsv') && !!document.getElementById('exportDrillDxf'));
 check('кнопка «скрыть фасады» переключается', () => {
@@ -1058,6 +1254,29 @@ for (const id of ['hideFacades', 'addModule', 'saveProjectBtn', 'openProjectBtn'
   });
   app.setView('iso');
 })();
+// HUD модуля в 3D (ui-shell.js renderHud) подписывает «Материал:» по полю
+// #p-decor. С 2026-09-26 это не <select>, а плашка-кнопка (app.js
+// matPickPlashkaHtml) — клик по модулю в 3D при открытых «Материалах модуля»
+// раньше ронял HUD с TypeError (selectedText читал el.options).
+(function hudWithMaterialsOpenScenario() {
+  const v = sandbox.__viewer;
+  // Имя берём с вкладки модуля ДО перехода в «Материалы» (там вкладок нет) —
+  // тот же приём, что activeModuleName() в сценарии поворота выше.
+  const r = /<button class="mod-tab[^"]*\bactive\b[^"]*"[\s\S]*?>([^<]*)<\/button>/.exec(String($('paramsPanel').innerHTML || ''));
+  const name = r ? r[1].replace(/\s*↻\d+°\s*$/, '').trim() : '';
+  const openBtn = document.getElementById('materialsLinkBtn');
+  if (openBtn) openBtn.click();
+  check('HUD: «Материалы модуля» открыты (#p-decor — плашка)', () => !!name && !!document.getElementById('p-decor'));
+  check('HUD: клик по модулю в 3D при открытых материалах — без ошибки', () => {
+    if (!v || typeof v.onSelectModule !== 'function') return false;
+    v.onSelectModule(name);
+    const hud = String($('partHud').innerHTML || '');
+    return /Материал: [^<—]/.test(hud);
+  });
+  if (v && typeof v.onSelectModule === 'function') v.onSelectModule(null);
+  const back = document.getElementById('panelBack');
+  if (back && document.getElementById('p-decor')) back.click();
+})();
 for (const el of document.querySelectorAll('.tab-btn')) {
   check('вкладка: ' + (el.dataset.tab || el.id), () => { el.click(); return true; });
 }
@@ -1179,8 +1398,9 @@ for (const el of document.querySelectorAll('.tab-btn')) {
       if (mb) mb.click();
       const body = document.getElementById('p-decor');
       const facade = document.getElementById('p-facadeDecor');
-      if (!isWhite(body && body.value)) fails.push('кухня: корпус не стал белым');
-      if (facade && isWhite(facade.value)) fails.push('кухня: декор фасада тоже побелел');
+      // Поля — плашки (не <select>): выбранный код — в data-code.
+      if (!isWhite(body && body.dataset.code)) fails.push('кухня: корпус не стал белым');
+      if (facade && isWhite(facade.dataset.code)) fails.push('кухня: декор фасада тоже побелел');
       const back = document.getElementById('panelBack');
       if (back) back.click();
       // Материал ящиков — поле СЕКЦИИ на экране «Ящики» (#drawersDecor,
@@ -1417,6 +1637,41 @@ for (const el of document.querySelectorAll('.tab-btn')) {
       }
     }
   }
+}
+
+// Библиотека → «Двери» → «Алюминиевые фасады» (v311, app.js:
+// libAluFacadesHtml): заголовок раздела раскрывает четыре таблицы.
+{
+  const tabs = document.getElementById('libTabs');
+  const facTab = Array.from(document.querySelectorAll('.lib-tab-btn'))
+    .filter((b) => b.dataset.libtab === 'facades')[0];
+  const lib = document.getElementById('libraryPanel');
+  try {
+    if (!tabs || !facTab || !lib) fails.push('Библиотека: не найдена вкладка «Двери»');
+    else {
+      tabs.dispatch('click', { target: facTab });
+      const head = lib.querySelectorAll('[data-alu-lib-toggle]')[0];
+      if (!head) fails.push('Двери: нет раздела «Алюминиевые фасады»');
+      else {
+        // Раздел мог остаться раскрытым после проверок конструктора фасада
+        // (плашка секции раскрывает его сама) — щёлкаем, только если свёрнут.
+        if (String(lib.innerHTML || '').indexOf('lib-alu-body') < 0) lib.dispatch('click', { target: head });
+        const html = String(lib.innerHTML || '');
+        if (html.indexOf('Конструктор фасада') < 0 || html.indexOf('Конструктор фасада') > html.indexOf('Профили'))
+          fails.push('Алюминиевые фасады: нет «Конструктора фасада» над таблицами');
+        ['Профили', 'Цвета профиля', 'Комплектующие и работа', 'Производители готовых фасадов'].forEach((t) => {
+          if (html.indexOf(t) < 0) fails.push('Алюминиевые фасады: нет таблицы «' + t + '»');
+        });
+        if (!/data-alu-edit="profile"/.test(html)) fails.push('Алюминиевые фасады: цена профиля не редактируется');
+        if (!/class="alu-schema alu-sec alu-schema-sm/.test(html)) fails.push('Алюминиевые фасады: нет чертежа сечения профиля');
+        if (!/data-alu-img="pick"/.test(html)) fails.push('Алюминиевые фасады: нет кнопки «Загрузить чертёж» сечения');
+      }
+    }
+  } catch (e) { fails.push('Двери / Алюминиевые фасады: ' + e.message); }
+  // Дальше прогон проверяет вкладку «Фурнитура» — возвращаемся на неё.
+  const hwBack = Array.from(document.querySelectorAll('.lib-tab-btn'))
+    .filter((b) => b.dataset.libtab === 'hardware')[0];
+  if (tabs && hwBack) tabs.dispatch('click', { target: hwBack });
 }
 
 // Перетаскивание подкатегории на новое место среди соседей (app.js v281:

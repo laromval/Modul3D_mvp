@@ -70,9 +70,23 @@ function buildDetailingWorkbook(model, projectName) {
 }
 
 // --- Спецификация ------------------------------------------------------------
-// 1:1 копия exportSpecification() из src/export.js — те же 5 листов, те же
-// названия колонок. sym — см. DEFAULT_CURRENCY_SYMBOL выше.
-function sumOf(arr) { return (arr || []).reduce((s, r) => s + r.sum, 0); }
+// Основа — exportSpecification() из src/export.js (те же листы и колонки),
+// плюс лист «Алюминиевые фасады» (spec.aluFacades, v311) и пометка у ИТОГО
+// при spec.totalIncomplete. sym — см. DEFAULT_CURRENCY_SYMBOL выше.
+//
+// Цена/сумма/кол-во могут быть null («уточняйте цену» — петли для алюм.
+// рамки в spec.hardware, строки spec.aluFacades): пишем «—» и текст
+// пометки row.note в колонку «Примечание», 0 не подставляем. В суммы
+// разделов такие строки не входят (как и в spec.totalCost на клиенте).
+const DASH = '—';
+function sumOf(arr) {
+  const total = (arr || []).reduce((s, r) => {
+    const v = r && r.sum !== null && r.sum !== undefined ? Number(r.sum) : 0;
+    return s + (Number.isFinite(v) ? v : 0);
+  }, 0);
+  return Math.round(total * 100) / 100;
+}
+function orDash(v) { return v === null || v === undefined ? DASH : v; }
 
 function addSheet(wb, rows, name) {
   const ws = XLSX.utils.json_to_sheet(rows.length ? rows : [{ 'Нет позиций': '' }]);
@@ -95,10 +109,18 @@ function buildSpecificationWorkbook(spec, projectName) {
   }));
   addSheet(wb, edgeRows, '2. Кромка');
 
-  const hwRows = (spec.hardware || []).map((h, i) => ({
-    '№': i + 1, 'Позиция': h.name, 'Артикул': h.article, 'Ед. изм.': h.unit,
-    'Кол-во': h.qty, [`Цена, ${sym}`]: h.price, [`Сумма, ${sym}`]: h.sum,
-  }));
+  // Колонка «Примечание» — только если хоть у одной строки есть пометка,
+  // иначе лист как раньше.
+  const hwList = spec.hardware || [];
+  const hwHasNote = hwList.some((h) => h && h.note);
+  const hwRows = hwList.map((h, i) => {
+    const row = {
+      '№': i + 1, 'Позиция': h.name, 'Артикул': h.article, 'Ед. изм.': h.unit,
+      'Кол-во': orDash(h.qty), [`Цена, ${sym}`]: orDash(h.price), [`Сумма, ${sym}`]: orDash(h.sum),
+    };
+    if (hwHasNote) row['Примечание'] = h.note || '';
+    return row;
+  });
   addSheet(wb, hwRows, '3. Фурнитура');
 
   const fRows = (spec.fasteners || []).map((f, i) => ({
@@ -107,14 +129,39 @@ function buildSpecificationWorkbook(spec, projectName) {
   }));
   addSheet(wb, fRows, '4. Крепёж и метизы');
 
+  // Алюминиевые фасады — лист есть, только если в проекте есть такие фасады
+  // (старые проекты/клиенты без spec.aluFacades получают прежние 5 листов).
+  const alu = Array.isArray(spec.aluFacades) ? spec.aluFacades : [];
+  let n = 5;
+  if (alu.length) {
+    const aluRows = alu.map((r, i) => ({
+      '№': i + 1, 'Позиция': r.name, 'Артикул': r.article || '',
+      'Вариант': r.mode === 'own' ? 'своё изготовление' : 'покупной',
+      'Ед. изм.': r.unit || '', 'Кол-во': orDash(r.qty),
+      'Фасадов, шт': r.count != null ? r.count : '',
+      'Хлыстов/отрезков, шт': r.bars != null ? r.bars : '',
+      [`Цена, ${sym}`]: orDash(r.price), [`Сумма, ${sym}`]: orDash(r.sum),
+      'Примечание': r.note || '',
+    }));
+    addSheet(wb, aluRows, `${n}. Алюминиевые фасады`);
+    n += 1;
+  }
+
+  const unpricedN = Array.isArray(spec.unpricedItems) ? spec.unpricedItems.length : 0;
   const totalRows = [
     { 'Раздел': '1. Листовые материалы', [`Сумма, ${sym}`]: sumOf(spec.sheetMaterials) },
     { 'Раздел': '2. Кромка', [`Сумма, ${sym}`]: sumOf(spec.edging) },
     { 'Раздел': '3. Фурнитура', [`Сумма, ${sym}`]: sumOf(spec.hardware) },
     { 'Раздел': '4. Крепёж и метизы', [`Сумма, ${sym}`]: sumOf(spec.fasteners) },
-    { 'Раздел': 'ИТОГО', [`Сумма, ${sym}`]: spec.totalCost },
   ];
-  addSheet(wb, totalRows, '5. Итог');
+  if (alu.length) totalRows.push({ 'Раздел': '5. Алюминиевые фасады', [`Сумма, ${sym}`]: sumOf(alu) });
+  const totalRow = { 'Раздел': 'ИТОГО', [`Сумма, ${sym}`]: spec.totalCost };
+  if (spec.totalIncomplete) {
+    totalRow['Примечание'] = `без учёта позиций без цены (${unpricedN})`
+      + (unpricedN ? ': ' + spec.unpricedItems.join('; ') : '');
+  }
+  totalRows.push(totalRow);
+  addSheet(wb, totalRows, `${n}. Итог`);
 
   return XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
 }
