@@ -374,7 +374,8 @@ sandbox.Modul3D.viewer = {
     // viewName/onViewChange — как у настоящего Viewer3D (гизма видов):
     // экземпляр запоминаем, чтобы проверить переключение видов ниже.
     constructor() { this.onSelectModule = null; this.onViewChange = null; this.viewName = 'iso'; sandbox.__viewer = this; }
-    render() {} setView(name) { this.viewName = name; } dispose() {}
+    // Последняя отрисованная модель — сценарии проверяют по ней детали.
+    render(model) { if (model) sandbox.__lastModel = model; } setView(name) { this.viewName = name; } dispose() {}
     project() { return { x: 0, y: 0 }; }
     canvasSize() { return { w: 900, h: 600 }; }
   },
@@ -1332,9 +1333,97 @@ for (const id of ['hideFacades', 'addModule', 'saveProjectBtn', 'openProjectBtn'
   const back = document.getElementById('panelBack');
   if (back && document.getElementById('p-decor')) back.click();
 })();
+// Фокусный режим — точечная правка материала ОДНОЙ детали (2026-09-26):
+// изолировать модуль → клик по левой боковине → «Редактировать деталь» →
+// плашка «Материал этой детали» → Библиотека → «Выбрать» у МДФ-панели.
+// Меняется только левая боковина (материал и толщина из каталога), правая и
+// другие модули — как были, наружная ширина модуля та же; возврат — на экран
+// этой же детали; «Сбросить к материалу модуля» возвращает всё назад.
+(function partMaterialFocusScenario() {
+  const v = sandbox.__viewer;
+  const eng = sandbox.Modul3D.engine;
+  const cat = sandbox.Modul3D.catalog;
+  const panelHtml = () => String($('paramsPanel').innerHTML || '');
+  const pickBtns = () => libPanelEl().querySelectorAll('.lib-pick-btn');
+  const r = /<button class="mod-tab[^"]*\bactive\b[^"]*"[\s\S]*?>([^<]*)<\/button>/.exec(panelHtml());
+  const name = r ? r[1].replace(/\s*↻\d+°\s*$/, '').trim() : '';
+  const model = () => sandbox.__lastModel;
+  const sideOf = (m, mod, side) => (m.partsRaw || []).filter((q) => q.module === mod && q.kind === 'side'
+    && q.name.indexOf(side === 'left' ? 'лев' : 'прав') >= 0)[0];
+  const snap = (m) => (m.partsRaw || []).filter((q) => !(q.module === name && q.kind === 'side' && q.name.indexOf('лев') >= 0))
+    .map((q) => [q.module, q.name, q.material, q.thickness].join('|')).sort().join('\n');
+  const outer = (m) => {
+    const l = sideOf(m, name, 'left'), rr = sideOf(m, name, 'right');
+    return l && rr ? (rr.box.x + rr.box.w / 2) - (l.box.x - l.box.w / 2) : NaN;
+  };
+  const mdf = Object.values(cat.FACADE_MATERIALS).filter((m) => (m.categoryPath || [])[0] === 'МДФ-плита'
+    && eng.partMaterialOptions('side').some((o) => o.code === m.code))[0];
+  let before = null, left0 = null;
+  check('фокус/деталь: вход в редактор левой боковины', () => {
+    if (!v || !name || !mdf || typeof v.onIsolateModule !== 'function') return false;
+    v.onIsolateModule(name);
+    before = model();
+    left0 = before && sideOf(before, name, 'left');
+    if (!left0) return false;
+    v.onSelectPart({ module: name, kind: 'side', side: 'left', partKey: left0.grainKey || null, clientX: 10, clientY: 10 });
+    const menu = document.getElementById('focusMenu');
+    const item = menu && menu.querySelector('[data-i="0"]');
+    if (!item) return false;
+    item.click();
+    return /Боковина левая/.test(panelHtml()) && /id="partMaterial" data-mat-pick="part"/.test(panelHtml());
+  });
+  check('фокус/деталь: «Выбрать» только у листов для боковины, без стекла', () => {
+    const b = document.getElementById('partMaterial');
+    if (!b) return false;
+    b.click();
+    const allowed = eng.partMaterialOptions('side').map((o) => o.code);
+    const btns = pickBtns();
+    return btns.length > 0 && btns.every((x) => allowed.indexOf(x.attrs['data-pick-code']) !== -1)
+      && !allowed.some((c) => /^GLASS|^FAC-ALU|^FAC-WOOD/.test(c));
+  });
+  check('фокус/деталь: МДФ-панель — только на левую боковину, толщина из каталога, ширина модуля та же', () => {
+    const top = libPanelEl().querySelectorAll('[data-tree-node]').filter((x) => x.dataset.kind === 'top' && x.dataset.top === 'sheet')[0];
+    if (top) libPanelEl().dispatch('click', { target: top });
+    const leaf = libPanelEl().querySelectorAll('[data-tree-node]').filter((x) => x.dataset.kind === 'leaf'
+      && x.dataset.top === 'sheet' && x.dataset.path === mdf.categoryPath.join('::'))[0];
+    if (!leaf) return false;
+    libPanelEl().dispatch('click', { target: leaf });
+    const pb = pickBtns().filter((x) => x.attrs['data-pick-code'] === mdf.code)[0];
+    if (!pb) return false;
+    libPanelEl().dispatch('click', { target: pb });
+    const after = model();
+    const l = sideOf(after, name, 'left');
+    return !!l && l.material === mdf.code && l.thickness === Number(mdf.thickness) && l.box.w === Number(mdf.thickness)
+      && snap(after) === snap(before)
+      && Math.abs(outer(after) - outer(before)) < 0.11
+      && new RegExp(`id="partMaterial" data-mat-pick="part" data-code="${mdf.code}"`).test(panelHtml())
+      && /Сбросить к материалу модуля/.test(panelHtml())
+      && JSON.stringify(sandbox.Modul3D.specification.buildSpecification(after).sheetMaterials).indexOf(mdf.code) !== -1;
+  });
+  check('фокус/деталь: «Сбросить к материалу модуля» возвращает боковину', () => {
+    const b = document.getElementById('partMaterialReset');
+    if (!b) return false;
+    b.click();
+    const l = sideOf(model(), name, 'left');
+    return !!l && l.material === left0.material && l.thickness === left0.thickness && snap(model()) === snap(before)
+      && !/partMaterialReset/.test(panelHtml());
+  });
+  // Библиотеку — обратно на «Базу модулей» (дальше по прогону её ждут там).
+  const modTab = Array.from(document.querySelectorAll('.lib-tab-btn')).filter((b) => b.dataset.libtab === 'modules')[0];
+  const libTabs = document.getElementById('libTabs');
+  if (libTabs && modTab) libTabs.dispatch('click', { target: modTab });
+  // Выход из фокуса — пунктом «Выйти из фокуса» (exitFocusMode).
+  if (v && name && left0) {
+    v.onSelectPart({ module: name, kind: 'side', side: 'left', partKey: left0.grainKey || null, clientX: 10, clientY: 10 });
+    const menu = document.getElementById('focusMenu');
+    const item = menu && menu.querySelector('[data-i="1"]');
+    if (item) item.click();
+  }
+})();
 for (const el of document.querySelectorAll('.tab-btn')) {
   check('вкладка: ' + (el.dataset.tab || el.id), () => { el.click(); return true; });
 }
+
 
 // --- отдельный прогон: файл из src не загрузился ---------------------------
 // Приложение обязано показать, ЧТО именно не загрузилось, а не молчать

@@ -1035,6 +1035,8 @@ const state = {
   //   { role: 'facadeMaterial', moduleIdx, moduleName, secIdx, zoneIdx,
   //     returnTo: 'materials' | 'module' } — материал фасада секции
   //     (zoneIdx null) или отсека; для alu — цель конструктора фасада;
+  //   { role: 'partMaterial', moduleIdx, moduleName, key, kind, returnTo: 'part' } —
+  //     материал ОДНОЙ детали с экрана «Деталь» (mod.partOverrides[key]);
   //   { role: 'aluFill', parent } — заполнение рамки в конструкторе
   //     (state.aluDraft), parent — цель facadeMaterial, к которой вернуться.
   // Пока не пуст, таблицы Библиотеки рисуют «Выбрать» у подходящих строк
@@ -7462,6 +7464,24 @@ function libPickMaterial(rowGroup, code) {
     libShowAluConstructor();
     return;
   }
+  if (target.role === 'partMaterial') {
+    // Материал ОДНОЙ детали с экрана «Деталь» (фокусный режим) — код НАПРЯМУЮ
+    // в mod.partOverrides[key].materialOverride (ядро ищет код во всех
+    // списках: applyPartOverrides/sideT → aluFillMaterial), без копии в
+    // другой массив. Толщина — из каталога в thicknessOverride (потом её
+    // можно поправить вручную полем «Толщина»). Другие детали не трогаем.
+    const opt = partMaterialOptionsOf(target.kind).filter((o) => o.code === code)[0];
+    if (!opt) return;
+    const mod = partPickTargetModule(target);
+    if (!mod) { state.libPickTarget = null; renderLibraryPanel(); return; }
+    mod.partOverrides = mod.partOverrides || {};
+    const ov = mod.partOverrides[target.key] = mod.partOverrides[target.key] || {};
+    ov.materialOverride = code;
+    if (opt.thickness > 0) ov.thicknessOverride = opt.thickness; else delete ov.thicknessOverride;
+    state.activeModule = state.modules.indexOf(mod);
+    libPickReturnToParams(target, null);
+    return;
+  }
   if (target.role === 'facadeMaterial') {
     // Материал фасада секции/отсека (ldsp/mdf/glass4) — код пишется НАПРЯМУЮ
     // в sec.facadeMaterial или sec.doorZones[zi].facadeMaterial (ядро ищет
@@ -7611,6 +7631,9 @@ function libPickReturnToParams(target, info) {
     if (target.returnTo === 'materials') setMatFacadeZone(info.zi);
   }
   if (target.returnTo === 'materials' || target.returnTo === 'module') state.panelView = target.returnTo;
+  // Экран «Деталь» — только если выбранная деталь всё ещё в этом модуле
+  // (иначе renderParamsPanel сам откатит на параметры модуля).
+  if (target.returnTo === 'part' && state.selectedPart) state.panelView = 'part';
   renderLibraryPanel();   // убирает колонку «Выбрать» сразу, не дожидаясь повторного открытия
   // openDrawer сам закроет Библиотеку.
   if (window.Modul3D.uiShell) {
@@ -7622,6 +7645,8 @@ function libPickReturnToParams(target, info) {
   let el = null;
   if (target.returnTo === 'materials') {
     el = info ? document.getElementById('matFacadeField') : document.querySelector(`#paramsPanel [data-mat-pick="${target.role}"]`);
+  } else if (target.returnTo === 'part') {
+    el = document.getElementById('partMaterial');
   } else if (target.returnTo === 'module' && info) {
     el = document.querySelector(`[data-alu-open="${target.secIdx}"]`)
       || document.querySelector(`[data-sec-facade-pick="${target.secIdx}"]`);
@@ -7891,28 +7916,20 @@ function libFindMaterialUsages(group, code) {
       });
     });
     // mod.partOverrides[key].materialOverride — ручное переопределение
-    // материала конкретной детали с экрана «Деталь» (#partMaterial, см.
-    // ensureOverride().materialOverride ниже по файлу). key — это
-    // `[kind, section, side, index].join('|')` (applyPartOverrides в
-    // engine.js), поэтому kind = key.split('|')[0] всегда один из
-    // OVERRIDABLE_KINDS ('side'/'bottom'/'top'/'back'/'plinth'). Каталог,
-    // из которого выбирается код, зависит от kind: 'back' → BACK_MATERIALS
-    // (группа 'back'), любой другой overridable kind → DECORS (группа
-    // 'decors') — см. `const decorList = kind === 'back' ? BACK_MATERIALS
-    // : DECORS;` в partEditorBlock. Сравниваем только с той группой,
-    // которая реально соответствует kind, иначе переопределение задней
-    // стенки ложно всплывёт при удалении из «decors» и наоборот.
-    if (group === 'decors' || group === 'back') {
-      Object.keys(mod.partOverrides || {}).forEach((key) => {
-        const ov = mod.partOverrides[key];
-        if (!ov || ov.materialOverride !== code) return;
-        const kind = key.split('|')[0];
-        const ovGroup = kind === 'back' ? 'back' : 'decors';
-        if (ovGroup !== group) return;
-        const title = PART_KIND_TITLES[kind] || kind;
-        usages.push({ moduleName: name, part: `деталь «${title}» — ручное переопределение материала` });
-      });
-    }
+    // материала ОДНОЙ детали с экрана «Деталь» (плашка #partMaterial,
+    // libPickMaterial роль 'partMaterial'). Код может быть из любого списка
+    // (DECORS/BACK_MATERIALS/FACADE_MATERIALS — engine.partMaterialOptions),
+    // ядро ищет его во всех, поэтому, как у столешницы/фасада выше, проверяем
+    // независимо от group. key — `kind|section|side|index` (applyPartOverrides
+    // в engine.js).
+    Object.keys(mod.partOverrides || {}).forEach((key) => {
+      const ov = mod.partOverrides[key];
+      if (!ov || ov.materialOverride !== code) return;
+      const bits = key.split('|');
+      const title = PART_KIND_TITLES[bits[0]] || bits[0];
+      const sideTxt = bits[2] === 'left' ? ' левая' : bits[2] === 'right' ? ' правая' : '';
+      usages.push({ moduleName: name, part: `деталь «${title}${sideTxt}» — свой материал (фокусный режим)` });
+    });
   });
   return usages;
 }
@@ -10538,7 +10555,6 @@ function partBlock(mod) {
 
   const part = chosen.part;
   const ov = (mod.partOverrides && mod.partOverrides[chosen.key]) || {};
-  const decorList = kind === 'back' ? BACK_MATERIALS : DECORS;
   const extraHoles = Array.isArray(ov.extraHoles) ? ov.extraHoles : [];
 
   let kindSpecific;
@@ -10558,9 +10574,9 @@ function partBlock(mod) {
       <label>Конструктив</label>
       <select id="${selectId}">${sideOptions(cur)}</select>
     </div>
-    ${visible ? `
-    <div class="hint">Эта боковина видимая — режется в декоре фасада.</div>
-    <button class="link-btn" id="partToFacadeDecor" type="button">Изменить декор фасада →</button>` : ''}`;
+    ${visible && !ov.materialOverride ? `
+    <div class="hint">Эта боковина видимая — режется из материала «Видимая боковина» проекта.
+    Материал ТОЛЬКО этой боковины меняется полем «Материал этой детали» ниже.</div>` : ''}`;
   } else if (kind === 'top' && (mod.topType === 'rails' || mod.topType === 'railsEdge')) {
     // Верх модуля из двух планок можно положить плашмя (толщина детали
     // лежит по вертикали) или поставить на ребро (толщина лежит по
@@ -10591,8 +10607,14 @@ function partBlock(mod) {
         <input id="partThickness" type="number" min="1" step="0.5" value="${part.thickness}">
       </div>
       <div class="field">
-        <label>Материал / декор</label>
-        <select id="partMaterial">${decorList.map(d => `<option value="${d.code}" ${d.code === part.material ? 'selected' : ''}>${esc(d.name)}</option>`).join('')}</select>
+        <label>Материал этой детали</label>
+        ${matPickPlashkaHtml('part', 'partMaterial', part.material)}
+        <div class="hint">Меняется только эта деталь. Толщина подставляется из каталога —
+        её можно поправить вручную.${kind === 'side' ? ' Наружный размер модуля не меняется: боковина растёт внутрь, внутренние детали подгоняются.' : ''}</div>
+        ${(ov.materialOverride || ov.thicknessOverride) ? `
+        <button class="link-btn" id="partMaterialReset" type="button">Сбросить к материалу модуля</button>` : ''}
+        ${kind === 'side' && part.facadeType === 'sidePanel' ? `
+        <button class="link-btn dim" id="partToFacadeDecor" type="button">Изменить материал всех видимых боковин проекта →</button>` : ''}
       </div>
       ${partGrainField(part)}
 
@@ -11182,6 +11204,39 @@ function openMaterialPicker(role) {
   libOpenPickLocation('sheet', path);
 }
 
+// Экран «Деталь» (фокусный режим) → плашка «Материал этой детали»: подбор в
+// Библиотеке материала ОДНОЙ детали (решение пользователя 2026-09-26 —
+// «хирургическая» правка: меняется только выбранная деталь, никаких переходов
+// в «Материалы модуля»). «Выбрать» (libPickMaterial, роль 'partMaterial')
+// пишет mod.partOverrides[key].materialOverride + thicknessOverride из
+// каталога и возвращает на экран этой же детали. Список допустимых листов —
+// из ядра (engine.partMaterialOptions).
+function partMaterialOptionsOf(kind) {
+  const engine = window.Modul3D.engine;
+  return engine && typeof engine.partMaterialOptions === 'function' ? engine.partMaterialOptions(kind) : [];
+}
+function openPartMaterialPicker() {
+  const mod = state.modules[state.activeModule];
+  const sp = state.selectedPart;
+  if (!mod || !sp || !OVERRIDABLE_PART_KINDS.has(sp.kind)) return;
+  const { chosen } = resolveSelectedPart(mod);
+  if (!chosen) return;
+  state.libPickTarget = { role: 'partMaterial', moduleIdx: state.activeModule, moduleName: mod.name,
+    key: chosen.key, kind: sp.kind, returnTo: 'part' };
+  // На листе текущего материала детали, если он есть в Библиотеке; иначе —
+  // «Листовые материалы» → ДСП (задняя стенка — раздел ХДФ/ДВП).
+  const loc = libLocateMaterial(chosen.part.material);
+  if (loc && loc.topCode !== 'countertop' && loc.topCode !== 'glass') { libOpenPickLocation(loc.topCode, loc.path); return; }
+  const b0 = BACK_MATERIALS[0] && Array.isArray(BACK_MATERIALS[0].categoryPath) ? BACK_MATERIALS[0].categoryPath : [];
+  libOpenPickLocation('sheet', sp.kind === 'back' ? b0.slice(0, 1) : ['ДСП']);
+}
+// Модуль цели подбора материала детали или null, если модуль удалён/
+// переименован (тогда «Выбрать» ничего не пишет).
+function partPickTargetModule(t) {
+  const mod = t && state.modules[t.moduleIdx];
+  return mod && mod.name === t.moduleName ? mod : null;
+}
+
 // Где материал лежит в дереве Библиотеки: { topCode, path } (путь — полный
 // categoryPath позиции) или null. Порядок — как строит деревья libTopEntries:
 // FACADE_MATERIALS с первым сегментом из SHEET_FACADE_SUBCATS — «Листовые
@@ -11258,6 +11313,7 @@ function libPickRowAllowed(topCode, entry) {
   const cp = Array.isArray(it.categoryPath) ? it.categoryPath : [];
   const sheetLike = topCode === 'sheet' || String(topCode).indexOf('matcustom-') === 0;
   if (t.role === 'aluFill') return topCode !== 'countertop' && aluFillPickAllowed(code);
+  if (t.role === 'partMaterial') return topCode !== 'countertop' && partMaterialOptionsOf(t.kind).some((o) => o.code === code);
   if (t.role === 'countertopDecor') return topCode === 'countertop' || sheetLike;
   if (topCode === 'countertop') return false;
   if (t.role === 'decor') return sheetLike && entry.group !== 'back';
@@ -13465,6 +13521,7 @@ function bindPanelEvents() {
       btn.addEventListener('click', () => {
         const role = btn.dataset.matPick;
         if (role === 'facade') openFacadeMaterialPicker(matFacadeTarget(), 'materials');
+        else if (role === 'part') openPartMaterialPicker();
         else openMaterialPicker(role);
       });
     });
@@ -13561,8 +13618,18 @@ function bindPanelEvents() {
       recompute();
       renderParamsPanel();
     });
-    on('partMaterial', 'change', (e) => {
-      ensureOverride().materialOverride = e.target.value;
+    // Материал детали выбирается в Библиотеке (плашка #partMaterial →
+    // openPartMaterialPicker → libPickMaterial, роль 'partMaterial'). Здесь —
+    // только «Сбросить к материалу модуля»: снимаем материал и толщину этой
+    // детали (отверстия и прочие правки остаются).
+    on('partMaterialReset', 'click', () => {
+      const ov = mod.partOverrides && mod.partOverrides[key];
+      if (!ov) return;
+      delete ov.materialOverride;
+      delete ov.thicknessOverride;
+      if (!Object.keys(ov).some((k) => k !== 'extraHoles' || (Array.isArray(ov.extraHoles) && ov.extraHoles.length))) {
+        delete mod.partOverrides[key];
+      }
       recompute();
       renderParamsPanel();
     });

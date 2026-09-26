@@ -1375,6 +1375,34 @@ function visibleSideMaterialOptions() {
   facadeMaterialOptions('mdf').forEach((o) => { if (!seen[o.code]) { seen[o.code] = true; out.push(o); } });
   return out.filter((o) => Number(o.thickness) >= VISIBLE_SIDE_MIN_T);
 }
+// Для UI экрана «Деталь» (фокусный режим, точечная правка материала ОДНОЙ
+// детали — решение пользователя 2026-09-26): [{ code, name, thickness }] —
+// листы, которыми можно заменить деталь вида kind (OVERRIDABLE_KINDS).
+// Все листы DECORS (кроме стекла) + ЛДСП/МДФ-панели FACADE_MATERIALS
+// (Библиотека: «Листовые материалы» и «Двери»); задней стенке — ещё
+// BACK_MATERIALS. Только позиции с толщиной в каталоге (она подставляется в
+// thicknessOverride детали). Стекло, алюм. профиль и массив на заказ в
+// корпусную деталь не годятся — их нет. Боковине — не тоньше
+// VISIBLE_SIDE_MIN_T (крепёж корпуса в пласть боковины, как у «Видимой боковины»).
+function partMaterialOptions(kind) {
+  const cat = window.Modul3D.catalog;
+  const out = [];
+  const seen = {};
+  const push = (m) => {
+    if (!m || !m.code || seen[m.code] || isGlassMaterial(m)) return;
+    const th = Number(m.thickness);
+    if (!(th > 0)) return;
+    seen[m.code] = true;
+    out.push({ code: m.code, name: m.name || m.code, thickness: th });
+  };
+  if (kind === 'back') (cat.BACK_MATERIALS || []).forEach(push);
+  (cat.DECORS || []).forEach(push);
+  Object.values(cat.FACADE_MATERIALS || {}).forEach((m) => {
+    const k = facadeMaterialKind(m);
+    if (k === 'ldsp' || k === 'mdf') push(m);
+  });
+  return kind === 'side' ? out.filter((o) => o.thickness >= VISIBLE_SIDE_MIN_T) : out;
+}
 // Материал видимой боковины/цоколя: { code, name, kind, thickness }.
 // thickness — РЕАЛЬНАЯ толщина выбранного листа из каталога для любого
 // материала (ЛДСП 18,6 → 18,6; МДФ 19 → 19; решение 2026-09-26). Поле
@@ -5780,6 +5808,8 @@ window.Modul3D.engine = {
   facadeMaterialOptions, facadeMaterialOf, zoneFacadeSettings, ZONE_FACADE_KEYS,
   // «Видимая боковина» (проектный facadeDecor): ЛДСП/ДСП + фасадные МДФ-панели.
   visibleSideMaterialOptions,
+  // Экран «Деталь»: чем можно заменить материал ОДНОЙ детали вида kind.
+  partMaterialOptions,
   // Чистая функция раскладки вертикальных зон фасада — переиспользуется в
   // app.js (контекстное «Разделить на секции» из 3D), чтобы не дублировать
   // формулу стыков между зонами.
