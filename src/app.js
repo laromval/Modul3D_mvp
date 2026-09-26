@@ -14,7 +14,7 @@
 (function () {
 // Версия сборки — показывается во вкладке браузера и в шапке.
 // При выпуске новой версии меняется только эта строка.
-const APP_VERSION = 'v312';
+const APP_VERSION = 'v313';
 
 // Номер версии выводим ПЕРВЫМ делом: если дальше что-то упадёт, по нему сразу
 // видно, какая сборка открыта.
@@ -2511,13 +2511,29 @@ function openLibSwatchZoomPreview(anchorEl, opts) {
   box.style.left = Math.round(left) + 'px';
   box.style.top = Math.round(top) + 'px';
   if (isSwatchAnchor) {
-    // Touch: закрываем по тапу мимо превью (и мимо самой миниатюры-якоря,
-    // иначе тот же тап, что превью открыл, тут же его бы и закрыл) — тот же
-    // приём отложенной подписки на document, что и у openLibMoveMenu выше
-    // (setTimeout 0, чтобы не поймать текущий, уже идущий клик).
+    // Touch: закрываем тапом В ЛЮБОМ месте — включая саму картинку внутри
+    // превью, это и есть ожидаемый способ закрыть (не только «мимо» самого
+    // бокса) — кроме тапа по кнопке «Перейти на сайт» (.lib-swatch-zoom-link,
+    // ей нужно долистать до навигации, а не закрыться раньше) и по исходной
+    // миниатюре-якорю (иначе тот же тап, что превью открыл, тут же его бы и
+    // закрыл). У позиций без ссылки (opts.showLink=false или нет sourceUrl,
+    // например чертёж присадки) .lib-swatch-zoom-link в разметке нет вовсе —
+    // там тап по картинке закрывает превью так же, как по любому другому
+    // месту. Тот же приём отложенной подписки на document, что и у
+    // openLibMoveMenu выше (setTimeout 0, чтобы не поймать текущий, уже
+    // идущий клик).
     setTimeout(() => {
+      // Превью успели переоткрыть раньше этого тика — этот бокс уже удалён,
+      // не вешаем для него обработчик (иначе он повиснет на document).
+      if (!box.isConnected) return;
       libSwatchZoomOutsideHandler = (e) => {
-        if (box.contains(e.target) || anchorEl.contains(e.target)) return;
+        if (anchorEl.contains(e.target)) return;
+        if (e.target.closest && e.target.closest('.lib-swatch-zoom-link')) return;
+        // Тап по самой картинке закрываем только на click, не на touchstart:
+        // иначе превью исчезает под пальцем раньше, чем браузер сгенерирует
+        // click, и тот «проваливается» на строку таблицы под превью
+        // (выделяет её или открывает другую миниатюру).
+        if (e.type === 'touchstart' && box.contains(e.target)) return;
         closeLibSwatchZoomPreview();
       };
       document.addEventListener('click', libSwatchZoomOutsideHandler);
