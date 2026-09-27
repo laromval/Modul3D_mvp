@@ -297,7 +297,8 @@ const document = {
   title: '',
   body: new El('body', 'body'),
   // style.setProperty нужен ui-shell (переменные --drawer-sheet-h/--mobile-drawer-h
-  // высоты нижнего листа на телефоне, v314)
+  // высоты нижнего листа на телефоне, v314, и --docs-h высоты панели «Документы»
+  // на компьютере, v315)
   documentElement: (() => {
     const html = new El('html', 'html');
     html.style.setProperty = function (k, v) { this[k] = v; };
@@ -1323,6 +1324,178 @@ for (const el of document.querySelectorAll('.tab-btn')) {
     el.dispatch('change', { target: el });
     drawBtn.click();
   }
+}
+
+// Панель «Документы» на компьютере: настраиваемая высота и отступ для 3D
+// (ui-shell.js, раздел 7б′) и масштаб чертежей (раздел 7в). Прогон без
+// браузера — проверяем логику и разметку, а не пиксели: границы высоты,
+// запоминание доли окна, двойной щелчок, событие modul3d:drawer-inset, клавиши
+// +/−, ползунок и кнопки, обёртку масштаба, сохранение масштаба при
+// перерисовке и то, что печать чертежей от масштаба не зависит.
+{
+  const shell = sandbox.Modul3D.uiShell;
+  const insetEvents = [];
+  // Заглушки окна: CustomEvent/dispatchEvent в песочнице нет — ставим свои и
+  // убираем в конце, чтобы остальные проверки шли в прежней среде.
+  sandbox.CustomEvent = class { constructor(type, init) { this.type = type; this.detail = (init || {}).detail; } };
+  sandbox.dispatchEvent = (ev) => { if (ev && ev.type === 'modul3d:drawer-inset') insetEvents.push(ev.detail.bottom); return true; };
+  const lastInset = () => insetEvents[insetEvents.length - 1];
+  const key = (ev) => document.dispatch('keydown', Object.assign({ target: document.body }, ev));
+  const tabBtn = (name) => Array.from(document.querySelectorAll('.tab-btn')).filter((b) => b.dataset.tab === name)[0];
+  const stored = {};
+  const origSet = sandbox.localStorage.setItem, origRemove = sandbox.localStorage.removeItem;
+  sandbox.localStorage.setItem = (k, v) => { stored[k] = String(v); };
+  sandbox.localStorage.removeItem = (k) => { delete stored[k]; };
+
+  // --- разметка ---
+  check('разметка: ручка высоты «Документов» и ряд масштаба чертежей', () =>
+    !!document.getElementById('docsResize') && !!document.getElementById('dwZoomBar')
+    && !!document.getElementById('dwZoomPct') && !!document.getElementById('dwZoomOut')
+    && !!document.getElementById('dwZoomIn') && !!document.getElementById('dwZoomRange'));
+  check('разметка: ползунок 25–400%, стартовое значение 100', () => {
+    const r = document.getElementById('dwZoomRange');
+    return r.attrs.type === 'range' && r.attrs.min === '25' && r.attrs.max === '400' && String(r.value) === '100';
+  });
+  check('разметка: в горячих клавишах есть «+ / −»', () =>
+    /hotkeys-key">\+ \/ [−-]<\/span><span class="hotkeys-desc">Масштаб чертежей/.test(INDEX));
+
+  // --- высота панели «Документы» на компьютере ---
+  check('компьютер: левая панель не закрывает низ 3D', () => shell.getDrawerInset() === 0);
+  shell.openDrawer('docs');
+  const hDefault = shell.getDocsHeight();
+  check('компьютер: высота по умолчанию min(62vh, 560px)', () =>
+    hDefault === Math.min(Math.round(900 * 0.62), 560));
+  check('компьютер: «Документы» → отступ для 3D не меньше высоты панели', () =>
+    shell.getDrawerInset() >= hDefault && lastInset() === shell.getDrawerInset());
+  document.documentElement.setAttribute('data-rail-pos', 'bottom-left');
+  check('компьютер: рейка слева снизу поднимает панель — отступ больше', () =>
+    shell.getDrawerInset() > hDefault + 60);
+  document.documentElement.setAttribute('data-rail-pos', 'header-end');
+
+  const grip = {
+    _l: {},
+    closest(s) { return s === '#docsResize' ? this : null; },
+    setPointerCapture() {}, releasePointerCapture() {},
+    addEventListener(t, f) { (this._l[t] = this._l[t] || []).push(f); },
+    removeEventListener(t, f) { this._l[t] = (this._l[t] || []).filter((x) => x !== f); },
+    fire(t, e) { (this._l[t] || []).slice().forEach((f) => f(e)); },
+  };
+  const drag = (dy) => {
+    document.dispatch('pointerdown', { target: grip, button: 0, pointerId: 7, pointerType: 'mouse', isPrimary: true, clientY: 500 });
+    grip.fire('pointermove', { pointerId: 7, buttons: 1, clientY: 500 - dy });
+    grip.fire('pointerup', { pointerId: 7 });
+  };
+  drag(100);
+  check('высота «Документов»: тянем вверх — выше на столько же', () => shell.getDocsHeight() === hDefault + 100);
+  check('высота «Документов»: итоговое событие отступа после жеста', () =>
+    lastInset() === shell.getDrawerInset() && lastInset() >= hDefault + 100);
+  check('высота «Документов» запоминается долей окна (modul3d.docsH)', () =>
+    Math.abs(parseFloat(stored['modul3d.docsH']) - (hDefault + 100) / 900) < 0.002);
+  drag(5000);
+  check('высота «Документов»: не выше 90% окна', () => shell.getDocsHeight() === Math.round(900 * 0.9));
+  drag(-5000);
+  check('высота «Документов»: не ниже 25% окна', () => shell.getDocsHeight() === Math.round(900 * 0.25));
+  document.dispatch('dblclick', { target: grip });
+  check('двойной щелчок по ручке — высота по умолчанию', () => shell.getDocsHeight() === hDefault);
+  check('после сброса ключ modul3d.docsH снят (по умолчанию)', () => stored['modul3d.docsH'] === undefined);
+  check('после сброса отступ для 3D соответствует высоте', () => lastInset() === shell.getDrawerInset());
+  shell.openDrawer('params');
+  check('компьютер: сменили панель на левую — отступ 0', () => shell.getDrawerInset() === 0 && lastInset() === 0);
+  shell.openDrawer('docs');
+  shell.closeDrawer('docs');
+  check('компьютер: «Документы» закрыты — отступ 0', () => shell.getDrawerInset() === 0 && lastInset() === 0);
+
+  // --- масштаб чертежей ---
+  shell.openDrawer('docs');
+  tabBtn('detailing').click();
+  tabBtn('drawings').click();          // вкладка «Чертежи» активна и раскрыта
+  check('вкладка «Чертежи»: ряд масштаба показывается через data-docs-tab', () =>
+    document.querySelector('.results').getAttribute('data-docs-tab') === 'drawings');
+  check('масштаб чертежей: старт 100%', () => shell.getDrawingsZoom() === 100);
+  check('чертежи лежат в обёртке масштаба', () => {
+    const html = String(docsTab('drawings').innerHTML || '');
+    return /id="dwZoom"/.test(html) && /id="dwSheet"/.test(html) && /Габарит проекта/.test(html);
+  });
+  key({ key: '+', code: 'Equal', shiftKey: true });
+  check('клавиша «+» — 110%', () => shell.getDrawingsZoom() === 110);
+  check('подпись и ползунок показывают 110%', () =>
+    $('dwZoomPct').textContent === '110%' && String($('dwZoomRange').value) === '110');
+  check('масштаб 110% выставлен на обёртку и лист', () =>
+    $('dwZoom').style.width === '110%' && /^scale\(1\.1\)$/.test($('dwSheet').style.transform || ''));
+  key({ key: '-', code: 'Minus' });
+  check('клавиша «−» — снова 100%', () => shell.getDrawingsZoom() === 100);
+  check('при 100% inline-стили обёртки сняты', () =>
+    $('dwZoom').style.width === '' && $('dwSheet').style.transform === '');
+  key({ key: '-', code: 'NumpadSubtract' });
+  check('NumpadSubtract — 90%', () => shell.getDrawingsZoom() === 90);
+  key({ key: '+', code: 'Equal', ctrlKey: true });
+  key({ key: '+', code: 'NumpadAdd', metaKey: true });
+  key({ key: '+', code: 'NumpadAdd', altKey: true });
+  check('Ctrl/Meta/Alt + «+» масштаб не трогают (остаётся зум браузера)', () => shell.getDrawingsZoom() === 90);
+  key({ key: '+', code: 'NumpadAdd', target: { tagName: 'INPUT', id: 'm-width' } });
+  key({ key: '-', code: 'Minus', target: { tagName: 'TEXTAREA', id: 'x' } });
+  key({ key: '+', code: 'NumpadAdd', target: { tagName: 'DIV', id: 'x', isContentEditable: true } });
+  check('в полях ввода/contenteditable клавиши ± масштаб не трогают', () => shell.getDrawingsZoom() === 90);
+  key({ key: '+', code: 'NumpadAdd', target: { tagName: 'INPUT', id: 'dwZoomRange' } });
+  check('на самом ползунке клавиша «+» работает', () => shell.getDrawingsZoom() === 100);
+
+  $('dwZoomRange').value = '150';
+  $('dwZoomRange').dispatch('input');
+  check('ползунок: 150%', () => shell.getDrawingsZoom() === 150 && $('dwZoomPct').textContent === '150%');
+  $('dwZoomIn').click();
+  check('кнопка «+»: шаг 10 п.п.', () => shell.getDrawingsZoom() === 160);
+  $('dwZoomOut').click();
+  $('dwZoomOut').click();
+  check('кнопка «−»: шаг 10 п.п.', () => shell.getDrawingsZoom() === 140);
+  shell.setDrawingsZoom(9999);
+  check('верхняя граница 400%, кнопка «+» недоступна', () => shell.getDrawingsZoom() === 400 && $('dwZoomIn').disabled === true);
+  shell.setDrawingsZoom(1);
+  check('нижняя граница 25%, кнопка «−» недоступна', () => shell.getDrawingsZoom() === 25 && $('dwZoomOut').disabled === true);
+  for (let i = 0; i < 8; i++) key({ key: '+', code: 'NumpadAdd' });
+  check('из 25% восемь «+» ровно в 100% (шаг по круглым значениям)', () => shell.getDrawingsZoom() === 100);
+
+  // Перерисовка чертежей (правка габарита) масштаб не сбрасывает.
+  shell.setDrawingsZoom(150);
+  const hEl = document.getElementById('m-height');
+  if (!hEl) fails.push('масштаб чертежей: нет поля высоты для проверки перерисовки');
+  else {
+    const hRestore = String(hEl.value);
+    const before = String($('tab-drawings').innerHTML || '');
+    hEl.value = String(Number(hEl.value) + 40);
+    hEl.dispatch('change', { target: hEl });
+    check('перерисовка чертежей: разметка обновилась, масштаб 150% на месте', () =>
+      String($('tab-drawings').innerHTML || '') !== before && shell.getDrawingsZoom() === 150
+      && $('dwZoom').style.width === '150%' && /^scale\(1\.5\)$/.test($('dwSheet').style.transform || ''));
+    hEl.value = hRestore;
+    hEl.dispatch('change', { target: hEl });
+  }
+
+  // Печать чертежей — всегда стандартный вид, без обёртки и ряда масштаба.
+  {
+    let printed = '';
+    sandbox.open = () => ({ document: { write: (h) => { printed += h; }, close() {} }, focus() {}, print() {} });
+    document.getElementById('printDrawings').click();
+    delete sandbox.open;
+    check('печать чертежей при масштабе 150%: те же чертежи', () => /Габарит проекта/.test(printed) && /<svg/.test(printed));
+    check('печать чертежей: без обёртки масштаба и ползунка', () =>
+      !/dw-zoom|dwSheet|dwZoom|dw-sheet/.test(printed));
+  }
+
+  // Вне вкладки «Чертежи» и при закрытых «Документах» клавиши ± ничего не делают.
+  tabBtn('detailing').click();
+  key({ key: '+', code: 'NumpadAdd' });
+  check('на вкладке «Деталировка» клавиша «+» масштаб чертежей не трогает', () => shell.getDrawingsZoom() === 150);
+  shell.closeDrawer('docs');
+  key({ key: '-', code: 'Minus' });
+  check('при закрытых «Документах» клавиша «−» масштаб не трогает', () => shell.getDrawingsZoom() === 150);
+  shell.resetDrawingsZoom();
+  check('сброс масштаба — 100%', () => shell.getDrawingsZoom() === 100 && $('dwZoomPct').textContent === '100%');
+
+  // Возвращаем среду прогона.
+  delete sandbox.CustomEvent;
+  delete sandbox.dispatchEvent;
+  sandbox.localStorage.setItem = origSet;
+  sandbox.localStorage.removeItem = origRemove;
 }
 
 // Паспорт системы ящиков виден в спецификации и предупреждает о

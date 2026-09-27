@@ -14,7 +14,7 @@
 (function () {
 // Версия сборки — показывается во вкладке браузера и в шапке.
 // При выпуске новой версии меняется только эта строка.
-const APP_VERSION = 'v314';
+const APP_VERSION = 'v315';
 
 // Номер версии выводим ПЕРВЫМ делом: если дальше что-то упадёт, по нему сразу
 // видно, какая сборка открыта.
@@ -12666,14 +12666,27 @@ function renderWarnings(warnings) {
   document.getElementById('warnings').innerHTML = warnings.map(w => `⚠ ${esc(w)}`).join('<br>');
 }
 
+// «Сырая» разметка чертежей — ровно то, что вернул buildDrawings, БЕЗ обёртки
+// масштаба (ui-shell.js, раздел 7в). Печать чертежей берёт её, а не
+// innerHTML вкладки: печать не должна зависеть от масштаба на экране.
+let drawingsRawHtml = '';
+
 function renderDrawings(model) {
   const el = document.getElementById('tab-drawings');
+  let html;
   try {
-    el.innerHTML = buildDrawings(model, !state.hideFacades);
+    html = buildDrawings(model, !state.hideFacades);
   } catch (err) {
     console.error('Drawings render failed:', err);
-    el.innerHTML = `<div style="color:#a33;font-size:13px;padding:10px">Не удалось построить чертежи: ${esc(err.message)}</div>`;
+    html = `<div style="color:#a33;font-size:13px;padding:10px">Не удалось построить чертежи: ${esc(err.message)}</div>`;
   }
+  drawingsRawHtml = html;
+  // Чертежи пишутся в обёртке масштаба (ui-shell.js: setDrawingsContent —
+  // держит масштаб и позицию прокрутки при перерисовке). Нет ui-shell — пишем
+  // разметку как есть: чертежи те же, просто без масштаба.
+  const shell = window.Modul3D.uiShell;
+  if (shell && typeof shell.setDrawingsContent === 'function' && shell.setDrawingsContent(html)) return;
+  el.innerHTML = html;
 }
 
 // ---------------------------------------------------------------------------
@@ -13217,6 +13230,10 @@ function setDocsTab(name, toggle) {
   if (btn) btn.classList.add('active');
   const panel = document.getElementById('tab-' + name);
   if (panel) panel.classList.add('active');
+  // Ряд масштаба чертежей (#dwZoomBar) виден только на вкладке «Чертежи»: он
+  // стоит ПЕРЕД панелями вкладок, а CSS не умеет выбрать элемент по состоянию
+  // следующих за ним — поэтому текущая вкладка пишется атрибутом на .results.
+  box.setAttribute('data-docs-tab', name);
   const open = (toggle && wasOpen && wasActive) ? false : true;
   box.classList.toggle('open', open);
   // Содержимое собираем ровно здесь, в момент показа: пока вкладка свёрнута,
@@ -13225,6 +13242,7 @@ function setDocsTab(name, toggle) {
   if (open) ensureTabBuilt(name);
   if (open && panel) {
     panel.scrollTop = 0;                       // документы всегда с начала
+    panel.scrollLeft = 0;                      // и по горизонтали — после масштаба >100%
     if (panel.scrollIntoView) panel.scrollIntoView({ block: 'nearest' });
   }
   if (viewer && viewer.resize) viewer.resize();  // 3D перестроить под новую высоту
@@ -13317,7 +13335,9 @@ document.getElementById('printDrawings').addEventListener('click', () => {
   // и потому устаревшей (см. docsTabsDirty) — собираем принудительно, иначе
   // в печать уйдёт пустая или старая страница.
   ensureTabBuilt('drawings');
-  const html = document.getElementById('tab-drawings').innerHTML;
+  // Сырая разметка чертежей (без обёртки масштаба и без ряда с ползунком) —
+  // печатается всегда в стандартном виде, что бы ни стояло на экране.
+  const html = drawingsRawHtml;
   const w = window.open('', '_blank');
   if (!w) { alert('Разрешите всплывающие окна, чтобы напечатать чертежи.'); return; }
   // Стили встраиваем: окно открывается как about:blank, где относительная

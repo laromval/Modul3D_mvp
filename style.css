@@ -667,9 +667,54 @@ body.has-modal-drawer .scrim { opacity: 1; pointer-events: auto; }
 .drawer-bottom {
   /* левый край — за рейкой триггеров, чтобы она оставалась доступной */
   left: calc(var(--rail-w) + var(--sp-3)); right: var(--sp-3); bottom: var(--sp-3);
-  height: min(62vh, 560px);
+  /* Высоту на компьютере регулирует пользователь (ui-shell.js, раздел 7б′:
+     тянет верхнюю кромку/шапку; JS ставит --docs-h в px на <html>). Значение
+     по умолчанию — прежнее min(62vh, 560px), на случай пока JS не отработал.
+     На телефоне это правило перекрывает раздел 17 (--drawer-sheet-h). */
+  height: var(--docs-h, min(62vh, 560px));
   border-radius: var(--r-lg);
   transform: translateY(calc(100% + var(--sp-4)));
+}
+
+/* Ручка высоты панели «Документы» — полоса 10px по её верхней кромке
+   (половина над панелью, чтобы её было легко «поймать»), плюс пустая часть
+   шапки (см. ниже, в блоке для компьютера). Внутри — «пилюля», видная при
+   наведении и во время перетаскивания. На телефоне ручки нет: высоту там
+   регулирует шапка листа (раздел 17). */
+.drawer-resize { display: none; }
+@media not all and (max-width: 820px) {
+  .drawer-resize {
+    display: block;
+    position: absolute; z-index: 2;
+    /* по краям — отступ на скругление углов панели */
+    left: var(--r-lg); right: var(--r-lg); top: -5px; height: 10px;
+    cursor: ns-resize;
+    touch-action: none;
+    -webkit-user-select: none; user-select: none;
+  }
+  .drawer-resize::after {
+    content: '';
+    position: absolute; left: 50%; top: 3px;
+    width: 48px; height: 4px; margin-left: -24px;
+    border-radius: 2px;
+    background: var(--accent);
+    opacity: 0;
+    transition: opacity var(--dur) var(--ease);
+    pointer-events: none;
+  }
+  .drawer-resize:hover::after,
+  body.docs-resizing .drawer-resize::after { opacity: .85; }
+
+  /* Шапка «Документов» — тоже ручка (кроме крестика: у него свой cursor) */
+  #drawer-docs .drawer-head {
+    cursor: ns-resize;
+    touch-action: none;
+    -webkit-user-select: none; user-select: none;
+  }
+  /* пока панель тянут — курсор «изменение высоты» везде, текст не
+     выделяется, а панель режимов 3D едет за кромкой без задержки перехода */
+  body.docs-resizing { cursor: ns-resize; -webkit-user-select: none; user-select: none; }
+  body.docs-resizing .view-toolbar { transition: none; }
 }
 
 /* ---------- 7б. ПОЛОЖЕНИЕ РЕЙКИ (в шапке / слева / справа сверху / слева снизу) */
@@ -986,10 +1031,12 @@ body.vt-moving .view-toolbar { transition: none !important; }
   [data-rail-pos='top-right'] .drawer-left.open ~ .view-toolbar {
     --vt-l: 0px; --vt-r: calc(var(--sp-3) + var(--vt-dw));
   }
-  /* «Документы» — нижний лист во всю ширину: панель режимов над ним */
-  .drawer-bottom.open ~ .view-toolbar { --vt-b: calc(var(--sp-3) + min(62vh, 560px) + var(--sp-3)); }
+  /* «Документы» — нижний лист во всю ширину: панель режимов над ним. Высоту
+     листа берём из --docs-h (её ставит ui-shell.js по реальной высоте панели,
+     её тянет пользователь), а не из фиксированного min(62vh, 560px). */
+  .drawer-bottom.open ~ .view-toolbar { --vt-b: calc(var(--sp-3) + var(--docs-h, min(62vh, 560px)) + var(--sp-3)); }
   [data-rail-pos='bottom-left'] .drawer-bottom.open ~ .view-toolbar {
-    --vt-b: calc(var(--sp-3) + var(--rail-h) + var(--sp-3) + min(62vh, 560px) + var(--sp-3));
+    --vt-b: calc(var(--sp-3) + var(--rail-h) + var(--sp-3) + var(--docs-h, min(62vh, 560px)) + var(--sp-3));
   }
 
   /* --- места на сцене --- */
@@ -1016,7 +1063,7 @@ body.vt-moving .view-toolbar { transition: none !important; }
       --vt-b: calc(var(--sp-3) + var(--rail-h) + var(--sp-3));
     }
     [data-rail-pos='bottom-left'] .drawer-bottom.open ~ .view-toolbar {
-      --vt-b: calc(var(--sp-3) + var(--rail-h) + var(--sp-3) + min(62vh, 560px) + var(--sp-3));
+      --vt-b: calc(var(--sp-3) + var(--rail-h) + var(--sp-3) + var(--docs-h, min(62vh, 560px)) + var(--sp-3));
     }
   }
 
@@ -1611,6 +1658,75 @@ h4.spec-title { margin: var(--sp-5) 0 var(--sp-2); font-size: var(--fs-md); font
 .dw-legend { border-collapse: collapse; font-size: var(--fs-xs); width: auto; color: var(--text); }
 .dw-legend th, .dw-legend td { border: 1px solid var(--border); padding: 3px 7px; white-space: nowrap; }
 .dw-legend th { background: var(--surface-2); }
+
+/* Масштаб чертежей (ui-shell.js, раздел 7в). Все чертежи вкладки — ОДИН лист
+   (.dw-sheet внутри .dw-zoom; обёртку пишет renderDrawings через
+   uiShell.setDrawingsContent): при масштабе ≠ 100% JS ставит .dw-zoom ширину
+   и высоту, умноженные на масштаб, а .dw-sheet — transform: scale() от левого
+   верхнего угла и обратную ширину; раскладка листа при этом та же, что на
+   100% (блоки переносятся по ширине панели), меняется только размер, а
+   прокрутка настоящая — полосы появляются сами. При 100% inline-стили сняты,
+   и вкладка выглядит ровно как до появления масштаба. */
+/* Лист прижат влево (не по центру): чертежи шире раскладки листа выходят за
+   его правый край, и при центрированной обёртке на масштабе <100% слева оставалась
+   пустота, а правая часть чертежа была обрезана (замечено на телефоне 40%) */
+.dw-zoom { position: relative; margin: 0; }
+.dw-sheet { transform-origin: 0 0; }
+/* при масштабе не 100% липкая шапка таблицы (общее правило th) не нужна: под
+   transform sticky считается в непреобразованных координатах и «уплывает» */
+.dw-zoom.dw-scaled th { position: static; }
+/* Область чертежей: один палец — родная прокрутка, щипок двумя пальцами —
+   масштаб (pointer events в ui-shell.js: touch-action не даёт браузеру
+   приблизить всю страницу). Мышью лист «берут» и двигают (курсор grab/
+   grabbing), поэтому текст здесь не выделяется. */
+#tab-drawings {
+  touch-action: pan-x pan-y;
+  overscroll-behavior: contain;
+  /* позицию прокрутки при масштабировании и перерисовке ведёт ui-shell.js —
+     автоподстройка браузера (scroll anchoring) ей только мешала бы */
+  overflow-anchor: none;
+  cursor: grab;
+  -webkit-user-select: none; user-select: none;
+}
+#tab-drawings * { cursor: inherit; }
+#tab-drawings.dw-panning { cursor: grabbing; }
+
+/* Ряд «100% [−] ——о—— [+]» над областью чертежей: виден только на вкладке
+   «Чертежи» и не входит в прокрутку (лежит вне #tab-drawings). */
+.dw-zoombar {
+  flex: none;
+  display: none;
+  align-items: center; gap: var(--sp-2);
+  padding: 5px var(--sp-3);
+  border-bottom: 1px solid var(--border);
+}
+.results[data-docs-tab='drawings'] .dw-zoombar { display: flex; }
+.dw-zoom-pct {
+  flex: none; min-width: 42px;
+  font-size: var(--fs-sm); font-weight: 600; text-align: right;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-2);
+}
+.dw-zoom-btn {
+  flex: none;
+  width: 26px; height: 26px; padding: 0;
+  display: flex; align-items: center; justify-content: center;
+  border: 1px solid var(--border-strong); border-radius: 50%;
+  background: var(--surface-solid); color: var(--text);
+  font: 600 16px/1 var(--ff);
+  cursor: pointer;
+  transition: background var(--dur) var(--ease), border-color var(--dur) var(--ease), color var(--dur) var(--ease);
+}
+.dw-zoom-btn:hover { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
+.dw-zoom-btn:active { transform: scale(.94); }
+.dw-zoom-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.dw-zoom-btn:disabled { opacity: .4; cursor: default; pointer-events: none; }
+.dw-zoom-range {
+  flex: 1 1 auto; min-width: 60px; max-width: 320px;
+  height: 22px; margin: 0;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
 
 /* ---------- 10. HUD — меню прямо на модели -------------------------------- */
 
@@ -2573,6 +2689,20 @@ body.is-focus .scrim { opacity: 0 !important; }
      в ноль — тогда прокручивается весь лист целиком (.drawer-body), а не
      остаётся шапка с пустотой под ней */
   #drawer-docs .tab-panel.active { min-height: 140px; }
+  /* Вкладки и кнопки экспорта на телефоне — ОДНА строка с горизонтальной
+     прокруткой, а не три строки переноса (≈107px на листе в 365px): иначе
+     на чертежи почти не остаётся места, а их как раз хочется видеть больше */
+  #drawer-docs .tabs {
+    flex-wrap: nowrap; overflow-x: auto; overscroll-behavior-x: contain;
+    -webkit-overflow-scrolling: touch; scrollbar-width: none;
+  }
+  #drawer-docs .tabs::-webkit-scrollbar { display: none; }
+  #drawer-docs .tabs > * { flex: none; }
+  /* Ряд масштаба чертежей на телефоне: компактный (лист может быть низким),
+     но кнопки — не меньше 34px под палец, ползунок тянется на всю ширину */
+  .dw-zoombar { padding: 3px var(--sp-3); }
+  .dw-zoom-btn { width: 34px; height: 34px; font-size: 18px; }
+  .dw-zoom-range { max-width: none; height: 30px; }
   /* пока лист тянут — курсор «изменение высоты» везде, текст не выделяется */
   body.sheet-resizing { cursor: ns-resize; -webkit-user-select: none; user-select: none; }
   /* предупреждения — у низа, слева от гизмы (по центру на узком экране им
@@ -2609,7 +2739,7 @@ body.is-focus .scrim { opacity: 0 !important; }
 }
 
 @media print {
-  .topbar, .rail, .view-toolbar, .view-gizmo, .drawer-head, .tabs, .scrim, .mobile-sheet-bar, .hud, .part-editor-overlay, .confirm-modal-scrim { display: none !important; }
+  .topbar, .rail, .view-toolbar, .view-gizmo, .drawer-head, .drawer-resize, .tabs, .dw-zoombar, .scrim, .mobile-sheet-bar, .hud, .part-editor-overlay, .confirm-modal-scrim { display: none !important; }
   .stage { overflow: visible; }
   body { overflow: visible; }
 }
