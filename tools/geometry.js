@@ -4487,6 +4487,41 @@ for (const glass of [false, true]) {
     if (mfx !== camN) problems.push(`смета: Rastex ${mfx} шт., гнёзд ${camN}`);
     if (!jr.some((r) => r.joint === 'confirmat')) problems.push('смета: нет конфирматов у дна навесных');
 
+    // Боковина «на дно» у навесного (другой баг, решение пользователя
+    // 2026-09-27): низ дна виден в комнате даже когда сама боковина закрыта
+    // соседом — конфирмат «снизу через дно» оставил бы видимую шляпку. Дно
+    // такой боковины крепится Rastex ВСЕГДА (и у крайней, и у закрытой
+    // соседом — видимость самой боковины тут ни при чём, дело в дне).
+    const ob3 = buildModel(Object.assign({}, base, { modules: ['Л', 'М', 'П'].map((name, i) =>
+      Object.assign(toModule(byId('upper600'), i), { name, leftSide: 'onBottom', rightSide: 'onBottom' })) }));
+    inspect(ob3, 'крепёж дна: боковины «на дно»');
+    for (const name of ['Л', 'М', 'П']) {
+      const bOB = ob3.partsRaw.filter((q) => q.kind === 'bottom' && q.module === name)[0];
+      if (!bOB) { problems.push(`крепёж дна «на дно»: нет дна у «${name}»`); continue; }
+      if ((bOB.holes || []).some((h) => /^confirmat/.test(h.kind))) {
+        problems.push(`крепёж дна «на дно»: у «${name}» на дне остался конфирмат`);
+      }
+      const dowels = (bOB.holes || []).filter((h) => h.kind === 'minifixDowel');
+      if (dowels.length !== 4) problems.push(`крепёж дна «на дно»: у «${name}» дюбелей Rastex ${dowels.length} вместо 4`);
+      if (dowels.some((h) => h.side !== 'front')) {
+        problems.push(`крепёж дна «на дно»: у «${name}» дюбель не на верхней (внутренней) пласти дна`);
+      }
+      // Крепёж дна сидит у НИЗА боковины (x=0 — бывший конфирматEdge,
+      // x=camSetback — новый minifixCam); крыша крепится тем же боковинам
+      // отдельно и у неё confirmat по-прежнему возможен (это не тот баг,
+      // не трогаем) — его holes сидят у ВЕРХА боковины (x близко к length),
+      // поэтому фильтруем по x, а не просто по kind.
+      const sidesOB = ob3.partsRaw.filter((q) => q.kind === 'side' && q.module === name);
+      if (sidesOB.some((q) => (q.holes || []).some((h) =>
+        (h.kind === 'confirmatEdge' || h.kind === 'confirmatThrough') && h.x < 50))) {
+        problems.push(`крепёж дна «на дно»: у «${name}» в боковине у дна остался конфирмат`);
+      }
+      if (!sidesOB.every((q) => (q.holes || []).some((h) => h.kind === 'minifixCam' && h.x < 50)
+        && (q.holes || []).some((h) => h.kind === 'minifixBolt' && h.x < 50))) {
+        problems.push(`крепёж дна «на дно»: у «${name}» нет Rastex (эксцентрик/болт) у дна в боковине`);
+      }
+    }
+
     // Пенал 2140 рядом с верхним: верхний заканчивается у пенала, боковина
     // верхнего закрыта пеналом по глубине, но не по высоте (1680…2400 против
     // 0…2140) — видимая.

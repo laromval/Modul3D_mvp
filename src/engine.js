@@ -3920,8 +3920,28 @@ function buildModuleParts(p) {
           // Отверстие в ПЛАСТИ (сквозное через дно) — под серединой боковины.
           const xFace = Math.min(Math.max(panel.box.x - (hp.box.x - hp.box.w / 2), 8), hp.length - 8);
 
-          if (bottomOverlays) {
-            // конфирмат снизу через дно в нижний торец боковины
+          if (bottomOverlays && hungModule) {
+            // НАВЕСНОЙ модуль, боковина «на дно» (решение пользователя
+            // 2026-09-27): низ дна виден снизу в комнате, поэтому конфирмат
+            // «снизу через дно» (ветка ниже, для напольных тумб) здесь не
+            // годится — шляпка была бы видна. Тот же T-образный узел, что и
+            // у столешницы на торце боковины (см. выше, forJoint:'countertop',
+            // подтверждено владельцем-мебельщиком 2026-09-05), но
+            // перевёрнутый: боковина сверху упирается ТОРЦОМ в ПЛАСТЬ дна.
+            // Эксцентрик и болт — в боковине (её торец касается дна, x=0 —
+            // низ боковины), дюбель — в дне со скрытой верхней пласти
+            // (side:'front', внутри корпуса, как у обычного hungBottom выше).
+            panel.holes.push({ x: round1(RASTEX.camSetback), y: round1(yOnPanel),
+                               d: RASTEX.camD, depth: RASTEX.camDepthFor(panel.thickness),
+                               through: false, side: 'front', kind: 'minifixCam' });
+            panel.holes.push({ x: 0, y: round1(yOnPanel), d: RASTEX.boltD, depth: RASTEX.boltDepth,
+                               through: false, side: 'edge', kind: 'minifixBolt' });
+            hp.holes.push({ x: round1(xFace), y: round1(py), d: RASTEX.dowelD, depth: RASTEX.dowelDepth,
+                            through: false, side: 'front', kind: 'minifixDowel' });
+          } else if (bottomOverlays) {
+            // Напольная тумба, боковина «на дно» — конфирмат снизу через
+            // дно в нижний торец боковины: низ дна скрыт за цоколем, шляпку
+            // не видно (см. jointForSide выше).
             hp.holes.push({ x: round1(xFace), y: round1(py), d: 7, depth: 0,
                             through: true, side: 'front', kind: 'confirmatThrough' });
             panel.holes.push({ x: 0, y: round1(yOnPanel), d: 5, depth: 50,
@@ -3994,7 +4014,10 @@ function buildModuleParts(p) {
             }
           }
         }
-        jointRows.push({ joint: bottomOverlays ? 'confirmat' : jointHere, qty: pts.length });
+        jointRows.push({
+          joint: bottomOverlays ? (hungModule ? 'minifix' : 'confirmat') : jointHere,
+          qty: pts.length,
+        });
       }
     }
   }
