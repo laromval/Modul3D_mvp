@@ -296,7 +296,14 @@ const INDEX_ELS = parseElements(INDEX);
 const document = {
   title: '',
   body: new El('body', 'body'),
-  documentElement: new El('html', 'html'),
+  // style.setProperty нужен ui-shell (переменные --drawer-sheet-h/--mobile-drawer-h
+  // высоты нижнего листа на телефоне, v314, и --docs-h высоты панели «Документы»
+  // на компьютере, v315)
+  documentElement: (() => {
+    const html = new El('html', 'html');
+    html.style.setProperty = function (k, v) { this[k] = v; };
+    return html;
+  })(),
   getElementById: (id) => registry.get(id) || null,
   // Ищем не только по каркасу страницы, но и по всему, что приложение
   // отрисовало в контейнеры, — иначе элементы панели «не видны» прогону.
@@ -411,7 +418,9 @@ check('заголовок с версией', () => /^Modul3D v\d+/.test(documen
 check('стартует без модулей', () => document.querySelectorAll('.mod-tab').length === 0);
 // «База модулей» теперь в отдельной панели «Библиотека» (#libraryPanel),
 // не в #paramsPanel — см. app.js libraryBlock/renderLibraryPanel.
-check('на старте видна база модулей', () => /База модулей/.test($('libraryPanel').innerHTML));
+// Заголовка <h3>База модулей</h3> под вкладками больше нет (2026-09-26, v314) —
+// о том, что вкладка отрисована, говорит кнопка «Сохранить в базу».
+check('на старте видна база модулей', () => /data-lib-save-project/.test($('libraryPanel').innerHTML));
 check('на старте есть подсказка о пустом проекте', () => /Проект пуст/.test(panel.innerHTML));
 check('на чертежах написано, что проект пуст', () => /Проект пуст/.test(docsTab('drawings').innerHTML));
 check('пустой проект не даёт ошибок', () => panel.innerHTML.indexOf('Ошибка') === -1);
@@ -592,7 +601,8 @@ check('материалы по умолчанию: корпус/боковина
     const modTab = Array.from(document.querySelectorAll('.lib-tab-btn')).filter((b) => b.dataset.libtab === 'modules')[0];
     if (!tabs || !modTab) return false;
     tabs.dispatch('click', { target: modTab });
-    return /База модулей/.test(libHtml());
+    // Заголовка «База модулей» с v314 нет — о вкладке говорит кнопка «Сохранить в базу».
+    return /data-lib-save-project/.test(libHtml());
   });
 }
 check('кнопка «назад» возвращает на экран модуля', () => {
@@ -798,7 +808,8 @@ check('в списке фасадов есть открывание вверх',
     const modTab = Array.from(document.querySelectorAll('.lib-tab-btn')).filter((b) => b.dataset.libtab === 'modules')[0];
     if (!tabs || !modTab) return false;
     tabs.dispatch('click', { target: modTab });
-    return /База модулей/.test(libHtml());
+    // Заголовка «База модулей» с v314 нет — о вкладке говорит кнопка «Сохранить в базу».
+    return /data-lib-save-project/.test(libHtml());
   });
   check('алюм. фасад: вернуть ЛДСП', () => aluSet('facadeType', 'ldsp') && !/data-alu-open/.test(secHtml()));
 }
@@ -1810,6 +1821,510 @@ for (const el of document.querySelectorAll('.tab-btn')) {
   }
 }
 
+// Панель «Документы» на компьютере: настраиваемая высота и отступ для 3D
+// (ui-shell.js, раздел 7б′) и масштаб чертежей (раздел 7в). Прогон без
+// браузера — проверяем логику и разметку, а не пиксели: границы высоты,
+// запоминание доли окна, двойной щелчок, событие modul3d:drawer-inset, клавиши
+// +/−, Ctrl+колесо (вокруг курсора), обёртку масштаба, сохранение масштаба при
+// перерисовке, то, что печать чертежей от масштаба не зависит, и вписывание
+// чертежа по ширине на телефоне (авто-режим, щипок, двойной тап, поворот,
+// переход через 820px). Ряда с ползунком и кнопками −/+ больше нет.
+{
+  const shell = sandbox.Modul3D.uiShell;
+  const insetEvents = [];
+  // Заглушки окна: CustomEvent/dispatchEvent в песочнице нет — ставим свои и
+  // убираем в конце, чтобы остальные проверки шли в прежней среде.
+  sandbox.CustomEvent = class { constructor(type, init) { this.type = type; this.detail = (init || {}).detail; } };
+  sandbox.dispatchEvent = (ev) => { if (ev && ev.type === 'modul3d:drawer-inset') insetEvents.push(ev.detail.bottom); return true; };
+  const lastInset = () => insetEvents[insetEvents.length - 1];
+  const key = (ev) => document.dispatch('keydown', Object.assign({ target: document.body }, ev));
+  const tabBtn = (name) => Array.from(document.querySelectorAll('.tab-btn')).filter((b) => b.dataset.tab === name)[0];
+  const stored = {};
+  const origSet = sandbox.localStorage.setItem, origRemove = sandbox.localStorage.removeItem;
+  sandbox.localStorage.setItem = (k, v) => { stored[k] = String(v); };
+  sandbox.localStorage.removeItem = (k) => { delete stored[k]; };
+
+  // --- разметка ---
+  check('разметка: ручка высоты «Документов» есть', () => !!document.getElementById('docsResize'));
+  check('разметка: ряда масштаба (ползунок, −/+, процент) больше нет ни в HTML, ни в CSS', () => {
+    const css = fs.readFileSync(path.join(ROOT, 'style.css'), 'utf8');
+    return !document.getElementById('dwZoomBar') && !document.getElementById('dwZoomRange')
+      && !document.getElementById('dwZoomPct') && !document.getElementById('dwZoomOut')
+      && !document.getElementById('dwZoomIn')
+      && !/dwZoom(Bar|Range|Pct|In|Out)|dw-zoombar|data-docs-tab/.test(INDEX)
+      && !/dw-zoombar|dw-zoom-(btn|range|pct)|data-docs-tab/.test(css);
+  });
+  check('разметка: в горячих клавишах есть «+ / −»', () =>
+    /hotkeys-key">\+ \/ [−-]<\/span><span class="hotkeys-desc">Масштаб чертежей/.test(INDEX));
+  check('разметка: в горячих клавишах есть Ctrl+колесо и щипок', () =>
+    /hotkeys-key">Ctrl\+колесо<\/span><span class="hotkeys-desc">Масштаб чертежей/.test(INDEX)
+    && /hotkeys-key">Щипок<\/span><span class="hotkeys-desc">Масштаб чертежей/.test(INDEX));
+  check('разметка: двойной клик — стандартный вид, на телефоне по ширине', () =>
+    /hotkeys-key">2× клик<\/span><span class="hotkeys-desc">[^<]*по ширине/.test(INDEX));
+
+  // --- высота панели «Документы» на компьютере ---
+  check('компьютер: левая панель не закрывает низ 3D', () => shell.getDrawerInset() === 0);
+  shell.openDrawer('docs');
+  const hDefault = shell.getDocsHeight();
+  check('компьютер: высота по умолчанию min(62vh, 560px)', () =>
+    hDefault === Math.min(Math.round(900 * 0.62), 560));
+  check('компьютер: «Документы» → отступ для 3D не меньше высоты панели', () =>
+    shell.getDrawerInset() >= hDefault && lastInset() === shell.getDrawerInset());
+  document.documentElement.setAttribute('data-rail-pos', 'bottom-left');
+  check('компьютер: рейка слева снизу поднимает панель — отступ больше', () =>
+    shell.getDrawerInset() > hDefault + 60);
+  document.documentElement.setAttribute('data-rail-pos', 'header-end');
+
+  const grip = {
+    _l: {},
+    closest(s) { return s === '#docsResize' ? this : null; },
+    setPointerCapture() {}, releasePointerCapture() {},
+    addEventListener(t, f) { (this._l[t] = this._l[t] || []).push(f); },
+    removeEventListener(t, f) { this._l[t] = (this._l[t] || []).filter((x) => x !== f); },
+    fire(t, e) { (this._l[t] || []).slice().forEach((f) => f(e)); },
+  };
+  const drag = (dy) => {
+    document.dispatch('pointerdown', { target: grip, button: 0, pointerId: 7, pointerType: 'mouse', isPrimary: true, clientY: 500 });
+    grip.fire('pointermove', { pointerId: 7, buttons: 1, clientY: 500 - dy });
+    grip.fire('pointerup', { pointerId: 7 });
+  };
+  drag(100);
+  check('высота «Документов»: тянем вверх — выше на столько же', () => shell.getDocsHeight() === hDefault + 100);
+  check('высота «Документов»: итоговое событие отступа после жеста', () =>
+    lastInset() === shell.getDrawerInset() && lastInset() >= hDefault + 100);
+  check('высота «Документов» запоминается долей окна (modul3d.docsH)', () =>
+    Math.abs(parseFloat(stored['modul3d.docsH']) - (hDefault + 100) / 900) < 0.002);
+  drag(5000);
+  check('высота «Документов»: не выше 90% окна', () => shell.getDocsHeight() === Math.round(900 * 0.9));
+  drag(-5000);
+  check('высота «Документов»: не ниже 25% окна', () => shell.getDocsHeight() === Math.round(900 * 0.25));
+  document.dispatch('dblclick', { target: grip });
+  check('двойной щелчок по ручке — высота по умолчанию', () => shell.getDocsHeight() === hDefault);
+  check('после сброса ключ modul3d.docsH снят (по умолчанию)', () => stored['modul3d.docsH'] === undefined);
+  check('после сброса отступ для 3D соответствует высоте', () => lastInset() === shell.getDrawerInset());
+  shell.openDrawer('params');
+  check('компьютер: сменили панель на левую — отступ 0', () => shell.getDrawerInset() === 0 && lastInset() === 0);
+  shell.openDrawer('docs');
+  shell.closeDrawer('docs');
+  check('компьютер: «Документы» закрыты — отступ 0', () => shell.getDrawerInset() === 0 && lastInset() === 0);
+
+  // --- масштаб чертежей: компьютер ---
+  const pane = $('tab-drawings');
+  // Ctrl+колесо приходит на область чертежей (#tab-drawings), как в браузере;
+  // spy.prevented — сколько раз погасили родное действие браузера (зум страницы).
+  const wheel = (ev) => {
+    const spy = { prevented: 0 };
+    pane.dispatch('wheel', Object.assign({
+      deltaY: 0, deltaMode: 0, ctrlKey: true, clientX: 300, clientY: 200,
+      preventDefault() { spy.prevented++; },
+    }, ev));
+    return spy;
+  };
+  // Касание — pointer events с pointerType 'touch', как у настоящего браузера.
+  const touch = (type, id, x, y) => pane.dispatch(type, {
+    pointerType: 'touch', pointerId: id, isPrimary: id === 1, clientX: x, clientY: y,
+  });
+  shell.openDrawer('docs');
+  tabBtn('detailing').click();
+  tabBtn('drawings').click();          // вкладка «Чертежи» активна и раскрыта
+  check('масштаб чертежей: старт 100%', () => shell.getDrawingsZoom() === 100);
+  check('чертежи лежат в обёртке масштаба', () => {
+    const html = String(docsTab('drawings').innerHTML || '');
+    return /id="dwZoom"/.test(html) && /id="dwSheet"/.test(html) && /Габарит проекта/.test(html);
+  });
+  key({ key: '+', code: 'Equal', shiftKey: true });
+  check('клавиша «+» — 110%', () => shell.getDrawingsZoom() === 110);
+  check('масштаб 110% выставлен на обёртку и лист', () =>
+    $('dwZoom').style.width === '110%' && /^scale\(1\.1\)$/.test($('dwSheet').style.transform || ''));
+  key({ key: '-', code: 'Minus' });
+  check('клавиша «−» — снова 100%', () => shell.getDrawingsZoom() === 100);
+  check('при 100% inline-стили обёртки сняты', () =>
+    $('dwZoom').style.width === '' && $('dwSheet').style.transform === '');
+  key({ key: '-', code: 'NumpadSubtract' });
+  check('NumpadSubtract — 90%', () => shell.getDrawingsZoom() === 90);
+  key({ key: '+', code: 'Equal', ctrlKey: true });
+  key({ key: '+', code: 'NumpadAdd', metaKey: true });
+  key({ key: '+', code: 'NumpadAdd', altKey: true });
+  check('Ctrl/Meta/Alt + «+» масштаб не трогают (остаётся зум браузера)', () => shell.getDrawingsZoom() === 90);
+  key({ key: '+', code: 'NumpadAdd', target: { tagName: 'INPUT', id: 'm-width' } });
+  key({ key: '-', code: 'Minus', target: { tagName: 'TEXTAREA', id: 'x' } });
+  key({ key: '+', code: 'NumpadAdd', target: { tagName: 'DIV', id: 'x', isContentEditable: true } });
+  check('в полях ввода/contenteditable клавиши ± масштаб не трогают', () => shell.getDrawingsZoom() === 90);
+  key({ key: '+', code: 'NumpadAdd', target: { tagName: 'BUTTON', id: 'x' } });
+  check('на кнопке (не поле ввода) клавиша «+» работает', () => shell.getDrawingsZoom() === 100);
+
+  shell.setDrawingsZoom(150);
+  check('setDrawingsZoom(150): обёртка и лист', () => shell.getDrawingsZoom() === 150
+    && $('dwZoom').style.width === '150%' && /^scale\(1\.5\)$/.test($('dwSheet').style.transform || ''));
+  key({ key: '+', code: 'NumpadAdd' });
+  check('клавиша «+»: шаг 10 п.п.', () => shell.getDrawingsZoom() === 160);
+  key({ key: '-', code: 'Minus' });
+  key({ key: '-', code: 'Minus' });
+  check('клавиша «−»: шаг 10 п.п.', () => shell.getDrawingsZoom() === 140);
+  shell.setDrawingsZoom(9999);
+  key({ key: '+', code: 'NumpadAdd' });
+  check('верхняя граница 400%', () => shell.getDrawingsZoom() === 400);
+  shell.setDrawingsZoom(1);
+  key({ key: '-', code: 'Minus' });
+  check('нижняя граница на компьютере 25%', () => shell.getDrawingsZoom() === 25);
+  for (let i = 0; i < 8; i++) key({ key: '+', code: 'NumpadAdd' });
+  check('из 25% восемь «+» ровно в 100% (шаг по круглым значениям)', () => shell.getDrawingsZoom() === 100);
+
+  // --- Ctrl + колесо мыши ---
+  check('колесо БЕЗ Ctrl масштаб не трогает и не перехватывается', () => {
+    const s = wheel({ ctrlKey: false, deltaY: -100 });
+    return s.prevented === 0 && shell.getDrawingsZoom() === 100;
+  });
+  check('Ctrl+колесо вверх: щелчок = ×1.1 (110%), зум страницы гасится', () => {
+    const s = wheel({ deltaY: -100 });
+    return s.prevented === 1 && shell.getDrawingsZoom() === 110;
+  });
+  check('Ctrl+колесо вниз: обратно 100%, inline-стили сняты', () => {
+    const s = wheel({ deltaY: 100 });
+    return s.prevented === 1 && shell.getDrawingsZoom() === 100
+      && $('dwZoom').style.width === '' && $('dwSheet').style.transform === '';
+  });
+  check('Ctrl+колесо в строках (deltaMode 1, 3 строки = щелчок): 110%', () => {
+    wheel({ deltaY: -3, deltaMode: 1 });
+    return shell.getDrawingsZoom() === 110;
+  });
+  shell.setDrawingsZoom(100);
+  check('тачпад: малое deltaY — плавно, доля щелчка (−10 → 101%)', () => {
+    wheel({ deltaY: -10 });
+    return shell.getDrawingsZoom() === 101;
+  });
+  check('Ctrl+колесо с deltaY 0: масштаб на месте, зум страницы всё равно гасится', () => {
+    const z = shell.getDrawingsZoom();
+    const s = wheel({ deltaY: 0 });
+    return s.prevented === 1 && shell.getDrawingsZoom() === z;
+  });
+  shell.setDrawingsZoom(100);
+  check('одно событие колеса — не больше 3 щелчков (нет скачка)', () => {
+    wheel({ deltaY: -100000 });
+    return shell.getDrawingsZoom() === 133;
+  });
+  for (let i = 0; i < 40; i++) wheel({ deltaY: -100 });
+  check('Ctrl+колесо: верхняя граница 400%', () => shell.getDrawingsZoom() === 400);
+  for (let i = 0; i < 80; i++) wheel({ deltaY: 100 });
+  check('Ctrl+колесо: нижняя граница 25%', () => shell.getDrawingsZoom() === 25);
+  shell.setDrawingsZoom(100);
+
+  // Масштаб вокруг курсора: точка листа под курсором остаётся на месте.
+  // Раскладку браузера подменяем моделью: область — в (100,50) размером 800×500,
+  // лист в ней с отступом (16,12), сдвинутый прокруткой; масштаб — из transform.
+  {
+    const origRect = El.prototype.getBoundingClientRect;
+    Object.assign(pane, { offsetWidth: 800, clientWidth: 800, clientHeight: 500, scrollLeft: 0, scrollTop: 0 });
+    El.prototype.getBoundingClientRect = function () {
+      if (this.id === 'tab-drawings') return { left: 100, top: 50, width: 800, height: 500, right: 900, bottom: 550 };
+      if (this.id === 'dwSheet') {
+        const m = /scale\(([\d.]+)\)/.exec(this.style.transform || '');
+        const s = m ? parseFloat(m[1]) : 1;
+        const l = 100 + 16 - (pane.scrollLeft || 0), t = 50 + 12 - (pane.scrollTop || 0);
+        return { left: l, top: t, width: 768 * s, height: 1000 * s, right: l + 768 * s, bottom: t + 1000 * s };
+      }
+      return origRect.call(this);
+    };
+    try {
+      const under = (x, y) => {   // какая точка листа (в единицах листа) сейчас под точкой окна (x, y)
+        const r = $('dwSheet').getBoundingClientRect();
+        const s = shell.getDrawingsZoom() / 100;
+        return { x: (x - r.left) / s, y: (y - r.top) / s };
+      };
+      const near = (a, b) => Math.abs(a.x - b.x) < 0.01 && Math.abs(a.y - b.y) < 0.01;
+      const p1 = under(300, 200);
+      wheel({ deltaY: -100, clientX: 300, clientY: 200 });
+      check('Ctrl+колесо вверх: точка под курсором остаётся на месте', () => shell.getDrawingsZoom() === 110 && near(p1, under(300, 200)));
+      const p2 = under(640, 90);
+      wheel({ deltaY: 100, clientX: 640, clientY: 90 });
+      check('Ctrl+колесо вниз: точка под курсором остаётся на месте', () => shell.getDrawingsZoom() === 100 && near(p2, under(640, 90)));
+    } finally {
+      El.prototype.getBoundingClientRect = origRect;
+      ['offsetWidth', 'clientWidth', 'clientHeight', 'scrollLeft', 'scrollTop'].forEach((k) => { delete pane[k]; });
+    }
+  }
+
+  // Перерисовка чертежей (правка габарита) масштаб не сбрасывает.
+  shell.setDrawingsZoom(150);
+  const hEl = document.getElementById('m-height');
+  if (!hEl) fails.push('масштаб чертежей: нет поля высоты для проверки перерисовки');
+  else {
+    const hRestore = String(hEl.value);
+    const before = String($('tab-drawings').innerHTML || '');
+    hEl.value = String(Number(hEl.value) + 40);
+    hEl.dispatch('change', { target: hEl });
+    check('перерисовка чертежей: разметка обновилась, масштаб 150% на месте', () =>
+      String($('tab-drawings').innerHTML || '') !== before && shell.getDrawingsZoom() === 150
+      && $('dwZoom').style.width === '150%' && /^scale\(1\.5\)$/.test($('dwSheet').style.transform || ''));
+    hEl.value = hRestore;
+    hEl.dispatch('change', { target: hEl });
+  }
+
+  // Печать чертежей — всегда стандартный вид, без обёртки масштаба.
+  {
+    let printed = '';
+    sandbox.open = () => ({ document: { write: (h) => { printed += h; }, close() {} }, focus() {}, print() {} });
+    document.getElementById('printDrawings').click();
+    delete sandbox.open;
+    check('печать чертежей при масштабе 150%: те же чертежи', () => /Габарит проекта/.test(printed) && /<svg/.test(printed));
+    check('печать чертежей: без обёртки масштаба', () =>
+      !/dw-zoom|dwSheet|dwZoom|dw-sheet/.test(printed));
+  }
+
+  // Вне вкладки «Чертежи» и при закрытых «Документах» клавиши ± ничего не делают.
+  tabBtn('detailing').click();
+  key({ key: '+', code: 'NumpadAdd' });
+  check('на вкладке «Деталировка» клавиша «+» масштаб чертежей не трогает', () => shell.getDrawingsZoom() === 150);
+  shell.closeDrawer('docs');
+  key({ key: '-', code: 'Minus' });
+  check('при закрытых «Документах» клавиша «−» масштаб не трогает', () => shell.getDrawingsZoom() === 150);
+  shell.resetDrawingsZoom();
+  check('сброс масштаба на компьютере — 100%', () => shell.getDrawingsZoom() === 100
+    && $('dwZoom').style.width === '' && $('dwSheet').style.transform === '');
+  {
+    // двойной щелчок мышью по чертежам — тот же сброс (на компьютере 100%)
+    Object.assign(pane, { clientWidth: 800, clientHeight: 500 });
+    try {
+      shell.setDrawingsZoom(200);
+      pane.dispatch('dblclick', { clientX: 10, clientY: 10 });
+      check('двойной щелчок по чертежам на компьютере — 100%', () => shell.getDrawingsZoom() === 100);
+    } finally {
+      delete pane.clientWidth; delete pane.clientHeight;
+    }
+  }
+
+  // --- масштаб чертежей: телефон (окно ≤ 820px) — чертёж вписывается по ширине ---
+  // Окружение подменяем на время блока и в finally возвращаем: media-запрос
+  // (820px), ширину области и отступы, ширину самого широкого чертежа
+  // (scrollWidth листа), ResizeObserver и кадры анимации.
+  shell.openDrawer('docs');
+  tabBtn('drawings').click();
+  {
+    let phone = false;               // сейчас «телефон»?
+    let natural = 800;               // ширина листа вместе с выпирающими чертежами (scrollWidth)
+    let roCb = null;                 // колбэк ResizeObserver листа
+    const origRaf = sandbox.requestAnimationFrame;
+    const rafQ = [];
+    const areaW = (client) => client - 32;                       // минус отступы 16+16
+    const fitOf = (n, w) => (n <= w + 1 ? 1 : Math.floor(w / n * 1000) / 1000);
+    const tf = () => {                                           // масштаб листа из его transform
+      const m = /scale\(([\d.]+)\)/.exec($('dwSheet').style.transform || '');
+      return m ? parseFloat(m[1]) : 1;
+    };
+    const redraw = (n) => {                                      // чертежи перерисовали, ширина стала n
+      natural = n;
+      shell.setDrawingsContent('<div class="dw-block">чертёж</div>');
+    };
+    // «Размер листа изменился»: колбэк ResizeObserver → кадр → пересчёт.
+    const fire = () => {
+      sandbox.requestAnimationFrame = (f) => { rafQ.push(f); return rafQ.length; };
+      try { if (roCb) roCb([]); } finally { sandbox.requestAnimationFrame = origRaf; }
+      rafQ.splice(0).forEach((f) => f());
+    };
+    sandbox.matchMedia = (q) => ({ matches: phone && /max-width:\s*820px/.test(q) });
+    sandbox.getComputedStyle = () => ({ paddingLeft: '16px', paddingRight: '16px' });
+    sandbox.ResizeObserver = class { constructor(cb) { roCb = cb; } observe() {} disconnect() {} };
+    Object.defineProperty(El.prototype, 'scrollWidth', {
+      configurable: true, get() { return this.id === 'dwSheet' ? natural : undefined; },
+    });
+    Object.assign(pane, { clientWidth: 375, clientHeight: 500 });
+    const hEl2 = document.getElementById('m-height');
+    const h2Restore = hEl2 ? String(hEl2.value) : '';
+    try {
+      const W = areaW(375);          // 343
+      // Вход в раскладку телефона — через настоящую перерисовку (app.js →
+      // renderDrawings → setDrawingsContent), а не прямым вызовом.
+      phone = true; natural = 800;
+      if (!hEl2) fails.push('телефон: нет поля высоты для проверки перерисовки');
+      else {
+        hEl2.value = String(Number(hEl2.value) + 40);
+        hEl2.dispatch('change', { target: hEl2 });
+      }
+      check('телефон: ResizeObserver листа создан', () => typeof roCb === 'function');
+      check('телефон: чертёж при появлении вписан по ширине', () =>
+        tf() === fitOf(800, W) && shell.getDrawingsZoom() === Math.round(fitOf(800, W) * 100));
+      check('телефон: правый край чертежа не выходит за область, прокрутка по X в начале', () =>
+        tf() * 800 <= W + 1e-6 && !(pane.scrollLeft > 0) && !(pane.scrollTop > 0));
+      redraw(1000);
+      check('телефон: перерисовка с более широким чертежом пересчитывает вписывание', () => tf() === fitOf(1000, W));
+      redraw(300);
+      check('телефон: всё помещается — 100%, inline-стили сняты', () =>
+        shell.getDrawingsZoom() === 100 && $('dwZoom').style.width === '' && $('dwSheet').style.transform === '');
+      redraw(3000);
+      check('телефон: очень широкий чертёж — масштаб ниже 25%', () =>
+        tf() === fitOf(3000, W) && shell.getDrawingsZoom() < 25);
+      shell.setDrawingsZoom(1);
+      check('телефон: нижняя граница — «по ширине», а не 25%', () => tf() === fitOf(3000, W));
+      shell.setDrawingsZoom(9999);
+      check('телефон: верхняя граница 400%', () => shell.getDrawingsZoom() === 400);
+      redraw(2000);
+      check('телефон: ручной масштаб при перерисовке не «прыгает» (даже если сам ушёл к 400%)', () => shell.getDrawingsZoom() === 400);
+
+      // Сброс возвращает режим «авто».
+      shell.resetDrawingsZoom();
+      check('телефон: сброс — «по ширине», прокрутка в начале', () =>
+        tf() === fitOf(2000, W) && !(pane.scrollLeft > 0) && !(pane.scrollTop > 0));
+      redraw(1000);
+      check('телефон: после сброса режим «авто» снова следует за шириной чертежа', () => tf() === fitOf(1000, W));
+
+      // Щипок при «по ширине» ниже 25%: без скачка к 25% при первом касании.
+      redraw(3000);
+      const fit3 = fitOf(3000, W);
+      touch('pointerdown', 1, 100, 300);
+      touch('pointerdown', 2, 200, 300);
+      touch('pointermove', 1, 100, 300);
+      check('щипок при «по ширине» <25%: первое касание не подбрасывает к 25%', () => tf() === fit3 && shell.getDrawingsZoom() < 25);
+      redraw(1000);
+      check('касание без смены расстояния режим «авто» не выключает', () => tf() === fitOf(1000, W));
+      redraw(3000);
+      touch('pointermove', 2, 300, 300);             // разводим пальцы: расстояние ×2
+      check('щипок разводит: масштаб растёт вдвое', () => Math.abs(tf() - fit3 * 2) < 0.0006);
+      touch('pointermove', 2, 150, 300);             // сводим сильнее, чем можно
+      check('щипок сводит: ниже «по ширине» не опускается', () => tf() === fit3);
+      touch('pointerup', 2, 150, 300);
+      touch('pointerup', 1, 100, 300);
+      redraw(1000);                                  // «авто» дало бы 34%, а после щипка масштаб ручной
+      check('после щипка масштаб ручной: перерисовка его не трогает', () => tf() === fit3);
+
+      // Двойной тап — вернуть «по ширине» и режим «авто».
+      touch('pointerdown', 1, 50, 60); touch('pointerup', 1, 50, 60);
+      touch('pointerdown', 1, 52, 62); touch('pointerup', 1, 52, 62);
+      check('двойной тап на телефоне — «по ширине»', () => tf() === fitOf(1000, W) && !(pane.scrollTop > 0));
+      redraw(2500);
+      check('после двойного тапа режим «авто» снова включён', () => tf() === fitOf(2500, W));
+
+      // Клавиши +/− и Ctrl+колесо тоже выключают «авто».
+      key({ key: '+', code: 'NumpadAdd' });
+      const afterKey = shell.getDrawingsZoom();
+      redraw(1200);
+      check('клавиша «+» на телефоне выключает «авто»', () => afterKey > Math.round(fitOf(2500, W) * 100) && shell.getDrawingsZoom() === afterKey);
+      pane.dispatch('dblclick', { clientX: 10, clientY: 10 });
+      check('двойной щелчок мышью на телефоне — «по ширине»', () => tf() === fitOf(1200, W));
+      wheel({ deltaY: -100 });
+      const afterWheel = shell.getDrawingsZoom();
+      redraw(900);
+      check('Ctrl+колесо на телефоне выключает «авто»', () => afterWheel > Math.round(fitOf(1200, W) * 100) && shell.getDrawingsZoom() === afterWheel);
+      shell.resetDrawingsZoom();
+
+      // Смена ширины области (поворот экрана) пересчитывает «по ширине».
+      redraw(1000);
+      pane.clientWidth = 812;                        // альбомная ориентация
+      fire();
+      check('телефон: поворот экрана — «по ширине» пересчитано под новую ширину', () => tf() === fitOf(1000, areaW(812)));
+      shell.setDrawingsZoom(200);
+      pane.clientWidth = 375;
+      fire();
+      check('ручной масштаб при повороте экрана не трогаем', () => shell.getDrawingsZoom() === 200);
+      shell.resetDrawingsZoom();
+
+      // Граница 820px: компьютер → 100% и ничего не вписывается; обратно — снова «по ширине».
+      shell.setDrawingsZoom(200);
+      phone = false;
+      fire();
+      check('переход на компьютер (>820px): масштаб 100%', () => shell.getDrawingsZoom() === 100 && $('dwSheet').style.transform === '');
+      redraw(3000);
+      check('компьютер: широкий чертёж автоматически НЕ вписывается', () => shell.getDrawingsZoom() === 100);
+      shell.setDrawingsZoom(200);
+      phone = true;
+      fire();
+      check('переход на телефон (≤820px): «по ширине», ручной масштаб прошлой раскладки сброшен', () => tf() === fitOf(3000, W));
+
+      // Страховка от цикла: если ширина «прыгает» при каждом вписывании
+      // (полоса прокрутки то есть, то нет), масштаб не дёргается бесконечно.
+      let flips = 0, lastZ = shell.getDrawingsZoom();
+      for (let i = 0; i < 12; i++) {
+        pane.clientWidth = i % 2 ? 375 : 812;
+        fire();
+        if (shell.getDrawingsZoom() !== lastZ) { flips++; lastZ = shell.getDrawingsZoom(); }
+      }
+      check('страховка: смены масштаба от смены раскладки не бесконечны', () => flips <= 4);
+    } finally {
+      if (hEl2) { hEl2.value = h2Restore; hEl2.dispatch('change', { target: hEl2 }); }
+      phone = false;
+      delete sandbox.matchMedia;
+      delete sandbox.getComputedStyle;
+      delete sandbox.ResizeObserver;
+      sandbox.requestAnimationFrame = origRaf;
+      delete El.prototype.scrollWidth;
+      delete pane.clientWidth; delete pane.clientHeight;
+      shell.resetDrawingsZoom();
+    }
+    check('после блока телефона: стандартный вид 100%', () => shell.getDrawingsZoom() === 100);
+  }
+
+  // --- ручная разметка чертежа общего вида (src/markup.js, v317) ---
+  {
+    const mk = sandbox.Modul3D.markup;
+    const mkTools = document.getElementById('markupTools');
+    const mkBtn = document.getElementById('markupToggle');
+    const mkClr = document.getElementById('markupClear');
+    const mkRange = document.getElementById('markupFontRange');
+    const resBox = document.querySelector('.results');
+    // Клик по уже активной раскрытой вкладке её сворачивает — открываем наверняка.
+    const showTab = (n) => { tabBtn(n).click(); if (!resBox.classList.contains('open')) tabBtn(n).click(); };
+    check('разметка чертежа: кнопки «Разметка», «Очистить всё» и ползунок шрифта есть',
+      () => !!(mk && mkTools && mkBtn && mkClr && mkRange));
+    if (mk && mkTools && mkBtn && mkClr) {
+      showTab('detailing');
+      check('разметка чертежа: кнопки скрыты не на вкладке «Чертежи»', () => mkTools.style.display === 'none');
+      showTab('drawings');
+      check('разметка чертежа: кнопки видны на вкладке «Чертежи»', () => mkTools.style.display !== 'none');
+      check('разметка чертежа: «Очистить всё» скрыта, пока режим выключен', () => mkClr.style.display === 'none');
+      mkBtn.click();
+      check('разметка чертежа: кнопка включает режим и подсвечивается',
+        () => mk.isActive() && mkBtn.classList.contains('active') && mkClr.style.display !== 'none');
+      mkBtn.click();
+      check('разметка чертежа: повторный клик выключает режим', () => !mk.isActive() && !mkBtn.classList.contains('active'));
+      mkBtn.click();
+      showTab('detailing');
+      check('разметка чертежа: переход на другую вкладку выключает режим',
+        () => !mk.isActive() && !mkBtn.classList.contains('active'));
+    }
+    if (mk && mkRange) {
+      mkRange.value = '30';
+      mkRange.dispatch('input', { target: mkRange });
+      check('разметка чертежа: шрифт ограничен 24 px и запоминается',
+        () => mk.getFontScale() === 24 && stored['modul3d.markupFont'] === '24');
+      mkRange.value = '10';
+      mkRange.dispatch('input', { target: mkRange });
+      check('разметка чертежа: шрифт возвращается к 10 px', () => mk.getFontScale() === 10);
+    }
+    if (mk) {
+      mk.setFontScale(99);
+      check('разметка чертежа: setFontScale ограничен сверху 24 px', () => mk.getFontScale() === 24);
+      mk.setFontScale(10);
+      const anc = (key) => ({ moduleUid: 'mA', key, kind: 'corner', local: { h: -1, v: 1 } });
+      let threw = null;
+      try {
+        mk.setData([null, 5, 'x', { view: 'front' }, { id: 1, view: 'front', a: { partId: 3, kind: 'corner', local: {} }, b: anc('b') },
+          { id: 2, view: 'front', a: anc('a'), b: anc('b'), dir: 1, level: 1 },
+          { id: 2, view: 'front', a: anc('a'), b: anc('c'), dir: -1, level: 2 },
+          { view: 'side', a: anc('a'), b: anc('d'), level: 'мусор' }]);
+      } catch (e) { threw = e; }
+      const got = threw ? [] : mk.getData();
+      const ids = got.map((d) => d.id);
+      check('разметка чертежа: setData терпит мусор и перенумеровывает дубли id',
+        () => !threw && got.length === 3 && new Set(ids).size === 3 && ids.every((i) => i > 0));
+      check('разметка чертежа: запись без листа относится к общему виду, свой лист сохраняется',
+        () => !threw && got.every((d) => d.sheet === 'overview')
+          && (mk.setData([{ id: 1, sheet: 'module:mA', view: 'side', a: anc('a'), b: anc('b'), orient: 'v', offset: 12 }]),
+            mk.getData()[0].sheet === 'module:mA' && mk.getData()[0].offset === 12));
+      check('разметка чертежа: API листов для drawings.js есть',
+        () => typeof mk.beginSheets === 'function' && typeof mk.attachSheet === 'function');
+      mk.setData([]);
+    }
+  }
+
+  tabBtn('detailing').click();
+  shell.closeDrawer('docs');
+
+  // Возвращаем среду прогона.
+  delete sandbox.CustomEvent;
+  delete sandbox.dispatchEvent;
+  sandbox.localStorage.setItem = origSet;
+  sandbox.localStorage.removeItem = origRemove;
+}
+
 // Паспорт системы ящиков виден в спецификации и предупреждает о
 // неподтверждённых размерах.
 {
@@ -1842,7 +2357,9 @@ for (const el of document.querySelectorAll('.tab-btn')) {
   // target = сама кнопка вкладки: обработчик делегированный
   // (e.target.closest('.lib-tab-btn'), см. app.js initLibraryPanel).
   else if (step('Фурнитура: вкладка не открывается', () => tabs.dispatch('click', { target: hwTab }))) {
-    if (!/<h3>Фурнитура<\/h3>/.test(String(lib.innerHTML || ''))) {
+    // Заголовка <h3>Фурнитура</h3> под вкладками больше нет (v314) — признак
+    // отрисовки вкладки: кнопка «+ Добавить по ссылке» (libLinkTopBarHtml('hardware')).
+    if (!/data-link-kind="hardware"/.test(String(lib.innerHTML || ''))) {
       fails.push('Фурнитура: вкладка не отрисовалась');
     }
     // Лист дерева — клик по нему открывает таблицу позиций этой ветки

@@ -68,6 +68,9 @@ function woodTexture() {
   _woodTex = new THREE.CanvasTexture(c);
   _woodTex.wrapS = THREE.RepeatWrapping;
   _woodTex.wrapT = THREE.RepeatWrapping;
+  // Общая на всё приложение: материалы деталей кладут себе её КЛОН
+  // (tex.clone()), а саму её освобождать нельзя никогда.
+  markShared(_woodTex);
   return _woodTex;
 }
 
@@ -86,7 +89,72 @@ function aluInsetWoodTexture() {
   _aluInsTex.wrapS = THREE.RepeatWrapping;
   _aluInsTex.wrapT = THREE.RepeatWrapping;
   _aluInsTex.repeat.set(1 / WOOD_TILE_M, 1 / WOOD_TILE_M);
+  // Общая на все алюм. фасады — disposeObjectTree() её не освобождает.
+  markShared(_aluInsTex);
   return _aluInsTex;
+}
+
+// ОСВОБОЖДЕНИЕ ПАМЯТИ ВИДЕОКАРТЫ.
+// Three.js не освобождает память видеокарты сам, когда меш просто убрали из
+// сцены: геометрия, материал и текстура остаются загруженными на GPU, пока
+// у них не вызвали .dispose(). Сцена перестраивается на каждый пересчёт —
+// без очистки память росла с каждой правкой параметра.
+//
+// Но освобождать можно ТОЛЬКО то, что создано именно для этой перестройки.
+// Часть ресурсов общая и живёт всю сессию (текстура «под древесину», кэш
+// геометрии деталей, куски кухонной опоры и клипсы) — её следующая
+// перестройка сразу возьмёт снова. Такие ресурсы помечаем через markShared()
+// в месте создания, и disposeObjectTree() их пропускает.
+// Метка хранится в отдельном WeakSet, а НЕ в userData: material.clone()
+// копирует userData, и клон общего материала/текстуры по ошибке тоже
+// считался бы общим (и никогда не освобождался).
+const SHARED_GPU = new WeakSet();
+function markShared(res) {
+  if (res) SHARED_GPU.add(res);
+  return res;
+}
+function isShared(res) {
+  return !!res && SHARED_GPU.has(res);
+}
+// Все слоты текстур, которые бывают у материалов Three.js r128.
+const MATERIAL_TEXTURE_SLOTS = [
+  'map', 'alphaMap', 'aoMap', 'bumpMap', 'displacementMap', 'emissiveMap',
+  'envMap', 'lightMap', 'metalnessMap', 'normalMap', 'roughnessMap',
+  'specularMap', 'gradientMap', 'clearcoatMap', 'clearcoatNormalMap',
+  'clearcoatRoughnessMap', 'transmissionMap',
+];
+function disposeRes(res) {
+  if (res && typeof res.dispose === 'function') res.dispose();
+}
+// Освобождает геометрию, материалы (в т.ч. массивы материалов) и текстуры
+// внутри материалов у объекта и всех его потомков — кроме общих (markShared).
+// seen — чтобы ресурс, который делят несколько мешей (один материал на все
+// бруски рамочного фасада и т.п.), не обрабатывался повторно.
+function disposeObjectTree(root) {
+  if (!root || typeof root.traverse !== 'function') return;
+  const seen = new Set();
+  root.traverse((o) => {
+    const geo = o.geometry;
+    if (geo && !seen.has(geo)) {
+      seen.add(geo);
+      if (!isShared(geo)) disposeRes(geo);
+    }
+    const mats = Array.isArray(o.material) ? o.material : (o.material ? [o.material] : []);
+    for (const m of mats) {
+      if (!m || seen.has(m)) continue;
+      seen.add(m);
+      if (isShared(m)) continue;   // общий материал — не трогаем и его текстуры
+      for (const slot of MATERIAL_TEXTURE_SLOTS) {
+        const tex = m[slot];
+        if (!tex || seen.has(tex)) continue;
+        seen.add(tex);
+        // Клон общей текстуры (tex.clone()) — отдельная GPU-текстура этой
+        // перестройки, её освобождаем; саму общую — нет.
+        if (!isShared(tex)) disposeRes(tex);
+      }
+      disposeRes(m);
+    }
+  });
 }
 
 // НЕПРЕРЫВНОСТЬ РИСУНКА ВОЛОКНА МЕЖДУ СОСЕДНИМИ ДЕТАЛЯМИ.
@@ -1363,7 +1431,8 @@ function aluBarGeometry(code, section, T, L) {
     if (geo.computeBoundingBox) geo.computeBoundingBox();
     if (geo.computeBoundingSphere) geo.computeBoundingSphere();
   }
-  _aluBarCache.set(key, geo);
+  // Общая на все рамки — disposeObjectTree() её не освобождает.
+  _aluBarCache.set(key, markShared(geo));
   return geo;
 }
 
@@ -1525,7 +1594,7 @@ function makeFramedFacade(box, row, isActive, ghost, sectionHi, drillCheck, dril
 // положение меша, поэтому на десятке дверей не плодим новых буферов.
 const _aluCutGeoCache = new Map();
 function aluCutGeo(key, make) {
-  if (!_aluCutGeoCache.has(key)) _aluCutGeoCache.set(key, make());
+  if (!_aluCutGeoCache.has(key)) _aluCutGeoCache.set(key, markShared(make()));
   return _aluCutGeoCache.get(key);
 }
 let _aluCutMats = null;
@@ -1533,8 +1602,8 @@ function aluCutMaterials() {
   if (_aluCutMats) return _aluCutMats;
   // Проём в металле — почти чёрный, фаска — чуть светлее (видна как ободок).
   _aluCutMats = {
-    hole: new THREE.MeshBasicMaterial({ color: 0x151515, side: THREE.DoubleSide }),
-    csk: new THREE.MeshBasicMaterial({ color: 0x6b6b6b, side: THREE.DoubleSide }),
+    hole: markShared(new THREE.MeshBasicMaterial({ color: 0x151515, side: THREE.DoubleSide })),
+    csk: markShared(new THREE.MeshBasicMaterial({ color: 0x6b6b6b, side: THREE.DoubleSide })),
     drill: {},   // метки режима проверки — по цвету назначения
   };
   return _aluCutMats;
@@ -1542,11 +1611,11 @@ function aluCutMaterials() {
 function aluDrillMat(kind) {
   const mats = aluCutMaterials();
   if (!mats.drill[kind]) {
-    mats.drill[kind] = new THREE.MeshStandardMaterial({
+    mats.drill[kind] = markShared(new THREE.MeshStandardMaterial({
       color: DRILL_COLOR[kind] || 0x555555, roughness: 0.35, metalness: 0.1,
       // как у остальных меток — поверх полупрозрачных деталей
       depthTest: false, transparent: true, opacity: 0.98,
-    });
+    }));
   }
   return mats.drill[kind];
 }
@@ -1863,6 +1932,10 @@ function splitKitchenLegParts(kind, THREE) {
   const highGeo = new THREE.BufferGeometry();
   highGeo.setAttribute('position', new THREE.Float32BufferAttribute(highPos, 3));
   highGeo.setAttribute('normal', new THREE.Float32BufferAttribute(highNorm, 3));
+  // Кэш на всю сессию — при перестройке сцены не освобождать (см. markShared).
+  markShared(lowGeo);
+  markShared(highGeo);
+  markShared(full);   // исходный меш из legMeshes.js (у него свой кэш)
 
   const result = {
     lowGeo, highGeo,
@@ -2097,6 +2170,11 @@ function makeClipTabGeo(d, THREE) {
   const holeEps = 0.01 * MM; // запас с каждого среза против z-fighting (как в addLegMountPlate)
   const holeGeo = new THREE.CylinderGeometry(holeD / 2, holeD / 2, depth + 2 * holeEps, 12);
 
+  // Кэш на всю сессию — при перестройке сцены не освобождать (см. markShared).
+  markShared(plateGeo);
+  markShared(hoopGeo);
+  markShared(holeGeo);
+
   const geo = {
     plateGeo, hoopGeo, holeGeo,
     legR, depth, plateW, plateH, holeHalfSpacing,
@@ -2250,6 +2328,37 @@ const STALE_TOUCH_POINTER_MS = 3000;
 // (pointerup в Viewer3D: `controls.moved > SCENE_DRAG_PX`), поэтому клик,
 // выбирающий модуль, никогда не переключит плоский вид в 3D.
 const SCENE_DRAG_PX = 6;
+// Полюсный порог: ближе к вертикали (phi < POLE_EPS или > π − POLE_EPS) вектор
+// «вверх» камеры берём вдоль ∓Z — иначе lookAt вырождается (см. update()).
+const POLE_EPS = 0.02;
+
+// ---------------------------------------------------------------------------
+// КАДР ПОД НИЖНИЙ ЛИСТ (телефон ≤ 820 px; на десктопе — панель «Документы»)
+// ---------------------------------------------------------------------------
+// Пока внизу открыта панель (Библиотека, Параметры… на телефоне; «Документы»
+// на десктопе), она закрывает нижнюю часть холста. ui-shell.js (разделы 7б и
+// 7б′) сообщает её высоту событием 'modul3d:drawer-inset'
+// ({ detail: { bottom: px } }, 0 — панели нет; левые панели десктопа тоже
+// дают 0). Viewer3D.setBottomInset() делает две вещи:
+//   1) сдвигает проекцию камеры (camera.setViewOffset), так что точка, куда
+//      смотрит камера, оказывается в центре ВИДИМОЙ части холста (над листом);
+//   2) подгоняет расстояние камеры так, чтобы вся композиция модулей целиком
+//      влезла в видимую часть с полями — углы обзора не сбрасываются.
+const INSET_FIT_MARGIN = 0.08;   // поле с КАЖДОЙ стороны видимой части (доля её размера)
+const INSET_MIN_VISIBLE = 48;    // px: меньше этого видимой части холста не оставляем
+const INSET_TWEEN_MS = 240;      // плавная подгонка при открытии/закрытии листа
+const INSET_BURST_MS = 120;      // события чаще этого — лист тянут пальцем: без анимации, сразу
+
+function nowMs() {
+  return (window.performance && typeof window.performance.now === 'function')
+    ? window.performance.now() : Date.now();
+}
+
+function prefersReducedMotion() {
+  try {
+    return !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+  } catch (e) { return false; }
+}
 
 class SimpleOrbitControl {
   constructor(camera, domElement) {
@@ -2575,12 +2684,29 @@ class SimpleOrbitControl {
     // направлением взгляда и lookAt вырождается — камера не знает, куда
     // повернуть кадр. Поэтому для вертикальных видов задаём «вверх» вдоль -Z:
     // тогда перёд изделия оказывается внизу кадра, как на чертеже.
-    const EPS = 0.02;
+    const EPS = POLE_EPS;
     if (this.phi < EPS) this.camera.up.set(0, 0, -1);
     else if (this.phi > Math.PI - EPS) this.camera.up.set(0, 0, 1);
     else this.camera.up.set(0, 1, 0);
 
     this.camera.lookAt(this.target);
+  }
+
+  /**
+   * Оси камеры в мировых координатах для ТЕКУЩИХ углов: right (вправо на
+   * экране), up (вверх на экране), back (от цели К камере). Считает по тем же
+   * углам и тому же правилу «вверх» у полюсов, что и update() (то есть как
+   * Matrix4.lookAt), но саму камеру не двигает — нужно для подгонки кадра.
+   */
+  basis() {
+    const sp = Math.sin(this.phi), cp = Math.cos(this.phi);
+    const back = new THREE.Vector3(sp * Math.sin(this.theta), cp, sp * Math.cos(this.theta));
+    const up0 = new THREE.Vector3(0, 1, 0);
+    if (this.phi < POLE_EPS) up0.set(0, 0, -1);
+    else if (this.phi > Math.PI - POLE_EPS) up0.set(0, 0, 1);
+    const right = new THREE.Vector3().crossVectors(up0, back).normalize();
+    const up = new THREE.Vector3().crossVectors(back, right);
+    return { right, up, back };
   }
 }
 
@@ -2618,6 +2744,10 @@ class Viewer3D {
     this.renderer = new THREE.WebGLRenderer({ antialias: true });
     this.renderer.setPixelRatio(window.devicePixelRatio || 1);
     container.appendChild(this.renderer.domElement);
+    // Ссылка на рабочий вьювер — для отладки из консоли браузера:
+    //   Modul3D.viewer.current.memoryInfo()
+    //   Modul3D.viewer.current.renderer.info.memory
+    if (window.Modul3D && window.Modul3D.viewer) window.Modul3D.viewer.current = this;
 
     this.controls = new SimpleOrbitControl(this.camera, this.renderer.domElement);
 
@@ -2782,6 +2912,25 @@ class Viewer3D {
 
     // Зум в ортогональных видах меняет рамку камеры (радиус там не работает)
     this._orthoZoom = 1;
+
+    // Нижний лист на телефоне (см. блок «КАДР ПОД НИЖНИЙ ЛИСТ» выше).
+    // _inset — высота листа в px, под которую подогнан кадр («целевое»
+    // значение из события); _insetShown — сколько px сейчас реально учтено в
+    // проекции камер (в ходе плавной подгонки догоняет _inset). Оба 0 —
+    // обычное кадрирование на весь холст (десктоп без панели «Документы»: всегда так).
+    this._inset = 0;
+    this._insetShown = 0;
+    this._insetEventT = 0;     // время последнего изменения _inset (отличить «тянут лист» от разового открытия)
+    this._camTween = null;     // идущая плавная подгонка кадра (крутится внутри _animate, отдельного rAF нет)
+    this._compCache = null;    // кэш габарита композиции (сбрасывается в render())
+    // Необязательный колбэк «кадр сдвинули подгонкой под лист» — app.js может
+    // перерисовать размеры поверх плоских видов (оверлей привязан к проекции).
+    this.onCameraFit = null;
+    // Пользователь взялся за сцену (касание/колесо) — плавную подгонку
+    // доводим до конца сразу, чтобы она не боролась с его жестом.
+    this.renderer.domElement.addEventListener('pointerdown', () => this._finishCamTween(), true);
+    this.renderer.domElement.addEventListener('wheel', () => this._finishCamTween(), { capture: true, passive: true });
+
     this.controls.onZoom = (k, pt) => {
       if (!this.isOrtho) return;
       this._orthoZoom = Math.max(0.2, Math.min(12, this._orthoZoom / k));
@@ -2820,6 +2969,18 @@ class Viewer3D {
 
     this._resize();
     window.addEventListener('resize', () => this._resize());
+
+    // Нижний лист на телефоне: подписка на контракт ui-shell.js (раздел 7б).
+    // viewer.js грузится РАНЬШЕ ui-shell.js, но экземпляр создаёт app.js уже
+    // после него — поэтому текущее значение можно спросить сразу (с проверкой:
+    // без ui-shell/в тестовой среде просто остаёмся на весь холст).
+    window.addEventListener('modul3d:drawer-inset', (e) => {
+      this.setBottomInset(e && e.detail ? e.detail.bottom : 0);
+    });
+    try {
+      const shell = window.Modul3D && window.Modul3D.uiShell;
+      if (shell && typeof shell.getDrawerInset === 'function') this.setBottomInset(shell.getDrawerInset());
+    } catch (err) { /* не критично: кадр останется на весь холст */ }
 
     this._animate();
   }
@@ -3122,13 +3283,262 @@ class Viewer3D {
     this.persp.aspect = w / h;
     this.persp.updateProjectionMatrix();
     this.renderer.setSize(w, h);
+    this._applyViewOffset();   // нижний лист: сдвиг проекции (при выключенном — ничего)
     this._fitOrtho();
     if (this.gizmo) this.gizmo.resize();
+  }
+
+  // ---------------------------------------------------------------------------
+  // КАДР ПОД НИЖНИЙ ЛИСТ (телефон) — см. блок констант INSET_* выше
+  // ---------------------------------------------------------------------------
+
+  // Размер холста в CSS-px — те же числа, что и в _resize().
+  _canvasCssSize() {
+    return { w: this.container.clientWidth || 600, h: this.container.clientHeight || 500 };
+  }
+
+  // Сколько px снизу холста высотой ch сейчас закрыто листом (с защитой от
+  // «лист выше холста»: минимум INSET_MIN_VISIBLE px остаётся видимым).
+  // Лист (.drawer) лежит внутри .stage с bottom:0, а #viewer3d растянут на всю
+  // .stage — поэтому высота листа и есть закрытая часть холста снизу.
+  _insetPx(ch) {
+    const b = this._insetShown;
+    if (!(b > 0)) return 0;
+    return Math.min(b, Math.max(0, ch - INSET_MIN_VISIBLE));
+  }
+
+  /**
+   * Сдвигает проекцию обеих камер так, чтобы центр кадра (точка, куда смотрит
+   * камера) лёг в центр ВИДИМОЙ части холста — от верха до верха листа.
+   * setViewOffset(fullW, fullH, x, y, w, h) берёт окно w×h из «полного»
+   * изображения fullW×fullH; окно с тем же размером, но сдвинутое вниз на
+   * b/2, поднимает картинку на b/2 px: центр сцены оказывается на высоте
+   * (h − b)/2 от верха — ровно середина видимой части. Масштаб (px на метр)
+   * при этом не меняется: рамка по-прежнему считается от ВСЕЙ высоты холста.
+   * Координаты мыши/тапа для raycast нормируются от размеров холста и
+   * projectionMatrixInverse уже учитывает сдвиг — выбор деталей не страдает.
+   * Смещение 0 — clearViewOffset(), проекция ровно как без этой функции.
+   */
+  _applyViewOffset() {
+    const { w, h } = this._canvasCssSize();
+    const b = this._insetPx(h);
+    for (const cam of [this.persp, this.ortho]) {
+      if (b > 0 && typeof cam.setViewOffset === 'function') {
+        cam.setViewOffset(w, h, 0, b / 2, w, h);
+      } else if (b === 0 && cam.view && cam.view.enabled && typeof cam.clearViewOffset === 'function') {
+        cam.clearViewOffset();
+      }
+    }
+  }
+
+  // Габарит всего, что сейчас нарисовано (все модули композиции), в метрах.
+  // null — сцена пуста. Кэшируется до следующего render(): при перетаскивании
+  // листа события идут каждый кадр, обходить меши каждый раз незачем.
+  _compositionBox() {
+    if (!this._compCache) {
+      let box = null;
+      try {
+        this.group.updateMatrixWorld(true);
+        const b = new THREE.Box3().setFromObject(this.group);
+        const v = [b.min.x, b.min.y, b.min.z, b.max.x, b.max.y, b.max.z];
+        if (!b.isEmpty() && v.every(Number.isFinite)) box = b;
+      } catch (e) { box = null; }
+      this._compCache = { box };
+    }
+    return this._compCache.box;
+  }
+
+  // Обычный кадр «на весь экран»: та же формула, что всегда была в render()
+  // при смене габарита. null — модель ещё не рисовалась.
+  _calcDefaultFrame() {
+    const d = this._lastDims;
+    if (!d) return null;
+    const maxDim = Math.max(d.W, d.H, d.D, 1000) * MM;
+    return { radius: maxDim * 1.6, tx: 0, ty: Math.max(d.H, 800) * MM * 0.45, tz: 0, orthoZoom: 1 };
+  }
+
+  /**
+   * Кадр для нижнего листа высотой inset px: { radius, tx, ty, tz, orthoZoom }
+   * — расстояние камеры и точка, куда она смотрит; УГЛЫ обзора не трогаем.
+   * inset = 0 (или сцена пуста) → обычный кадр на весь экран (maxDim·1.6, без
+   * учёта пропорций холста) — кроме случая fitAll: тогда та же подгонка по
+   * углам с b = 0, то есть вся композиция целиком в весь экран с теми же
+   * полями. fitAll нужен ТОЛЬКО при закрытии листа (телефон): на узком экране
+   * широкий ряд модулей при maxDim·1.6 обрезался бы по бокам.
+   *
+   * Считаем по 8 углам габарита композиции. Камера смотрит в цель с
+   * расстояния R; угол с координатами (x вправо, y вверх, z к камере —
+   * всё относительно цели) виден на «тангенсе» x/(R − z) по горизонтали и
+   * y/(R − z) по вертикали, а видимая часть допускает не больше
+   *   th = tan(fov/2)·(w/h)·k   по горизонтали,
+   *   tv = tan(fov/2)·((h − b)/h)·k   по вертикали
+   * (w×h — холст, b — закрытая листом часть, k = 1 − 2·INSET_FIT_MARGIN — доля
+   * видимой части под композицию, остальное — поля). Отсюда для каждого
+   * угла R ≥ |x|/th + z и R ≥ |y|/tv + z; берём максимум. Перспектива
+   * несимметрична (ближний край крупнее дальнего), поэтому цель после этого
+   * трижды подправляем: сдвигаем на середину проекции и пересчитываем R.
+   * Ортографический вид (плоские виды) масштаб берёт из _fitOrtho() по
+   * габариту и видимой части — там достаточно поставить цель в центр габарита
+   * и сбросить зум; радиус считаем всё равно (для перехода обратно в 3D).
+   */
+  _calcFrame(inset, fitAll) {
+    if (!(inset > 0) && !fitAll) return this._calcDefaultFrame();
+    const box = this._compositionBox();
+    if (!box) return this._calcDefaultFrame();
+
+    const { w, h } = this._canvasCssSize();
+    const b = Math.min(inset, Math.max(0, h - INSET_MIN_VISIBLE));
+    const k = 1 - 2 * INSET_FIT_MARGIN;
+    const tanHalf = Math.tan(this.persp.fov * Math.PI / 360);
+    const th = tanHalf * (w / h) * k;
+    const tv = tanHalf * ((h - b) / h) * k;
+
+    const { right, up, back } = this.controls.basis();
+    const corners = [];
+    for (const x of [box.min.x, box.max.x]) {
+      for (const y of [box.min.y, box.max.y]) {
+        for (const z of [box.min.z, box.max.z]) corners.push(new THREE.Vector3(x, y, z));
+      }
+    }
+    const tgt = box.getCenter(new THREE.Vector3());
+    const d = new THREE.Vector3();
+
+    // Минимальное расстояние до цели, при котором все углы в рамке.
+    const needR = () => {
+      let r = 0.15, zMax = -Infinity;
+      for (const p of corners) {
+        d.subVectors(p, tgt);
+        const z = d.dot(back);
+        zMax = Math.max(zMax, z);
+        r = Math.max(r, Math.abs(d.dot(right)) / th + z, Math.abs(d.dot(up)) / tv + z);
+      }
+      return Math.max(r, zMax + 0.05);   // ближний угол обязан быть перед камерой
+    };
+
+    let R = needR();
+    for (let i = 0; i < 3; i++) {
+      let u0 = Infinity, u1 = -Infinity, v0 = Infinity, v1 = -Infinity;
+      for (const p of corners) {
+        d.subVectors(p, tgt);
+        const dist = Math.max(R - d.dot(back), 0.01);
+        const u = d.dot(right) / dist, v = d.dot(up) / dist;
+        if (u < u0) u0 = u; if (u > u1) u1 = u;
+        if (v < v0) v0 = v; if (v > v1) v1 = v;
+      }
+      // середина проекции ушла от центра кадра на ((u0+u1)/2, (v0+v1)/2) «тангенсов»
+      tgt.addScaledVector(right, (u0 + u1) / 2 * R).addScaledVector(up, (v0 + v1) / 2 * R);
+      R = needR();
+    }
+    R = Math.min(60, Math.max(0.15, R));   // те же границы зума, что в _zoomBy
+    if (![R, tgt.x, tgt.y, tgt.z].every(Number.isFinite)) return this._calcDefaultFrame();
+    return { radius: R, tx: tgt.x, ty: tgt.y, tz: tgt.z, orthoZoom: 1 };
+  }
+
+  _currentFrame() {
+    const c = this.controls;
+    return { radius: c.radius, tx: c.target.x, ty: c.target.y, tz: c.target.z, orthoZoom: this._orthoZoom };
+  }
+
+  // Сразу ставит кадр (расстояние, цель, зум плоских видов).
+  _setFrame(f) {
+    const c = this.controls;
+    c.radius = f.radius;
+    c.target.set(f.tx, f.ty, f.tz);
+    this._orthoZoom = f.orthoZoom;
+    c.update();
+    this._fitOrtho();
+  }
+
+  _notifyCameraFit() {
+    if (typeof this.onCameraFit !== 'function') return;
+    // Матрицы камеры обычно обновляются только в renderer.render(); колбэк
+    // (например, пересчёт размеров через project()) должен видеть свежий кадр.
+    this.camera.updateMatrixWorld(true);
+    try { this.onCameraFit(); } catch (e) { /* колбэк интерфейса не должен ронять рендер */ }
+  }
+
+  /**
+   * Публичный вход: высота нижнего листа в px (0 — листа нет). Зовётся по
+   * событию 'modul3d:drawer-inset'. Тот же отступ повторно — ничего не
+   * делаем: после подгонки пользователь мог сам покрутить/приблизить сцену,
+   * и её нельзя перекадрировать, пока лист не сменит высоту.
+   * Открытие/закрытие листа — короткая плавная подгонка (тик крутится в
+   * _animate, отдельного rAF нет); если события идут чаще INSET_BURST_MS
+   * (лист тянут пальцем) — кадр ставится сразу, без анимации.
+   */
+  setBottomInset(px) {
+    if (this._broken) return;
+    let v = Math.round(Number(px));
+    if (!(v > 0)) v = 0;
+    if (v === this._inset) return;
+    this._inset = v;
+
+    // Закрытие листа (v = 0; сюда попадаем только после открытого, повторный 0
+    // отсеян выше — без нижней панели событий нет): вписываем ВСЮ композицию в весь
+    // экран с теми же полями и углами (в плоских видах — прежний кадр).
+    const to = (v === 0 && !this.isOrtho) ? this._calcFrame(0, true) : this._calcFrame(v);
+    const now = nowMs();
+    const burst = now - this._insetEventT < INSET_BURST_MS;
+    this._insetEventT = now;
+
+    if (to && !burst && !prefersReducedMotion()) {
+      // Стартуем с того, что на экране сию секунду (в том числе с середины
+      // прерванной подгонки) — рывка нет.
+      this._camTween = { t0: now, inset0: this._insetShown, inset1: v, from: this._currentFrame(), to };
+      return;
+    }
+    this._camTween = null;
+    this._insetShown = v;
+    this._applyViewOffset();
+    if (to) this._setFrame(to);
+    else this._fitOrtho();
+    this._notifyCameraFit();
+  }
+
+  // Подгоняет кадр под ТЕКУЩИЙ лист сразу, без анимации (смена габарита
+  // композиции и смена вида, пока лист открыт).
+  _refitInset() {
+    this._camTween = null;
+    this._insetShown = this._inset;
+    this._applyViewOffset();
+    const f = this._calcFrame(this._inset);
+    if (f) this._setFrame(f);
+    this._notifyCameraFit();
+  }
+
+  // Шаг плавной подгонки — из _animate(), раз в кадр.
+  _stepCamTween() {
+    const tw = this._camTween;
+    if (!tw) return;
+    const t = Math.min(1, (nowMs() - tw.t0) / INSET_TWEEN_MS);
+    if (t >= 1) { this._finishCamTween(); return; }
+    const e = 1 - Math.pow(1 - t, 3);   // быстро в начале, мягко к концу
+    const L = (a, b) => a + (b - a) * e;
+    this._insetShown = L(tw.inset0, tw.inset1);
+    this._applyViewOffset();
+    this._setFrame({
+      radius: L(tw.from.radius, tw.to.radius),
+      tx: L(tw.from.tx, tw.to.tx), ty: L(tw.from.ty, tw.to.ty), tz: L(tw.from.tz, tw.to.tz),
+      orthoZoom: L(tw.from.orthoZoom, tw.to.orthoZoom),
+    });
+    if (this.isOrtho) this._notifyCameraFit();
+  }
+
+  // Доводит подгонку до конца сразу (конец анимации или пользователь взялся за сцену).
+  _finishCamTween() {
+    const tw = this._camTween;
+    if (!tw) return;
+    this._camTween = null;
+    this._insetShown = tw.inset1;
+    this._applyViewOffset();
+    this._setFrame(tw.to);
+    this._notifyCameraFit();
   }
 
   _animate() {
     if (this._broken) return;
     requestAnimationFrame(() => this._animate());
+    if (this._camTween) this._stepCamTween();
     this._updateFloorVisibility();
     this.renderer.render(this.scene, this.camera);
     // Гизма перерисовывается только если что-то изменилось (поворот камеры,
@@ -3212,6 +3622,9 @@ class Viewer3D {
     this._fitOrtho();
     this.controls.setView(name);
     this._resize();
+    // Под нижним листом смена вида — явная команда «покажи так»: кадр
+    // подгоняем под видимую часть заново, уже с новыми углами.
+    if (this._inset > 0) this._refitInset();
   }
 
   /**
@@ -3251,18 +3664,56 @@ class Viewer3D {
     const H = this._lastDims.H || 1000;
     const D = this._lastDims.D || 1000;
     const el = this.renderer.domElement;
-    const aspect = (el.clientWidth || 1) / (el.clientHeight || 1);
+    const chPx = el.clientHeight || 1;
+    const aspect = (el.clientWidth || 1) / chPx;
+    // Нижний лист (телефон): рамка камеры остаётся размером со ВЕСЬ холст (так
+    // работает сдвиг проекции, см. _applyViewOffset), а габарит должен влезть
+    // в ВИДИМУЮ часть — её высота visH и пропорции visAspect. Без листа
+    // visH = chPx, visAspect = aspect, множитель = 1: формулы прежние.
+    const visH = Math.max(chPx - this._insetPx(chPx), 1);
+    const visAspect = (el.clientWidth || 1) / visH;
     const vn = this.viewName;
     const ext = (vn === 'side' || vn === 'left')  ? { w: D, h: H }
               : (vn === 'top'  || vn === 'bottom') ? { w: W, h: D }
               : { w: W, h: H };
     // рамку берём по большей из потребностей с учётом пропорций окна
-    const need = Math.max(ext.h, ext.w / Math.max(aspect, 0.01));
-    const span = need * MM * 1.2 / (this._orthoZoom || 1);
+    const need = Math.max(ext.h, ext.w / Math.max(visAspect, 0.01));
+    const span = need * MM * 1.2 / (this._orthoZoom || 1) * (chPx / visH);
     let hw = span * aspect / 2, hh = span / 2;
     this.ortho.left = -hw; this.ortho.right = hw;
     this.ortho.top = hh; this.ortho.bottom = -hh;
     this.ortho.updateProjectionMatrix();
+  }
+
+  /**
+   * Сбрасывает кэш геометрии деталей и освобождает её память на видеокарте.
+   * Вызывать ТОЛЬКО когда в сцене нет мешей с этой геометрией (сразу после
+   * очистки группы в render()).
+   */
+  _clearPartGeoCache() {
+    for (const entry of this._partGeoCache.values()) {
+      for (const g of entry.partGeos) disposeRes(g);
+      for (const g of entry.cutEdgeGeos) disposeRes(g);
+      disposeRes(entry.outlineEdges);
+    }
+    this._partGeoCache.clear();
+  }
+
+  /**
+   * Для отладки из консоли браузера: сколько геометрий/текстур сейчас
+   * загружено на видеокарту (renderer.info.memory) и сколько шейдерных
+   * программ. Если после нескольких пересчётов числа растут без конца —
+   * где-то снова утекает память.
+   */
+  memoryInfo() {
+    if (!this.renderer || !this.renderer.info) return null;
+    const info = this.renderer.info;
+    return {
+      geometries: info.memory.geometries,
+      textures: info.memory.textures,
+      programs: info.programs ? info.programs.length : 0,
+      partGeoCache: this._partGeoCache ? this._partGeoCache.size : 0,
+    };
   }
 
   /**
@@ -3273,6 +3724,7 @@ class Viewer3D {
    */
   render(model, opts) {
     if (this._broken) return;
+    this._compCache = null;   // сцену пересоберём — габарит композиции для подгонки под лист пересчитается
     const hideFacades = !!(opts && opts.hideFacades);
     // Режим проверки присадки: корпус полупрозрачный, отверстия подсвечены
     const drillCheck = !!(opts && opts.drillCheck);
@@ -3311,7 +3763,18 @@ class Viewer3D {
     // понять, что клик пришёлся внутрь изолированного модуля.
     const isolateModule = (opts && opts.isolateModule) || null;
     this._isolateModule = isolateModule;
+    // Старую сцену не только убираем из группы, но и освобождаем её память
+    // на видеокарте (геометрия/материалы/клоны текстур этой перестройки).
+    // Общие ресурсы (кэши, текстура «под древесину») disposeObjectTree
+    // пропускает — см. markShared.
+    disposeObjectTree(this.group);
     while (this.group.children.length) this.group.remove(this.group.children[0]);
+    // Кэш геометрии деталей разросся (много разных форм за сессию) —
+    // сбрасываем его ЗДЕСЬ, когда старые меши уже убраны и его геометрию
+    // никто в сцене не использует: тогда её можно честно освободить.
+    // Раньше кэш просто очищался (clear) посреди перестройки — и вся
+    // сброшенная геометрия оставалась висеть на видеокарте.
+    if (this._partGeoCache.size > 300) this._clearPartGeoCache();
 
     const { W, H, D } = model.dims;
     // Рисуем из несклеенного списка: у него каждая деталь знает свой модуль,
@@ -3672,8 +4135,13 @@ class Viewer3D {
         outlineEdges = outlineGeo;
         // Кэш растёт, пока в сессии не наберётся МНОГО разных форм деталей
         // (десятки проектов подряд) — грубая защита от неограниченного роста,
-        // не точная LRU-политика: просто сбрасываем и копим заново.
-        if (this._partGeoCache.size > 300) this._partGeoCache.clear();
+        // не точная LRU-политика: сброс (с освобождением памяти) делается в
+        // начале следующей перестройки, см. _clearPartGeoCache.
+        // Геометрия кэша живёт между перестройками — помечаем её общей,
+        // чтобы очистка сцены её не освобождала.
+        for (const pg of partGeos) markShared(pg);
+        for (const ce of cutEdgeGeos) markShared(ce);
+        markShared(outlineEdges);
         this._partGeoCache.set(geoKey, { partGeos, cutEdgeGeos, outlineEdges });
       }
 
@@ -3929,8 +4397,14 @@ class Viewer3D {
     const key = `${W}|${H}|${D}`;
     if (key !== this._fitKey) {
       this._fitKey = key;
-      const maxDim = Math.max(W, H, D, 1000) * MM;
-      this.controls.setFromDistance(maxDim * 1.6, Math.max(H, 800) * MM * 0.45);
+      if (this._inset > 0) {
+        // Открыт нижний лист (телефон): новый габарит композиции подгоняем
+        // под видимую над ним часть, углы обзора сохраняются.
+        this._refitInset();
+      } else {
+        const f = this._calcDefaultFrame();
+        this.controls.setFromDistance(f.radius, f.ty);
+      }
     }
   }
 }
@@ -4502,8 +4976,7 @@ function renderThumbnail(model, opts) {
   if (!source.length) return null;
 
   const size = (opts && opts.size) || 140;
-  const geoms = [];   // всё, что создали здесь, — освобождаем в finally
-  const mats = [];
+  let group = null;   // всё, что создали здесь, — освобождаем в finally
   let renderer = null;
 
   try {
@@ -4517,7 +4990,7 @@ function renderThumbnail(model, opts) {
     dir.position.set(3, 5, 4);
     scene.add(dir);
 
-    const group = new THREE.Group();
+    group = new THREE.Group();
     scene.add(group);
 
     // Режим «в реальном цвете» (для миниатюр Библиотеки, opts.realistic) —
@@ -4544,10 +5017,9 @@ function renderThumbnail(model, opts) {
         if (realistic && row.shape === 'cylinder') {
           const legBoxes = row.boxes || (row.box ? [row.box] : []);
           for (const legBox of legBoxes) {
-            // Геометрию/материалы опоры НЕ добавляем в geoms/mats ниже —
-            // см. пояснение у finally: часть геометрии тут — общий на всё
-            // приложение кэш (kitchenLegSplitCache/clipTabGeoCache), и
-            // диспозить его отсюда нельзя.
+            // Часть геометрии опоры — общий на всё приложение кэш
+            // (kitchenLegSplitCache/clipTabGeoCache); он помечен markShared,
+            // и очистка в finally его не тронет.
             const leg = row.legType === 'kitchen'
               ? makeKitchenLeg(legBox, row.module, false, !!row.hasClip, false, row.rot || 0)
               : makeLeg(legBox, row.module, false, false);
@@ -4642,8 +5114,6 @@ function renderThumbnail(model, opts) {
           mat.map.repeat.set(Math.max(locW * MM, 0.01) / WOOD_TILE_M, Math.max(box.h * MM, 0.01) / WOOD_TILE_M);
         }
       }
-      geoms.push(geo); mats.push(mat);
-
       const mesh = new THREE.Mesh(geo, mat);
       // Позиция — мировые box.x/y/z из engine.js как есть; поворот
       // (mesh.rotation.y) довершает разворот детали из ЛОКАЛЬНЫХ размеров
@@ -4676,7 +5146,6 @@ function renderThumbnail(model, opts) {
       const edgesMat = neutral
         ? new THREE.LineBasicMaterial({ color: 0x33302a })
         : new THREE.LineBasicMaterial({ color: 0x1a1712, transparent: true, opacity: 0.6 });
-      geoms.push(edgesGeo); mats.push(edgesMat);
       const edges = new THREE.LineSegments(edgesGeo, edgesMat);
       mesh.add(edges);
 
@@ -4787,25 +5256,11 @@ function renderThumbnail(model, opts) {
     // одновременных WebGL-контекстов, и дальнейшие иконки перестанут
     // рендериться.
     //
-    // ОПОРЫ (realistic, makeLeg/makeKitchenLeg) — единственное, что сюда
-    // сознательно НЕ попадает. У makeLeg вся геометрия/материалы фреш-
-    // изготовленные (можно было бы диспозить), но у makeKitchenLeg часть
-    // геометрии — ОБЩИЙ на всё приложение кэш (kitchenLegSplitCache —
-    // lowGeo/highGeo, и clipTabGeoCache — plateGeo/hoopGeo/holeGeo клипсы,
-    // см. их у makeClipTabGeo/splitKitchenLegParts выше), который использует
-    // и основная 3D-сцена. Диспозить их отсюда — значит заставить основной
-    // Viewer3D перезаливать эту геометрию на GPU при следующей перерисовке
-    // (не поломка, но лишняя работа на пустом месте), а разбирать группу
-    // опоры руками, чтобы отличить «своё» от «кэшированного», усложнило бы
-    // функцию сильнее, чем стоит эта экономия. GPU-память опоры всё равно
-    // полностью освобождается ниже через renderer.forceContextLoss() — он
-    // целиком уничтожает WebGL-контекст этого разового рендера, независимо
-    // от того, вызывали мы .dispose() на конкретных объектах или нет.
-    for (const g of geoms) g.dispose();
-    // map — клон woodTexture() (см. realistic выше): сам canvas общий
-    // (singleton _woodTex), но каждый клон — отдельная GPU-текстура, и её
-    // нужно закрыть отдельно от материала.
-    for (const m of mats) { if (m.map) m.map.dispose(); m.dispose(); }
+    // Та же очистка, что и в основной сцене (disposeObjectTree): детали,
+    // контуры, клоны текстуры «под древесину» и опоры. Общий кэш опор
+    // (kitchenLegSplitCache/clipTabGeoCache) и саму woodTexture() она
+    // пропускает — их использует и основная 3D-сцена (см. markShared).
+    if (group) disposeObjectTree(group);
     if (renderer) {
       renderer.dispose();
       if (typeof renderer.forceContextLoss === 'function') renderer.forceContextLoss();
@@ -4817,6 +5272,9 @@ window.Modul3D = window.Modul3D || {};
 window.Modul3D.viewer = {
   Viewer3D, lengthAlongU, edgeDrill, DRILL_COLOR, DRILL_TITLE,
   renderThumbnail,
+  // Рабочий экземпляр Viewer3D (выставляет его конструктор) — для отладки
+  // из консоли: Modul3D.viewer.current.memoryInfo().
+  current: null,
   // Сборка геометрии детали — наружу отдаётся для прогонов (tools/) и
   // замеров: по этим функциям можно проверить топологию детали (и то, что
   // её присадка вообще попала в геометрию), не поднимая всю сцену.

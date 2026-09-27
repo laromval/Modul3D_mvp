@@ -131,9 +131,10 @@
     "verifiedAt": "2026-09-24T17:35:55.811Z",
     "categoryPath": [
       "МДФ-плита",
-      "Egger"
+      "Фасадные панели МДФ"
     ],
-    "sourceSiteId": "mobilierMd"
+    "sourceSiteId": "mobilierMd",
+    "categoryPathEdited": true
   },
   {
     "code": "LINK-1790200284959",
@@ -175,6 +176,27 @@
     ],
     "sourceSiteId": "mobilierMd",
     "sourceArticle": ""
+  },
+  {
+    "code": "LINK-1790325008828",
+    "name": "МДФ F128 PA/U999 ST9 Гранитная атмосфера черная",
+    "unit": "м²",
+    "image": "https://mobilier.md/image/cache/catalog/products/33968/aa8ffc38c237e1807bc60dbbb9dfaec0-768x1087.png",
+    "sheetH": 2070,
+    "sheetW": 2800,
+    "article": "",
+    "sourceUrl": "https://mobilier.md/ru/plitnye-materialy/fasadnye-paneli-mdf/mdf-egger/df-f128-pau999-st9-granitnaya-atmosfera-chernaya-19-2800x2070-eg-perfectsense.html",
+    "thickness": 19,
+    "sheetPrice": 6665.4,
+    "sourceName": "МДФ F128 PA/U999 ST9 Гранитная атмосфера черная (19) 2800x2070 (EG) PerfectSense",
+    "verifiedAt": "2026-09-25T08:30:08.827Z",
+    "categoryPath": [
+      "МДФ-плита",
+      "Фасадные панели МДФ"
+    ],
+    "sourceSiteId": "mobilierMd",
+    "sourceArticle": "",
+    "categoryPathEdited": true
   }
 ];
 
@@ -441,9 +463,10 @@
     "verifiedAt": "2026-09-24T17:35:55.811Z",
     "categoryPath": [
       "МДФ-плита",
-      "Egger"
+      "Фасадные панели МДФ"
     ],
-    "sourceSiteId": "mobilierMd"
+    "sourceSiteId": "mobilierMd",
+    "categoryPathEdited": true
   },
   "GLASS-4": {
     "code": "GLASS-4",
@@ -1011,6 +1034,23 @@
     "price": 0,
     "article": "CTOP-GLUE-CARCASS",
     "category": "countertop"
+  },
+  "link_hinge_1790325382612": {
+    "name": "Петля внутренняя Clip Top Blumotion Blum",
+    "unit": "шт",
+    "price": 85,
+    "article": "71B3750",
+    "category": "hinge",
+    "sourceUrl": "https://tehmob.md/15533-petlya-vnutrennyaya-clip-top-blumotion-blum.html",
+    "sourceName": "Петля внутренняя Clip Top Blumotion Blum",
+    "verifiedAt": "2026-09-25T08:36:22.612Z",
+    "subcategory": "Blum",
+    "categoryPath": [
+      "Blum"
+    ],
+    "sourceSiteId": "tehmobMd",
+    "sourceArticle": "71B3750",
+    "hardwareModelSlot": "hingeCup"
   },
   "link_runner_1790013629486": {
     "name": "PB-3D0SHX18-250-PRO Направляющая нижнего монтажа с доводчиком 0SHX-18 3D, L-250",
@@ -1659,16 +1699,26 @@
   // Область применения — по высоте фасада и ширине корпуса, по каталогам
   // производителей. minH/maxH — высота фасада, maxW — ширина корпуса, мм.
   // ---------------------------------------------------------------------------
-  // Blum, Hettich и Samet на mobilier.md не продаются вообще (0 совпадений
-  // по каждому бренду) — цены во всех восьми позициях ниже условные, с
-  // mobilier.md не сверялись. sourceUrl проставлен на официальные страницы
-  // Blum/Hettich там, где нашлась модель с точно таким названием — цены на
-  // этих страницах не публикуются (это каталожные/маркетинговые страницы,
-  // не магазин), поэтому цена так и остаётся условной и требует проверки.
-  // Для Samet (sametSmart/sametRapid) на samet.com.tr и sametglobal.com
-  // товаров с названиями «Smart Lift»/«Rapid Lift» не нашлось — реальная
-  // линейка называется иначе (Multi Mech/Solo Mech/Slim Mech/Gas Spring/
-  // D-Lite Lift), выдумывать соответствие не стали, sourceUrl не добавлен.
+  // Все позиции проверены по реальным магазинам (2026-09-25,
+  // tehmob.md/dask-centru.md/mobilier.md) — sourceUrl/sourceName/verifiedAt
+  // ведут на конкретный товар с реальной ценой, не на маркетинговую страницу
+  // производителя. Blum на этих сайтах продаётся только в виде AVENTOS TOP
+  // (aventosHF/HK/HL) — те заменены как есть, тот же бренд/модель, только
+  // цена и ссылка теперь реальные. Hettich/старый Samet в продаже НЕ нашлись
+  // вообще ни на одном из 4 подключённых сайтов — hettichHF/hettichHL/
+  // sametSmart заменены на ближайший реальный аналог той же функции (другой
+  // бренд — DTC/GTV, см. sourceName), с их же реальным диапазоном высоты,
+  // если сайт его публикует (у DTC/GTV — публикует, поэтому minH/maxH сужены
+  // или расширены под конкретный купленный артикул, а не старую догадку).
+  // sametRapid — аналог того же бренда SAMET нашёлся (Лифт Performa), но
+  // диапазон высоты на его странице не публикуется — minH/maxH оставлены
+  // прежними как инженерная оценка, не подтверждены сайтом.
+  // aventosHS (Blum, подъём над корпусом) УДАЛЁН из каталога 2026-09-26 —
+  // реального товара с ценой не нашлось ни на одном из 4 подключённых сайтов
+  // (у sebas.md модель есть, но статус «под заказ» без цены). Правило
+  // проекта (см. CLAUDE.md, «Домашняя экспертиза по мебели»): в каталог не
+  // ставим позицию, которую пользователь не сможет реально купить, — лучше
+  // не показывать вариант вовсе, чем показать нереальную цену.
   const LIFTS = {
   "aventosHF": {
     "id": "aventosHF",
@@ -1773,7 +1823,7 @@
     "category": "mechanism"
   }
 };
-  const LIFT_ORDER = ['aventosHK', 'aventosHF', 'aventosHL', 'aventosHS',
+  const LIFT_ORDER = ['aventosHK', 'aventosHF', 'aventosHL',
                       'hettichHL', 'hettichHF', 'sametSmart', 'sametRapid'];
 
   // Подбирает ближайшую снизу номинальную длину направляющей под глубину корпуса
@@ -1840,7 +1890,7 @@
     support: 'Полкодержатели',
     plinth: 'Крепление цоколя',
     countertop: 'Крепёж столешницы',
-    mechanism: 'Механизмы (подъёмные, push-to-open)',
+    mechanism: 'Подъёмные механизмы',
     rod: 'Штанга для одежды',
     fastener: 'Крепёж и метизы',
   };

@@ -3,7 +3,9 @@
    Слой интерфейса: темы, выдвижные панели, положение рейки панелей
    (в шапке / слева / справа сверху / слева снизу), положение панели режимов
    3D-вида (внизу по центру / слева / справа / в шапке), Focus Mode, HUD на модели,
-   поиск по параметрам, горячие клавиши, мобильная шторка.
+   поиск по параметрам, горячие клавиши, мобильная шторка, регулировка высоты
+   нижних листов на телефоне (раздел 7б) и панели «Документы» на компьютере
+   (7б′), масштаб чертежей (7в).
 
    ВАЖНО: файл не трогает параметрическое ядро. Он только:
    · читает и пишет значения в уже существующие поля панели (#m-width и т.п.)
@@ -18,6 +20,9 @@
 var THEME_KEY = 'modul3d.theme';
 var STATE_KEY = 'modul3d.ui';
 var CURRENCY_KEY = 'modul3d.currency';
+// Размер надписей ручной разметки чертежа (src/markup.js), px — см. initMarkupFont.
+var MARKUP_FONT_KEY = 'modul3d.markupFont';
+var MARKUP_FONT_MIN = 6, MARKUP_FONT_MAX = 24, MARKUP_FONT_DEFAULT = 10;
 // Положение рейки панелей. Тот же ключ и те же значения читает короткий
 // скрипт в <head> index.html (раннее чтение, чтобы не мигало) — менять вместе.
 var RAIL_POS_KEY = 'modul3d.railPos';
@@ -265,6 +270,46 @@ function setTheme(theme) {
   applyTheme3D(theme);
 }
 
+/* Размер надписей ручной разметки чертежа (src/markup.js: setFontScale).
+   Настройка интерфейса, а не проекта — хранится в браузере, как тема.
+   markup.js грузится ПОСЛЕ этого файла, но start() зовётся уже после всех
+   скриптов, так что к моменту initMarkupFont() он на месте. */
+function clampMarkupFont(v) {
+  v = Math.round(Number(v));
+  if (!isFinite(v)) return MARKUP_FONT_DEFAULT;
+  return Math.max(MARKUP_FONT_MIN, Math.min(MARKUP_FONT_MAX, v));
+}
+
+var markupFontRebuildTimer = null;
+function applyMarkupFont(px, save) {
+  px = clampMarkupFont(px);
+  var mk = window.Modul3D && window.Modul3D.markup;
+  if (mk && mk.setFontScale) mk.setFontScale(px);
+  var range = document.getElementById('markupFontRange');
+  if (range && String(range.value) !== String(px)) range.value = px;
+  var out = document.getElementById('markupFontValue');
+  if (out) out.textContent = px + ' px';
+  if (save) {
+    try { localStorage.setItem(MARKUP_FONT_KEY, String(px)); } catch (e) { /* приватный режим */ }
+    // Рамка листа (drawings.js: svgFit) считается при сборке чертежа —
+    // крупные подписи иначе обрезались бы краем. Модель не пересчитывается.
+    // Ползунок шлёт input на каждый шаг — пересобираем с короткой задержкой.
+    clearTimeout(markupFontRebuildTimer);
+    markupFontRebuildTimer = setTimeout(function () {
+      var app = window.Modul3D.app;
+      if (app && typeof app.refreshDrawings === 'function') app.refreshDrawings();
+    }, 120);
+  }
+}
+
+function initMarkupFont() {
+  var saved = null;
+  try { saved = localStorage.getItem(MARKUP_FONT_KEY); } catch (e) { /* нет доступа */ }
+  applyMarkupFont(saved == null || saved === '' ? MARKUP_FONT_DEFAULT : saved, false);
+  var range = document.getElementById('markupFontRange');
+  if (range) range.addEventListener('input', function () { applyMarkupFont(range.value, true); });
+}
+
 function initTheme() {
   var saved = null;
   try { saved = localStorage.getItem(THEME_KEY); } catch (e) { /* нет доступа */ }
@@ -314,6 +359,10 @@ function openDrawer(name, scrollTo) {
   el.setAttribute('aria-hidden', 'false');
   openPanel = name;
   document.body.classList.add('has-modal-drawer');
+  // Нижний лист на телефоне: вернуть запомненную высоту (после жеста «потянул
+  // вниз, чтобы закрыть» она могла остаться урезанной) и сообщить 3D-вьюеру
+  // отступ — см. раздел 7б. То же для панели «Документы» на компьютере (7б′).
+  refreshSheetHeight();
   syncTriggers();
   rememberUI();
 
@@ -326,11 +375,18 @@ function openDrawer(name, scrollTo) {
 function closeDrawer(name, silent) {
   var el = drawerOf(name || openPanel);
   if (!el) return;
+  // Идущее перетаскивание высоты «Документов» (7б′) обрываем: панели больше
+  // нет, а жест без неё — «залипшая» подсветка курсора и захват указателя.
+  if (docsDrag && (name || openPanel) === 'docs') endDocsDrag(true, true);
   el.classList.remove('open');
   el.setAttribute('aria-hidden', 'true');
   if (!name || name === openPanel) openPanel = null;
   if (!silent) {
     document.body.classList.remove('has-modal-drawer');
+    // Панель закрыта — нижнего листа больше нет, отступ для 3D сбрасывается
+    // в 0 (раздел 7б). При «тихом» закрытии (смена одной панели другой) этого
+    // не делаем: следом сразу openDrawer, он сам сообщит итоговое значение.
+    publishSheetInset(false);
     syncTriggers();
     rememberUI();
   }
@@ -652,6 +708,10 @@ function setRailPos(pos, opts) {
   void root.offsetWidth;
   document.body.classList.remove('rail-moving');
   syncRailPosButtons();
+  // Рейка «слева снизу» / «справа сверху» занимает место у края сцены — у
+  // панели «Документы» поменялись допустимые границы высоты и закрытая ею
+  // часть 3D (7б′): пересчитать и пересообщить отступ вьюеру.
+  if (changed) refreshSheetHeight();
 
   // HUD запомнил, где его поставили, и мог оказаться под рейкой на новом месте.
   // До flyRail: после запуска перелёта рейка на первом кадре ещё на старом
@@ -1615,18 +1675,1093 @@ function initSheet() {
     startY = null;
     if (dy > 24 && !openPanel) openDrawer('params');
   });
+  // Раньше здесь же был «свайп вниз по шапке листа — закрыть». Теперь шапка —
+  // ручка регулировки высоты (раздел 7б): тот же жест тянет лист вниз, а
+  // закрытием он становится только если потянуть заметно ниже минимума
+  // (см. SHEET_CLOSE_PULL) — иначе он бы закрывал лист при любой попытке
+  // просто сделать его пониже.
+}
 
-  // Свайп вниз по шапке листа — закрыть
-  document.addEventListener('pointerdown', function (e) {
-    var head = e.target.closest && e.target.closest('.drawer-head');
-    if (!head) return;
-    var y0 = e.clientY;
-    var up = function (ev) {
-      document.removeEventListener('pointerup', up);
-      if (ev.clientY - y0 > 40) closeDrawer(openPanel);
-    };
-    document.addEventListener('pointerup', up);
+/* ---------------------------------------------------------------------------
+   7б. Высота нижнего листа на телефоне (≤ 820px)
+
+   Все панели-шторки (Библиотека, Параметры, Студия, Столешница, Документы —
+   всё, что .drawer) на телефоне — нижние листы ОДНОЙ высоты. Её регулирует
+   пользователь: тянет шапку листа (.drawer-head, кроме крестика) вверх — лист
+   выше, вниз — ниже; двойной тап по шапке возвращает высоту по умолчанию
+   (45% высоты окна). Границы — от 25% до 85% высоты окна (и не ниже
+   SHEET_H_MIN_PX, чтобы шапка и пара строк содержимого всегда были видны).
+   Если потянуть ниже минимума больше чем на SHEET_CLOSE_PULL px и отпустить —
+   лист закрывается (замена прежнему «свайпу вниз по шапке»).
+
+   Высота запоминается ДОЛЕЙ высоты окна (localStorage 'modul3d.sheetH', без
+   хранилища — просто значение по умолчанию), поэтому при повороте экрана лист
+   сохраняет пропорцию; при resize/повороте высота пересчитывается и
+   зажимается в границы (ключ хранилища при этом не трогаем — иначе временное
+   сжатие окна навсегда «съело» бы выбор пользователя).
+
+   Высоту листа в CSS задаёт переменная --drawer-sheet-h (px, на <html>; см.
+   style.css, раздел 17). Она есть ВСЕГДА, пока страница жива, даже когда
+   панель закрыта — иначе при закрытии лист схлопывался бы посреди анимации.
+
+   КОНТРАКТ для 3D-вьюера (камеру сдвигает viewer.js/geometry-engine, здесь мы
+   её не трогаем — только публикуем):
+   · CSS-переменная --mobile-drawer-h на <html>: высота ОТКРЫТОГО нижнего листа
+     в px («420px»); «0px» — если панель закрыта или ширина окна > 820px
+     (на компьютере переменная всегда 0 — она про телефонный лист).
+     Текущее значение можно прочитать в любой момент (например, при подписке).
+   · Событие 'modul3d:drawer-inset' на window (CustomEvent),
+     detail: { bottom: <число px> } — то же значение числом: сколько пикселей
+     снизу окна сцены закрыто листом. На телефоне — высота открытого листа; на
+     компьютере (> 820px) — только пока открыта панель «Документы» (7б′): её
+     высота плюс зазор до края сцены (и строка рейки при положении «слева
+     снизу»); левые панели дают 0 — они сбоку и низ не закрывают. 0 — панели
+     нет. Шлётся при открытии/закрытии/смене панели, повороте и resize окна,
+     смене положения рейки, в ходе перетаскивания (не чаще раза за кадр —
+     requestAnimationFrame) и всегда итоговым событием в конце жеста. Повторов
+     с тем же значением подряд нет (кроме итогового события в конце жеста).
+   · uiShell.getDrawerInset() отдаёт то же значение числом.
+--------------------------------------------------------------------------- */
+var SHEET_H_KEY = 'modul3d.sheetH';
+var SHEET_H_DEFAULT = 0.45;     // высота по умолчанию — доля высоты окна
+var SHEET_H_MIN = 0.25;         // границы — тоже доли высоты окна
+var SHEET_H_MAX = 0.85;
+var SHEET_H_MIN_PX = 96;        // но не ниже: шапка листа + пара строк содержимого
+var SHEET_CLOSE_PULL = 48;      // потянули ниже минимума больше чем на столько px и отпустили — закрыть
+var SHEET_TAP_MS = 450;         // окно двойного тапа по шапке (неспешный тап пальцем — 350–450 мс между отпусканиями)
+var SHEET_TAP_SLOP = 4;         // сдвиг меньше этого — не жест, а тап
+
+var sheetRatio = SHEET_H_DEFAULT;   // запомненная высота листа, доля высоты окна
+var sheetPx = 0;                    // высота листа в px «сейчас» (в ходе жеста может быть ниже минимума)
+var sheetDrag = null;               // идущее перетаскивание: { id, head, y0, h0, raw, moved }
+var sheetInsetRaf = 0;              // id запланированной публикации отступа (rAF-троттлинг)
+var sheetInsetLast = null;          // последнее опубликованное значение отступа
+var sheetLastTap = 0;               // время последнего тапа по шапке (для двойного тапа)
+
+function isMobileLayout() {
+  return !!(window.matchMedia && window.matchMedia('(max-width: 820px)').matches);
+}
+
+function windowHeight() {
+  return window.innerHeight || document.documentElement.clientHeight || 600;
+}
+
+function sheetBounds() {
+  var H = windowHeight();
+  var min = Math.max(Math.round(H * SHEET_H_MIN), SHEET_H_MIN_PX);
+  var max = Math.max(Math.round(H * SHEET_H_MAX), min);
+  return { min: min, max: max, H: H };
+}
+
+function clampSheetPx(px) {
+  var b = sheetBounds();
+  return Math.min(b.max, Math.max(b.min, Math.round(px)));
+}
+
+function loadSheetRatio() {
+  var v = NaN;
+  try { v = parseFloat(localStorage.getItem(SHEET_H_KEY)); } catch (e) { /* нет хранилища — по умолчанию */ }
+  if (isNaN(v)) return SHEET_H_DEFAULT;
+  return Math.min(SHEET_H_MAX, Math.max(SHEET_H_MIN, v));
+}
+
+function saveSheetRatio() {
+  try { localStorage.setItem(SHEET_H_KEY, String(sheetRatio)); } catch (e) { /* приватный режим */ }
+}
+
+// Единственное место, где высота листа попадает в CSS.
+function setSheetPx(px) {
+  sheetPx = px;
+  document.documentElement.style.setProperty('--drawer-sheet-h', px + 'px');
+}
+
+// Сколько px снизу сцены сейчас закрыто листом (то, что видит 3D-вьюер):
+// телефон — открытый нижний лист; компьютер — панель «Документы» (7б′).
+function sheetInsetBottom() {
+  if (!openPanel) return 0;
+  if (isMobileLayout()) return sheetPx;
+  return openPanel === 'docs' ? docsInsetBottom() : 0;
+}
+
+// Публикует отступ для 3D-вьюера: переменная --mobile-drawer-h + событие
+// 'modul3d:drawer-inset' (контракт — в шапке раздела). force — слать событие
+// даже если значение не менялось (итог жеста).
+function publishSheetInset(force) {
+  var bottom = sheetInsetBottom();
+  // --mobile-drawer-h — про телефонный лист; на компьютере остаётся 0px
+  document.documentElement.style.setProperty('--mobile-drawer-h',
+    (isMobileLayout() ? bottom : 0) + 'px');
+  if (!force && bottom === sheetInsetLast) return;
+  sheetInsetLast = bottom;
+  try {
+    window.dispatchEvent(new CustomEvent('modul3d:drawer-inset', { detail: { bottom: bottom } }));
+  } catch (e) { /* очень старый браузер без CustomEvent — вьюер просто не сдвинется */ }
+}
+
+// В ходе перетаскивания — не чаще одного раза за кадр.
+function scheduleSheetInset() {
+  if (sheetInsetRaf) return;
+  sheetInsetRaf = window.requestAnimationFrame(function () {
+    sheetInsetRaf = 0;
+    publishSheetInset(false);
   });
+}
+
+// Пересчёт высоты из запомненной доли: старт, открытие панели, resize/поворот,
+// сброс по двойному тапу. Заодно пересчитывает высоту панели «Документы» на
+// компьютере (7б′) и публикует отступ (force — см. publishSheetInset).
+function refreshSheetHeight(force) {
+  setSheetPx(clampSheetPx(sheetRatio * windowHeight()));
+  refreshDocsHeight();
+  publishSheetInset(!!force);
+}
+
+function onSheetPointerDown(e) {
+  if (e.button > 0 || sheetDrag) return;             // только основная кнопка/касание
+  if (!openPanel || !isMobileLayout()) return;
+  var head = e.target.closest && e.target.closest('.drawer-head');
+  if (!head || e.target.closest('.drawer-close')) return;   // крестик — обычная кнопка
+  var drawer = head.closest('.drawer');
+  if (!drawer || !drawer.classList.contains('open')) return;
+  sheetDrag = { id: e.pointerId, head: head, y0: e.clientY, h0: sheetPx, raw: sheetPx, moved: false };
+  // Указатель «прилипает» к шапке: жест не обрывается, когда палец уезжает с неё
+  // (а он уезжает — лист движется вместе с пальцем).
+  try { head.setPointerCapture(e.pointerId); } catch (err) { /* не критично */ }
+  head.addEventListener('pointermove', onSheetPointerMove);
+  head.addEventListener('pointerup', onSheetPointerUp);
+  head.addEventListener('pointercancel', onSheetPointerCancel);
+  head.addEventListener('lostpointercapture', onSheetPointerCancel);
+}
+
+function onSheetPointerMove(e) {
+  var d = sheetDrag;
+  if (!d || e.pointerId !== d.id) return;
+  var dy = d.y0 - e.clientY;                 // вверх — плюс: лист выше
+  if (!d.moved) {
+    if (Math.abs(dy) < SHEET_TAP_SLOP) return;   // дрожь пальца, не жест
+    d.moved = true;
+    document.body.classList.add('sheet-resizing');
+  }
+  var b = sheetBounds();
+  d.raw = d.h0 + dy;
+  // Выше максимума не растим; вниз — можно чуть ниже минимума («потяни, чтобы
+  // закрыть»), на отпускании это либо закроет лист, либо вернёт его к минимуму.
+  setSheetPx(Math.min(b.max, Math.max(Math.round(d.raw), b.min - 2 * SHEET_CLOSE_PULL)));
+  scheduleSheetInset();
+}
+
+function onSheetPointerUp(e) {
+  if (sheetDrag && e.pointerId === sheetDrag.id) endSheetDrag(false);
+}
+
+function onSheetPointerCancel(e) {
+  if (sheetDrag && (!e || e.pointerId === sheetDrag.id)) endSheetDrag(true);
+}
+
+function endSheetDrag(cancelled) {
+  var d = sheetDrag;
+  if (!d) return;
+  sheetDrag = null;
+  d.head.removeEventListener('pointermove', onSheetPointerMove);
+  d.head.removeEventListener('pointerup', onSheetPointerUp);
+  d.head.removeEventListener('pointercancel', onSheetPointerCancel);
+  d.head.removeEventListener('lostpointercapture', onSheetPointerCancel);
+  try { d.head.releasePointerCapture(d.id); } catch (err) { /* уже отпущен */ }
+  document.body.classList.remove('sheet-resizing');
+  if (sheetInsetRaf) { window.cancelAnimationFrame(sheetInsetRaf); sheetInsetRaf = 0; }
+
+  if (!d.moved) {
+    // Тап по шапке. Два тапа подряд — вернуть высоту по умолчанию.
+    if (cancelled) return;
+    var now = Date.now();
+    if (now - sheetLastTap < SHEET_TAP_MS) {
+      sheetLastTap = 0;
+      sheetRatio = SHEET_H_DEFAULT;
+      saveSheetRatio();
+      refreshSheetHeight(true);
+    } else {
+      sheetLastTap = now;
+    }
+    return;
+  }
+
+  var b = sheetBounds();
+  if (!cancelled && openPanel && d.raw < b.min - SHEET_CLOSE_PULL) {
+    // Потянули вниз «за минимум» — закрыть (closeDrawer сам сообщит отступ 0).
+    // Урезанная высота вернётся при следующем открытии (openDrawer →
+    // refreshSheetHeight), сохранённая доля при этом не менялась.
+    closeDrawer(openPanel);
+    return;
+  }
+  var px = clampSheetPx(sheetPx);
+  setSheetPx(px);
+  sheetRatio = Math.round((px / b.H) * 1000) / 1000;
+  saveSheetRatio();
+  publishSheetInset(true);        // итоговое событие жеста
+}
+
+function initSheetResize() {
+  sheetRatio = loadSheetRatio();
+  docsRatio = loadDocsRatio();
+  // Переменные нужны до первого открытия панели (restoreUI в start()).
+  refreshSheetHeight();
+  document.addEventListener('pointerdown', onSheetPointerDown);
+  initDocsResize();
+  window.addEventListener('resize', function () {
+    // Поворот экрана / смена размера окна / переход через 820px: пересчитать
+    // высоту из запомненной доли, зажать в границы, пересообщить отступ.
+    if (!sheetDrag && !docsDrag) refreshSheetHeight();
+  });
+}
+
+/* ---------------------------------------------------------------------------
+   7б′. Высота панели «Документы» на компьютере (> 820px)
+
+   Панель «Документы» — плавающая внизу сцены (style.css .drawer-bottom). Её
+   высоту регулирует пользователь: тянет ВЕРХНЮЮ КРОМКУ (ручка #docsResize,
+   полоса 10px) или пустую часть шапки (.drawer-head, кроме крестика) — вверх
+   выше, вниз ниже. Двойной щелчок по ручке/шапке (на сенсорном экране —
+   двойной тап) возвращает высоту по умолчанию min(62vh, 560px), как было до
+   регулировки. Границы: от 25% до 90% высоты окна (и не ниже DOCS_H_MIN_PX),
+   но так, чтобы панель со своими отступами (--sp-3 и строкой рейки при
+   положении «слева снизу»/«справа сверху») не вылезала за верх сцены.
+
+   Хранится ДОЛЯ высоты окна (localStorage 'modul3d.docsH'; нет значения или
+   нет хранилища — высота по умолчанию). При resize окна высота пересчитывается
+   и зажимается в границы, ключ хранилища при этом не трогаем.
+
+   В CSS высота попадает переменной --docs-h (px, на <html>): height у
+   .drawer-bottom и отступ панели режимов 3D (--vt-b) считаются от неё.
+
+   3D над панелью: пока «Документы» открыты, вьюеру уходит тот же сигнал, что
+   и от телефонного листа (контракт — в шапке 7б): 'modul3d:drawer-inset' с
+   bottom = закрытая панелью нижняя часть сцены. Считаем по разметке, а не по
+   getBoundingClientRect: панель «выезжает» переходом transform, и в момент
+   открытия её прямоугольник ещё не на месте; offsetTop от transform не зависит.
+--------------------------------------------------------------------------- */
+var DOCS_H_KEY = 'modul3d.docsH';
+var DOCS_H_DEFAULT_VH = 0.62;       // по умолчанию — min(62vh, 560px): как в CSS до регулировки
+var DOCS_H_DEFAULT_MAX_PX = 560;
+var DOCS_H_MIN = 0.25;              // границы — доли высоты окна
+var DOCS_H_MAX = 0.90;
+var DOCS_H_MIN_PX = 160;            // но не ниже: шапка, вкладки, строка масштаба и пара строк содержимого
+var DOCS_DRAG_SLOP = 3;             // сдвиг меньше этого — не жест, а клик/тап
+var DOCS_TAP_MS = 450;              // окно двойного тапа (сенсорный экран)
+
+var docsRatio = null;               // запомненная высота — доля высоты окна; null — по умолчанию
+var docsPx = 0;                     // высота панели в px «сейчас»
+var docsDrag = null;                // идущее перетаскивание: { id, el, type, y0, h0, b (границы), moved }
+var docsLastTap = 0;                // время последнего тапа по ручке/шапке (двойной тап)
+
+// Значение CSS-переменной с <html> в px (--sp-3 → 12). Нет getComputedStyle
+// (прогон tools/smoke.js без браузера) — запасное значение.
+function rootCssPx(name, fallback) {
+  if (typeof getComputedStyle !== 'function') return fallback;
+  var v = parseFloat(getComputedStyle(document.documentElement).getPropertyValue(name));
+  return isNaN(v) ? fallback : v;
+}
+
+// Отступы панели «Документы» от нижнего и верхнего края сцены — те же, что в
+// style.css: --sp-3 у самой панели; при рейке «слева снизу» панель стоит над её
+// строкой, при «справа сверху» её верх не должен доходить до рейки.
+function docsEdgeGaps() {
+  var m = rootCssPx('--sp-3', 12);
+  var rail = rootCssPx('--rail-h', 56);
+  var pos = document.documentElement.getAttribute('data-rail-pos');
+  return {
+    bottom: pos === 'bottom-left' ? m + rail + m : m,
+    top: pos === 'top-right' ? m + rail + m : m
+  };
+}
+
+function docsBounds() {
+  var H = windowHeight();
+  var stage = document.getElementById('stage');
+  var stageH = (stage && stage.clientHeight) || (H - 52);   // 52 — высота шапки (--topbar-h)
+  var g = docsEdgeGaps();
+  var min = Math.max(Math.round(H * DOCS_H_MIN), DOCS_H_MIN_PX);
+  var max = Math.min(Math.round(H * DOCS_H_MAX), Math.round(stageH - g.bottom - g.top));
+  if (max < min) max = min;       // очень низкое окно: минимум важнее верхней границы
+  return { min: min, max: max, H: H };
+}
+
+function clampDocsPx(px) {
+  var b = docsBounds();
+  return Math.min(b.max, Math.max(b.min, Math.round(px)));
+}
+
+function docsDefaultPx() {
+  return Math.min(Math.round(windowHeight() * DOCS_H_DEFAULT_VH), DOCS_H_DEFAULT_MAX_PX);
+}
+
+function loadDocsRatio() {
+  var v = NaN;
+  try { v = parseFloat(localStorage.getItem(DOCS_H_KEY)); } catch (e) { /* нет хранилища — по умолчанию */ }
+  if (isNaN(v)) return null;
+  return Math.min(DOCS_H_MAX, Math.max(DOCS_H_MIN, v));
+}
+
+function saveDocsRatio() {
+  try {
+    if (docsRatio === null) localStorage.removeItem(DOCS_H_KEY);
+    else localStorage.setItem(DOCS_H_KEY, String(docsRatio));
+  } catch (e) { /* приватный режим */ }
+}
+
+// Единственное место, где высота «Документов» попадает в CSS.
+function setDocsPx(px) {
+  docsPx = px;
+  document.documentElement.style.setProperty('--docs-h', px + 'px');
+}
+
+// Высота из запомненной доли (или по умолчанию), зажатая в границы. Без
+// публикации отступа — её делает вызывающий (refreshSheetHeight/жест).
+function refreshDocsHeight() {
+  var want = docsRatio === null ? docsDefaultPx() : docsRatio * windowHeight();
+  setDocsPx(clampDocsPx(want));
+}
+
+// Сколько px снизу окна сцены закрыто панелью «Документы»: от её верха до низа
+// сцены — включает зазор --sp-3 и строку рейки. Основной путь — по разметке
+// (высота сцены минус offsetTop панели; она лежит прямо в #stage), запасной —
+// высота + отступ снизу (нет разметки: прогон без браузера).
+function docsInsetBottom() {
+  var drawer = drawerOf('docs');
+  var stage = document.getElementById('stage');
+  var v = NaN;
+  if (drawer && stage && drawer.offsetParent === stage && stage.clientHeight) {
+    v = stage.clientHeight - drawer.offsetTop;
+  }
+  if (!(v > 0)) v = docsPx + docsEdgeGaps().bottom;
+  return Math.max(0, Math.round(v));
+}
+
+// За что тянут: сама ручка #docsResize или шапка панели (кроме крестика).
+function docsGrabEl(e) {
+  var t = e.target;
+  if (!t || !t.closest) return null;
+  if (t.closest('.drawer-close')) return null;          // крестик — обычная кнопка
+  var grip = t.closest('#docsResize');
+  if (grip) return grip;
+  var head = t.closest('.drawer-head');
+  return (head && head.closest && head.closest('#drawer-docs')) ? head : null;
+}
+
+function onDocsPointerDown(e) {
+  if (e.button > 0 || e.isPrimary === false) return;    // основная кнопка/первый палец
+  if (isMobileLayout() || openPanel !== 'docs') return;
+  var el = docsGrabEl(e);
+  if (!el) return;
+  var drawer = drawerOf('docs');
+  if (!drawer || !drawer.classList.contains('open')) return;
+  // «Залипший» жест: pointerup потерялся (окно потеряло фокус, системное меню…),
+  // а новый pointerdown уже пришёл — старый жест протух, сбрасываем его и
+  // начинаем новый, иначе панель осталась бы «приклеенной» до перезагрузки.
+  if (docsDrag) endDocsDrag(true, false);
+  // Границы считаем один раз на жест: по ходу перетаскивания они не меняются, а
+  // их вычисление читает разметку (лишний пересчёт на каждое движение мыши).
+  docsDrag = { id: e.pointerId, el: el, type: e.pointerType || 'mouse', y0: e.clientY,
+               h0: docsPx, b: docsBounds(), moved: false };
+  // Указатель «прилипает» к ручке: жест не обрывается, когда курсор уезжает с неё
+  // (а он уезжает — панель движется вместе с ним).
+  try { el.setPointerCapture(e.pointerId); } catch (err) { /* не критично */ }
+  el.addEventListener('pointermove', onDocsPointerMove);
+  el.addEventListener('pointerup', onDocsPointerUp);
+  el.addEventListener('pointercancel', onDocsPointerCancel);
+  el.addEventListener('lostpointercapture', onDocsPointerCancel);
+  // Текст не выделяется, курсор «изменение высоты» — с самого нажатия
+  document.body.classList.add('docs-resizing');
+}
+
+function onDocsPointerMove(e) {
+  var d = docsDrag;
+  if (!d || e.pointerId !== d.id) return;
+  // Кнопку отпустили где-то мимо окна, а pointerup не пришёл — жест закончен
+  if (d.type === 'mouse' && e.buttons === 0) { endDocsDrag(false, false); return; }
+  var dy = d.y0 - e.clientY;                 // вверх — плюс: панель выше
+  if (!d.moved) {
+    if (Math.abs(dy) < DOCS_DRAG_SLOP) return;   // дрожь руки, не жест
+    d.moved = true;
+  }
+  setDocsPx(Math.min(d.b.max, Math.max(d.b.min, Math.round(d.h0 + dy))));
+  scheduleSheetInset();
+}
+
+function onDocsPointerUp(e) {
+  if (docsDrag && e.pointerId === docsDrag.id) endDocsDrag(false, false);
+}
+
+function onDocsPointerCancel(e) {
+  if (docsDrag && (!e || e.pointerId === docsDrag.id)) endDocsDrag(true, false);
+}
+
+// quiet — не публиковать отступ (закрытие панели: closeDrawer сообщит 0 сам).
+function endDocsDrag(cancelled, quiet) {
+  var d = docsDrag;
+  if (!d) return;
+  docsDrag = null;
+  d.el.removeEventListener('pointermove', onDocsPointerMove);
+  d.el.removeEventListener('pointerup', onDocsPointerUp);
+  d.el.removeEventListener('pointercancel', onDocsPointerCancel);
+  d.el.removeEventListener('lostpointercapture', onDocsPointerCancel);
+  try { d.el.releasePointerCapture(d.id); } catch (err) { /* уже отпущен */ }
+  document.body.classList.remove('docs-resizing');
+  if (sheetInsetRaf) { window.cancelAnimationFrame(sheetInsetRaf); sheetInsetRaf = 0; }
+
+  if (!d.moved) {
+    // Клик/тап без сдвига. Двойной щелчок мышью ловит dblclick (initDocsResize),
+    // на сенсорном экране двойной щелчок не приходит — считаем два тапа сами.
+    if (cancelled || quiet || d.type !== 'touch') return;
+    var now = Date.now();
+    if (now - docsLastTap < DOCS_TAP_MS) { docsLastTap = 0; resetDocsHeight(); }
+    else docsLastTap = now;
+    return;
+  }
+
+  var b = docsBounds();
+  var px = clampDocsPx(docsPx);
+  setDocsPx(px);
+  docsRatio = Math.round((px / b.H) * 1000) / 1000;
+  saveDocsRatio();
+  if (!quiet) publishSheetInset(true);       // итоговое событие жеста
+}
+
+// Высота по умолчанию (двойной щелчок/тап по ручке или шапке).
+function resetDocsHeight() {
+  docsRatio = null;
+  saveDocsRatio();
+  refreshDocsHeight();
+  publishSheetInset(false);
+}
+
+function initDocsResize() {
+  document.addEventListener('pointerdown', onDocsPointerDown);
+  document.addEventListener('dblclick', function (e) {
+    if (isMobileLayout() || openPanel !== 'docs') return;
+    if (docsGrabEl(e)) resetDocsHeight();
+  });
+}
+
+/* ---------------------------------------------------------------------------
+   7в. Масштаб чертежей (вкладка «Чертежи» панели «Документы»)
+
+   Все чертежи вкладки — ОДИН лист (#dwSheet внутри #dwZoom; обёртку пишет
+   app.js: renderDrawings → uiShell.setDrawingsContent), масштабируются они
+   разом. 100% — вид, как чертежи нарисованы без масштаба (раскладка листа
+   при любом масштабе одна и та же — как на 100%, меняется только размер).
+   Верхняя граница 400%, нижняя 25% (на телефоне — меньшее из 25% и «по
+   ширине», см. ниже). Отдельного ряда управления (ползунка, кнопок −/+) нет:
+   всё место отдано чертежам. Способы:
+   · клавиши + и − (шаг 10 п.п., по кругу «круглых» значений: 90 → 100 → 110),
+     только пока «Документы» открыты на вкладке «Чертежи» и фокус не в поле
+     ввода (Ctrl/Alt/Meta+± остаётся зумом браузера);
+   · Ctrl + колесо мыши — плавно, вокруг курсора: один щелчок колеса
+     (deltaY ≈ 100) = ×1.1. Щипок по тачпаду ноутбука браузер шлёт как то же
+     wheel с ctrlKey и малыми deltaY — он работает тем же кодом. Колесо БЕЗ
+     Ctrl ничего не перехватывает и по-прежнему прокручивает вкладку;
+   · щипок двумя пальцами на сенсорном экране — вокруг точки между пальцами
+     (эта же точка тянет лист за пальцами);
+   · двойной щелчок мышью / двойной тап — стандартный вид и начало листа:
+     100% на компьютере, «по ширине» на телефоне. Мышью лист можно «взять»
+     левой кнопкой и двигать.
+
+   Телефон: чертёж вписывается по ширине. «Телефон» — окно ≤ 820px
+   (isMobileLayout, та же граница, что у нижнего листа). Раскладка листа от
+   масштаба не зависит: её ширина всегда W (ширина области без отступов),
+   блоки переносятся по ней, а SVG с фиксированными размерами выпирают за
+   правый край. Самый широкий из них и определяет «естественную» ширину листа —
+   это sheet.scrollWidth. Масштаб «по ширине» = W / scrollWidth (если та
+   больше W; иначе 1 — мелкие чертежи не увеличиваем), округлённый ВНИЗ до
+   0.001, чтобы правый край не вылез на долю пикселя. Пока пользователь не
+   менял масштаб сам (клавиши, Ctrl+колесо, щипок, setDrawingsZoom), включён
+   режим «авто»: масштаб = «по ширине» и пересчитывается при показе и каждой
+   перерисовке чертежей (setDrawingsContent), при смене ширины области
+   (ResizeObserver листа и resize окна — поворот экрана) и при переходе через
+   820px. Ручное изменение режим выключает — масштаб больше не «прыгает» при
+   перерисовке; двойной тап/щелчок включает его снова. Нижняя граница
+   на телефоне — min(25%, «по ширине»): очень широкий чертёж вписывается и в
+   масштаб меньше 25%, и вернуться к нему щипком можно без скачка к 25%.
+   На компьютере автоматически ничего не вписывается: 100% — как отрисовано.
+
+   Как это устроено. .dw-zoom получает ширину scale·100% (реальный размер →
+   реальные полосы прокрутки) и высоту = высота листа·scale; сам .dw-sheet —
+   transform: scale() от левого верхнего угла и ширину 100%/scale (то есть та
+   же раскладочная ширина, что на 100%). transform, а не CSS zoom: одинаково
+   во всех браузерах, а «точка под пальцами остаётся на месте» считается по
+   getBoundingClientRect без оговорок про zoom. SVG при этом остаётся
+   векторным — линии и текст чёткие на любом масштабе. Высота .dw-zoom
+   пересчитывается по ResizeObserver листа (другая ширина панели, перерисовка,
+   показ вкладки) — в следующем кадре, чтобы не ловить «ResizeObserver loop».
+
+   Состояние — только в переменной модуля: при перерисовке чертежей
+   (recompute) масштаб и позиция прокрутки сохраняются, после перезагрузки
+   страницы — стандартный вид. Печать чертежей (app.js) берёт «сырую» разметку
+   без обёртки и от масштаба не зависит.
+--------------------------------------------------------------------------- */
+var DW_ZOOM_MIN = 0.25;
+var DW_ZOOM_MAX = 4;
+var DW_ZOOM_STEP = 10;           // п.п. масштаба на одно нажатие +/−
+var DW_WHEEL_NOTCH = 100;        // deltaY одного щелчка колеса мыши, px
+var DW_WHEEL_BASE = 1.1;         // во сколько раз меняет масштаб один щелчок
+var DW_WHEEL_MAX = 3;            // не больше стольких щелчков за одно событие (защита от скачка)
+var DW_FIT_MIN = 0.001;          // «по ширине» не ниже этого (защита от нуля при абсурдно широком чертеже)
+var DW_FIT_LOOP = 4;             // столько смен масштаба от смены раскладки за секунду — уже цикл, стоп
+var DW_PAN_SLOP = 4;             // мышь: сдвиг меньше этого — клик, лист не двигаем
+var DW_TAP_MOVE = 8;             // палец сдвинулся больше — это прокрутка, а не тап
+var DW_TAP_MS = 450;             // двойной тап: два касания не дольше этого друг от друга (как SHEET_TAP_MS — неспешный тап пальцем)
+var DW_TAP_DIST = 30;            // …и не дальше этого (px) друг от друга
+
+var dwScale = 1;                 // текущий масштаб (1 = 100%)
+var dwManual = false;            // масштаб менял пользователь — авто-вписывание по ширине выключено
+var dwFit = 1;                   // «по ширине»: последний замер на телефоне (на компьютере и когда вписывать нечего — 1)
+var dwWasMobile = false;         // раскладка при прошлой синхронизации (граница 820px)
+var dwFitStamps = [];            // моменты (мс) последних смен масштаба от смены раскладки — страховка от цикла
+var dwPan = null;                // мышиное перетаскивание листа: { id, x0, y0, sl0, st0, moved }
+var dwPtrs = {};                 // касания на области чертежей: pointerId → { x, y }
+var dwPinch = null;              // щипок: { ids: [id1, id2], d, mx, my } — прошлый кадр
+var dwTap = null;                // касание, которое может оказаться тапом: { id, x, y, t }
+var dwLastTap = null;            // предыдущий тап: { t, x, y }
+var dwMouse = null;              // последняя позиция мыши над областью чертежей (для клавиш +/−)
+var dwRo = null;                 // ResizeObserver листа
+var dwSyncRaf = 0;               // отложенная пересинхронизация масштаба и высоты .dw-zoom
+
+function dwPane() { return document.getElementById('tab-drawings'); }
+function dwBox() { return document.getElementById('dwZoom'); }
+function dwSheet() { return document.getElementById('dwSheet'); }
+
+// cur — текущий масштаб: если он уже ниже границы (после поворота экрана в
+// ручном режиме «по ширине» подросло), вверх его не подбрасываем.
+function clampDwScale(s, cur) {
+  if (!(s > 0)) s = 1;
+  // Нижняя граница — меньшее из 25% и «по ширине»: широкий чертёж на узком
+  // экране вписывается и в масштаб ниже 25%, «застревать» выше него нельзя.
+  var lo = Math.min(DW_ZOOM_MIN, dwFit);
+  if (cur > 0 && cur < lo) lo = cur;
+  return Math.round(Math.min(DW_ZOOM_MAX, Math.max(lo, s)) * 10000) / 10000;
+}
+
+// Ставит текущий dwScale на разметку. При 100% inline-стили сняты — вкладка
+// выглядит ровно так же, как до появления масштаба.
+function applyDwScaleDom() {
+  var box = dwBox(), sheet = dwSheet();
+  if (!box || !sheet) return;
+  // dw-scaled — метка «масштаб не 100%»: CSS снимает у шапок таблицы sticky
+  // (под transform липкая шапка считается в непреобразованных координатах).
+  box.classList.toggle('dw-scaled', dwScale !== 1);
+  if (dwScale === 1) {
+    box.style.width = ''; box.style.height = '';
+    sheet.style.width = ''; sheet.style.transform = '';
+    return;
+  }
+  box.style.width = (Math.round(dwScale * 10000) / 100) + '%';   // без хвоста 110.00000000000001
+  sheet.style.width = (100 / dwScale) + '%';
+  sheet.style.transform = 'scale(' + dwScale + ')';
+  // Раскладочная высота листа (transform на неё не влияет) — нужна, чтобы
+  // .dw-zoom занимал столько же места, сколько лист занимает на экране.
+  var h = sheet.offsetHeight;
+  box.style.height = h ? (h * dwScale) + 'px' : '';
+}
+
+// Пересчёт высоты .dw-zoom после того, как лист изменил размер сам (другая
+// ширина панели → другая раскладка, вкладку показали, чертежи перерисовали).
+function syncDwBox() {
+  if (dwScale === 1) return;
+  var box = dwBox(), sheet = dwSheet();
+  if (!box || !sheet) return;
+  var h = sheet.offsetHeight;
+  if (h) box.style.height = (h * dwScale) + 'px';
+}
+
+/* --- телефон: вписать чертёж по ширине ----------------------------------- */
+
+// Ширина области чертежей без горизонтальных отступов — ширина, в которой
+// раскладывается лист.
+function dwAvailWidth(pane) {
+  var w = pane.clientWidth || 0;
+  var cs = typeof window.getComputedStyle === 'function' ? window.getComputedStyle(pane) : null;
+  if (cs) w -= (parseFloat(cs.paddingLeft) || 0) + (parseFloat(cs.paddingRight) || 0);
+  return w;
+}
+
+// Масштаб «по ширине»: при нём самый широкий чертёж целиком помещается в
+// область. 1 — вписывать нечего; 0 — измерить нельзя (вкладка не показана).
+function measureDwFit() {
+  var pane = dwPane(), sheet = dwSheet();
+  if (!pane || !sheet) return 0;
+  var w = dwAvailWidth(pane);
+  var natural = sheet.scrollWidth || 0;       // ширина листа вместе с выпирающими чертежами
+  if (!(w > 0) || !(natural > 0)) return 0;
+  if (natural <= w + 1) return 1;             // +1px: округление scrollWidth, а не настоящий выход за край
+  return Math.max(DW_FIT_MIN, Math.floor(w / natural * 1000) / 1000);
+}
+
+// Ставит масштаб f (уже в границах) как «по ширине»: прокрутка по X — в ноль
+// (чертёж прижат влево), по Y — то же место листа остаётся сверху.
+function applyDwFit(f) {
+  var pane = dwPane();
+  var old = dwScale;
+  var st = pane ? (pane.scrollTop || 0) : 0;
+  dwScale = f;
+  applyDwScaleDom();
+  if (pane) {
+    pane.scrollLeft = 0;
+    pane.scrollTop = Math.round(st * f / old);
+  }
+}
+
+// Согласует масштаб с раскладкой: телефон ↔ компьютер, ширина области и
+// ширина содержимого. Зовётся при показе/перерисовке чертежей, смене ширины
+// области и повороте экрана. Режим «авто» (dwManual === false) на телефоне
+// ставит «по ширине»; в ручном режиме масштаб не трогаем, только обновляем
+// dwFit — от него зависит нижняя граница.
+function syncDwFit() {
+  var mobile = isMobileLayout();
+  if (mobile !== dwWasMobile) {
+    // Перешли через 820px: раскладка другая, прежний масштаб (и ручной тоже)
+    // к ней уже не относится — начинаем заново: телефон — «по ширине»,
+    // компьютер — 100%.
+    dwWasMobile = mobile;
+    dwManual = false;
+    if (!mobile) {
+      dwFit = 1;
+      if (dwScale !== 1) applyDwFit(1);
+      return;
+    }
+  }
+  if (!mobile) { dwFit = 1; return; }
+  var f = measureDwFit();
+  if (!f) return;
+  dwFit = f;
+  if (!dwManual && f !== dwScale) applyDwFit(f);
+}
+
+// Отложенная (в следующем кадре) синхронизация: зовут ResizeObserver листа и
+// resize окна. Разметку правим НЕ в самом колбэке ResizeObserver, а в кадре:
+// иначе смена ширины из-за полосы прокрутки давала бы «ResizeObserver loop»,
+// которое попадает в баннер ошибок.
+function scheduleDwSync() {
+  if (dwSyncRaf) return;
+  dwSyncRaf = window.requestAnimationFrame(function () {
+    dwSyncRaf = 0;
+    // Страховка: если вписывание по ширине само меняет ширину области (полоса
+    // прокрутки то появляется, то исчезает), оно могло бы дёргать масштаб
+    // каждый кадр. Несколько смен подряд за секунду — стоп до следующего
+    // настоящего изменения раскладки.
+    var now = Date.now();
+    while (dwFitStamps.length && now - dwFitStamps[0] > 1000) dwFitStamps.shift();
+    var before = dwScale;
+    if (dwFitStamps.length < DW_FIT_LOOP) syncDwFit();
+    if (dwScale !== before) dwFitStamps.push(now);
+    syncDwBox();
+  });
+}
+
+function observeDwSheet() {
+  if (typeof ResizeObserver !== 'function') return;
+  if (!dwRo) dwRo = new ResizeObserver(scheduleDwSync);
+  dwRo.disconnect();
+  var sheet = dwSheet();
+  if (sheet) dwRo.observe(sheet);
+}
+
+// Центр видимой части области чертежей (координаты окна) — точка, вокруг
+// которой масштабируют клавиши +/−, когда мыши над чертежами нет.
+function dwPaneCenter(pane) {
+  var r = pane.getBoundingClientRect();
+  return { x: r.left + pane.clientWidth / 2, y: r.top + pane.clientHeight / 2 };
+}
+
+// Новый масштаб РУКАМИ пользователя (клавиши, Ctrl+колесо, щипок,
+// setDrawingsZoom): выключает авто-вписывание. anchor { x, y } — точка окна,
+// которая должна остаться на месте (без неё — центр области). Точка листа под
+// anchor запоминается ДО смены масштаба, после — прокруткой возвращается под
+// anchor.
+function setDwScale(s, anchor) {
+  var old = dwScale;
+  s = clampDwScale(s, old);
+  if (s === old) return;                 // упёрлись в границу — ничего не изменилось, режим тоже
+  dwManual = true;
+  var pane = dwPane(), sheet = dwSheet();
+  var canAnchor = !!(pane && sheet && pane.offsetWidth);
+  var a = null, u = 0, v = 0;
+  if (canAnchor) {
+    a = anchor || dwPaneCenter(pane);
+    var r0 = sheet.getBoundingClientRect();
+    u = (a.x - r0.left) / old;
+    v = (a.y - r0.top) / old;
+  }
+  dwScale = s;
+  applyDwScaleDom();
+  if (!canAnchor) return;
+  var r1 = sheet.getBoundingClientRect();
+  var dx = (r1.left + u * s) - a.x;
+  var dy = (r1.top + v * s) - a.y;
+  if (isFinite(dx)) pane.scrollLeft += dx;
+  if (isFinite(dy)) pane.scrollTop += dy;
+}
+
+// Шаг +/− : по «круглым» значениям (90 → 100 → 110), а не «прибавить 10» —
+// иначе из 25% в 100% попасть было бы нельзя (35, 45, … 95, 105).
+function stepDwZoom(dir, anchor) {
+  var pct = Math.round(dwScale * 100);
+  var next = dir > 0
+    ? (Math.floor(pct / DW_ZOOM_STEP) + 1) * DW_ZOOM_STEP
+    : (Math.ceil(pct / DW_ZOOM_STEP) - 1) * DW_ZOOM_STEP;
+  setDwScale(next / 100, anchor);
+}
+
+// Стандартный вид и начало листа (двойной щелчок/тап): компьютер — 100%,
+// телефон — «по ширине» (и режим «авто» включается снова).
+function resetDwZoom() {
+  dwManual = false;
+  dwWasMobile = isMobileLayout();
+  var f = 1;
+  if (dwWasMobile) f = measureDwFit() || 1;
+  dwFit = f;
+  dwScale = f;
+  applyDwScaleDom();
+  var pane = dwPane();
+  if (pane) { pane.scrollLeft = 0; pane.scrollTop = 0; }
+}
+
+// Записывает чертежи в #tab-drawings в обёртке масштаба (её зовёт app.js:
+// renderDrawings). Масштаб и позиция прокрутки при перерисовке сохраняются;
+// на телефоне в режиме «авто» масштаб заново вписывается по ширине.
+// false — нет области чертежей: вызывающий пишет разметку сам.
+function setDrawingsContent(html) {
+  var pane = dwPane();
+  if (!pane) return false;
+  var sl = pane.scrollLeft || 0, st = pane.scrollTop || 0;
+  pane.innerHTML = '<div class="dw-zoom" id="dwZoom"><div class="dw-sheet" id="dwSheet">'
+    + html + '</div></div>';
+  applyDwScaleDom();
+  observeDwSheet();
+  if (sl || st) { pane.scrollLeft = sl; pane.scrollTop = st; }
+  syncDwFit();
+  return true;
+}
+
+// Точка внутри клиентской области (без полос прокрутки)?
+function dwInsideClient(pane, e) {
+  var r = pane.getBoundingClientRect();
+  return (e.clientX - r.left) < pane.clientWidth && (e.clientY - r.top) < pane.clientHeight;
+}
+
+/* --- мышь: «взять» лист и двигать ---------------------------------------- */
+function endDwPan() {
+  var d = dwPan;
+  if (!d) return;
+  dwPan = null;
+  // ПКМ в режиме разметки: запоминаем, тащили ли лист, — от этого зависит,
+  // считать ли отпускание кнопки «простым щелчком ПКМ» (см. onDwContextMenu).
+  if (d.mask === 2) {
+    dwRmbLastMoved = d.moved;
+    if (d.ctxPending && !d.moved) markupCancelDraft();   // macOS: contextmenu пришёл раньше, на нажатии
+  }
+  var pane = dwPane();
+  if (!pane) return;
+  pane.classList.remove('dw-panning');
+  if (d.moved) { try { pane.releasePointerCapture(d.id); } catch (err) { /* уже отпущен */ } }
+}
+
+function moveDwPan(e) {
+  var d = dwPan;
+  var pane = dwPane();
+  if (!pane) { endDwPan(); return; }
+  if ((e.buttons & (d.mask || 1)) === 0) { endDwPan(); return; }   // кнопку отпустили мимо окна — pointerup не пришёл
+  var dx = e.clientX - d.x0, dy = e.clientY - d.y0;
+  if (!d.moved) {
+    if (Math.max(Math.abs(dx), Math.abs(dy)) < DW_PAN_SLOP) return;   // клик, а не перетаскивание
+    d.moved = true;
+    pane.classList.add('dw-panning');
+    try { pane.setPointerCapture(e.pointerId); } catch (err) { /* не критично */ }
+  }
+  pane.scrollLeft = d.sl0 - dx;
+  pane.scrollTop = d.st0 - dy;
+}
+
+/* --- колесо: Ctrl + колесо = масштаб вокруг курсора ---------------------- */
+// Ctrl + колесо мыши (и щипок по тачпаду — браузер шлёт его как wheel с
+// ctrlKey) меняет масштаб плавно, вокруг курсора. Без Ctrl не трогаем ничего:
+// колесо прокручивает вкладку как обычно. Слушатель висит на самой области
+// чертежей, поэтому работает только пока курсор над ней.
+function onDwWheel(e) {
+  if (!e.ctrlKey) return;
+  e.preventDefault();                          // зум всей страницы браузером не нужен
+  var dy = Number(e.deltaY) || 0;
+  if (!dy) return;
+  // В «щелчки» колеса: пиксели — по 100 на щелчок; строки (Firefox) — по 3;
+  // страницы — страница на щелчок. Тачпад шлёт малые deltaY — доли щелчка.
+  var n = e.deltaMode === 1 ? dy / 3 : (e.deltaMode === 2 ? dy : dy / DW_WHEEL_NOTCH);
+  n = Math.max(-DW_WHEEL_MAX, Math.min(DW_WHEEL_MAX, n));
+  var anchor = (typeof e.clientX === 'number' && typeof e.clientY === 'number')
+    ? { x: e.clientX, y: e.clientY } : null;
+  setDwScale(dwScale * Math.pow(DW_WHEEL_BASE, -n), anchor);   // вниз (deltaY > 0) — уменьшить
+}
+
+/* --- касание: щипок двумя пальцами и двойной тап ------------------------- */
+function startDwPinch() {
+  var ids = Object.keys(dwPtrs);
+  if (ids.length !== 2) return;
+  var a = dwPtrs[ids[0]], b = dwPtrs[ids[1]];
+  dwPinch = {
+    ids: ids,
+    d: Math.max(Math.hypot(b.x - a.x, b.y - a.y), 1),
+    mx: (a.x + b.x) / 2, my: (a.y + b.y) / 2
+  };
+}
+
+// Кадр щипка: масштаб растёт как расстояние между пальцами (от прошлого
+// кадра), точка под прошлой серединой остаётся на месте, а сдвиг середины
+// тянет лист за пальцами.
+function moveDwPinch() {
+  var p = dwPinch;
+  if (!p) return;
+  var a = dwPtrs[p.ids[0]], b = dwPtrs[p.ids[1]];
+  if (!a || !b) { dwPinch = null; return; }
+  var d = Math.max(Math.hypot(b.x - a.x, b.y - a.y), 1);
+  var mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
+  var pane = dwPane();
+  setDwScale(dwScale * d / p.d, { x: p.mx, y: p.my });
+  if (pane) { pane.scrollLeft += p.mx - mx; pane.scrollTop += p.my - my; }
+  p.d = d; p.mx = mx; p.my = my;
+}
+
+function dropDwPointer(id) {
+  delete dwPtrs[id];
+  if (dwPinch && dwPinch.ids.indexOf(String(id)) >= 0) dwPinch = null;
+  if (dwTap && dwTap.id === id) dwTap = null;
+}
+
+// Включён ли режим ручной разметки чертежа (src/markup.js). Пока он включён,
+// левая кнопка мыши на чертеже — инструмент разметки (точки, перетаскивание
+// готового размера), поэтому лист мышью не тащим и двойным щелчком масштаб не
+// сбрасываем: два быстрых щелчка по точкам размера иначе сбрасывали бы вид.
+// Колесо с Ctrl, клавиши +/− и полосы прокрутки работают как обычно.
+function markupModeOn() {
+  var mk = window.Modul3D && window.Modul3D.markup;
+  return !!(mk && mk.isActive && mk.isActive());
+}
+
+// ПРАВАЯ кнопка в режиме разметки — панорама листа (ЛКМ занята разметкой).
+// Простой щелчок ПКМ без движения — отмена начатой постановки размера (как
+// Esc). Контекстное меню браузера над областью чертежей в этом режиме
+// подавляется. Вне режима разметки всё как раньше (ПКМ — меню браузера).
+var dwRmbLastMoved = false;
+function markupCancelDraft() {
+  var mk = window.Modul3D && window.Modul3D.markup;
+  if (mk && typeof mk.cancelDraft === 'function') mk.cancelDraft();
+}
+// macOS: Ctrl+клик тоже вызывает contextmenu (кнопка 0 с ctrlKey) — в режиме
+// разметки меню так же подавится, а «щелчок без движения» отменит начатую
+// постановку. Специально не обрабатываем: Ctrl+клик как инструмент разметки
+// не предусмотрен, поведение согласовано с координатором.
+function onDwContextMenu(e) {
+  if (!markupModeOn()) return;
+  e.preventDefault();
+  // Windows/Linux: contextmenu приходит ПОСЛЕ отпускания кнопки (pan уже
+  // завершён, dwRmbLastMoved известен); macOS — на нажатии, решаем в endDwPan.
+  if (dwPan && dwPan.mask === 2) { dwPan.ctxPending = true; return; }
+  if (!dwRmbLastMoved) markupCancelDraft();
+  dwRmbLastMoved = false;
+}
+
+function onDwPointerDown(e) {
+  var pane = dwPane();
+  if (!pane) return;
+  if (e.pointerType === 'mouse') {
+    if (!dwInsideClient(pane, e)) return;                     // не полоса прокрутки
+    // Обычно лист тащат левой кнопкой; в режиме разметки ЛКМ — инструмент
+    // разметки, поэтому лист тащится ПРАВОЙ (см. onDwContextMenu).
+    var panBtn = markupModeOn() ? 2 : 0;
+    if (e.button !== panBtn) return;
+    if (dwPan) endDwPan();                                    // «залипший» жест — сброс
+    dwPan = { id: e.pointerId, x0: e.clientX, y0: e.clientY, sl0: pane.scrollLeft, st0: pane.scrollTop,
+      moved: false, mask: panBtn === 2 ? 2 : 1 };
+    return;
+  }
+  // Касание/перо. Первый палец новой серии — прежние касания протухли
+  // (pointerup мог не дойти: разметку заменили под пальцем), начинаем с чистого листа.
+  if (e.isPrimary) { dwPtrs = {}; dwPinch = null; dwTap = null; }
+  dwPtrs[e.pointerId] = { x: e.clientX, y: e.clientY };
+  var n = Object.keys(dwPtrs).length;
+  if (n === 1) {
+    dwTap = { id: e.pointerId, x: e.clientX, y: e.clientY, t: Date.now() };
+  } else {
+    dwTap = null; dwLastTap = null;         // второй палец — точно не тап
+    if (n === 2) startDwPinch();
+  }
+}
+
+function onDwPointerMove(e) {
+  if (e.pointerType === 'mouse') {
+    dwMouse = { x: e.clientX, y: e.clientY };
+    if (dwPan && e.pointerId === dwPan.id) moveDwPan(e);
+    return;
+  }
+  var p = dwPtrs[e.pointerId];
+  if (!p) return;
+  p.x = e.clientX; p.y = e.clientY;
+  if (dwTap && dwTap.id === e.pointerId
+      && Math.max(Math.abs(p.x - dwTap.x), Math.abs(p.y - dwTap.y)) > DW_TAP_MOVE) {
+    dwTap = null; dwLastTap = null;         // палец поехал — это прокрутка
+  }
+  if (dwPinch) moveDwPinch();
+}
+
+function onDwPointerUp(e) {
+  if (e.pointerType === 'mouse') {
+    if (dwPan && e.pointerId === dwPan.id) endDwPan();
+    return;
+  }
+  if (!dwPtrs[e.pointerId]) return;
+  var tap = (dwTap && dwTap.id === e.pointerId) ? dwTap : null;
+  dropDwPointer(e.pointerId);
+  if (!tap) return;
+  // Одиночный короткий тап; два подряд рядом — вернуть стандартный вид.
+  var now = Date.now();
+  if (now - tap.t > DW_TAP_MS) { dwLastTap = null; return; }
+  var prev = dwLastTap;
+  if (prev && now - prev.t < DW_TAP_MS
+      && Math.max(Math.abs(tap.x - prev.x), Math.abs(tap.y - prev.y)) < DW_TAP_DIST) {
+    dwLastTap = null;
+    resetDwZoom();
+  } else {
+    dwLastTap = { t: now, x: tap.x, y: tap.y };
+  }
+}
+
+function onDwPointerCancel(e) {
+  if (e.pointerType === 'mouse') {
+    if (dwPan && e.pointerId === dwPan.id) endDwPan();
+    return;
+  }
+  // Браузер забрал жест себе (родная прокрутка одним пальцем) — сбросить, что
+  // успели насчитать. lostpointercapture после обычного pointerup сюда тоже
+  // попадает, но записи уже нет — ничего не происходит.
+  dropDwPointer(e.pointerId);
+}
+
+// Двумя пальцами родную прокрутку и приближение страницы гасим (иначе браузер
+// забирает жест, и pointer events по щипку обрываются). Одним пальцем —
+// не трогаем: лист прокручивается как обычно.
+function onDwTouchMove(e) {
+  if (e.touches && e.touches.length >= 2 && e.cancelable) e.preventDefault();
+}
+
+// Только Safari (gesturestart/gesturechange): подстраховка, если браузер не
+// уважает touch-action и хочет приблизить всю страницу. Гасим ТОЛЬКО когда на
+// области чертежей реально лежат два касания — щипок трекпада (касаний нет)
+// остаётся обычным зумом страницы.
+function onDwGesture(e) {
+  if (Object.keys(dwPtrs).length >= 2 && e.cancelable !== false) e.preventDefault();
+}
+
+function onDwDblClick(e) {
+  if (markupModeOn()) return;   // см. markupModeOn: два щелчка — это точки размера
+  var pane = dwPane();
+  if (pane && dwInsideClient(pane, e)) resetDwZoom();
+}
+
+// Клавиши + и −: +1 / −1 / 0 (не наша клавиша или зажат Ctrl/Alt/Meta —
+// Ctrl+± остаётся зумом браузера). Shift допустим: «+» на большинстве
+// раскладок — это Shift+«=». И код клавиши, и символ: раскладки разные.
+function dwZoomKeyDir(e) {
+  if (e.ctrlKey || e.metaKey || e.altKey) return 0;
+  var k = e.key, c = e.code;
+  if (k === '+' || k === '=' || c === 'NumpadAdd' || c === 'Equal') return 1;
+  if (k === '-' || k === '_' || k === '−' || c === 'NumpadSubtract' || c === 'Minus') return -1;
+  return 0;
+}
+
+// Работают ли +/− сейчас: панель «Документы» открыта на вкладке «Чертежи» и
+// фокус не в поле ввода.
+function dwHotkeysActive(target) {
+  if (openPanel !== 'docs') return false;
+  var pane = dwPane();
+  if (!pane || !pane.classList.contains('active')) return false;
+  if (target) {
+    var tag = target.tagName || '';
+    if (tag === 'TEXTAREA' || tag === 'SELECT' || tag === 'INPUT') return false;
+    if (target.isContentEditable) return false;
+  }
+  return true;
+}
+
+// Точка для клавиш +/−: под курсором, если он над чертежами, иначе центр области.
+function dwKeyAnchor() {
+  var pane = dwPane();
+  if (!pane || !dwMouse) return null;
+  var r = pane.getBoundingClientRect();
+  var inside = dwMouse.x >= r.left && dwMouse.x < r.left + pane.clientWidth
+    && dwMouse.y >= r.top && dwMouse.y < r.top + pane.clientHeight;
+  return inside ? dwMouse : null;
+}
+
+// Окно редактора детали (app.js: openPartVisualEditor) — та же ПКМ-панорама в
+// режиме разметки: область .part-editor-body прокручивается (overflow:auto).
+function initEditorRmbPan() {
+  var body = document.querySelector('#partEditorOverlay .part-editor-body');
+  if (!body) return;
+  var pan = null, lastMoved = false;
+  body.addEventListener('pointerdown', function (e) {
+    if (e.pointerType !== 'mouse' || e.button !== 2 || !markupModeOn()) return;
+    pan = { id: e.pointerId, x0: e.clientX, y0: e.clientY, sl0: body.scrollLeft, st0: body.scrollTop, moved: false, ctx: false };
+  });
+  body.addEventListener('pointermove', function (e) {
+    if (!pan || e.pointerId !== pan.id) return;
+    if ((e.buttons & 2) === 0) { pan = null; return; }
+    var dx = e.clientX - pan.x0, dy = e.clientY - pan.y0;
+    if (!pan.moved) {
+      if (Math.max(Math.abs(dx), Math.abs(dy)) < DW_PAN_SLOP) return;
+      pan.moved = true;
+      try { body.setPointerCapture(e.pointerId); } catch (err) { /* не критично */ }
+    }
+    body.scrollLeft = pan.sl0 - dx;
+    body.scrollTop = pan.st0 - dy;
+  });
+  function end(e) {
+    if (!pan || (e && e.pointerId !== pan.id)) return;
+    lastMoved = pan.moved;
+    if (pan.ctx && !pan.moved) markupCancelDraft();
+    try { body.releasePointerCapture(pan.id); } catch (err) { /* уже отпущен */ }
+    pan = null;
+  }
+  body.addEventListener('pointerup', end);
+  body.addEventListener('pointercancel', end);
+  body.addEventListener('contextmenu', function (e) {
+    if (!markupModeOn()) return;
+    e.preventDefault();
+    if (pan) { pan.ctx = true; return; }
+    if (!lastMoved) markupCancelDraft();
+    lastMoved = false;
+  });
+}
+
+function initDrawingsZoom() {
+  dwWasMobile = isMobileLayout();
+
+  // Область чертежей (#tab-drawings) живёт всегда — меняется только её
+  // содержимое, поэтому слушатели вешаем на неё один раз.
+  var pane = dwPane();
+  if (!pane) return;
+  pane.addEventListener('pointerdown', onDwPointerDown);
+  pane.addEventListener('pointermove', onDwPointerMove);
+  pane.addEventListener('pointerup', onDwPointerUp);
+  pane.addEventListener('pointercancel', onDwPointerCancel);
+  pane.addEventListener('lostpointercapture', onDwPointerCancel);
+  pane.addEventListener('pointerleave', function (e) { if (e.pointerType === 'mouse') dwMouse = null; });
+  pane.addEventListener('dblclick', onDwDblClick);
+  pane.addEventListener('contextmenu', onDwContextMenu);
+  // passive: false — иначе preventDefault() у Ctrl+колеса не сработает и
+  // браузер приблизит всю страницу
+  pane.addEventListener('wheel', onDwWheel, { passive: false });
+  pane.addEventListener('touchmove', onDwTouchMove, { passive: false });
+  pane.addEventListener('gesturestart', onDwGesture);
+  pane.addEventListener('gesturechange', onDwGesture);
+  // Поворот экрана и смена размера окна (в том числе переход через 820px) —
+  // ResizeObserver листа подхватывает это же, но не везде он есть.
+  window.addEventListener('resize', scheduleDwSync);
 }
 
 /* ---------------------------------------------------------------------------
@@ -1634,6 +2769,16 @@ function initSheet() {
 --------------------------------------------------------------------------- */
 function initHotkeys() {
   document.addEventListener('keydown', function (e) {
+    // «+» и «−» — масштаб чертежей (7в), но только пока «Документы» открыты на
+    // вкладке «Чертежи» и фокус не в поле ввода (это проверяет сама
+    // dwHotkeysActive). Во всех остальных случаях клавиши идут дальше как
+    // раньше (у них нет другого назначения).
+    var zoomDir = dwZoomKeyDir(e);
+    if (zoomDir && dwHotkeysActive(e.target)) {
+      e.preventDefault();
+      stepDwZoom(zoomDir, dwKeyAnchor());
+      return;
+    }
     var tag = (e.target && e.target.tagName) || '';
     if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') {
       if (e.key === 'Escape' && e.target.id === 'paramSearch') {
@@ -1678,6 +2823,7 @@ function escapeHtml(s) {
 function start() {
   initTheme();
   initCurrency();
+  initMarkupFont();
   initDrawers();
   initRailPosition();
   initViewToolbarPosition();
@@ -1686,6 +2832,9 @@ function start() {
   initHud();
   initSearch();
   initSheet();
+  initSheetResize();   // до restoreUI: первой открытой панели нужна высота листа
+  initDrawingsZoom();
+  initEditorRmbPan();
   initHotkeys();
   restoreUI();
   window.addEventListener('resize', function () { if (hudModule) placeHud(); });
@@ -1703,6 +2852,22 @@ window.Modul3D.uiShell = {
   setTheme: setTheme,
   openDrawer: openDrawer,
   closeDrawer: closeDrawer,
+  // Сколько px снизу сцены сейчас закрыто нижним листом: на телефоне — листом
+  // любой панели, на компьютере — панелью «Документы» (0 — панели нет или
+  // открыта левая панель). То же значение, что в событии
+  // 'modul3d:drawer-inset' (разделы 7б и 7б′).
+  getDrawerInset: sheetInsetBottom,
+  // Высота панели «Документы» на компьютере, px (7б′)
+  getDocsHeight: function () { return docsPx; },
+  // Масштаб чертежей (7в): проценты (100 — как отрисовано; на телефоне в режиме
+  // «авто» — «по ширине», см. 7в). setDrawingsZoom — «руками»: выключает авто.
+  // resetDrawingsZoom — стандартный вид (компьютер 100%, телефон «по ширине»).
+  // setDrawingsContent — запись чертежей в #tab-drawings в обёртке масштаба
+  // (зовёт app.js).
+  getDrawingsZoom: function () { return Math.round(dwScale * 100); },
+  setDrawingsZoom: function (pct) { setDwScale(pct / 100); },
+  resetDrawingsZoom: resetDwZoom,
+  setDrawingsContent: setDrawingsContent,
   setRailPos: setRailPos,
   getRailPos: function () { return railPos; },
   // Панель режимов 3D: выбор пользователя и где она стоит на самом деле

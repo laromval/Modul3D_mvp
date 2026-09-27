@@ -14,7 +14,7 @@
 (function () {
 // Версия сборки — показывается во вкладке браузера и в шапке.
 // При выпуске новой версии меняется только эта строка.
-const APP_VERSION = 'v315';
+const APP_VERSION = 'v319';
 
 // Номер версии выводим ПЕРВЫМ делом: если дальше что-то упадёт, по нему сразу
 // видно, какая сборка открыта.
@@ -107,6 +107,9 @@ const { PRESETS } = window.Modul3D.presets;
 const { recognizeSketch } = window.Modul3D.sketchAI;
 const { buildDrawings, buildViewSVG, DRAWINGS_CSS } = window.Modul3D.drawings;
 const { exportDrillCsv, exportDrillDxf } = window.Modul3D.cnc;
+// Ручная разметка чертежа общего вида (src/markup.js). Необязательна: нет
+// файла — приложение работает как раньше, просто без кнопки «Разметка».
+const markupApi = window.Modul3D.markup || null;
 
 function newSection() {
   return {
@@ -126,8 +129,29 @@ function newSection() {
     widthMode: 'auto', width: 400,
   };
 }
+// ПОСТОЯННЫЙ uid МОДУЛЯ — строка, живёт в state.modules (значит, сама
+// попадает в историю отмены, файл проекта и автосохранение). Нужен ручной
+// разметке чертежа (src/markup.js): её точки ссылаются на «модуль + ключ
+// детали» (engine.js: part.moduleUid/part.anchorKey), а не на part.id,
+// который engine.js перенумеровывает заново для каждого модуля. Имя модуля
+// тоже не годится — модули перенумеровываются при вставке/удалении.
+function newModuleUid() {
+  return 'm' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+}
+// Старые проекты/автосохранения/снимки истории без uid — дописываем лениво;
+// повтор uid (модуль скопирован целиком вместе с uid) — второй экземпляр
+// получает новый, чтобы разметка одного не «переезжала» на другой.
+function ensureModuleUids() {
+  const seen = new Set();
+  (state.modules || []).forEach((m) => {
+    if (!m || typeof m !== 'object') return;
+    if (typeof m.uid !== 'string' || !m.uid || seen.has(m.uid)) m.uid = newModuleUid();
+    seen.add(m.uid);
+  });
+}
 function newModule(name) {
   return {
+    uid: newModuleUid(),
     name: name || 'Модуль', width: 800, height: 2100, depth: 560,
     leftSide: 'floor', rightSide: 'floor',
     baseType: 'legsPlinth', plinthHeight: 100, legHeight: 100, legType: 'kitchen',
@@ -322,12 +346,17 @@ const state = {
   // и переживает перезагрузку, как libExtraNodes/libHwCatLabels.
   libNodeOrder: {
   "sheet": {
+    "": [
+      "ДСП",
+      "МДФ-плита",
+      "ХДФ/ДВП"
+    ],
     "ДСП": [
       "Egger",
       "Kronospan"
     ],
     "МДФ-плита": [
-      "Egger",
+      "Фасадные панели МДФ",
       "Шпонированные плиты"
     ]
   },
@@ -345,8 +374,8 @@ const state = {
   },
   "mod:kitchen": {
     "": [
-      "Верхние модули",
-      "Нижний модуль"
+      "Нижний модуль",
+      "Верхние модули"
     ]
   }
 },
@@ -420,6 +449,7 @@ const state = {
   // не сессионное UI-состояние: подписи переживают перезагрузку вместе с
   // остальными правками каталога (см. snapshotCatalogCollections).
   libHwCatLabels: {
+  "mechanism": "Подъемные механизмы.",
   "custom-1790008010310": "фурнтитура кухни"
 },
   // СВОИ корневые категории фурнитуры, заведённые кнопкой «+ Добавить
@@ -601,411 +631,6 @@ const state = {
     ]
   },
   {
-    "id": "modplace-1790063458282-owqndq",
-    "kit": [
-      {
-        "x": 0,
-        "z": 0,
-        "params": {
-          "name": "Модуль 1",
-          "depth": 510,
-          "width": 600,
-          "corner": false,
-          "family": "kitchen",
-          "height": 820,
-          "topType": "rails",
-          "baseType": "legsPlinth",
-          "leftSide": "onBottom",
-          "rotation": 0,
-          "sections": [
-            {
-              "rod": false,
-              "lift": "aventosHK",
-              "width": 400,
-              "facade": "doorLeft",
-              "handle": "bow160",
-              "drawers": 0,
-              "shelves": 1,
-              "handleCC": 160,
-              "rodHeight": 1900,
-              "shelfMode": "auto",
-              "widthMode": "auto",
-              "drawerMode": "auto",
-              "pushToOpen": false,
-              "drawerOffset": 10,
-              "drawerPinned": [],
-              "handleOrient": "vertical",
-              "shelfHeights": [],
-              "drawerHeights": [],
-              "drawerDecorCode": null
-            }
-          ],
-          "legHeight": 100,
-          "railWidth": 100,
-          "rightSide": "onBottom",
-          "countertop": {
-            "enabled": true,
-            "decorCode": "CTOP-LDSP38-600",
-            "overhangLeft": 0,
-            "overhangFront": 20,
-            "overhangRight": 0
-          },
-          "plinthHeight": 100
-        }
-      },
-      {
-        "x": 600,
-        "z": 0,
-        "params": {
-          "name": "Модуль 2",
-          "depth": 510,
-          "width": 600,
-          "corner": false,
-          "family": "kitchen",
-          "height": 820,
-          "topType": "rails",
-          "baseType": "legsPlinth",
-          "leftSide": "onBottom",
-          "rotation": 0,
-          "sections": [
-            {
-              "rod": false,
-              "lift": "aventosHK",
-              "width": 400,
-              "facade": "open",
-              "handle": "bow160",
-              "drawers": 3,
-              "shelves": 0,
-              "handleCC": 160,
-              "rodHeight": 1900,
-              "shelfMode": "auto",
-              "widthMode": "auto",
-              "drawerMode": "auto",
-              "pushToOpen": false,
-              "drawerOffset": 10,
-              "drawerPinned": [],
-              "handleOrient": "vertical",
-              "shelfHeights": [],
-              "drawerHeights": []
-            }
-          ],
-          "legHeight": 100,
-          "railWidth": 100,
-          "rightSide": "onBottom",
-          "countertop": {
-            "enabled": true,
-            "decorCode": "CTOP-LDSP38-600",
-            "overhangLeft": 0,
-            "overhangFront": 20,
-            "overhangRight": 0
-          },
-          "plinthHeight": 100
-        }
-      },
-      {
-        "x": 1300,
-        "z": 0,
-        "params": {
-          "name": "Модуль 3",
-          "depth": 510,
-          "width": 800,
-          "corner": false,
-          "family": "kitchen",
-          "height": 820,
-          "topType": "rails",
-          "baseType": "legsPlinth",
-          "leftSide": "onBottom",
-          "rotation": 0,
-          "sections": [
-            {
-              "rod": false,
-              "lift": "aventosHK",
-              "width": 400,
-              "facade": "doors2",
-              "handle": "bow160",
-              "drawers": 0,
-              "shelves": 0,
-              "handleCC": 160,
-              "rodHeight": 1900,
-              "shelfMode": "auto",
-              "widthMode": "auto",
-              "drawerMode": "auto",
-              "pushToOpen": false,
-              "drawerOffset": 10,
-              "drawerPinned": [],
-              "handleOrient": "vertical",
-              "shelfHeights": [],
-              "drawerHeights": []
-            }
-          ],
-          "legHeight": 100,
-          "railWidth": 100,
-          "rightSide": "onBottom",
-          "countertop": {
-            "enabled": true,
-            "decorCode": "CTOP-LDSP38-600",
-            "overhangLeft": 0,
-            "overhangFront": 20,
-            "overhangRight": 0
-          },
-          "plinthHeight": 100
-        }
-      },
-      {
-        "x": 2192,
-        "z": 0,
-        "params": {
-          "name": "Модуль 4",
-          "depth": 510,
-          "width": 984,
-          "corner": true,
-          "family": "kitchen",
-          "height": 820,
-          "noBack": true,
-          "topType": "railsEdge",
-          "baseType": "legsPlinth",
-          "leftSide": "onBottom",
-          "rotation": 0,
-          "sections": [
-            {
-              "rod": false,
-              "lift": "aventosHK",
-              "width": 400,
-              "facade": "doorLeft",
-              "handle": "bow160",
-              "drawers": 0,
-              "shelves": 0,
-              "handleCC": 160,
-              "rodHeight": 1900,
-              "shelfMode": "auto",
-              "widthMode": "auto",
-              "drawerMode": "auto",
-              "pushToOpen": false,
-              "facadeWidth": 400,
-              "drawerOffset": 10,
-              "drawerPinned": [],
-              "handleOrient": "vertical",
-              "shelfHeights": [],
-              "drawerHeights": []
-            }
-          ],
-          "legHeight": 100,
-          "railWidth": 100,
-          "rightSide": "onBottom",
-          "blindPanel": true,
-          "blindStrip": 68,
-          "countertop": {
-            "enabled": true,
-            "decorCode": "CTOP-LDSP38-600",
-            "overhangLeft": 0,
-            "overhangFront": 20,
-            "overhangRight": 0
-          },
-          "plinthHeight": 100
-        }
-      },
-      {
-        "x": 2426,
-        "z": 623,
-        "params": {
-          "name": "Модуль 5",
-          "depth": 510,
-          "width": 600,
-          "corner": false,
-          "family": "kitchen",
-          "height": 820,
-          "topType": "rails",
-          "baseType": "legsPlinth",
-          "leftSide": "onBottom",
-          "rotation": 0,
-          "sections": [
-            {
-              "rod": false,
-              "lift": "aventosHK",
-              "width": 400,
-              "facade": "doorRight",
-              "handle": "bow160",
-              "drawers": 0,
-              "shelves": 1,
-              "handleCC": 160,
-              "rodHeight": 1900,
-              "shelfMode": "auto",
-              "widthMode": "auto",
-              "drawerMode": "auto",
-              "pushToOpen": false,
-              "drawerOffset": 10,
-              "drawerPinned": [],
-              "handleOrient": "vertical",
-              "shelfHeights": [],
-              "drawerHeights": []
-            }
-          ],
-          "legHeight": 100,
-          "railWidth": 100,
-          "rightSide": "onBottom",
-          "countertop": {
-            "enabled": true,
-            "decorCode": "CTOP-LDSP38-600",
-            "overhangLeft": 0,
-            "overhangFront": 20,
-            "overhangRight": 0
-          },
-          "plinthHeight": 100
-        }
-      },
-      {
-        "x": 2426,
-        "z": 1323,
-        "params": {
-          "name": "Модуль 6",
-          "depth": 510,
-          "width": 800,
-          "corner": false,
-          "family": "kitchen",
-          "height": 820,
-          "topType": "rails",
-          "baseType": "legsPlinth",
-          "leftSide": "onBottom",
-          "rotation": 0,
-          "sections": [
-            {
-              "rod": false,
-              "lift": "aventosHK",
-              "width": 400,
-              "facade": "doors2",
-              "handle": "bow160",
-              "drawers": 0,
-              "shelves": 0,
-              "handleCC": 160,
-              "rodHeight": 1900,
-              "shelfMode": "auto",
-              "widthMode": "auto",
-              "drawerMode": "auto",
-              "pushToOpen": false,
-              "drawerOffset": 10,
-              "drawerPinned": [],
-              "handleOrient": "vertical",
-              "shelfHeights": [],
-              "drawerHeights": []
-            }
-          ],
-          "legHeight": 100,
-          "railWidth": 100,
-          "rightSide": "onBottom",
-          "countertop": {
-            "enabled": true,
-            "decorCode": "CTOP-LDSP38-600",
-            "overhangLeft": 0,
-            "overhangFront": 20,
-            "overhangRight": 0
-          },
-          "plinthHeight": 100
-        }
-      },
-      {
-        "x": 2426,
-        "z": 2023,
-        "params": {
-          "name": "Модуль 7",
-          "depth": 510,
-          "width": 600,
-          "corner": false,
-          "family": "kitchen",
-          "height": 820,
-          "topType": "rails",
-          "baseType": "legsPlinth",
-          "leftSide": "onBottom",
-          "rotation": 0,
-          "sections": [
-            {
-              "rod": false,
-              "lift": "aventosHK",
-              "width": 400,
-              "facade": "open",
-              "handle": "bow160",
-              "drawers": 3,
-              "shelves": 0,
-              "handleCC": 160,
-              "rodHeight": 1900,
-              "shelfMode": "auto",
-              "widthMode": "auto",
-              "drawerMode": "auto",
-              "pushToOpen": false,
-              "drawerOffset": 10,
-              "drawerPinned": [],
-              "handleOrient": "vertical",
-              "shelfHeights": [],
-              "drawerHeights": []
-            }
-          ],
-          "legHeight": 100,
-          "railWidth": 100,
-          "rightSide": "onBottom",
-          "countertop": {
-            "enabled": true,
-            "decorCode": "CTOP-LDSP38-600",
-            "overhangLeft": 0,
-            "overhangFront": 20,
-            "overhangRight": 0
-          },
-          "plinthHeight": 100
-        }
-      },
-      {
-        "x": 2426,
-        "z": 2623,
-        "params": {
-          "name": "Модуль 8",
-          "depth": 510,
-          "width": 600,
-          "corner": false,
-          "family": "kitchen",
-          "height": 820,
-          "topType": "rails",
-          "baseType": "legsPlinth",
-          "leftSide": "onBottom",
-          "rotation": 0,
-          "sections": [
-            {
-              "rod": false,
-              "lift": "aventosHK",
-              "width": 400,
-              "facade": "doorRight",
-              "handle": "bow160",
-              "drawers": 0,
-              "shelves": 1,
-              "handleCC": 160,
-              "rodHeight": 1900,
-              "shelfMode": "auto",
-              "widthMode": "auto",
-              "drawerMode": "auto",
-              "pushToOpen": false,
-              "drawerOffset": 10,
-              "drawerPinned": [],
-              "handleOrient": "vertical",
-              "shelfHeights": [],
-              "drawerHeights": []
-            }
-          ],
-          "legHeight": 100,
-          "railWidth": 100,
-          "rightSide": "onBottom",
-          "countertop": {
-            "enabled": true,
-            "decorCode": "CTOP-LDSP38-600",
-            "overhangLeft": 0,
-            "overhangFront": 20,
-            "overhangRight": 0
-          },
-          "plinthHeight": 100
-        }
-      }
-    ],
-    "name": "кухня",
-    "group": "kitchen",
-    "categoryPath": []
-  },
-  {
     "id": "modplace-1790149508761-0sjz0u",
     "name": "комод для беллья",
     "group": "base",
@@ -1149,6 +774,21 @@ const state = {
   // компактна (см. .lib-wide.lib-chars-collapsed в style.css). Чисто
   // UI-состояние, сессионное.
   libCharsCollapsed: true,
+  // Видимость колонки «Поставщик» (кнопка-тумблер «Поставщики», см.
+  // libLeafTableHtml/libHardwareLeafTableHtml) — сайт, с которого добавлена
+  // цена позиции (см. libSourceSiteLabel). НЕЗАВИСИМА от libCharsCollapsed
+  // выше — свой отдельный тумблер, но так же общая на всю Библиотеку и
+  // сессионная (в историю/файл проекта не попадает). Дефолт false: колонка
+  // не всем нужна каждый день, не стоит занимать место сразу.
+  libSuppliersVisible: false,
+  // Видимость колонки «Чертёж» у таблицы ФУРНИТУРЫ (кнопка-тумблер
+  // «Характеристики» рядом с «Поставщики», см. libHardwareLeafTableHtml) —
+  // миниатюра чертежа присадки конкретной позиции (it.drawing). НЕЗАВИСИМА
+  // ни от libSuppliersVisible выше, ни от libCharsCollapsed (та вообще про
+  // другую таблицу — материалы, колонки Длина/Ширина/Толщина). Своя, потому
+  // что у фурнитуры и материалов разный смысл «характеристик». Чисто
+  // UI-состояние, сессионное, дефолт false — как и остальные тумблеры колонок.
+  libHwCharsVisible: false,
   // Строка таблицы материалов, выделенная кликом (см. libRowHtml/
   // initLibraryPanel) — { group, key } или null. group/key — то же, что
   // читает libFindItem (group — истинное происхождение позиции: decors/
@@ -1576,6 +1216,11 @@ function snapshot() {
     countertopCornerJoint: state.countertopCornerJoint,
     grainGroups: state.grainGroups,
     hangerSystem: state.hangerSystem,
+    // Ручная разметка чертежа (src/markup.js) — в истории отмены вместе с
+    // модулями: Ctrl+Z после удаления модуля возвращает и его размеры, а
+    // добавление/удаление размера отменяется как любая правка. В state она
+    // НЕ живёт (applySnapshot/restoreProjectData отдают её в markup.js).
+    markup: markupApi ? markupApi.getData() : [],
   });
 }
 
@@ -1590,18 +1235,30 @@ function pushHistory() {
 
 function applySnapshot(snap) {
   const o = JSON.parse(snap);
+  const mk = o.markup;
+  delete o.markup;                         // не поле state — см. snapshot()
+  // Шаг отмены, в котором менялась ТОЛЬКО ручная разметка (модули и прочее
+  // состояние те же), не должен закрывать редактор детали и снимать
+  // изоляцию — иначе Ctrl+Z по размеру в редакторе выкидывал бы из окна.
+  const cur = JSON.parse(snapshot());
+  delete cur.markup;
+  const markupOnly = JSON.stringify(cur) === JSON.stringify(o);
   Object.keys(o).forEach((k) => { state[k] = o[k]; });
+  if (markupApi) markupApi.setData(Array.isArray(mk) ? mk : []);
   // Снимок без этого поля (старый) не должен оставлять группы от другого проекта.
   if (!o.grainGroups) state.grainGroups = {};
   // Снимок/проект до выбора навеса (до v315) — навес по умолчанию.
   if (!o.hangerSystem) state.hangerSystem = window.Modul3D.catalog.DEFAULT_HANGER_SYSTEM;
   migrateFacadeMatCode(o);
   // state.modules целиком заменён — режим изоляции (по имени модуля) и
-  // выбор детали внутри него могли устареть, снимаем безусловно.
-  exitIsolation();
+  // выбор детали внутри него могли устареть, снимаем (кроме шага, где
+  // менялась только разметка, см. markupOnly выше).
+  if (!markupOnly) exitIsolation();
   history.lock = true;
   try { renderParamsPanel(); recompute(); } finally { history.lock = false; }
   updateHistoryButtons();
+  if (markupOnly) refreshPartEditorOverlay();
+  syncMarkupUI();
 }
 
 function undo() {
@@ -1638,13 +1295,31 @@ function updateHistoryButtons() {
 const PROJECT_FILE_VERSION = 1;
 const AUTOSAVE_KEY = 'basisAutosaveProject';
 
+// Разметка для файла/автосохранения: без «сирот» — размеров, чей модуль
+// (moduleUid любой из двух точек) уже удалён из проекта. Чистим ТОЛЬКО здесь,
+// а не при пересчёте: в памяти и в истории отмены они нужны, чтобы Ctrl+Z
+// после удаления модуля вернул и его размеры.
+function markupForFile() {
+  if (!markupApi) return [];
+  const uids = new Set(state.modules.map((m) => m && m.uid).filter(Boolean));
+  return markupApi.getData().filter((d) => d && d.a && d.b
+    && uids.has(d.a.moduleUid) && uids.has(d.b.moduleUid));
+}
+
 function serializeProject() {
+  const st = JSON.parse(snapshot());
+  delete st.markup;                        // в файле разметка лежит отдельным полем
   return {
     app: 'basis-mvp',
     fileVersion: PROJECT_FILE_VERSION,
     appVersion: APP_VERSION,
     savedAt: new Date().toISOString(),
-    state: JSON.parse(snapshot()),
+    state: st,
+    // Ручная разметка чертежа (src/markup.js) — рядом со state, а не внутри:
+    // это не параметр изделия, а пометки пользователя на чертеже. Точки
+    // ссылаются на «uid модуля + ключ детали» (engine.js: part.moduleUid/
+    // part.anchorKey); размер, чьей детали больше нет, просто не рисуется.
+    markup: markupForFile(),
   };
 }
 
@@ -1717,7 +1392,7 @@ function restoreProjectData(data) {
   if (!data || typeof data !== 'object' || !data.state || !Array.isArray(data.state.modules)) {
     throw new Error('Файл не похож на проект «Modul3D» — нет списка модулей.');
   }
-  Object.keys(data.state).forEach((k) => { state[k] = data.state[k]; });
+  Object.keys(data.state).forEach((k) => { if (k !== 'markup') state[k] = data.state[k]; });
   // Проект из файла до появления «Направления текстуры» — все группы «Авто»,
   // а не то, что было выставлено в предыдущем открытом проекте.
   if (!data.state.grainGroups) state.grainGroups = {};
@@ -1725,6 +1400,21 @@ function restoreProjectData(data) {
   if (!data.state.hangerSystem) state.hangerSystem = window.Modul3D.catalog.DEFAULT_HANGER_SYSTEM;
   migrateFacadeMatCode(data.state);
   migrateDrawerFieldsToSections(data);
+  // Ручная разметка чертежа — до recompute(), чтобы чертёж сразу собрался с
+  // ней. Старый файл без поля markup — просто пустая разметка (а не размеры,
+  // оставшиеся от предыдущего открытого проекта). Битые данные разметки не
+  // должны мешать открыть сам проект — setData терпим к мусору, но на всякий
+  // случай и здесь не даём ей уронить загрузку. Режим разметки выключаем:
+  // открыт другой проект.
+  if (markupApi) {
+    try {
+      markupApi.setActive(false);
+      markupApi.setData(Array.isArray(data.markup) ? data.markup : []);
+    } catch (err) {
+      console.warn('Markup restore failed:', err);
+      try { markupApi.setData([]); } catch (e2) { /* ok */ }
+    }
+  }
   // Открыт другой проект (или восстановлено автосохранение) — модули заменены
   // целиком, старая изоляция/выбор детали больше не имеют смысла.
   exitIsolation();
@@ -1734,6 +1424,7 @@ function restoreProjectData(data) {
   history.past = [snapshot()];
   history.future = [];
   updateHistoryButtons();
+  syncMarkupUI();
 }
 
 function openProjectFromFile(file) {
@@ -1870,6 +1561,9 @@ function insertModule(m) {
       overhangRight: 0,
     };
   }
+  // Вставленный модуль — всегда НОВЫЙ: клон из пресета/библиотеки/комплекта
+  // мог принести uid эталона (или другого модуля проекта), см. newModuleUid.
+  m.uid = newModuleUid();
   const at = Math.min(state.activeModule + 1, state.modules.length);
   state.modules.splice(at, 0, m);
   renumberModules();
@@ -1912,6 +1606,7 @@ function insertModulesBatch(mods) {
       };
     }
   });
+  mods.forEach((m) => { m.uid = newModuleUid(); });   // см. insertModule
   const at = Math.min(state.activeModule + 1, state.modules.length);
   state.modules.splice(at, 0, ...mods);
   renumberModules();
@@ -2283,14 +1978,16 @@ function libraryBlock() {
   const catsHtml = libTabRootCodes('modules')
     .map((code) => libTopCategoryTreeHtml('modules', code, 0))
     .join('');
+  // Заголовок раздела («База модулей») здесь намеренно не рисуем — он
+  // дублировал название активной вкладки .lib-tabs прямо над ним (то же на
+  // «Материалах»/«Фурнитуре»/«Дверях») и съедал место на телефоне.
   return `
-    <h3>База модулей</h3>
     <div class="lib-link-refresh-bar">
-      <button type="button" class="btn" data-lib-save-project="1" title="Сохранить текущий проект в «Базу модулей»">Добавить модуль</button>
+      <button type="button" class="btn" data-lib-save-project="1" title="Сохранить текущий проект в «Базу модулей»">Сохранить в базу</button>
       ${libAddCatTileHtml('modules')}
     </div>
     ${catsHtml}
-    <div class="hint">Раскройте категорию и нажмите на модуль — он добавится в проект. Правая кнопка мыши на модуле — переименовать/скопировать/переместить/удалить карточку (сам пресет при этом не меняется); перетащите миниатюру на строку категории, чтобы перенести её. «Добавить модуль» выше сохраняет текущий проект в библиотеку: один модуль — обычной карточкой, несколько — карточкой-комплектом.</div>`;
+    <div class="hint">Раскройте категорию и нажмите на модуль — он добавится в проект. Правая кнопка мыши на модуле — переименовать/скопировать/переместить/удалить карточку (сам пресет при этом не меняется); перетащите миниатюру на строку категории, чтобы перенести её. «Сохранить в базу» выше сохраняет текущий проект в библиотеку: один модуль — обычной карточкой, несколько — карточкой-комплектом.</div>`;
 }
 
 // ---------------------------------------------------------------------------
@@ -2930,6 +2627,11 @@ function libDashEditCell(group, key, field, value, extraClass) {
 // обработчик клика не искал item повторно. Если sourceUrl нет — по-прежнему
 // открывает системный выбор файла (см. openLibImagePicker) — так и остаётся
 // для позиций без соответствия на сайте.
+// data-swatch-src дублирует саму ссылку картинки (то же, что уходит в
+// background-image) — читает лупа-зум при наведении (см.
+// openLibSwatchZoomPreview/.lib-swatch-zoom-icon ниже), чтобы не разбирать
+// background-image из вычисленного стиля. Значка лупы у пустой заглушки нет —
+// увеличивать нечего.
 function libSwatchHtml(group, key, image, sourceUrl) {
   // dataURL (base64) не содержит одинарных кавычек — безопасно подставлять
   // внутрь url('...') без экранирования; esc() экранирует внешний HTML-атрибут
@@ -2937,8 +2639,153 @@ function libSwatchHtml(group, key, image, sourceUrl) {
   // image у большинства позиций catalog.js) по той же причине безопасен.
   const style = image ? ` style="background-image:url('${esc(image)}')"` : '';
   const urlAttr = sourceUrl ? ` data-swatch-url="${esc(sourceUrl)}"` : '';
+  const srcAttr = image ? ` data-swatch-src="${esc(image)}"` : '';
   const title = sourceUrl ? 'Открыть карточку товара на сайте' : 'Загрузить образец';
-  return `<span class="lib-swatch${image ? '' : ' empty'}" data-swatch-group="${esc(group)}" data-swatch-key="${esc(key)}"${style}${urlAttr} title="${esc(title)}"></span>`;
+  const zoomIcon = image ? '<span class="lib-swatch-zoom-icon" title="Увеличить превью">🔍</span>' : '';
+  return `<span class="lib-swatch${image ? '' : ' empty'}" data-swatch-group="${esc(group)}" data-swatch-key="${esc(key)}"${style}${urlAttr}${srcAttr} title="${esc(title)}">${zoomIcon}</span>`;
+}
+
+// Миниатюра чертежа присадки конкретной позиции фурнитуры (поле it.drawing —
+// URL/dataURL картинки, независимое от it.image, которое остаётся фото
+// товара) — по образцу libSwatchHtml выше, но проще: без клика «открыть
+// карточку товара»/«загрузить свой файл» (см. её пропуск в общем обработчике
+// .lib-swatch — initLibraryPanel), просто миниатюра или пустая заглушка.
+// Показывается колонкой «Чертёж» под тумблером «Характеристики» (см.
+// state.libHwCharsVisible/libHardwareLeafTableHtml). Класс намеренно тот же
+// .lib-swatch, что у обычного образца — так на неё распространяется общая
+// лупа-зум по наведению (см. .lib-swatch-zoom-icon/openLibSwatchZoomPreview).
+function libDrawingSwatchHtml(group, key, drawing) {
+  const style = drawing ? ` style="background-image:url('${esc(drawing)}')"` : '';
+  const srcAttr = drawing ? ` data-swatch-src="${esc(drawing)}"` : '';
+  const title = drawing ? 'Чертёж присадки' : 'Чертёж не добавлен';
+  const zoomIcon = drawing ? '<span class="lib-swatch-zoom-icon" title="Увеличить превью">🔍</span>' : '';
+  return `<span class="lib-swatch lib-drawing-swatch${drawing ? '' : ' empty'}" data-swatch-group="${esc(group)}" data-swatch-key="${esc(key)}"${style}${srcAttr} title="${esc(title)}">${zoomIcon}</span>`;
+}
+
+// Touch-устройство (телефон/планшет) — определяем один раз по факту, без
+// кэширования (вызывается только по клику, не в горячем пути рендера).
+// Нужна, чтобы развести на .lib-swatch два разных действия по тапу (см.
+// initLibraryPanel: клик по .lib-swatch) — раньше на touch и крошечная
+// лупа-иконка в углу, и сама миниатюра рядом с ней были отдельными мишенями,
+// палец промахивался между «зум» и «уйти на сайт» (задача 2026-09-26). На
+// touch тап по самой миниатюре теперь сразу открывает зум-превью, а переход
+// на сайт — явной кнопкой «Перейти на сайт» внутри превью (см.
+// openLibSwatchZoomPreview); значок лупы там же прячется CSS-медиа-запросом
+// (hover: none), см. .lib-swatch-zoom-icon в style.css.
+function isTouchLibraryDevice() {
+  return ('ontouchstart' in window) || navigator.maxTouchPoints > 0;
+}
+
+// -----------------------------------------------------------------------
+// Лупа-зум миниатюр .lib-swatch (образец материала/фурнитуры — libSwatchHtml,
+// чертёж присадки — libDrawingSwatchHtml) — общий для ВСЕХ таблиц Библиотеки
+// приём на desktop: наведение на саму миниатюру показывает значок лупы в её
+// углу (чисто CSS, .lib-swatch:hover .lib-swatch-zoom-icon, см. style.css), а
+// наведение на саму лупу открывает вот это увеличенное превью — один
+// переиспользуемый элемент #libSwatchZoomPreview, создаётся/удаляется по
+// месту (тот же приём, что и #detailFilterMenu в openColumnFilterMenu/
+// closeColumnFilterMenu выше). На touch (см. isTouchLibraryDevice) значка
+// лупы нет вовсе — то же превью открывает тап по самой миниатюре (см. клик
+// по .lib-swatch в initLibraryPanel). Делегированные mouseover/mouseout/click
+// вешаются один раз на #libraryPanel в initLibraryPanel — переживают
+// renderLibraryPanel (innerHTML целиком перерисовывается), поэтому саму
+// разметку лупы искать заново не нужно.
+// -----------------------------------------------------------------------
+let libSwatchZoomOutsideHandler = null;
+function closeLibSwatchZoomPreview() {
+  const el = document.getElementById('libSwatchZoomPreview');
+  if (el && el.remove) el.remove();
+  if (libSwatchZoomOutsideHandler) {
+    document.removeEventListener('click', libSwatchZoomOutsideHandler);
+    document.removeEventListener('touchstart', libSwatchZoomOutsideHandler);
+    libSwatchZoomOutsideHandler = null;
+  }
+}
+// anchorEl — либо сам .lib-swatch-zoom-icon (desktop, наведение), либо сама
+// .lib-swatch (touch, тап) — превью встаёт рядом с НИМ (тот же приём
+// позиционирования, что и раньше, просто якорь разный). Картинку берём из
+// data-swatch-src РОДИТЕЛЬСКОЙ .lib-swatch (та же ссылка, что уже
+// используется как background-image миниатюры, см. libSwatchHtml/
+// libDrawingSwatchHtml) — так превью показывает ИМЕННО ту картинку, что и
+// сама миниатюра, без повторного чтения item из каталога. Размер бокса —
+// ВСЕГДА фиксированные 250×250 (см. .lib-swatch-zoom-preview img в
+// style.css, object-fit: contain сохраняет пропорции без искажений) — не
+// зависит от natural-разрешения источника, чтобы превью разных позиций (у
+// разных сайтов-парсеров разное исходное разрешение) не отличались по
+// размеру визуально (задача 2026-09-26). opts.showLink — показать кнопку
+// «Перейти на сайт» (только touch-сценарий, см. initLibraryPanel); кнопка
+// добавляется, только если у миниатюры реально есть sourceUrl (data-swatch-
+// url, см. libSwatchHtml) — у чертежа присадки (libDrawingSwatchHtml) его
+// нет никогда, поэтому там кнопки не будет, даже если showLink запрошен.
+function openLibSwatchZoomPreview(anchorEl, opts) {
+  const isSwatchAnchor = anchorEl.classList && anchorEl.classList.contains('lib-swatch');
+  const swatch = isSwatchAnchor ? anchorEl : anchorEl.closest('.lib-swatch');
+  const src = swatch && swatch.dataset.swatchSrc;
+  if (!src) return;
+  closeLibSwatchZoomPreview();
+  const box = document.createElement('div');
+  box.id = 'libSwatchZoomPreview';
+  box.className = 'lib-swatch-zoom-preview';
+  const img = document.createElement('img');
+  img.src = src;
+  box.appendChild(img);
+  const swatchUrl = swatch.dataset.swatchUrl;
+  if (opts && opts.showLink && swatchUrl) {
+    const link = document.createElement('a');
+    link.className = 'btn btn-primary lib-swatch-zoom-link';
+    link.href = swatchUrl;
+    link.target = '_blank';
+    link.rel = 'noopener';
+    link.textContent = 'Перейти на сайт';
+    box.appendChild(link);
+  }
+  document.body.appendChild(box);
+  const anchorRect = anchorEl.getBoundingClientRect();
+  const rect = box.getBoundingClientRect();
+  const w = rect.width;
+  const h = rect.height;
+  const left = Math.max(4, Math.min(anchorRect.right + 8, window.innerWidth - w - 4));
+  const top = Math.max(4, Math.min(anchorRect.top + anchorRect.height / 2 - h / 2, window.innerHeight - h - 4));
+  box.style.left = Math.round(left) + 'px';
+  box.style.top = Math.round(top) + 'px';
+  if (isSwatchAnchor) {
+    // Touch: закрываем тапом В ЛЮБОМ месте — включая саму картинку внутри
+    // превью, это и есть ожидаемый способ закрыть (не только «мимо» самого
+    // бокса) — кроме тапа по кнопке «Перейти на сайт» (.lib-swatch-zoom-link,
+    // ей нужно долистать до навигации, а не закрыться раньше) и по исходной
+    // миниатюре-якорю (иначе тот же тап, что превью открыл, тут же его бы и
+    // закрыл). У позиций без ссылки (opts.showLink=false или нет sourceUrl,
+    // например чертёж присадки) .lib-swatch-zoom-link в разметке нет вовсе —
+    // там тап по картинке закрывает превью так же, как по любому другому
+    // месту. Тот же приём отложенной подписки на document, что и у
+    // openLibMoveMenu выше (setTimeout 0, чтобы не поймать текущий, уже
+    // идущий клик).
+    setTimeout(() => {
+      // Превью успели переоткрыть раньше этого тика — этот бокс уже удалён,
+      // не вешаем для него обработчик (иначе он повиснет на document).
+      if (!box.isConnected) return;
+      libSwatchZoomOutsideHandler = (e) => {
+        if (anchorEl.contains(e.target)) return;
+        if (e.target.closest && e.target.closest('.lib-swatch-zoom-link')) return;
+        // Тап по самой картинке закрываем только на click, не на touchstart:
+        // иначе превью исчезает под пальцем раньше, чем браузер сгенерирует
+        // click, и тот «проваливается» на строку таблицы под превью
+        // (выделяет её или открывает другую миниатюру).
+        if (e.type === 'touchstart' && box.contains(e.target)) return;
+        closeLibSwatchZoomPreview();
+      };
+      document.addEventListener('click', libSwatchZoomOutsideHandler);
+      document.addEventListener('touchstart', libSwatchZoomOutsideHandler);
+    }, 0);
+  } else {
+    // Desktop: курсор может перейти с лупы прямо на само превью (они
+    // соприкасаются, см. задачу) — свой mouseout, чтобы не закрывать
+    // превью, пока курсор внутри него самого или ещё на исходной лупе.
+    box.addEventListener('mouseout', (e) => {
+      if (box.contains(e.relatedTarget) || anchorEl.contains(e.relatedTarget)) return;
+      closeLibSwatchZoomPreview();
+    });
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -4656,11 +4503,18 @@ function libSheetShortName(it) {
 // Освободившееся место уходит колонке «Наименование» (у неё нет явной
 // ширины, см. выше) — так длинные названия decors умещаются в 2 строки, а
 // не в 3+ (пример «H1180 ST37 Дуб Халифакс натуральный», см. catalog.js).
-function libColgroup(pickMode, collapsed) {
+// suppliersVisible — колонка «Поставщик» (кнопка-тумблер «Поставщики», см.
+// data-suppliers-toggle/state.libSuppliersVisible ниже) — независимый от
+// collapsed переключатель: показывает, с какого сайта добавлена цена
+// позиции (libSourceSiteLabel). Добавлена ПОСЛЕ «Цены», перед колонкой
+// «Выбрать» — как и её <td> в libRowHtml.
+function libColgroup(pickMode, collapsed, suppliersVisible) {
   const charCols = collapsed ? '' : `<col class="lib-char-col" style="width:76px"><col class="lib-char-col" style="width:76px"><col class="lib-char-col" style="width:76px">`;
+  const supplierCol = suppliersVisible ? `<col class="lib-supplier-col" style="width:92px">` : '';
   return `<colgroup><col><col style="width:72px">`
     + charCols
     + `<col style="width:82px">`
+    + supplierCol
     + `${pickMode ? '<col style="width:76px">' : ''}</colgroup>`;
 }
 // Заголовок — ОДНА строка <thead> (никаких rowspan/colspan, см. коммент у
@@ -4675,18 +4529,25 @@ function libColgroup(pickMode, collapsed) {
 // поповер сортировки/фильтра, что и в «Деталировке» (см.
 // openColumnFilterMenu), tableKey — тот же charsKey, что различает
 // одновременно открытые таблицы Библиотеки между собой.
-function libTableHead(pickMode, collapsed, tableKey) {
+// suppliersVisible — заголовок «Поставщик» (colIndex 5, см. libColgroup/
+// libRowHtml выше и vals[5] в libFilterRowsCache ниже) — своя кнопка-
+// треугольник сортировки/фильтра, тот же общий поповер openColumnFilterMenu.
+function libTableHead(pickMode, collapsed, tableKey, suppliersVisible) {
   const filterBtn = (colIndex) => `<button type="button" class="dth-filter-btn" data-filter-key="${esc(tableKey)}" data-col="${colIndex}" title="Сортировка и фильтр">▾</button>`;
   const charsHeadCells = collapsed ? '' : `
       <th class="lib-char-col lib-th-filter" title="Длина, мм"><span class="dth-label">Длина</span>${filterBtn(1)}</th>
       <th class="lib-char-col lib-th-filter" title="Ширина, мм"><span class="dth-label">Ширина</span>${filterBtn(2)}</th>
       <th class="lib-char-col lib-th-filter" title="Толщина, мм"><span class="dth-label">Толщина</span>${filterBtn(3)}</th>`;
+  const supplierHeadCell = suppliersVisible
+    ? `<th class="lib-supplier-col lib-th-filter"><span class="dth-label">Поставщик</span>${filterBtn(5)}</th>`
+    : '';
   return `<thead>
     <tr>
       <th class="lib-th-filter"><span class="dth-label">Наименование</span>${filterBtn(0)}</th>
       <th>Образец</th>
       ${charsHeadCells}
       <th class="lib-th-filter"><span class="dth-label">${libPriceUnitHeaderHtml()}</span>${filterBtn(4)}</th>
+      ${supplierHeadCell}
       ${pickMode ? '<th></th>' : ''}
     </tr>
   </thead>`;
@@ -4722,6 +4583,7 @@ function libRowHtml(entry, opts) {
   const key = libRowKeyOf(group, it);
   const pickMode = !!opts.pickMode;
   const collapsed = !!opts.collapsed;
+  const suppliersVisible = !!opts.suppliersVisible;
   const unit = state.libPriceUnit;
   const sel = state.libSelectedRow;
   const isSelected = !!(sel && sel.group === group && sel.key === key);
@@ -4757,6 +4619,14 @@ function libRowHtml(entry, opts) {
   // Подбор заполнения алюм. рамки — «Выбрать» только у подходящих профилю
   // материалов; у остальных строк ячейка пустая (колонка общая на таблицу).
   const pickAllowed = pickMode && libPickRowAllowed(opts.topCode, entry);
+  // supplierDisplay — считается ВСЕГДА (даже когда колонка скрыта), как и
+  // остальные vals ниже: applyColumnFilterAndSort может держать активный
+  // фильтр/сортировку по колонке 5, пока сама колонка временно спрятана
+  // тумблером «Поставщики» (см. libColgroup/libTableHead/state.libSuppliersVisible).
+  const supplierDisplay = libSourceSiteLabel(it);
+  const supplierCell = suppliersVisible
+    ? `<td class="lib-supplier-col" title="${esc(supplierDisplay)}">${esc(supplierDisplay)}</td>`
+    : '';
   const pickCell = pickMode
     ? (pickAllowed
       ? `<td><button type="button" class="link-btn lib-pick-btn" data-pick-group="${esc(group)}" data-pick-code="${esc(key)}">Выбрать</button></td>`
@@ -4772,6 +4642,7 @@ function libRowHtml(entry, opts) {
         dims.width != null ? String(dims.width) : '',
         dims.thickness != null ? String(dims.thickness) : '',
         priceDisplay,
+        supplierDisplay,
       ],
     });
   }
@@ -4785,6 +4656,7 @@ function libRowHtml(entry, opts) {
       ${widthCell}
       ${thicknessCell}
       ${priceCell}
+      ${supplierCell}
       ${pickCell}
     </tr>`;
 }
@@ -4812,15 +4684,19 @@ function libLeafTableHtml(topCode, path, entries, opts) {
   const pickMode = !!target && entries.some((e) => libPickRowAllowed(topCode, e));
   const charsKey = libNodeKey(topCode, path);
   const collapsed = !!state.libCharsCollapsed;
+  // Колонка «Поставщик» (кнопка-тумблер «Поставщики» ниже) — НЕЗАВИСИМА от
+  // collapsed: своё отдельное общее на всю Библиотеку состояние
+  // (state.libSuppliersVisible), по умолчанию скрыта.
+  const suppliersVisible = !!state.libSuppliersVisible;
   // Кэш этого листа пересобирается с нуля на каждый рендер (см.
   // libFilterRowsCache/libRowHtml) — иначе после удаления/добавления
   // позиции в нём остались бы "хвостовые" записи от прошлого рендера с
   // бо́льшим числом строк (безвредно для applyColumnFilterAndSort — она
   // смотрит только на реальные tr[data-row-idx] — но лишняя память и путаница).
   libFilterRowsCache[charsKey] = [];
-  const rowsHtml = entries.map((e, i) => libRowHtml(e, { pickMode, collapsed, tableKey: charsKey, rowIdx: i, moveTop: topCode, topCode })).join('');
+  const rowsHtml = entries.map((e, i) => libRowHtml(e, { pickMode, collapsed, suppliersVisible, tableKey: charsKey, rowIdx: i, moveTop: topCode, topCode })).join('');
   const items = entries.map((e) => e.item);
-  const colCount = (collapsed ? 3 : 6) + (pickMode ? 1 : 0);
+  const colCount = (collapsed ? 3 : 6) + (pickMode ? 1 : 0) + (suppliersVisible ? 1 : 0);
   const emptyRow = entries.length ? '' : `<tr><td colspan="${colCount}" class="hint">Пока нет позиций</td></tr>`;
   const addGroup = topCode === 'edge' ? 'edge' : ((opts.addGroupMap && opts.addGroupMap[path[0]]) || opts.addDefaultGroup || topCode);
   // data-add-top — сам topCode (а не addGroup, который для СВОИХ категорий
@@ -4868,11 +4744,18 @@ function libLeafTableHtml(topCode, path, entries, opts) {
   // таблицы каталога (материалы/кромка/фурнитура), «лист» неуместен для
   // кромки, погонажных материалов и фурнитуры.
   const charsToggleHtml = `<button type="button" class="lib-chars-btn lib-chars-toggle${collapsed ? '' : ' active'}" data-chars-toggle="1" title="Показать/скрыть длину, ширину, толщину">Характеристики материала</button>`;
+  // Кнопка «Поставщики» — рядом с «Характеристики материала», тот же
+  // визуальный паттерн (.lib-chars-btn/.active), но независимый тумблер
+  // (см. state.libSuppliersVisible/обработчик .lib-suppliers-toggle в
+  // initLibraryPanel): показывает/прячет колонку «Поставщик» — сайт, с
+  // которого добавлена цена позиции (см. libSourceSiteLabel).
+  const suppliersToggleHtml = `<button type="button" class="lib-chars-btn lib-suppliers-toggle${suppliersVisible ? ' active' : ''}" data-suppliers-toggle="1" title="Показать/скрыть, с какого сайта добавлена цена">Поставщики</button>`;
   return `
     <div class="lib-leaf-body">
       ${charsToggleHtml}
+      ${suppliersToggleHtml}
       ${libPriceNoteHtml(items)}
-      <table class="lib-table${collapsed ? ' chars-collapsed' : ''}" style="table-layout:fixed" data-chars-key="${esc(charsKey)}">${libColgroup(pickMode, collapsed)}${libTableHead(pickMode, collapsed, charsKey)}<tbody>${rowsHtml}${emptyRow}</tbody></table>
+      <table class="lib-table${collapsed ? ' chars-collapsed' : ''}" style="table-layout:fixed" data-chars-key="${esc(charsKey)}">${libColgroup(pickMode, collapsed, suppliersVisible)}${libTableHead(pickMode, collapsed, charsKey, suppliersVisible)}<tbody>${rowsHtml}${emptyRow}</tbody></table>
       ${actionsHtml}
     </div>`;
 }
@@ -5046,6 +4929,16 @@ function libHardwareLeafTableHtml(topCode, path, entries, opts) {
   const category = (entries[0] && entries[0].item && entries[0].item.category) || opts.hwCategory || '';
   const items = entries.map((e) => e.item);
   const unit = libHwPriceUnitOf(topCode);
+  // Колонка «Поставщик» — то же общее на всю Библиотеку состояние, что и у
+  // материалов (см. libLeafTableHtml/state.libSuppliersVisible), у фурнитуры
+  // своего тумблера «Характеристики...» нет, но «Поставщики» показана и тут
+  // (см. suppliersToggleHtml ниже).
+  const suppliersVisible = !!state.libSuppliersVisible;
+  // Колонка «Чертёж» — своя кнопка-тумблер «Характеристики» (state.
+  // libHwCharsVisible), НЕЗАВИСИМАЯ от suppliersVisible выше и от
+  // state.libCharsCollapsed (та вообще про таблицу материалов) — миниатюра
+  // чертежа присадки конкретной позиции (it.drawing, см. libDrawingSwatchHtml).
+  const hwCharsVisible = !!state.libHwCharsVisible;
   // Выделение строки кликом (см. state.libSelectedRow/libApplyRowSelection) —
   // тот же приём, что и у материалов (см. libRowHtml/libLeafTableHtml), нужен
   // здесь ради кнопки «− Удалить позицию» ниже.
@@ -5062,14 +4955,19 @@ function libHardwareLeafTableHtml(topCode, path, entries, opts) {
     const key = it.key;
     const searchText = String(it.name || '').toLowerCase();
     const priceDisplay = libHwPriceDisplayValue(it, unit);
+    // supplierDisplay — считается ВСЕГДА, как и у материалов (см. libRowHtml):
+    // applyColumnFilterAndSort может держать фильтр/сортировку по колонке 3,
+    // пока сама колонка спрятана тумблером «Поставщики».
+    const supplierDisplay = libSourceSiteLabel(it);
     // vals — по одному значению на КАЖДУЮ колонку строки, в том же порядке,
-    // что и <td> ниже (0 — Наименование, 1 — Образец, 2 — Цена): поповер
-    // фильтра адресуется номером колонки (см. data-col у .dth-filter-btn),
-    // поэтому пустая строка для нефильтруемого «Образца» — не мусор, а
-    // обязательная заглушка, держащая нумерацию.
+    // что и <td> ниже (0 — Наименование, 1 — Образец, 2 — Цена, 3 —
+    // Поставщик, 4 — Чертёж): поповер фильтра адресуется номером колонки (см.
+    // data-col у .dth-filter-btn), поэтому пустая строка для нефильтруемых
+    // «Образца»/«Чертежа» — не мусор, а обязательная заглушка, держащая
+    // нумерацию (у «Чертежа» тоже нет кнопки-фильтра, см. filterBtn ниже).
     libFilterRowsCache[tableKey].push({
       idx: i,
-      vals: [String(it.name || ''), '', priceDisplay],
+      vals: [String(it.name || ''), '', priceDisplay, supplierDisplay, it.drawing || ''],
     });
     // Значок ⇄ «перенести позицию» — тот же, что и у материалов (см.
     // libRowMoveIcHtml): внутри ячейки «Наименование», без своей колонки.
@@ -5085,9 +4983,16 @@ function libHardwareLeafTableHtml(topCode, path, entries, opts) {
         ${libEditCell(group, key, 'name', 'text', it.name, { afterHtml: moveIc, extraClass: 'lib-name-cell' })}
         <td>${libSwatchHtml(group, key, it.image, it.sourceUrl)}</td>
         ${libHwPriceCellHtml(group, key, it, unit)}
+        ${suppliersVisible ? `<td class="lib-supplier-col" title="${esc(supplierDisplay)}">${esc(supplierDisplay)}</td>` : ''}
+        ${hwCharsVisible ? `<td>${libDrawingSwatchHtml(group, key, it.drawing)}</td>` : ''}
       </tr>`;
   }).join('');
-  const emptyRow = entries.length ? '' : '<tr><td colspan="3" class="hint">Пока нет позиций</td></tr>';
+  // colCount — 3 базовых (Наименование/Образец/Цена) + Поставщик + Чертёж,
+  // каждый только если его тумблер сейчас включён (см. suppliersVisible/
+  // hwCharsVisible выше) — тот же приём, что и colCount у материалов (см.
+  // libLeafTableHtml).
+  const colCount = 3 + (suppliersVisible ? 1 : 0) + (hwCharsVisible ? 1 : 0);
+  const emptyRow = entries.length ? '' : `<tr><td colspan="${colCount}" class="hint">Пока нет позиций</td></tr>`;
   // data-add-path — тот же путь листа/ветки, что и у материалов (см.
   // libLeafTableHtml/libAddRow): позволяет новой позиции сразу попасть в ту
   // подкатегорию/фирму (сама категория вынесена в topCode, см.
@@ -5126,15 +5031,38 @@ function libHardwareLeafTableHtml(topCode, path, entries, opts) {
   // историческое (у материалов ключ заодно обслуживает тумблер
   // «Характеристики материала»), у фурнитуры характеристик нет — это просто
   // ключ таблицы, других значений он не несёт.
+  const supplierColHtml = suppliersVisible ? '<col class="lib-supplier-col" style="width:92px">' : '';
+  const supplierHeadHtml = suppliersVisible
+    ? `<th class="lib-supplier-col lib-th-filter"><span class="dth-label">Поставщик</span>${filterBtn(3)}</th>`
+    : '';
+  // Колонка «Чертёж» (см. state.libHwCharsVisible/libDrawingSwatchHtml выше) —
+  // тот же приём, что и «Поставщик»: своя <col>/<th>, рисуются только когда
+  // тумблер включён. Без кнопки-фильтра (.dth-filter-btn) — по аналогии с
+  // «Образцом», фильтровать по картинке нечего.
+  const drawingColHtml = hwCharsVisible ? '<col style="width:72px">' : '';
+  const drawingHeadHtml = hwCharsVisible ? '<th>Чертёж</th>' : '';
+  // Кнопка «Поставщики» — та же общая (state.libSuppliersVisible), что и у
+  // таблиц материалов (см. libLeafTableHtml).
+  const suppliersToggleHtml = `<button type="button" class="lib-chars-btn lib-suppliers-toggle${suppliersVisible ? ' active' : ''}" data-suppliers-toggle="1" title="Показать/скрыть, с какого сайта добавлена цена">Поставщики</button>`;
+  // Кнопка «Характеристики» — НОВАЯ, рядом с «Поставщики» (тот же визуальный
+  // паттерн .lib-chars-btn, что и «Характеристики материала»/«Поставщики»,
+  // см. libLeafTableHtml), но свой независимый тумблер (state.
+  // libHwCharsVisible) и своя колонка «Чертёж» вместо Длины/Ширины/Толщины —
+  // у фурнитуры этих размеров в таком виде нет, а чертёж присадки нужен.
+  const hwCharsToggleHtml = `<button type="button" class="lib-chars-btn lib-hw-chars-toggle${hwCharsVisible ? ' active' : ''}" data-hw-chars-toggle="1" title="Показать/скрыть чертёж присадки">Характеристики</button>`;
   return `
     <div class="lib-leaf-body">
+      ${hwCharsToggleHtml}
+      ${suppliersToggleHtml}
       ${libPriceNoteHtml(items)}
       <table class="lib-table" style="table-layout:fixed" data-chars-key="${esc(tableKey)}">
-        <colgroup><col><col style="width:72px"><col style="width:82px"></colgroup>
+        <colgroup><col><col style="width:72px"><col style="width:82px">${supplierColHtml}${drawingColHtml}</colgroup>
         <thead><tr>
           <th class="lib-th-filter"><span class="dth-label">Наименование</span>${filterBtn(0)}</th>
           <th>Образец</th>
           <th class="lib-th-filter"><span class="dth-label">${libHwPriceUnitHeaderHtml(items, topCode)}</span>${filterBtn(2)}</th>
+          ${supplierHeadHtml}
+          ${drawingHeadHtml}
         </tr></thead>
         <tbody>${rowsHtml}${emptyRow}</tbody>
       </table>
@@ -5738,7 +5666,6 @@ function libraryMaterialsBlock() {
     .map((code) => libTopCategoryTreeHtml('materials', code, 0))
     .join('');
   return `
-    <h3>Материалы</h3>
     ${libLinkTopBarHtml('materials')}
     ${state.libLinkForm && state.libLinkForm.kind === 'materials' ? libLinkFormHtml(state.libLinkForm) : ''}
     ${catsHtml}`;
@@ -5773,7 +5700,6 @@ function libraryHardwareBlock() {
     .map((code) => libTopCategoryTreeHtml('hardware', code, 0))
     .join('');
   return `
-    <h3>Фурнитура</h3>
     ${libLinkTopBarHtml('hardware')}
     ${state.libLinkForm && state.libLinkForm.kind === 'hardware' ? libLinkFormHtml(state.libLinkForm) : ''}
     ${categoriesHtml}`;
@@ -5810,15 +5736,18 @@ function libraryHardwareBlock() {
 // Список сайтов для выпадающего списка — ЕДИНСТВЕННЫЙ источник правды
 // сервер (см. п.1.2 ТЗ): список парсеров может расшириться позже без правок
 // клиента. Кэшируется на сессию, перезапрашивать незачем (список не меняется
-// на лету) — грузится один раз при первом открытии формы «Добавить по ссылке».
-// Возвращает промис со списком сайтов — уже загруженным (state.libLinkSites),
-// уже идущим в фоне (state.libLinkSitesPromise, повторный вызов не дублирует
-// запрос) или свежезапущенным. Раньше функция была fire-and-forget (сама
-// перерисовывала форму по готовности и ничего не возвращала) — теперь этого
-// недостаточно: «Обновить цены с сайта» (см. refreshCatalogLinkedPrices)
-// должна ДОЖДАТЬСЯ список, чтобы определить sourceSiteId встроенных позиций
-// каталога по домену (см. libLinkResolveSiteId), а не только показать его в
-// уже открытой форме «Добавить по ссылке».
+// на лету) — грузится один раз при первом открытии Библиотеки (см. вызов в
+// renderLibraryPanel — не только по клику «Добавить по ссылке», как было
+// раньше: список нужен и колонке «Поставщик», см. libSourceSiteLabel, а её
+// видно и без открытия формы). Возвращает промис со списком сайтов — уже
+// загруженным (state.libLinkSites), уже идущим в фоне
+// (state.libLinkSitesPromise, повторный вызов не дублирует запрос) или
+// свежезапущенным. Раньше функция была fire-and-forget (сама перерисовывала
+// форму по готовности и ничего не возвращала) — теперь этого недостаточно:
+// «Обновить цены с сайта» (см. refreshCatalogLinkedPrices) должна ДОЖДАТЬСЯ
+// список, чтобы определить sourceSiteId встроенных позиций каталога по
+// домену (см. libLinkResolveSiteId), а не только показать его в уже открытой
+// форме «Добавить по ссылке».
 function loadLibLinkSites() {
   if (state.libLinkSites) return Promise.resolve(state.libLinkSites);
   if (state.libLinkSitesLoading) return state.libLinkSitesPromise || Promise.resolve([]);
@@ -5837,7 +5766,12 @@ function loadLibLinkSites() {
     })
     .finally(() => {
       state.libLinkSitesLoading = false;
-      if (state.libLinkForm) renderLibraryPanel();
+      // Форма «Добавить по ссылке» больше не единственная, кому нужен этот
+      // список (см. колонку «Поставщик»/libSourceSiteLabel выше) — если панель
+      // вообще на странице, перерисовываем её в любом случае, иначе уже
+      // отрисованные строки с «…» в этой колонке остались бы висеть до
+      // следующей перерисовки панели по случайному другому поводу.
+      if (document.getElementById('libraryPanel')) renderLibraryPanel();
     })
     .then(() => state.libLinkSites || []);
   return state.libLinkSitesPromise;
@@ -5857,7 +5791,12 @@ function loadLibLinkSites() {
 // закрытие самого списка).
 function libLinkSitePickerHtml(form) {
   const loading = state.libLinkSitesLoading || state.libLinkSites == null;
-  const sites = state.libLinkSites || [];
+  // kinds — что сайт продаёт (см. registry.js на сервере). Сайт без kinds
+  // (старый закэшированный ответ сервера, ещё не отдающего это поле) считаем
+  // подходящим для любого раздела — та же защита от рассинхрона клиент/сервер,
+  // что уже применена к browseUrl чуть ниже по файлу.
+  const sites = (state.libLinkSites || [])
+    .filter((s) => !Array.isArray(s.kinds) || s.kinds.includes(form.kind));
   const empty = !loading && !sites.length;
   const labelOf = (s) => (s.name === s.domain ? s.name : `${s.name} (${s.domain})`);
   const site = sites.find((s) => s.id === form.siteId);
@@ -6087,6 +6026,55 @@ function libLinkResolveSiteId(url) {
   const sites = state.libLinkSites || [];
   const site = sites.find((s) => libLinkDomainMatches(url, s.domain));
   return site ? site.id : null;
+}
+
+// Название сайта-источника цены — для колонки «Поставщик» (кнопка-тумблер
+// «Поставщики», см. libLeafTableHtml/libHardwareLeafTableHtml,
+// state.libSuppliersVisible). Тот же список сайтов, что и «Сайт-источник»
+// формы «Добавить по ссылке» (state.libLinkSites, см. loadLibLinkSites,
+// которая теперь грузится уже при открытии Библиотеки — см. renderLibraryPanel
+// — а не только по клику «+ Добавить по ссылке»). Порядок проверки:
+//  1) it.sourceSiteId — позиция добавлена через форму «Добавить по ссылке» и
+//     уже несёт id сайта явно;
+//  2) it.sourceUrl без sourceSiteId — 72 встроенные позиции каталога (см.
+//     коммент у libLinkResolveSiteId выше) несут только адрес, домен сверяем
+//     с известными сайтами через ТУ ЖЕ libLinkDomainMatches;
+//  3) домен не совпал ни с одним подключённым магазином (например,
+//     каталожная страница производителя вроде blum.com/hettich.com — не один
+//     из сайтов-поставщиков) — показываем голый хост как есть: это честнее,
+//     чем промолчать или выдумать несуществующий сайт;
+//  4) ни sourceSiteId, ни sourceUrl нет вовсе (позиция добавлена вручную) —
+//     «—».
+// Пока state.libLinkSites ещё не загружен, случаи 1 и 2 неразличимы (не с чем
+// сверять домен) — временная метка «…» (тот же приём, что и toggleLabelRaw
+// у самой формы, см. libLinkSitePickerHtml).
+function libSourceSiteLabel(it) {
+  if (!it) return '—';
+  const hasSiteId = !!it.sourceSiteId;
+  const url = it.sourceUrl;
+  if (!hasSiteId && !url) return '—';
+  // Гость (нет токена входа) никогда не дождётся списка сайтов — loadLibLinkSites
+  // для гостя выходит рано, не запуская запрос (см. её начало), поэтому
+  // state.libLinkSites так и останётся null навсегда. Ждать вечно бессмысленно: считаем
+  // список сайтов пустым сразу и идём в тот же путь, что и после
+  // неудачной загрузки (голый хост из sourceUrl или «—»), а не показываем
+  // «…» до бесконечности. Для залогиненного (есть токен) поведение
+  // не меняется — ждём реальной загрузки, как раньше.
+  if (state.libLinkSites == null && getAuthToken()) return '…';
+  const sites = state.libLinkSites || [];
+  if (hasSiteId) {
+    const site = sites.find((s) => s.id === it.sourceSiteId);
+    if (site) return site.name;
+  }
+  if (url) {
+    const site = sites.find((s) => libLinkDomainMatches(url, s.domain));
+    if (site) return site.name;
+    try {
+      const host = new URL(String(url).trim()).hostname.replace(/^www\./i, '');
+      if (host) return host;
+    } catch (err) { /* битый URL позиции — падаем на «—» ниже, не роняем рендер */ }
+  }
+  return '—';
 }
 
 // Открывает форму — kind: 'materials' (opts: top/group/path — тот же
@@ -9001,11 +8989,24 @@ function applyLibrarySearch() {
 function renderLibraryPanel() {
   const panel = document.getElementById('libraryPanel');
   if (!panel) return;
+  // Список сайтов-поставщиков (см. libSourceSiteLabel/колонка «Поставщик», а
+  // также форма «Добавить по ссылке») — грузим уже здесь, при ЛЮБОЙ
+  // перерисовке Библиотеки, а не только по клику «+ Добавить по ссылке»
+  // (openLibLinkForm тоже его дёргает): иначе колонка «Поставщик» висела бы
+  // на «…» до первого открытия этой формы, даже если пользователь просто
+  // листает каталог. loadLibLinkSites() сама не шлёт повторных запросов, пока
+  // список уже загружен/грузится (см. её начало) — лишний вызов на каждую
+  // перерисовку ничего не стоит.
+  loadLibLinkSites();
   // Полная перерисовка вот-вот заменит innerHTML целиком — открытый поповер
   // сортировки/фильтра колонки (см. openColumnFilterMenu) держит ссылку на
   // кнопку/таблицу, которые сейчас пропадут из DOM, закрываем его заранее
   // (тот же приём, что и renderDetailingTable/closeColumnFilterMenu).
   closeColumnFilterMenu();
+  // И увеличенное превью лупы-зума (см. openLibSwatchZoomPreview) — держит
+  // ссылку на .lib-swatch-zoom-icon конкретной миниатюры, которая сейчас
+  // пропадёт вместе с innerHTML; иначе превью осталось бы висеть сиротой.
+  closeLibSwatchZoomPreview();
   // Та же причина — открытый кастомный список «Сайт-источник» формы
   // «Добавить по ссылке» (см. libLinkSitePickerHtml/openLibLinkSiteMenu)
   // держит ссылку на DOM-узел, который вот-вот пропадёт.
@@ -9382,7 +9383,6 @@ function libraryFacadesBlock() {
     .map((code) => libTopCategoryTreeHtml('facades', code, 0))
     .join('');
   return `
-    <h3>Двери</h3>
     <div class="lib-link-refresh-bar">${libAddCatTileHtml('facades')}</div>
     ${state.libLinkForm && state.libLinkForm.kind === 'materials' ? libLinkFormHtml(state.libLinkForm) : ''}
     ${libAluFacadesHtml()}
@@ -9433,6 +9433,26 @@ function initLibraryPanel() {
   // libModCardDragPointerDown) — отдельный, более простой жест: миниатюру
   // можно бросить на ЛЮБУЮ строку дерева модулей, не только своего раздела.
   panel.addEventListener('pointerdown', libModCardDragPointerDown);
+
+  // Лупа-зум миниатюр .lib-swatch (см. openLibSwatchZoomPreview выше) —
+  // делегированные mouseover/mouseout на самом #libraryPanel (mouseenter/
+  // mouseleave не всплывают, делегировать ими нельзя), переживают
+  // renderLibraryPanel так же, как pointerdown-слушатели выше. На «Базе
+  // модулей» .lib-swatch-zoom-icon в разметке нет вообще (там обычные
+  // карточки без превью) — обработчик там просто ничего не находит.
+  panel.addEventListener('mouseover', (e) => {
+    const icon = e.target.closest('.lib-swatch-zoom-icon');
+    if (icon && !icon.contains(e.relatedTarget)) openLibSwatchZoomPreview(icon);
+  });
+  panel.addEventListener('mouseout', (e) => {
+    const icon = e.target.closest('.lib-swatch-zoom-icon');
+    if (!icon || icon.contains(e.relatedTarget)) return;
+    // Курсор мог уйти прямо на само превью (соприкасаются) — не закрываем,
+    // за это отвечает mouseout самого превью (см. openLibSwatchZoomPreview).
+    const preview = document.getElementById('libSwatchZoomPreview');
+    if (preview && preview.contains(e.relatedTarget)) return;
+    closeLibSwatchZoomPreview();
+  });
 
   panel.addEventListener('click', (e) => {
     // Клик, который браузер шлёт следом за отпусканием кнопки в конце
@@ -9610,6 +9630,28 @@ function initLibraryPanel() {
       renderLibraryPanel();
       return;
     }
+    // Кнопка-тумблер «Поставщики» (см. libLeafTableHtml/
+    // libHardwareLeafTableHtml) — НЕЗАВИСИМЫЙ от «Характеристики материала»
+    // тумблер (state.libSuppliersVisible), тоже общий на всю Библиотеку:
+    // показывает/прячет колонку «Поставщик» сразу во всех открытых таблицах
+    // (и материалов, и фурнитуры).
+    const suppliersToggle = e.target.closest('.lib-suppliers-toggle');
+    if (suppliersToggle) {
+      state.libSuppliersVisible = !state.libSuppliersVisible;
+      renderLibraryPanel();
+      return;
+    }
+    // Кнопка-тумблер «Характеристики» таблицы ФУРНИТУРЫ (см.
+    // libHardwareLeafTableHtml/state.libHwCharsVisible) — показывает/прячет
+    // колонку «Чертёж» (миниатюра чертежа присадки, it.drawing). Независим от
+    // «Поставщики» выше и от «Характеристики материала» (та вообще про
+    // таблицу материалов).
+    const hwCharsToggle = e.target.closest('.lib-hw-chars-toggle');
+    if (hwCharsToggle) {
+      state.libHwCharsVisible = !state.libHwCharsVisible;
+      renderLibraryPanel();
+      return;
+    }
     // Кнопка-треугольник сортировки/фильтра столбца (Наименование/Длина/
     // Ширина/Толщина/Цена, см. libTableHead) — тот же поповер, что и в
     // «Деталировке» (см. openColumnFilterMenu), только tableKey свой у
@@ -9724,6 +9766,34 @@ function initLibraryPanel() {
     if (delRowBtn) { libDeleteSelectedRow(); return; }
     const swatch = e.target.closest('.lib-swatch');
     if (swatch) {
+      // Touch (телефон/планшет, см. isTouchLibraryDevice) — лупа-иконка и
+      // сама миниатюра слишком мелкие и близкие мишени для пальца, поэтому
+      // там нет отдельного «навести на лупу»: тап по самой миниатюре сразу
+      // открывает то же увеличенное превью 250×250 (см.
+      // openLibSwatchZoomPreview), а переход на сайт (если есть sourceUrl) —
+      // явной кнопкой «Перейти на сайт» внутри превью, не самим тапом по
+      // миниатюре (задача 2026-09-26).
+      if (isTouchLibraryDevice()) {
+        if (swatch.dataset.swatchSrc) { openLibSwatchZoomPreview(swatch, { showLink: true }); return; }
+        // Картинки нет, но есть sourceUrl — бывает у позиций «по ссылке»,
+        // если парсер сайта не нашёл фото товара (см. libLinkSelectedImageUrl,
+        // может вернуть null, а позиция всё равно сохраняется). Превью
+        // показывать нечего — как на desktop, сразу открываем карточку
+        // товара, а не системный выбор файла (иначе на телефоне для таких
+        // позиций переход на сайт был бы вообще недостижим).
+        if (swatch.dataset.swatchUrl) { window.open(swatch.dataset.swatchUrl, '_blank', 'noopener'); return; }
+        // Ни картинки, ни sourceUrl — пустая заглушка «+», как на desktop,
+        // открыть системный выбор файла (у пустого чертежа присадки клика
+        // нет и на desktop, см. ветку ниже — здесь просто ничего не делаем).
+        if (!swatch.classList.contains('lib-drawing-swatch')) openLibImagePicker(swatch.dataset.swatchGroup, swatch.dataset.swatchKey);
+        return;
+      }
+      // Миниатюра чертежа присадки (.lib-drawing-swatch, см.
+      // libDrawingSwatchHtml) — только просмотр (лупа-зум по наведению, см.
+      // .lib-swatch-zoom-icon), без клика: у неё нет sourceUrl, а
+      // openLibImagePicker ниже писал бы выбранный файл в it.image — чужое
+      // поле, предназначенное для фото товара, а не для чертежа (it.drawing).
+      if (swatch.classList.contains('lib-drawing-swatch')) return;
       // sourceUrl (data-swatch-url, см. libSwatchHtml) — открыть карточку
       // товара на сайте поставщика вместо загрузки своего файла.
       const swatchUrl = swatch.dataset.swatchUrl;
@@ -10895,9 +10965,20 @@ function renderPartEditorOverlay(part) {
   if (title) title.textContent = `Редактор выреза — ${part.name || PART_KIND_TITLES[part.kind] || 'Деталь'}`;
 
   const drawings = window.Modul3D.drawings || {};
+  // Лист ручной разметки редактора — привязан к самой детали (drawings.js:
+  // buildPartEditorView → 'editor:<uid>|<ключ>'); запоминаем, чтобы снять его
+  // с учёта при закрытии окна.
+  const newSheet = (part.moduleUid && part.anchorKey) ? `editor:${part.moduleUid}|${part.anchorKey}` : null;
+  // Другая деталь — прежний лист редактора снимаем с учёта (иначе он висел
+  // бы в реестре разметки с устаревшими контекстами видов).
+  if (state.partEditorSheet && state.partEditorSheet !== newSheet && markupApi && markupApi.dropSheet) {
+    markupApi.dropSheet(state.partEditorSheet);
+  }
+  state.partEditorSheet = newSheet;
   if (typeof drawings.buildPartEditorView === 'function') {
     try {
-      canvas.innerHTML = drawings.buildPartEditorView(part, {});
+      // model — для ручной разметки (markup.js считает по ней «живые» размеры)
+      canvas.innerHTML = drawings.buildPartEditorView(part, { model: currentModel });
     } catch (err) {
       console.error('Part editor view failed:', err);
       canvas.innerHTML = `<div class="hint">Не удалось построить вид детали: ${esc(err.message)}</div>`;
@@ -10922,6 +11003,17 @@ function openPartVisualEditor() {
     overlay.classList.add('open');
     overlay.setAttribute('aria-hidden', 'false');
   }
+  syncMarkupUI();
+}
+
+// Перерисовать открытый редактор (та же деталь по state.selectedPart) —
+// после правки ручной разметки: рамка листа (svgFit) считается при сборке,
+// и новый размер за её краем обрезался бы. Вырезы/присадка не меняются.
+function refreshPartEditorOverlay() {
+  if (!state.partEditorOpen) return;
+  const mod = state.modules.find((m) => m.name === (state.selectedPart || {}).module);
+  const resolved = resolveSelectedPart(mod);
+  if (resolved.chosen) renderPartEditorOverlay(resolved.chosen.part);
 }
 
 // Закрывает оверлей и возвращает в режим фокуса на модуле (экран «Деталь») —
@@ -10930,11 +11022,21 @@ function openPartVisualEditor() {
 // контекстного меню, не красный крестик здесь).
 function closePartVisualEditor() {
   state.partEditorOpen = false;
+  // Режим разметки в редакторе при закрытии окна выключается, лист снимается
+  // с учёта (данные размеров остаются — откроют редактор, они на месте).
+  // Выключаем только «режим редактора»: если под окном видна вкладка
+  // «Чертежи», разметка на ней остаётся включённой.
+  if (markupApi) {
+    if (!isDocsTabVisible('drawings')) markupApi.setActive(false);
+    if (state.partEditorSheet && markupApi.dropSheet) markupApi.dropSheet(state.partEditorSheet);
+  }
+  state.partEditorSheet = null;
   const overlay = document.getElementById('partEditorOverlay');
   if (overlay) {
     overlay.classList.remove('open');
     overlay.setAttribute('aria-hidden', 'true');
   }
+  syncMarkupUI();
 }
 
 // Оверлей статичный (разметка index.html), не пересоздаётся при каждом
@@ -10943,6 +11045,15 @@ function closePartVisualEditor() {
 function initPartEditorOverlay() {
   const closeBtn = document.getElementById('partEditorClose');
   if (closeBtn) closeBtn.addEventListener('click', closePartVisualEditor);
+  // Переключатель ручной разметки в самом окне. Своих инструментов у
+  // редактора пока нет (Этап 1 — статичный вид), так что перехватывать нечего;
+  // будущие инструменты вырезов обязаны проверять markupApi.isActive() и
+  // молчать, пока режим включён (как это делает панорама чертежей ui-shell.js).
+  const mkBtn = document.getElementById('partEditorMarkupToggle');
+  if (mkBtn) {
+    if (!markupApi) mkBtn.style.display = 'none';
+    else mkBtn.addEventListener('click', () => { markupApi.setActive(!markupApi.isActive()); syncMarkupUI(); });
+  }
 }
 
 // Экран «Материалы»: общие на весь проект декор/толщины/фурнитура —
@@ -14023,6 +14134,8 @@ function bindPanelEvents() {
 // Единая точка пересчёта
 // ---------------------------------------------------------------------------
 function recompute(isRetry) {
+  // uid модулей — до снимка истории, чтобы он попал и в историю, и в файл.
+  ensureModuleUids();
   // Любое изменение проходит через пересчёт — здесь и снимаем состояние
   // для истории. Повтор (undo/redo) историю не пишет: стоит замок.
   if (!isRetry) pushHistory();
@@ -14055,6 +14168,8 @@ function recompute(isRetry) {
     // Навес верхних модулей (hangerSystemBlock) — engine.js applyWallHanger.
     hangerSystem: state.hangerSystem,
     modules: state.modules.map(m => ({
+      // uid — только для якорей ручной разметки (engine.js: part.moduleUid)
+      uid: m.uid,
       name: m.name, width: m.width, height: m.height, depth: m.depth,
       rotation: m.rotation || 0, corner: !!m.corner, family: m.family || 'custom',
       topType: m.topType, railWidth: m.railWidth, noBack: !!m.noBack,
@@ -14102,6 +14217,8 @@ function recompute(isRetry) {
   }
 
   currentSpec = buildSpecification(currentModel);
+  // Ручной разметке — модель этого пересчёта (живые размеры для count()).
+  if (markupApi && markupApi.setModel) markupApi.setModel(currentModel);
 
   // Чертежи, деталировка и спецификация — лениво: строится только та
   // вкладка, что сейчас на виду, остальные помечаются устаревшими и
@@ -14124,6 +14241,9 @@ function recompute(isRetry) {
     catch (err) { console.error('3D render failed:', err); }
   }
   renderViewOverlay();
+  // Открытый редактор детали перерисовывается по новой модели (геометрия,
+  // присадка и его лист разметки — от актуальной детали).
+  if (state.partEditorOpen) refreshPartEditorOverlay();
   autosaveProject();
 }
 
@@ -14505,14 +14625,27 @@ function renderWarnings(warnings) {
   document.getElementById('warnings').innerHTML = warnings.map(w => `⚠ ${esc(w)}`).join('<br>');
 }
 
+// «Сырая» разметка чертежей — ровно то, что вернул buildDrawings, БЕЗ обёртки
+// масштаба (ui-shell.js, раздел 7в). Печать чертежей берёт её, а не
+// innerHTML вкладки: печать не должна зависеть от масштаба на экране.
+let drawingsRawHtml = '';
+
 function renderDrawings(model) {
   const el = document.getElementById('tab-drawings');
+  let html;
   try {
-    el.innerHTML = buildDrawings(model, !state.hideFacades);
+    html = buildDrawings(model, !state.hideFacades);
   } catch (err) {
     console.error('Drawings render failed:', err);
-    el.innerHTML = `<div style="color:#a33;font-size:13px;padding:10px">Не удалось построить чертежи: ${esc(err.message)}</div>`;
+    html = `<div style="color:#a33;font-size:13px;padding:10px">Не удалось построить чертежи: ${esc(err.message)}</div>`;
   }
+  drawingsRawHtml = html;
+  // Чертежи пишутся в обёртке масштаба (ui-shell.js: setDrawingsContent —
+  // держит масштаб и позицию прокрутки при перерисовке). Нет ui-shell — пишем
+  // разметку как есть: чертежи те же, просто без масштаба.
+  const shell = window.Modul3D.uiShell;
+  if (shell && typeof shell.setDrawingsContent === 'function' && shell.setDrawingsContent(html)) return;
+  el.innerHTML = html;
 }
 
 // ---------------------------------------------------------------------------
@@ -14664,6 +14797,7 @@ function openColumnFilterMenu(params) {
     <button type="button" class="ctx-item" data-action="sort-asc">▲ Сортировать по возрастанию</button>
     <button type="button" class="ctx-item" data-action="sort-desc">▼ Сортировать по убыванию</button>
     <div class="ctx-sep"></div>
+    <input type="text" class="df-search-input" placeholder="Поиск…" autocomplete="off">
     <label class="df-check-row df-check-all">
       <input type="checkbox" id="dfSelectAll" ${allChecked ? 'checked' : ''}>
       <span>(Выделить всё)</span>
@@ -14680,6 +14814,30 @@ function openColumnFilterMenu(params) {
   // обработчика «клик вне — закрыть» ниже (иначе клик по подписи чекбокса,
   // а не по самому квадратику, закрывал бы меню).
   menu.addEventListener('click', (e) => e.stopPropagation());
+  // Строка поиска — ЖИВОЙ фильтр строк .df-check-row внутри .df-values-list
+  // по подстроке (регистронезависимо, по тому же тексту, что видит
+  // пользователь в <span>). Только показывает/прячет строки — сами чекбоксы/
+  // выбор она не трогает: commitHiddenValues ниже читает ВСЕ valueCbs, а не
+  // только видимые, поэтому скрытый поиском выбор не теряется. «(Выделить
+  // всё)» (.df-check-all) сознательно вне .df-values-list — под фильтр не
+  // попадает и остаётся видимой всегда.
+  const searchInput = menu.querySelector('.df-search-input');
+  if (searchInput) {
+    searchInput.addEventListener('input', () => {
+      const q = searchInput.value.trim().toLowerCase();
+      menu.querySelectorAll('.df-values-list .df-check-row').forEach((row) => {
+        const span = row.querySelector('span');
+        const text = (span ? span.textContent : '').toLowerCase();
+        // .df-check-row держит "display: flex !important" в style.css (нужен
+        // для выравнивания чекбокса — !important там намеренно, см. правило)
+        // — обычный row.style.display НЕ может его перебить, строка осталась
+        // бы видимой несмотря на "скрытие" (проверено вживую в браузере:
+        // inline-стиль выставлялся, а строка не пряталась). Класс с тем же
+        // !important (.df-search-hidden ниже) перебивает правило корректно.
+        row.classList.toggle('df-search-hidden', !(!q || text.indexOf(q) >= 0));
+      });
+    });
+  }
 
   // Позиционируем под кнопкой-треугольником, с клампом к вьюпорту.
   const btnRect = btnEl.getBoundingClientRect();
@@ -15004,6 +15162,9 @@ function ensureTabBuilt(name) {
   } else if (name === 'drawings') {
     if (!currentModel) return;
     renderDrawings(currentModel);
+    // Общий вид пересобран — видимых ручных размеров могло стать меньше/
+    // больше (модуль удалён или возвращён Ctrl+Z): обновить «Очистить всё».
+    syncMarkupUI();
   } else if (name === 'detailing') {
     if (!currentModel) return;
     renderDetailingTable(currentModel);
@@ -15062,9 +15223,103 @@ function setDocsTab(name, toggle) {
   if (open) ensureTabBuilt(name);
   if (open && panel) {
     panel.scrollTop = 0;                       // документы всегда с начала
+    panel.scrollLeft = 0;                      // и по горизонтали — после масштаба >100%
     if (panel.scrollIntoView) panel.scrollIntoView({ block: 'nearest' });
   }
   if (viewer && viewer.resize) viewer.resize();  // 3D перестроить под новую высоту
+  syncMarkupUI();
+}
+
+// ---------------------------------------------------------------------------
+// Ручная разметка чертежа общего вида (src/markup.js)
+// ---------------------------------------------------------------------------
+// Кнопки — в полосе вкладок «Документы» (index.html #markupTools). Режим
+// имеет смысл только пока на виду вкладка «Чертежи»: при переходе на другую
+// вкладку или закрытии панели «Документы» он выключается сам, чтобы
+// разметка не перехватывала клики и клавиши (Delete/Esc) в остальном
+// приложении. Размеры не пересчитывают модель — recompute() не нужен.
+function syncMarkupUI() {
+  if (!markupApi) return;
+  const drawingsOn = isDocsTabVisible('drawings');
+  const editorOn = !!state.partEditorOpen;
+  // Режим имеет смысл, пока на виду вкладка «Чертежи» ИЛИ окно редактора детали.
+  if (!drawingsOn && !editorOn && markupApi.isActive()) markupApi.setActive(false);
+  const tools = document.getElementById('markupTools');
+  if (tools && tools.style) tools.style.display = drawingsOn ? '' : 'none';
+  const on = markupApi.isActive();
+  const btn = document.getElementById('markupToggle');
+  if (btn) {
+    btn.classList.toggle('active', on);
+    if (btn.setAttribute) btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+  }
+  const pane = document.getElementById('tab-drawings');
+  if (pane) pane.classList.toggle('markup-on', on && drawingsOn);
+  const edBtn = document.getElementById('partEditorMarkupToggle');
+  if (edBtn) {
+    edBtn.classList.toggle('active', on);
+    if (edBtn.setAttribute) edBtn.setAttribute('aria-pressed', on ? 'true' : 'false');
+  }
+  const edCanvas = document.getElementById('partEditorCanvas');
+  if (edCanvas) edCanvas.classList.toggle('markup-on', on && editorOn);
+  const clr = document.getElementById('markupClear');
+  if (clr) {
+    if (clr.style) clr.style.display = on ? '' : 'none';
+    clr.disabled = !(markupApi.count && markupApi.count());
+  }
+}
+
+function initMarkupUI() {
+  const tools = document.getElementById('markupTools');
+  if (!markupApi) { if (tools && tools.style) tools.style.display = 'none'; return; }
+  const btn = document.getElementById('markupToggle');
+  if (btn) btn.addEventListener('click', () => {
+    const on = !markupApi.isActive();
+    // Включать разметку без открытого чертежа бессмысленно — сначала
+    // показываем вкладку «Чертежи» (она же соберёт общий вид).
+    if (on && !isDocsTabVisible('drawings')) setDocsTab('drawings', false);
+    markupApi.setActive(on);
+    syncMarkupUI();
+  });
+  const clr = document.getElementById('markupClear');
+  if (clr) clr.addEventListener('click', () => {
+    const n = markupApi.count ? markupApi.count() : 0;
+    if (!n) return;
+    // confirm в некоторых встроенных превью подавлен (возвращает false или
+    // его нет вовсе) — не падаем; там просто ничего не удаляется.
+    let ok = false;
+    try { ok = typeof window.confirm === 'function' && !!window.confirm(`Удалить все свои размеры со всех чертежей (${n} шт.)?`); }
+    catch (err) { ok = false; }
+    if (!ok) return;
+    markupApi.clearAll();
+    syncMarkupUI();
+  });
+  // Размер добавлен/удалён/передвинут — это правка проекта, но НЕ параметр
+  // изделия: recompute() не нужен (модель не меняется). Пишем шаг истории
+  // отмены, автосохраняем и пересобираем ТОЛЬКО чертежи — рамка листа
+  // (drawings.js: svgFit) считается при сборке, и новый размер за краем
+  // прежней рамки иначе обрезался бы.
+  // Техническая миграция старых записей разметки при сборке чертежа (форма
+  // записи, не смысл) — не шаг отмены: переписываем верхний снимок истории
+  // на месте, иначе следующий pushHistory() добавил бы «пустой» шаг.
+  if (markupApi.onMigrate) markupApi.onMigrate(() => {
+    if (history.past.length) history.past[history.past.length - 1] = snapshot();
+  });
+  if (markupApi.onChange) markupApi.onChange(() => {
+    pushHistory();
+    updateHistoryButtons();
+    autosaveProject();
+    invalidateDocsTabs(['drawings']);
+    refreshPartEditorOverlay();
+    syncMarkupUI();
+  });
+  // Панель «Документы» закрывают и мимо setDocsTab (крестик, Esc, клавиша D,
+  // открытие другой панели — ui-shell.js ставит/снимает класс open на
+  // .results) — ловим смену класса, чтобы режим разметки выключился и там.
+  const box = document.querySelector('.results');
+  if (box && window.MutationObserver) {
+    new MutationObserver(syncMarkupUI).observe(box, { attributes: true, attributeFilter: ['class'] });
+  }
+  syncMarkupUI();
 }
 
 document.querySelectorAll('.tab-btn').forEach((btn) => {
@@ -15074,6 +15329,7 @@ document.querySelectorAll('.tab-btn').forEach((btn) => {
 setDocsTab('drawings', false);
 const docsBox = document.querySelector('.results');
 if (docsBox) docsBox.classList.remove('open');
+initMarkupUI();
 
 // ---------------------------------------------------------------------------
 // Экспорт и печать
@@ -15152,9 +15408,14 @@ onClick('exportDrillDxf', async () => {
 document.getElementById('printDrawings').addEventListener('click', () => {
   // Печать читает готовую разметку вкладки, а вкладка может быть свёрнутой
   // и потому устаревшей (см. docsTabsDirty) — собираем принудительно, иначе
-  // в печать уйдёт пустая или старая страница.
+  // в печать уйдёт пустая или старая страница. Пересобираем ВСЕГДА: ручная
+  // разметка (src/markup.js) и размер её шрифта меняются без recompute(),
+  // прямо в DOM, а drawingsRawHtml — снимок с прошлой сборки.
+  docsTabsDirty.drawings = true;
   ensureTabBuilt('drawings');
-  const html = document.getElementById('tab-drawings').innerHTML;
+  // Сырая разметка чертежей (без обёртки масштаба) — печатается всегда в
+  // стандартном виде, что бы ни стояло на экране.
+  const html = drawingsRawHtml;
   const w = window.open('', '_blank');
   if (!w) { alert('Разрешите всплывающие окна, чтобы напечатать чертежи.'); return; }
   // Стили встраиваем: окно открывается как about:blank, где относительная
@@ -15210,6 +15471,11 @@ function initHeaderControls() {
     viewer.onViewChange = (name) => {
       state.view = name;
       renderViewOverlay();
+    };
+    // Подгонка кадра под нижний лист на телефоне (viewer.setBottomInset) двигает
+    // камеру без жеста пользователя — плоским видам нужно пересчитать оверлей размеров.
+    viewer.onCameraFit = () => {
+      if (state.view !== 'iso') renderViewOverlay();
     };
   }
 
@@ -15711,8 +15977,9 @@ function renderAccountUI() {
   const plansPanel = document.getElementById('plansPanel');
   const accountToggle = document.getElementById('accountToggle');
   const sketchNote = document.getElementById('sketchAuthNote'); const workflowLink = document.getElementById('workflowLink'); if (workflowLink) workflowLink.style.display = (authAccount && authAccount.email === 'laromval@gmail.com') ? 'flex' : 'none';
-  // Кнопка «Опубликовать как базу по умолчанию» (панель «Библиотека») —
-  // сервер сам проверяет email при самом запросе, здесь только видимость.
+  // Кнопка «Опубликовать как базу по умолчанию» (меню настроек-шестерёнка,
+  // #currencyPopover) — сервер сам проверяет email при самом запросе, здесь
+  // только видимость.
   const libPublishBar = document.getElementById('libPublishBar');
   if (libPublishBar) {
     const isAdmin = !!(authAccount && authAccount.isAdmin);
@@ -16441,8 +16708,8 @@ window.Modul3D.app = {
   getViewModes: function () {
     return { xray: state.xray, hideFacades: state.hideFacades, drillCheck: state.drillCheck };
   },
-  // ui-shell.js зовёт при ЛЮБОМ закрытии панели «Библиотека» (крестик, скрим,
-  // Escape, свайп, открытие другой панели поверх) — без этого «Выбрать» у
+  // ui-shell.js зовёт при ЛЮБОМ закрытии панели «Библиотека» (крестик,
+  // Escape, вытягивание листа вниз на телефоне, открытие другой панели поверх) — без этого «Выбрать» у
   // «Листовых материалов» могла остаться включённой до следующего открытия
   // (пользователь нажал «+ Добавить материал», передумал, закрыл крестиком —
   // при обычном открытии Библиотеки позже колонка «Выбрать» была бы всё ещё
@@ -16468,6 +16735,9 @@ window.Modul3D.app = {
   // (dev-прогон tools/smoke.js).
   ensureTabBuilt: ensureTabBuilt,
   ensureVisibleDocsTabBuilt: ensureVisibleDocsTabBuilt,
+  // Пересобрать чертежи без пересчёта модели — ui-shell.js зовёт после смены
+  // размера шрифта ручной разметки (рамка листа должна вместить подписи).
+  refreshDrawings: () => invalidateDocsTabs(['drawings']),
 };
 
 // ---------------------------------------------------------------------------
@@ -16513,12 +16783,25 @@ try {
 
   // Delete — удалить выделенный модуль. В поле ввода клавиша работает
   // штатно (удаляет символ), поэтому там её не перехватываем.
+  // ВАЖНО (см. src/markup.js): у ручной разметки чертежей (markup.js) есть
+  // СВОЙ document-обработчик keydown на Delete — он удаляет выделенный
+  // ручной размер и останавливает событие через stopImmediatePropagation(),
+  // чтобы оно НЕ доходило досюда и заодно не удаляло активный модуль.
+  // Это работает только потому, что markup.js подключён в index.html РАНЬШЕ
+  // app.js (порядок addEventListener на одном target = порядок регистрации).
+  // Не переставляй порядок этих <script> тегов и не переноси этот обработчик
+  // в другой файл, не сверившись с markup.js — иначе Delete по ручному
+  // размеру снова начнёт заодно удалять весь модуль.
   document.addEventListener('keydown', (e) => {
     const tg = (e.target && e.target.tagName) || '';
     if (tg === 'INPUT' || tg === 'TEXTAREA' || tg === 'SELECT') return;
     if (e.key !== 'Delete' && e.key !== 'Del') return;
     if (e.ctrlKey || e.metaKey || e.altKey) return;
     if (!state.modules.length) return;
+    // В режиме разметки чертежа Delete — клавиша разметки: выделенный размер
+    // удаляет markup.js (и сюда событие не доходит), а если ничего не
+    // выделено — не удаляем молча весь модуль, пользователь явно целился в размер.
+    if (markupApi && markupApi.isActive()) return;
     e.preventDefault();
     deleteModule(state.activeModule);
   });

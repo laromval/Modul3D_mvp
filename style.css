@@ -590,7 +590,7 @@ body.rail-moving .drawer { transition: none !important; }
 /* ---------- 7. ВЫДВИЖНЫЕ ПАНЕЛИ (off-canvas) ----------------------------- */
 
 .scrim {
-  display: none;                 /* на десктопе панели не блокируют холст */
+  display: none;                 /* панели не блокируют холст ни на десктопе, ни на телефоне (см. раздел 17) */
   position: absolute; inset: 0; z-index: 34;
   background: rgba(8, 12, 20, .28);
   -webkit-backdrop-filter: blur(2px); backdrop-filter: blur(2px);
@@ -662,9 +662,54 @@ body.has-modal-drawer .scrim { opacity: 1; pointer-events: auto; }
 .drawer-bottom {
   /* левый край — за рейкой триггеров, чтобы она оставалась доступной */
   left: calc(var(--rail-w) + var(--sp-3)); right: var(--sp-3); bottom: var(--sp-3);
-  height: min(62vh, 560px);
+  /* Высоту на компьютере регулирует пользователь (ui-shell.js, раздел 7б′:
+     тянет верхнюю кромку/шапку; JS ставит --docs-h в px на <html>). Значение
+     по умолчанию — прежнее min(62vh, 560px), на случай пока JS не отработал.
+     На телефоне это правило перекрывает раздел 17 (--drawer-sheet-h). */
+  height: var(--docs-h, min(62vh, 560px));
   border-radius: var(--r-lg);
   transform: translateY(calc(100% + var(--sp-4)));
+}
+
+/* Ручка высоты панели «Документы» — полоса 10px по её верхней кромке
+   (половина над панелью, чтобы её было легко «поймать»), плюс пустая часть
+   шапки (см. ниже, в блоке для компьютера). Внутри — «пилюля», видная при
+   наведении и во время перетаскивания. На телефоне ручки нет: высоту там
+   регулирует шапка листа (раздел 17). */
+.drawer-resize { display: none; }
+@media not all and (max-width: 820px) {
+  .drawer-resize {
+    display: block;
+    position: absolute; z-index: 2;
+    /* по краям — отступ на скругление углов панели */
+    left: var(--r-lg); right: var(--r-lg); top: -5px; height: 10px;
+    cursor: ns-resize;
+    touch-action: none;
+    -webkit-user-select: none; user-select: none;
+  }
+  .drawer-resize::after {
+    content: '';
+    position: absolute; left: 50%; top: 3px;
+    width: 48px; height: 4px; margin-left: -24px;
+    border-radius: 2px;
+    background: var(--accent);
+    opacity: 0;
+    transition: opacity var(--dur) var(--ease);
+    pointer-events: none;
+  }
+  .drawer-resize:hover::after,
+  body.docs-resizing .drawer-resize::after { opacity: .85; }
+
+  /* Шапка «Документов» — тоже ручка (кроме крестика: у него свой cursor) */
+  #drawer-docs .drawer-head {
+    cursor: ns-resize;
+    touch-action: none;
+    -webkit-user-select: none; user-select: none;
+  }
+  /* пока панель тянут — курсор «изменение высоты» везде, текст не
+     выделяется, а панель режимов 3D едет за кромкой без задержки перехода */
+  body.docs-resizing { cursor: ns-resize; -webkit-user-select: none; user-select: none; }
+  body.docs-resizing .view-toolbar { transition: none; }
 }
 
 /* ---------- 7б. ПОЛОЖЕНИЕ РЕЙКИ (в шапке / слева / справа сверху / слева снизу) */
@@ -981,10 +1026,12 @@ body.vt-moving .view-toolbar { transition: none !important; }
   [data-rail-pos='top-right'] .drawer-left.open ~ .view-toolbar {
     --vt-l: 0px; --vt-r: calc(var(--sp-3) + var(--vt-dw));
   }
-  /* «Документы» — нижний лист во всю ширину: панель режимов над ним */
-  .drawer-bottom.open ~ .view-toolbar { --vt-b: calc(var(--sp-3) + min(62vh, 560px) + var(--sp-3)); }
+  /* «Документы» — нижний лист во всю ширину: панель режимов над ним. Высоту
+     листа берём из --docs-h (её ставит ui-shell.js по реальной высоте панели,
+     её тянет пользователь), а не из фиксированного min(62vh, 560px). */
+  .drawer-bottom.open ~ .view-toolbar { --vt-b: calc(var(--sp-3) + var(--docs-h, min(62vh, 560px)) + var(--sp-3)); }
   [data-rail-pos='bottom-left'] .drawer-bottom.open ~ .view-toolbar {
-    --vt-b: calc(var(--sp-3) + var(--rail-h) + var(--sp-3) + min(62vh, 560px) + var(--sp-3));
+    --vt-b: calc(var(--sp-3) + var(--rail-h) + var(--sp-3) + var(--docs-h, min(62vh, 560px)) + var(--sp-3));
   }
 
   /* --- места на сцене --- */
@@ -1011,7 +1058,7 @@ body.vt-moving .view-toolbar { transition: none !important; }
       --vt-b: calc(var(--sp-3) + var(--rail-h) + var(--sp-3));
     }
     [data-rail-pos='bottom-left'] .drawer-bottom.open ~ .view-toolbar {
-      --vt-b: calc(var(--sp-3) + var(--rail-h) + var(--sp-3) + min(62vh, 560px) + var(--sp-3));
+      --vt-b: calc(var(--sp-3) + var(--rail-h) + var(--sp-3) + var(--docs-h, min(62vh, 560px)) + var(--sp-3));
     }
   }
 
@@ -1169,6 +1216,11 @@ body.vt-moving .view-toolbar { transition: none !important; }
   justify-content: center;
 }
 .part-editor-canvas .hint { max-width: 420px; text-align: center; }
+/* Ручная разметка в редакторе (класс ставит app.js: syncMarkupUI) — мышь
+   становится инструментом разметки, как на вкладке «Чертежи». */
+.part-editor-canvas.markup-on { cursor: crosshair; }
+.part-editor-canvas.markup-on .mk-dim { cursor: pointer; }
+.part-editor-canvas.markup-on .mk-dim .mk-hit { cursor: move; }
 
 /* ---------- 7.2 МОДАЛЬНОЕ ОКНО «ИСПОЛЬЗУЕТСЯ В ПРОЕКТЕ» ------------------- */
 /* Блокирующее окно удаления материала/фурнитуры из «Библиотеки» (см.
@@ -1607,6 +1659,51 @@ h4.spec-title { margin: var(--sp-5) 0 var(--sp-2); font-size: var(--fs-md); font
 .dw-legend th, .dw-legend td { border: 1px solid var(--border); padding: 3px 7px; white-space: nowrap; }
 .dw-legend th { background: var(--surface-2); }
 
+/* Масштаб чертежей (ui-shell.js, раздел 7в). Все чертежи вкладки — ОДИН лист
+   (.dw-sheet внутри .dw-zoom; обёртку пишет renderDrawings через
+   uiShell.setDrawingsContent): при масштабе ≠ 100% JS ставит .dw-zoom ширину
+   и высоту, умноженные на масштаб, а .dw-sheet — transform: scale() от левого
+   верхнего угла и обратную ширину; раскладка листа при этом та же, что на
+   100% (блоки переносятся по ширине панели), меняется только размер, а
+   прокрутка настоящая — полосы появляются сами. При 100% inline-стили сняты,
+   и вкладка выглядит ровно как до появления масштаба. Отдельного ряда
+   управления (ползунка, кнопок −/+) нет — всё место занимают чертежи; масштаб
+   меняют клавиши +/−, Ctrl+колесо, щипок, двойной щелчок/тап (сброс). */
+/* Лист прижат влево (не по центру): чертежи шире раскладки листа выходят за
+   его правый край, и при центрированной обёртке на масштабе <100% слева оставалась
+   пустота, а правая часть чертежа была обрезана (замечено на телефоне 40%) */
+.dw-zoom { position: relative; margin: 0; }
+.dw-sheet { transform-origin: 0 0; }
+/* при масштабе не 100% липкая шапка таблицы (общее правило th) не нужна: под
+   transform sticky считается в непреобразованных координатах и «уплывает» */
+.dw-zoom.dw-scaled th { position: static; }
+/* Область чертежей: один палец — родная прокрутка, щипок двумя пальцами —
+   масштаб (pointer events в ui-shell.js: touch-action не даёт браузеру
+   приблизить всю страницу). Мышью лист «берут» и двигают (курсор grab/
+   grabbing), поэтому текст здесь не выделяется. */
+#tab-drawings {
+  touch-action: pan-x pan-y;
+  overscroll-behavior: contain;
+  /* позицию прокрутки при масштабировании и перерисовке ведёт ui-shell.js —
+     автоподстройка браузера (scroll anchoring) ей только мешала бы */
+  overflow-anchor: none;
+  cursor: grab;
+  -webkit-user-select: none; user-select: none;
+}
+#tab-drawings * { cursor: inherit; }
+#tab-drawings.dw-panning { cursor: grabbing; }
+
+/* Ручная разметка общего вида (src/markup.js, кнопка «Разметка» —
+   app.js: syncMarkupUI ставит класс markup-on). Пока режим включён, мышь —
+   инструмент разметки, а не «рука»: перекрестие для выбора точек, указатель
+   над готовым размером, «перемещение» над его линией. Правило
+   «#tab-drawings * { cursor: inherit }» выше перебивает курсоры из самого
+   markup.js, поэтому они продублированы здесь с тем же весом. */
+#tab-drawings.markup-on { cursor: crosshair; }
+#tab-drawings.markup-on .mk-dim { cursor: pointer; }
+#tab-drawings.markup-on .mk-dim .mk-hit { cursor: move; }
+.markup-tools { display: inline-flex; align-items: center; gap: var(--sp-1); }
+
 /* ---------- 10. HUD — меню прямо на модели -------------------------------- */
 
 .hud {
@@ -1764,12 +1861,8 @@ h4.spec-title { margin: var(--sp-5) 0 var(--sp-2); font-size: var(--fs-md); font
    var(--fs-sm)) ради читаемости, ужимаем только «воздух» вокруг текста.
    flex-wrap оставлен подстраховкой на случай ещё более узкого экрана/зума. */
 .lib-tabs { display: flex; gap: 3px; margin-bottom: var(--sp-3); flex-wrap: wrap; }
-/* Кнопка публикации каталога как базы по умолчанию — видна только админу
-   (см. renderAccountUI в app.js, toggle через display:none/flex). Строка
-   вне #libraryPanel по той же причине, что и .lib-save-status ниже —
-   не должна пропадать при перерисовке содержимого вкладки. */
-.lib-publish-bar { align-items: center; gap: var(--sp-3); flex-wrap: wrap; margin-bottom: var(--sp-3); }
-.lib-publish-bar .sketch-status { margin: 0; }
+/* Кнопка публикации каталога как базы по умолчанию (#libPublishBar) с
+   2026-09-26 живёт не здесь, а внизу окна настроек — см. раздел 15. */
 /* Статус сохранения правок каталога (см. setLibrarySaveStatus/scheduleCatalogSave
    в app.js) — живёт вне #libraryPanel, поэтому не пропадает при полной
    перерисовке содержимого вкладки (panel.innerHTML = ...). Пустой текст —
@@ -2010,6 +2103,18 @@ body.lib-dragging .drawer-body { touch-action: none; }
 }
 .lib-chars-btn:hover { border-color: var(--accent); color: var(--text); }
 .lib-chars-btn.active { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
+/* Кнопка «Поставщики» (app.js: libLeafTableHtml/libHardwareLeafTableHtml) —
+   независимый тумблер колонки «Поставщик» (state.libSuppliersVisible), тот
+   же .lib-chars-btn, но своя подпись/data-атрибут. Всегда стоит ВТОРОЙ рядом
+   с кнопкой «Характеристики» (материалов — .lib-chars-toggle, фурнитуры —
+   .lib-hw-chars-toggle ниже), поэтому небольшой отступ слева нужен всегда. */
+.lib-suppliers-toggle { display: inline-block; margin: 0 0 var(--sp-2) var(--sp-2); }
+/* Кнопка «Характеристики» таблицы ФУРНИТУРЫ (app.js:
+   libHardwareLeafTableHtml/state.libHwCharsVisible) — независимый тумблер
+   колонки «Чертёж» (миниатюра чертежа присадки, it.drawing). Тот же
+   .lib-chars-btn и та же посадка «первой кнопки», что у .lib-chars-toggle
+   материалов выше — она стоит первой перед «Поставщики» в таблице фурнитуры. */
+.lib-hw-chars-toggle { display: inline-block; margin-bottom: var(--sp-2); }
 
 /* Выбранная кликом строка таблицы (app.js: state.libSelectedRow) — под
    «− Удалить материал» ниже таблицы. Инлайн-редактируемые ячейки внутри
@@ -2050,12 +2155,30 @@ body.lib-dragging .drawer-body { touch-action: none; }
 .lib-table td.lib-price-cell {
   text-align: center;
 }
+/* Колонка «Поставщик» (app.js: libRowHtml/libHardwareLeafTableHtml, кнопка
+   «Поставщики») — узкая (см. width в libColgroup), название сайта/хост может
+   быть длиннее колонки (например «immobiliare.md») — обрезаем многоточием, а
+   не расширяем таблицу; полный текст — в title (см. разметку ячейки). */
+.lib-table th.lib-supplier-col .dth-label {
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: normal;
+}
+.lib-table td.lib-supplier-col {
+  text-align: center;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
 
 /* Карточка цвета/образца материала/фурнитуры — превью (item.image), клик
    открывает карточку товара на сайте поставщика (item.sourceUrl, если есть,
    см. app.js: libSwatchHtml — заменяет собой прежнюю отдельную колонку-
-   стрелку) либо загрузку своего файла. */
+   стрелку) либо загрузку своего файла. Тот же класс — у миниатюры чертежа
+   присадки фурнитуры (.lib-drawing-swatch, app.js: libDrawingSwatchHtml,
+   item.drawing) — она без клика, но с той же лупой-зумом (см. ниже).
+   position:relative нужен под .lib-swatch-zoom-icon — абсолютно
+   спозиционированный ребёнок в углу миниатюры. */
 .lib-swatch {
+  position: relative;
   display: block; width: 36px; height: 24px; border-radius: var(--r-sm);
   border: 1px solid var(--border); background-color: var(--surface-2);
   background-size: cover; background-position: center; cursor: pointer;
@@ -2063,6 +2186,58 @@ body.lib-dragging .drawer-body { touch-action: none; }
 .lib-swatch:hover { border-color: var(--accent); }
 .lib-swatch.empty { display: flex; align-items: center; justify-content: center; color: var(--muted); font-size: 15px; }
 .lib-swatch.empty::after { content: '+'; }
+/* Пустой чертёж (.lib-drawing-swatch, app.js: libDrawingSwatchHtml) — в
+   отличие от пустого образца материала выше, клик по нему НИЧЕГО не делает
+   (см. ранний return в обработчике .lib-swatch в initLibraryPanel) — курсор
+   и «+» пустого .lib-swatch намекали бы «нажми, чтобы добавить», как у
+   образца, что здесь неверно: убираем оба намёка на кликабельность. */
+.lib-drawing-swatch.empty { cursor: default; }
+.lib-drawing-swatch.empty::after { content: '—'; }
+
+/* Лупа-зум миниатюры (app.js: openLibSwatchZoomPreview) — значок в углу
+   .lib-swatch, скрыт по умолчанию, виден только по наведению на саму
+   миниатюру (не рисуется вовсе у .lib-swatch.empty — там ребёнка в разметке
+   нет, увеличивать нечего). Наведение на сам значок открывает увеличенное
+   превью (см. .lib-swatch-zoom-preview ниже) — делегированный
+   mouseover/mouseout на #libraryPanel, см. initLibraryPanel.
+   На touch-устройствах (палец, hover недоступен) значок скрыт вовсе — там
+   это была отдельная мелкая мишень вплотную к самой миниатюре, палец
+   промахивался между «зум» и «уйти на сайт» (задача 2026-09-26); вместо
+   него тап по самой миниатюре сразу открывает то же превью, см.
+   isTouchLibraryDevice/openLibSwatchZoomPreview в app.js. */
+.lib-swatch-zoom-icon {
+  position: absolute; right: -1px; bottom: -1px;
+  width: 15px; height: 15px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 9px; line-height: 1;
+  background: var(--surface-solid); border: 1px solid var(--border); color: var(--text-2);
+  opacity: 0; transition: opacity var(--dur) var(--ease), border-color var(--dur) var(--ease), color var(--dur) var(--ease);
+}
+.lib-swatch:hover .lib-swatch-zoom-icon { opacity: 1; }
+.lib-swatch-zoom-icon:hover { border-color: var(--accent); color: var(--accent); }
+@media (hover: none) {
+  .lib-swatch-zoom-icon { display: none; }
+}
+
+/* Увеличенное превью картинки миниатюры (app.js: openLibSwatchZoomPreview) —
+   один переиспользуемый элемент, создаётся у лупы (desktop) или у самой
+   миниатюры (touch, тап) по месту (тот же приём позиционирования и
+   z-index-слой, что у .ctx-menu/.detail-filter-menu выше — поповеры
+   Библиотеки/Деталировки). Картинка — ВСЕГДА фиксированные 250×250 px, не
+   зависит от natural-разрешения источника (разные сайты-парсеры отдают
+   разное разрешение — раньше из-за этого превью разных позиций визуально
+   отличались по размеру, задача 2026-09-26); object-fit: contain сохраняет
+   пропорции без искажений, не растягивает и не обрезает. Кнопка «Перейти на
+   сайт» (.lib-swatch-zoom-link, только touch-сценарий с sourceUrl, см.
+   app.js) добавляет высоту ниже картинки, ширина бокса не меняется. */
+.lib-swatch-zoom-preview {
+  position: fixed; z-index: 65; padding: 4px; box-sizing: border-box;
+  display: flex; flex-direction: column; gap: 6px; width: 258px;
+  background: var(--surface-solid); border: 1px solid var(--border); border-radius: var(--r-md);
+  box-shadow: var(--shadow-3);
+}
+.lib-swatch-zoom-preview img { display: block; width: 250px; height: 250px; object-fit: contain; }
+.lib-swatch-zoom-link { display: block; width: 100%; box-sizing: border-box; text-align: center; }
 
 /* Форма «Добавить по ссылке» (app.js: libLinkFormHtml) — вкладки «Материалы»/
    «Фурнитура» панели «Библиотека», см. libraryMaterialsBlock/
@@ -2170,6 +2345,12 @@ body.lib-dragging .drawer-body { touch-action: none; }
 .settings-row { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-2); }
 .settings-row-label { font-size: var(--fs-sm); color: var(--text-2); font-weight: 500; }
 
+/* размер надписей ручной разметки чертежа (ui-shell.js: initMarkupFont) */
+.markup-font-block label.settings-row-label { display: block; margin-bottom: var(--sp-2); }
+.markup-font-row { display: flex; align-items: center; gap: var(--sp-2); }
+.markup-font-row input[type='range'] { flex: 1 1 auto; min-width: 0; margin: 0; accent-color: var(--accent); }
+.markup-font-value { flex: none; min-width: 42px; text-align: right; font-size: var(--fs-sm); font-family: var(--ff-mono); color: var(--text); }
+
 /* заголовок «Валюта проекта» — свёрнут по умолчанию, разворачивается по клику */
 .currency-collapse-toggle {
   display: flex; align-items: center; justify-content: space-between;
@@ -2203,6 +2384,20 @@ body.lib-dragging .drawer-body { touch-action: none; }
 }
 .hotkeys-key { color: var(--text); font-weight: 600; white-space: nowrap; }
 .hotkeys-desc { color: var(--text-2); text-align: right; }
+
+/* «Опубликовать как базу по умолчанию» — последний блок окна настроек,
+   виден только админу (app.js: renderAccountUI ставит display:flex/none на
+   #libPublishBar; сам блок стоит в разметке со style="display:none").
+   Окно узкое (230px), поэтому блок — колонка: кнопка на всю ширину с
+   переносом длинной подписи (у .btn по умолчанию nowrap), под ней статус
+   публикации (setLibPublishStatus) — с переносом длинных списков групп
+   каталога и своей прокруткой, чтобы окно не выросло за экран. */
+.lib-publish-bar { flex-direction: column; align-items: stretch; gap: var(--sp-2); }
+.lib-publish-bar .btn { width: 100%; white-space: normal; text-align: center; }
+.lib-publish-bar .sketch-status {
+  margin: 0; overflow-wrap: anywhere; max-height: 9em; overflow-y: auto;
+}
+.lib-publish-bar .sketch-status:empty { display: none; }
 
 /* «Положение панели» — пять кнопок-сегментов со схемой экрана и подписью;
    активная подсвечена (ui-shell.js: initRailPosition/syncRailPosButtons).
@@ -2389,7 +2584,13 @@ body.is-focus .scrim { opacity: 0 !important; }
   .header-actions #projectBtns { display: none; }
 
   .rail { display: none; }
-  .scrim { display: block; }
+  /* Скрим на телефоне выключен совсем: фон за нижним листом не затемняется и
+     не размывается (3D должно оставаться чётким — там видно, что добавляешь/
+     правишь), а касания проходят к сцене — модель можно вращать и приближать
+     при открытой панели. Закрывается лист крестиком в шапке и по Esc; тап
+     «мимо» листа его больше не закрывает. На десктопе скрим и так display:none. */
+  .scrim,
+  body.has-modal-drawer .scrim { display: none; }
   /* гизма видов — над нижней шторкой и поменьше */
   :root { --gizmo-bottom: calc(var(--sheet-h) + 10px); --gizmo-size: 88px; }
 
@@ -2415,6 +2616,16 @@ body.is-focus .scrim { opacity: 0 !important; }
   .mobile-sheet-bar .rail-btn.active::before { display: none; }
   .mobile-sheet-bar .tip::after { display: none; }
 
+  /* Высота нижнего листа — ОДНА на все панели (Библиотека, Параметры, Студия,
+     Столешница, Документы) и задаёт её пользователь: тянет шапку листа вверх/
+     вниз (ui-shell.js, раздел 7б; границы 25–85% высоты окна, запоминается).
+     --drawer-sheet-h ставит JS в px на <html>; здесь — значение по умолчанию
+     (45% высоты окна, dvh с запасом на vh) на случай, пока JS не отработал. */
+  :root { --drawer-sheet-h: 45vh; }
+  @supports (height: 1dvh) {
+    :root { --drawer-sheet-h: 45dvh; }
+  }
+
   /* все панели превращаются в нижние листы */
   .drawer,
   .drawer-left,
@@ -2422,20 +2633,61 @@ body.is-focus .scrim { opacity: 0 !important; }
   .drawer-bottom {
     left: 0; right: 0; bottom: 0; top: auto;
     width: auto; margin: 0;
-    height: 80vh;
+    height: var(--drawer-sheet-h);
+    max-height: 100%;
     border-radius: var(--r-lg) var(--r-lg) 0 0;
     border-left: none; border-right: none; border-bottom: none;
     transform: translateY(100%);
   }
+  /* полоска-«ручка» над заголовком — только рисунок: события принимает шапка
+     (.drawer-head ниже), иначе касание точно по полоске уходило бы на сам лист */
   .drawer::before {
     content: ''; position: absolute; left: 50%; top: 7px; transform: translateX(-50%);
     width: 40px; height: 4px; border-radius: 2px; background: var(--border-strong);
+    pointer-events: none;
   }
-  /* на мобильном ширина листа и так во весь экран (см. правило выше) —
-     единственный способ реально освободить место под 3D-сцену при
-     свёрнутых характеристиках — уменьшить высоту именно этого листа */
-  #drawer-library.lib-wide.lib-chars-collapsed { height: 58vh; }
-  .drawer-head { padding-top: 18px; }
+  /* Высота листа теперь общая (--drawer-sheet-h), а не отдельная у «Библиотеки»
+     со свёрнутыми характеристиками (раньше тут стояло height: 58vh) — свободное
+     место под 3D пользователь освобождает сам, потянув ручку. Ширина: правило
+     desktop-раскладки #drawer-library.lib-wide.lib-chars-collapsed (420px) по
+     специфичности перебивает #drawer-library.lib-wide выше — возвращаем лист во
+     всю ширину, как у остальных панелей. */
+  #drawer-library.lib-wide.lib-chars-collapsed { width: 100%; }
+
+  /* Шапка листа — ручка регулировки высоты (ui-shell.js, раздел 7б). Высота
+     зоны захвата ~52px (с запасом под палец). touch-action: none — жест не
+     превращается в прокрутку/pull-to-refresh страницы; текст шапки не
+     выделяется. Вертикальные отступы шапки/поиска/содержимого чуть плотнее
+     десктопных — на низком листе каждый пиксель на счету. */
+  .drawer-head {
+    padding: 16px var(--sp-4) 8px;
+    touch-action: none; cursor: ns-resize;
+    -webkit-user-select: none; user-select: none;
+  }
+  .drawer-body { padding: var(--sp-3) var(--sp-4); overscroll-behavior: contain; }
+  .drawer-search { margin-bottom: var(--sp-2); }
+  .drawer-search input { padding-top: 6px; padding-bottom: 6px; }
+  /* «Документы»: при очень низком листе панель вкладки не должна схлопываться
+     в ноль — тогда прокручивается весь лист целиком (.drawer-body), а не
+     остаётся шапка с пустотой под ней */
+  #drawer-docs .tab-panel.active { min-height: 140px; }
+  /* Вкладки и кнопки экспорта на телефоне — ОДНА строка с горизонтальной
+     прокруткой, а не три строки переноса (≈107px на листе в 365px): иначе
+     на чертежи почти не остаётся места, а их как раз хочется видеть больше */
+  #drawer-docs .tabs {
+    flex-wrap: nowrap; overflow-x: auto; overscroll-behavior-x: contain;
+    -webkit-overflow-scrolling: touch; scrollbar-width: none;
+  }
+  #drawer-docs .tabs::-webkit-scrollbar { display: none; }
+  #drawer-docs .tabs > * { flex: none; }
+  /* Чертежи на телефоне сами вписываются по ширине (ui-shell.js, 7в). Место
+     под вертикальную полосу прокрутки резервируем всегда: иначе при узком
+     окне компьютера с обычными (не накладными) полосами вписывание меняло бы
+     высоту листа, полоса то появлялась бы, то исчезала — и ширина, по которой
+     вписываем, «прыгала» бы вместе с ней. На телефонах полосы накладные — 0px. */
+  #tab-drawings { scrollbar-gutter: stable; }
+  /* пока лист тянут — курсор «изменение высоты» везде, текст не выделяется */
+  body.sheet-resizing { cursor: ns-resize; -webkit-user-select: none; user-select: none; }
   /* предупреждения — у низа, слева от гизмы (по центру на узком экране им
      не хватило бы ширины); гейт с кнопками — над гизмой, по центру */
   .warnings {
@@ -2470,7 +2722,7 @@ body.is-focus .scrim { opacity: 0 !important; }
 }
 
 @media print {
-  .topbar, .rail, .view-toolbar, .view-gizmo, .drawer-head, .tabs, .scrim, .mobile-sheet-bar, .hud, .part-editor-overlay, .confirm-modal-scrim { display: none !important; }
+  .topbar, .rail, .view-toolbar, .view-gizmo, .drawer-head, .drawer-resize, .tabs, .scrim, .mobile-sheet-bar, .hud, .part-editor-overlay, .confirm-modal-scrim { display: none !important; }
   .stage { overflow: visible; }
   body { overflow: visible; }
 }
@@ -2494,12 +2746,29 @@ body.is-focus .scrim { opacity: 0 !important; }
 
 .detail-filter-menu { max-width: 260px; }
 .detail-filter-menu .df-values-list { overflow-y: auto; max-height: 220px; padding: 2px 0; }
+/* Строка поиска внутри поповера сортировки/фильтра колонки (app.js:
+   openColumnFilterMenu) — фильтрует .df-check-row в .df-values-list по
+   подстроке на лету, ничего не отправляя и не меняя выбор. Тот же визуальный
+   язык, что у обычных текстовых полей формы, но компактнее — под ширину
+   попапа (.ctx-menu, min-width 214px). */
+.df-search-input {
+  display: block; width: 100%; box-sizing: border-box;
+  margin: 4px 0 6px; padding: 5px 8px;
+  font-family: inherit; font-size: var(--fs-sm);
+  border: 1px solid var(--border); border-radius: var(--r-sm);
+  background: var(--surface-2); color: var(--text);
+}
+.df-search-input:focus { border-color: var(--accent); outline: none; }
 .df-check-row {
   display: flex !important; align-items: center; gap: 7px;
   padding: 5px 9px; border-radius: var(--r-sm);
   font-size: var(--fs-sm); color: var(--text); cursor: pointer; user-select: none;
 }
 .df-check-row:hover { background: var(--surface-2); }
+/* Строка поиска (app.js: openColumnFilterMenu) прячет строки классом, а не
+   inline style.display — у .df-check-row выше display уже "!important",
+   обычный style.display его не перебивает (проверено вживую в браузере). */
+.df-check-row.df-search-hidden { display: none !important; }
 .df-check-row input { width: auto !important; margin: 0; accent-color: var(--accent); flex: none; }
 .df-check-row span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .df-check-all { font-weight: 600; border-bottom: 1px solid var(--border); margin-bottom: 2px; padding-bottom: 7px; }

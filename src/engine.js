@@ -5093,7 +5093,24 @@ function buildModel(project) {
 
     const manualRot = rotOf(m);
 
+    // ЯКОРЬ ДЕТАЛИ ДЛЯ РУЧНОЙ РАЗМЕТКИ ЧЕРТЕЖА (src/markup.js) — только
+    // метаданные, на геометрию и смету не влияют. part.id для этого не
+    // годится: _partSeq обнуляется в начале КАЖДОГО buildModuleParts(),
+    // поэтому id повторяются между модулями и сдвигаются, когда меняется
+    // состав деталей. Вместо него — постоянный uid модуля (app.js хранит
+    // его в state.modules) + ключ kind|section|side|index по той же схеме,
+    // что applyPartOverrides(), но для ВСЕХ видов деталей; index считается
+    // внутри группы kind|section|side В ПРЕДЕЛАХ модуля. Сквозь
+    // mergeEqualParts()/partsRaw поля доходят как есть (Object.assign).
+    const anchorCounters = new Map();
+
     for (const part of built.parts) {
+      const aSide = partOverrideSide(part);
+      const aGroup = [part.kind, part.section || '', aSide || ''].join('|');
+      const aIndex = anchorCounters.get(aGroup) || 0;
+      anchorCounters.set(aGroup, aIndex + 1);
+      part.anchorKey = aGroup + '|' + aIndex;
+      if (m.uid != null && m.uid !== '') part.moduleUid = String(m.uid);
       const b = part.box;
       // Присадка на боковинах/перегородках (viewer.js, row.frontIsPlus)
       // знает, с какой стороны «лицо» (интерьер корпуса), по знаку
@@ -5191,7 +5208,10 @@ function buildModel(project) {
           dims: swap
             ? { w: FILLER_W, h: frontH, d: ftc.thickness }
             : { w: ftc.thickness, h: frontH, d: FILLER_W },
-        }), { module: name, rot: dirRot });
+        }), { module: name, rot: dirRot,
+          // якорь для ручной разметки чертежа — см. anchorCounters выше
+          anchorKey: 'filler|Угловой стык||corner',
+          moduleUid: (m.uid != null && m.uid !== '') ? String(m.uid) : undefined });
         // Планка строится сразу в мировой системе (габариты уже повёрнуты
         // прогоном) — для направления текстуры возвращаем их в систему модуля.
         applyGrainDirection([cornerFiller], proj.grainGroups, m.grainOverrides,

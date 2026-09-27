@@ -7,7 +7,7 @@
 <title>Modul3D — параметрический конструктор корпусной мебели</title>
 
 <link rel="icon" type="image/svg+xml" href="favicon.svg" />
-<link rel="stylesheet" href="style.css?v315" />
+<link rel="stylesheet" href="style.css?v319" />
 
 <!-- Положение рейки панелей (data-rail-pos на <html>: left | header-start |
      header-end | top-right | bottom-left; по умолчанию header-end — в шапке
@@ -48,7 +48,7 @@
 })();
 </script>
 
-<script src="src/errorBanner.js?v315"></script>
+<script src="src/errorBanner.js?v319"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <!-- Paddle.js — оверлей оплаты подписки (см. app.js: requestCheckout/initPaddle).
      Обычный скрипт без defer, как остальные CDN-подключения выше. -->
@@ -244,6 +244,18 @@
           </div>
         </div>
 
+        <!-- Размер надписей ручной разметки чертежа (src/markup.js:
+             setFontScale). Запоминается в браузере — ui-shell.js:
+             initMarkupFont (ключ modul3d.markupFont). -->
+        <div class="settings-block markup-font-block">
+          <label class="settings-row-label" for="markupFontRange">Размер надписей своих размеров на чертеже</label>
+          <div class="markup-font-row">
+            <input id="markupFontRange" type="range" min="6" max="24" step="1" value="10"
+                   aria-describedby="markupFontValue" />
+            <span id="markupFontValue" class="markup-font-value">10 px</span>
+          </div>
+        </div>
+
         <div class="settings-block">
           <div class="settings-row settings-row-toggle" id="hotkeysToggleRow">
             <button id="focusHintBtn" class="icon-btn" type="button"
@@ -264,8 +276,23 @@
               <div class="hotkeys-item"><span class="hotkeys-key">P</span><span class="hotkeys-desc">Параметры</span></div>
               <div class="hotkeys-item"><span class="hotkeys-key">F</span><span class="hotkeys-desc">Студия</span></div>
               <div class="hotkeys-item"><span class="hotkeys-key">T</span><span class="hotkeys-desc">Тема</span></div>
+              <div class="hotkeys-item"><span class="hotkeys-key">+ / −</span><span class="hotkeys-desc">Масштаб чертежей</span></div>
+              <div class="hotkeys-item"><span class="hotkeys-key">Ctrl+колесо</span><span class="hotkeys-desc">Масштаб чертежей (вокруг курсора)</span></div>
+              <div class="hotkeys-item"><span class="hotkeys-key">Щипок</span><span class="hotkeys-desc">Масштаб чертежей двумя пальцами (телефон)</span></div>
+              <div class="hotkeys-item"><span class="hotkeys-key">2× клик</span><span class="hotkeys-desc">Чертежи: стандартный вид (на телефоне — по ширине)</span></div>
             </div>
           </div>
+        </div>
+
+        <!-- Публикация каталога как базы по умолчанию — только для админа
+             (см. renderAccountUI/authAccount.isAdmin в app.js: он и решает,
+             показывать ли блок; у остальных остаётся display:none). Относится
+             ко всему каталогу разом; раньше стояла в панели «Библиотека»
+             под вкладками, но там занимала место на телефоне. Клик внутри
+             окна настроек не закрывает его (см. ui-shell.js: initCurrency). -->
+        <div class="settings-block lib-publish-bar" id="libPublishBar" style="display:none">
+          <button type="button" class="btn" id="libPublishBtn">Опубликовать как базу по умолчанию</button>
+          <span id="libPublishStatus" class="sketch-status" aria-live="polite"></span>
         </div>
       </div>
     </div>
@@ -499,14 +526,6 @@
         <button class="lib-tab-btn" data-libtab="hardware" type="button">Фурнитура</button>
         <button class="lib-tab-btn" data-libtab="facades" type="button">Двери</button>
       </div>
-      <!-- Публикация каталога как базы по умолчанию — только для админа
-           (см. renderAccountUI/authAccount.isAdmin в app.js). Относится ко
-           всему каталогу разом, поэтому стоит здесь, а не внутри
-           #libraryPanel — тот перерисовывается целиком при смене вкладки. -->
-      <div class="lib-publish-bar" id="libPublishBar" style="display:none">
-        <button type="button" class="btn" id="libPublishBtn">Опубликовать как базу по умолчанию</button>
-        <span id="libPublishStatus" class="sketch-status" aria-live="polite"></span>
-      </div>
       <div id="librarySaveStatus" class="sketch-status lib-save-status" aria-live="polite"></div>
       <div class="panel" id="libraryPanel"><!-- заполняется app.js --></div>
     </div>
@@ -585,6 +604,13 @@
 
   <!-- ---------- Панель: Документы ---------- -->
   <section class="drawer drawer-bottom" id="drawer-docs" data-drawer-panel="docs" aria-hidden="true">
+    <!-- Ручка высоты панели на компьютере: полоса по верхней кромке (за неё и
+         за пустую часть шапки тянут вверх/вниз; двойной щелчок — высота по
+         умолчанию). Логика — ui-shell.js, раздел 7б′; на телефоне ручки нет
+         (там высоту регулирует шапка листа, style.css раздел 17). -->
+    <div class="drawer-resize" id="docsResize" role="separator" aria-orientation="horizontal"
+         aria-label="Высота панели «Документы»"
+         title="Потяните, чтобы изменить высоту (двойной щелчок — по умолчанию)"></div>
     <div class="drawer-head">
       <h2 class="drawer-title">Документы</h2>
       <button class="drawer-close" type="button" data-close aria-label="Закрыть">
@@ -598,12 +624,24 @@
           <button class="tab-btn" data-tab="detailing" type="button">Деталировка</button>
           <button class="tab-btn" data-tab="spec" type="button">Спецификация</button>
           <div class="spacer"></div>
+          <!-- Ручная разметка общего вида (src/markup.js). Видна только на
+               вкладке «Чертежи»; «Очистить всё» — только пока режим включён.
+               Логика — app.js: initMarkupUI / syncMarkupUI. -->
+          <span id="markupTools" class="markup-tools">
+            <button id="markupToggle" class="btn" type="button" aria-pressed="false"
+                    title="Свои размеры на любом чертеже (у каждого чертежа — свои): щёлкните первую точку (угол, край детали, центр отверстия), затем вторую — любую, затем уведите размер в сторону и щёлкните, чтобы закрепить (увели вверх/вниз — горизонтальный размер, вбок — вертикальный). С зажатым Shift вторая точка ищется строго перпендикулярно краю детали. Щелчок по готовому размеру — выделить, Delete — удалить, выделенный размер можно перетащить мышью. Esc — отменить начатый размер.">Разметка</button>
+            <button id="markupClear" class="btn" type="button" style="display:none"
+                    title="Удалить все свои размеры со всех чертежей">Очистить всё</button>
+          </span>
           <button id="printDrawings" class="btn" type="button">Печать чертежей</button>
           <button id="exportDetailing" class="btn" type="button">Деталировка .xlsx</button>
           <button id="exportSpec" class="btn" type="button">Спецификация .xlsx</button>
           <button id="exportDrillCsv" class="btn" type="button">Присадка .csv</button>
           <button id="exportDrillDxf" class="btn btn-primary" type="button">Присадка .dxf (ЧПУ)</button>
         </div>
+        <!-- Масштаб чертежей (клавиши +/−, Ctrl+колесо, щипок, 2× клик) —
+             ui-shell.js, раздел 7в; отдельного ряда управления нет, всё
+             место отдано чертежам. -->
         <div class="tab-panel" id="tab-drawings"></div>
         <div class="tab-panel" id="tab-detailing"></div>
         <div class="tab-panel" id="tab-spec"></div>
@@ -679,6 +717,12 @@
   <div class="part-editor-overlay" id="partEditorOverlay" aria-hidden="true">
     <div class="part-editor-head">
       <h2 class="part-editor-title" id="partEditorTitle">Редактор выреза</h2>
+      <!-- Ручная разметка в редакторе детали (src/markup.js, лист
+           'editor:<uid>|<ключ>'): свой переключатель, «Очистить всё» — только
+           на вкладке «Чертежи» (чистит и размеры редактора). Логика —
+           app.js: initPartEditorOverlay / syncMarkupUI. -->
+      <button id="partEditorMarkupToggle" class="btn" type="button" aria-pressed="false"
+              title="Свои размеры на любом чертеже (у каждого чертежа — свои): щёлкните первую точку (угол, край детали, центр отверстия), затем вторую — любую, затем уведите размер в сторону и щёлкните, чтобы закрепить (увели вверх/вниз — горизонтальный размер, вбок — вертикальный). С зажатым Shift вторая точка ищется строго перпендикулярно краю детали. Щелчок по готовому размеру — выделить, Delete — удалить, выделенный размер можно перетащить мышью. Esc — отменить начатый размер.">Разметка</button>
       <button class="icon-btn danger part-editor-close" type="button" id="partEditorClose" aria-label="Закрыть редактор">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
       </button>
@@ -749,19 +793,30 @@
 
 </main>
 
-<script src="src/catalog.js?v315"></script>
-<script src="src/presets.js?v315"></script>
-<script src="src/engine.js?v315"></script>
-<script src="src/specification.js?v315"></script>
-<script src="src/legMeshes.js?v315"></script>
-<script src="src/csg.js?v315"></script>
-<script src="src/viewer.js?v315"></script>
-<script src="src/ui-shell.js?v315"></script>
-<script src="src/drawings.js?v315"></script>
-<script src="src/export.js?v315"></script>
-<script src="src/cnc.js?v315"></script>
-<script src="src/sketchAI.js?v315"></script>
-<script src="src/app.js?v315"></script>
+<script src="src/catalog.js?v319"></script>
+<script src="src/presets.js?v319"></script>
+<script src="src/engine.js?v319"></script>
+<script src="src/specification.js?v319"></script>
+<script src="src/legMeshes.js?v319"></script>
+<script src="src/csg.js?v319"></script>
+<script src="src/viewer.js?v319"></script>
+<script src="src/ui-shell.js?v319"></script>
+<!-- markup.js ДОЛЖЕН грузиться раньше app.js: он вешает свой document
+     keydown-обработчик (Delete/Escape по ручной разметке) СРАЗУ при загрузке
+     файла, и stopImmediatePropagation() там останавливает только слушатели,
+     зарегистрированные ПОЗЖЕ него — порядок регистрации = порядок <script>
+     тегов. Переставишь эту строку после app.js — Delete по выделенному
+     ручному размеру снова начнёт заодно удалять активный 3D-модуль
+     (см. app.js: обработчик Delete рядом с deleteModule). -->
+<script src="src/markup.js?v319"></script>
+<script src="src/drawings.js?v319"></script>
+<script src="src/export.js?v319"></script>
+<script src="src/cnc.js?v319"></script>
+<script src="src/sketchAI.js?v319"></script>
+<!-- app.js — ПОСЛЕ markup.js (см. пометку у markup.js выше): его глобальный
+     keydown на Delete (удаление активного модуля) не должен получить событие
+     раньше markup.js — иначе перехват Delete ручной разметкой не работает. -->
+<script src="src/app.js?v319"></script>
 <script>if (window.Modul3D && window.Modul3D.uiShell) window.Modul3D.uiShell.start();</script>
 </body>
 </html>

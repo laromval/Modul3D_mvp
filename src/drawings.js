@@ -118,6 +118,61 @@ function svgTag(w, h, body, extraClass) {
   const v = svgFit(w, h, body);
   return `<svg width="${r(v.w)}" height="${r(v.h)}" viewBox="${r(v.x)} ${r(v.y)} ${r(v.w)} ${r(v.h)}" class="dw-svg ${extraClass || ''}" xmlns="http://www.w3.org/2000/svg">${body}</svg>`;
 }
+// РУЧНАЯ РАЗМЕТКА (src/markup.js) на листе чертежа. У каждого листа — свои
+// размеры (решение пользователя: размер, поставленный на чертеже модуля, не
+// появляется на общем виде и наоборот), поэтому лист получает стабильный id
+// (НЕ индекс/имя модуля — они меняются при вставке/удалении/перенумерации):
+//   'overview'                  — общий вид;
+//   'module:<uid модуля>'       — чертёж модуля (каркас);
+//   'part:<uid модуля>|<ключ>'  — чертёж детали (фасады, детали с присадкой);
+//                                 ключ — part.anchorKey детали-представителя
+//                                 группы одинаковых деталей.
+// views — контексты видов этого листа: те же sx/sy/hAxis/vAxis и тот же
+// список деталей (rows), что реально рисует drawParts()/buildPartDrawings,
+// — hit-testing видит РОВНО нарисованное. Рамка листа передаётся ДО ручных
+// размеров (предел выноса; с ними рамка росла бы от каждого перетаскивания).
+function mkAttach(sheetId, model, views, w, h, body) {
+  const mk = window.Modul3D && window.Modul3D.markup;
+  if (!mk || !mk.attachSheet || !sheetId) return '';
+  return mk.attachSheet(sheetId, model, views, svgFit(w, h, body));
+}
+function mkAttr(s) {
+  return String(s).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+// Контекст вида для листа ОДНОЙ детали (чертёж фасада/детали с присадкой,
+// редактор детали): деталь нарисована в СВОИХ координатах (длина × ширина,
+// снизу вверх, как в facadeHoles), а не мировым боксом. Поэтому для
+// markup.js — одна «строка» с боксом в этих локальных координатах и своя
+// проекция центров отверстий (holeScreen) — ровно по px/py facadeHoles.
+// members — ключи 'uid|anchorKey' ВСЕХ деталей группы одинаковых деталей,
+// нарисованных этим листом (buildPartDrawings); markup.js по ним находит
+// лист для размера, какая бы деталь группы ни была представителем.
+function partLocalViews(p, x0, y0, fw, fh, scale, members) {
+  const pxL = (v) => x0 + v * scale;
+  const pyL = (v) => y0 + fh - v * scale;
+  const localRow = Object.assign({}, p, {
+    boxes: [{ x: p.length / 2, y: p.width / 2, z: 0, w: p.length, h: p.width, d: p.thickness || 1 }],
+  });
+  return [{
+    name: 'front', noHoles: false, hAxis: 'x', vAxis: 'y', sx: pxL, sy: pyL, rows: [localRow],
+    region: { x0, y0, x1: x0 + fw, y1: y0 + fh },
+    members: members || null,
+    holeScreen: (row, i) => {
+      const h0 = row.holes && row.holes[i];
+      if (!h0 || h0.side === 'edge') return null;   // в торец — на пласти не нарисовано
+      return { x: pxL(h0.x), y: pyL(h0.y), wh: h0.x, wv: h0.y };
+    },
+  }];
+}
+
+// SVG листа с разметкой: класс mk-root + data-mk-sheet — по ним markup.js
+// находит лист под курсором. Атрибут ставится ПОСЛЕ viewBox — unifyBlocks()
+// ниже ищет «<svg width height viewBox» строго в этом порядке.
+function svgTagMk(w, h, body, sheetId) {
+  const svg = svgTag(w, h, body, sheetId ? 'mk-root' : '');
+  return sheetId ? svg.replace(' xmlns=', ` data-mk-sheet="${mkAttr(sheetId)}" xmlns=`) : svg;
+}
+
 function svgBlock(w, h, body, title) {
   return `<div class="dw-block"><div class="dw-title">${esc(title)}</div>${svgTag(w, h, body)}</div>`;
 }
@@ -203,6 +258,12 @@ function visibleParts(parts, view) {
   return Array.from(byRow.values());
 }
 
+// Размер бокса детали вдоль мировой оси: 'x' → ширина, 'y' → высота,
+// 'z' → глубина.
+function axisSize(b, ax) {
+  return ax === 'x' ? b.w : ax === 'y' ? b.h : b.d;
+}
+
 // Рисует детали в проекции; labels — куда собрать позиции для выносок
 function drawParts(parts, sx, sy, hAxis, vAxis, labels, wire, noHoles) {
   let body = '';
@@ -212,16 +273,24 @@ function drawParts(parts, sx, sy, hAxis, vAxis, labels, wire, noHoles) {
     // и полкодержатели не изображаются (они есть в спецификации и в 3D).
     if (row.hardware) continue;
     for (const b of row.boxes) {
-      const hs = hAxis === 'x' ? b.w : b.d;
-      const vs = vAxis === 'y' ? b.h : b.d;
+      // Размер бокса вдоль оси вида: 'x' → ширина, 'y' → высота, 'z' → глубина.
+      // Любая ось вида может быть любой мировой: у модуля, повёрнутого на
+      // 90/270°, вид сверху идёт по осям z (гориз.) и x (верт.).
+      // ТА ЖЕ формула стоит в markup.js → rowFrame() (привязка разметки должна
+      // совпадать с нарисованным) — менять только вместе.
+      const hs = axisSize(b, hAxis);
+      const vs = axisSize(b, vAxis);
       const x0 = sx(b[hAxis] - hs / 2), x1 = sx(b[hAxis] + hs / 2);
       const yA = sy(b[vAxis] - vs / 2), yB = sy(b[vAxis] + vs / 2);
       const y0 = Math.min(yA, yB), y1 = Math.max(yA, yB);
       // Круглые детали (опоры) на виде СВЕРХУ показываем окружностью, а не
       // квадратом — иначе чертёж вводит в заблуждение при разметке присадки.
-      // Круглое сечение: опора — сверху, штанга — спереди и сбоку
-      const isRound = (row.shape === 'cylinder' && vAxis === 'z')
-        || (row.shape === 'cylinderX' && hAxis === 'z');
+      // Круглое сечение видно, когда смотрим ВДОЛЬ оси цилиндра, т.е. ни одна
+      // из осей вида не совпадает с его осью: опора (ось Y) — на виде сверху,
+      // штанга (ось X) — на виде сбоку. Так верно и для вида сверху
+      // повёрнутого модуля, где оси вида — z и x.
+      const isRound = (row.shape === 'cylinder' && hAxis !== 'y' && vAxis !== 'y')
+        || (row.shape === 'cylinderX' && hAxis !== 'x' && vAxis !== 'x');
       body += isRound
         ? `<ellipse cx="${r((x0 + x1) / 2)}" cy="${r((y0 + y1) / 2)}" rx="${r((x1 - x0) / 2)}" `
           + `ry="${r((y1 - y0) / 2)}" class="${partClass(row, wire)}"/>`
@@ -275,6 +344,34 @@ function drawParts(parts, sx, sy, hAxis, vAxis, labels, wire, noHoles) {
     }
   }
   return body;
+}
+
+// Проекция ОДНОГО отверстия присадки (part.holes[i]) на экран для заданного
+// вида (hAxis/vAxis) — та же логика определения плоскости детали (панель/
+// плашмя/повёрнутый модуль), что и выше в drawParts(), вынесена отдельно и
+// экспортирована ниже: ручной разметке (markup.js) нужно привязываться к
+// центру отверстия, не копируя эту логику вслепую. Если на ЭТОМ виде
+// отверстие не видно плашмя (деталь стоит на ребре) — вернёт null.
+// Возвращает и экранные (x,y), и мировые (wh,wv, вдоль hAxis/vAxis, в мм) —
+// вторые нужны markup.js, чтобы считать реальную длину размера в мм.
+function resolveHoleScreen(row, hAxis, vAxis, sx, sy, holeIndex) {
+  const b = row.boxes && row.boxes[0];
+  const h0 = row.holes && row.holes[holeIndex];
+  if (!b || !h0 || h0.side === 'edge') return null;
+  const thinAx = Math.min(b.w, b.h, b.d);
+  const panel = (row.kind === 'side' || row.kind === 'divider') || b.w === thinAx;
+  const flat = !panel && (row.kind === 'bottom' || row.kind === 'top'
+    || row.kind === 'shelf' || b.h === thinAx);
+  const turned = row.rot === 90 || row.rot === 270;
+  const hw = turned ? 'z' : 'x';
+  const dw = turned ? 'x' : 'z';
+  const sizeOf = (ax) => (ax === 'x' ? b.w : ax === 'z' ? b.d : b.h);
+  const face = flat ? { h: 'x', v: 'z' } : panel ? { h: dw, v: 'y' } : { h: hw, v: 'y' };
+  if (hAxis !== face.h || vAxis !== face.v) return null;
+  const h = (panel || (flat && turned)) ? { x: h0.y, y: h0.x } : { x: h0.x, y: h0.y };
+  const wh = b[face.h] - sizeOf(face.h) / 2 + h.x;
+  const wv = b[face.v] - sizeOf(face.v) / 2 + h.y;
+  return { x: sx(wh), y: sy(wv), wh, wv };
 }
 
 // ---------------------------------------------------------------------------
@@ -499,20 +596,33 @@ function buildOverview(model, scale) {
   const topSy = (v) => ty0 + (v - zMin) * scale;
 
   let body = '';
+  // Контексты видов для РУЧНОЙ РАЗМЕТКИ (markup.js): те же sx/sy/hAxis/vAxis
+  // и тот же список видимых деталей, что использует drawParts() ниже — так
+  // hit-testing курсора видит РОВНО то, что нарисовано, не больше и не меньше.
+  const mkViews = [];
 
   // ПРАВИЛО: общий вид — только габариты. Присадку на нём не показываем,
   // она есть на чертежах каркаса, фасадов и в файлах для ЧПУ.
-  body += drawParts(visibleParts(outer, 'front'), F.x, F.y, 'x', 'y', null, false, true);
+  const frontVisible = visibleParts(outer, 'front');
+  body += drawParts(frontVisible, F.x, F.y, 'x', 'y', null, false, true);
   body += text(fx0 + fw / 2, fy0 - 10, 'ВИД СПЕРЕДИ', 'dw-vname', 'middle');
   for (const m of mods) body += moduleLabel(m, F);
   body += overallDims(model, F, fy0 + fh, fx0);
+  mkViews.push({ name: 'front', noHoles: true, hAxis: 'x', vAxis: 'y', sx: F.x, sy: F.y, rows: frontVisible,
+    region: { x0: fx0, y0: fy0, x1: fx0 + fw, y1: fy0 + fh } });
 
-  body += drawParts(visibleParts(outer, 'side'), S.x, S.y, 'z', 'y', null, false, true);
+  const sideVisible = visibleParts(outer, 'side');
+  body += drawParts(sideVisible, S.x, S.y, 'z', 'y', null, false, true);
   body += text(sx0 + dd / 2, fy0 - 10, 'ВИД СБОКУ', 'dw-vname', 'middle');
   body += sideDims(model, S, fy0 + fh, zMin, zMax);
+  mkViews.push({ name: 'side', noHoles: true, hAxis: 'z', vAxis: 'y', sx: S.x, sy: S.y, rows: sideVisible,
+    region: { x0: sx0, y0: fy0, x1: sx0 + dd, y1: fy0 + fh } });
 
-  body += drawParts(visibleParts(outer, 'top'), T.x, topSy, 'x', 'z', null, false, true);
+  const topVisible = visibleParts(outer, 'top');
+  body += drawParts(topVisible, T.x, topSy, 'x', 'z', null, false, true);
   body += text(fx0 + fw / 2, ty0 - 8, 'ВИД СВЕРХУ', 'dw-vname', 'middle');
+  mkViews.push({ name: 'top', noHoles: true, hAxis: 'x', vAxis: 'z', sx: T.x, sy: topSy, rows: topVisible,
+    region: { x0: fx0, y0: ty0, x1: fx0 + fw, y1: ty0 + dd } });
   // На виде сверху общий габарит по глубине не дублируем — он уже стоит на
   // виде сбоку. Здесь нужна только глубина корпусов.
   const front = mods.filter((m) => !(m.rotation === 90 || m.rotation === 270))[0] || mods[0];
@@ -541,8 +651,19 @@ function buildOverview(model, scale) {
 
   body += line(fx0, fy0 + fh + GAP * 0.5, fx0 + fw, fy0 + fh + GAP * 0.5, 'dw-axis');
 
+  // Ручная разметка (markup.js, см. этот файл): передаём контексты видов —
+  // получаем обратно готовые пользовательские размеры + пустую «живую»
+  // группу для интерактивной перерисовки по наведению/клику. Вызывается на
+  // КАЖДОЙ перерисовке чертежа (recompute), поэтому разметка не теряется.
+  // Третий аргумент — рамка листа, посчитанная ДО ручных размеров: в её
+  // пределах markup.js ограничивает вынос. Считать её вместе с ручными
+  // размерами нельзя — рамка раздвигается под их же вынос (svgFit), и лист
+  // «рос» бы от каждого перетаскивания (обратная связь).
+  const mkBody = mkAttach('overview', model, mkViews, totalW, totalH, body);
+  body += mkBody;
+
   // Без подзаголовка: над блоком уже стоит заголовок раздела «Общий вид»
-  return `<div class="dw-block">${svgTag(totalW, totalH, body)}</div>`;
+  return `<div class="dw-block">${svgTagMk(totalW, totalH, body, mkBody ? 'overview' : '')}</div>`;
 }
 
 // ---------------------------------------------------------------------------
@@ -678,6 +799,19 @@ function buildModuleDrawing(model, mod, scale) {
   // линия проекционной связи
   body += line(fx0, fy0 + fh + GAP * 0.5, fx0 + fw, fy0 + fh + GAP * 0.5, 'dw-axis');
 
+  // Контексты видов для ручной разметки — ровно те же оси/функции/детали,
+  // что у трёх drawParts() выше; присадка здесь нарисована (noHoles:false).
+  const modUid = (parts.filter((p) => p.module === mod.name && p.moduleUid)[0] || {}).moduleUid;
+  const mkSheet = modUid ? 'module:' + modUid : '';
+  const mkViews = [
+    { name: 'front', noHoles: false, hAxis: HA, vAxis: 'y', sx: FX, sy: FY, rows: parts,
+      region: { x0: fx0, y0: fy0, x1: fx0 + fw, y1: fy0 + fh } },
+    { name: 'side', noHoles: false, hAxis: DA, vAxis: 'y', sx: SX, sy: FY, rows: parts,
+      region: { x0: sx0, y0: fy0, x1: sx0 + dd, y1: fy0 + fh } },
+    { name: 'top', noHoles: false, hAxis: HA, vAxis: DA, sx: FX, sy: TY, rows: parts,
+      region: { x0: fx0, y0: ty0, x1: fx0 + fw, y1: ty0 + dd } },
+  ];
+
   // --- состав деталей ---
   for (const row of parts) {
     if (row.num == null) continue;            // фурнитура — не деталь из листа
@@ -737,6 +871,9 @@ function buildModuleDrawing(model, mod, scale) {
   body += dimH(SX(zMin), SX(zMax), yb, 0, String(Math.round(dDepth)));
   body += dimV(TY(zMin), TY(zMax), fx0, 0, String(Math.round(dDepth)), -1);
 
+  const mkBody = mkAttach(mkSheet, model, mkViews, totalW, totalH, body);
+  body += mkBody;
+
   const legend = `<table class="dw-legend"><thead><tr>
       <th>Поз.</th><th>Деталь</th><th>Материал</th><th>Размер, мм</th>
       <th>Толщ.</th><th>Кол.</th></tr></thead><tbody>`
@@ -747,7 +884,7 @@ function buildModuleDrawing(model, mod, scale) {
 
   return `<div class="dw-block">
     <div class="dw-title">${esc(mod.name)} — каркас без фасадов</div>
-    <div class="dw-secrow">${svgTag(totalW, totalH, body)}${legend}</div>
+    <div class="dw-secrow">${svgTagMk(totalW, totalH, body, mkBody ? mkSheet : '')}${legend}</div>
   </div>`;
 }
 
@@ -1273,8 +1410,9 @@ function buildPartDrawings(model, scale, pick, emptyText) {
   const order = [];
   for (const f of facades) {
     const k = sign(f);
-    if (!groups[k]) { groups[k] = { part: f, qty: 0, nums: [] }; order.push(k); }
+    if (!groups[k]) { groups[k] = { part: f, qty: 0, nums: [], members: [] }; order.push(k); }
     groups[k].qty += 1;
+    if (f.moduleUid && f.anchorKey) groups[k].members.push(`${f.moduleUid}|${f.anchorKey}`);
     if (f.num != null && groups[k].nums.indexOf(f.num) === -1) groups[k].nums.push(f.num);
   }
 
@@ -1315,6 +1453,13 @@ function buildPartDrawings(model, scale, pick, emptyText) {
     body += notchDims(p, PAD_L, PAD_T, fw, fh, scale);
     body += dimH(PAD_L, PAD_L + fw, PAD_T + fh, usedLv.bottom || 0, String(p.length));
     body += dimV(PAD_T, PAD_T + fh, PAD_L + fw, usedLv.right || 0, String(p.width));
+    // Ручная разметка: деталь нарисована в СВОИХ координатах (длина × ширина,
+    // снизу вверх, как в facadeHoles), а не мировым боксом. Поэтому для
+    // markup.js — одна «строка» с боксом в этих локальных координатах и своя
+    // проекция центров отверстий (holeScreen) — ровно по px/py facadeHoles.
+    const mkSheet = p.moduleUid && p.anchorKey ? `part:${p.moduleUid}|${p.anchorKey}` : '';
+    const mkBody = mkAttach(mkSheet, model, partLocalViews(p, PAD_L, PAD_T, fw, fh, scale, g.members), W, H, body);
+    body += mkBody;
     const drill = ((p.holes || []).length
       ? ` · присадка: ${holeSummary(p)}`
       : '') + (partNotches(p).length ? ` · вырезы: ${notchSummary(p)}` : '');
@@ -1329,8 +1474,8 @@ function buildPartDrawings(model, scale, pick, emptyText) {
     return `<div class="dw-block">
       <div class="dw-title">Поз. ${g.nums.sort((a, b2) => a - b2).join(', ')} · ${esc(p.name)} · ${g.qty} шт</div>
       ${(aluNode || aluTable)
-        ? `<div class="dw-secrow">${svgTag(W, H, body)}<div class="dw-node">${aluNode}${aluTable}</div></div>`
-        : svgTag(W, H, body)}
+        ? `<div class="dw-secrow">${svgTagMk(W, H, body, mkBody ? mkSheet : '')}<div class="dw-node">${aluNode}${aluTable}</div></div>`
+        : svgTagMk(W, H, body, mkBody ? mkSheet : '')}
       <div class="dw-note">${esc(p.module)} · ${esc(p.section)} · ${p.aluFrame
         ? `алюм. профиль ${esc(p.aluFrame.profile || '')}, ${aluKnownW ? `рамка ${Math.round((p.frameW || 0) * 10) / 10} мм` : 'рамка — по паспорту профиля'}, без кромки`
         : `кромка ${esc((p.edging && p.edging.long1) || '—')} по периметру`}${drill}${paz}</div>
@@ -1463,7 +1608,17 @@ function buildPartEditorView(part, opts) {
   body += dimH(PAD_L, PAD_L + fw, PAD_T + fh, usedLv.bottom || 0, String(p.length));
   body += dimV(PAD_T, PAD_T + fh, PAD_L + fw, usedLv.right || 0, String(p.width));
 
-  return svgTag(W, H, body);
+  // Ручная разметка — свой лист редактора, привязанный к САМОЙ детали (не к
+  // группе одинаковых деталей, как чертёж детали): 'editor:<uid>|<ключ>'.
+  // Размеры этого листа видны только в редакторе. Вырезов как данных у детали
+  // пока нет (редактор — Этап 1, статичный вид), поэтому привязки — углы/края
+  // детали и центры отверстий.
+  const mkSheet = opts.markup !== false && p.moduleUid && p.anchorKey
+    ? `editor:${p.moduleUid}|${p.anchorKey}` : '';
+  const mkBody = mkAttach(mkSheet, opts.model || null, partLocalViews(p, PAD_L, PAD_T, fw, fh, scale), W, H, body);
+  body += mkBody;
+
+  return svgTagMk(W, H, body, mkBody ? mkSheet : '');
 }
 
 // ---------------------------------------------------------------------------
@@ -1516,6 +1671,13 @@ function edgeLabel(p) {
 }
 
 function buildDrawings(model, showFacades) {
+  // Ручная разметка: реестр листов собирается заново на каждую сборку —
+  // лист удалённого модуля/детали пропадает, его размеры не рисуются. До
+  // раннего выхода пустого проекта: иначе в реестре остались бы листы
+  // прошлой сборки, и count() считал бы уже невидимые размеры.
+  if (window.Modul3D && window.Modul3D.markup && window.Modul3D.markup.beginSheets) {
+    window.Modul3D.markup.beginSheets();
+  }
   // Пустой проект — штатное состояние при запуске: чертить нечего.
   if (!model.modules.length) {
     return '<div class="dw-empty">Проект пуст. Выберите модуль в разделе '
@@ -1604,5 +1766,11 @@ const DRAWINGS_CSS = `
 `;
 
 window.Modul3D = window.Modul3D || {};
-window.Modul3D.drawings = { buildDrawings, buildViewSVG, DRAWINGS_CSS, visibleParts, buildPartEditorView };
+window.Modul3D.drawings = {
+  buildDrawings, buildViewSVG, DRAWINGS_CSS, visibleParts, buildPartEditorView,
+  // Переиспользуются модулем ручной разметки (markup.js): тот же визуальный
+  // язык размеров (dimH/dimV, сетка уровней DIM_FIRST/DIM_STEP) и проекция
+  // присадки на плоскость детали (resolveHoleScreen) — см. комментарий там.
+  dimH, dimV, DIM_FIRST, DIM_STEP, ARROW, resolveHoleScreen,
+};
 })();
