@@ -195,6 +195,7 @@ const PURPOSE = {
   confirmatThrough: 'конфирмат, сквозное',
   confirmatEdge: 'конфирмат, в торец',
   legFix: 'крепление опоры (пилотное под шуруп 3,5×16)',
+  hangerScrew: 'разметка саморез навески',
 };
 
 // Стекло на присадочный станок не идёт: отверстия в нём делают стеклорезчики
@@ -220,9 +221,11 @@ function buildDrillCsv(model) {
       rows.push([
         p.num, p.module || '', p.name, p.section, p.material, p.thickness,
         p.length, p.width, p.qty,
-        h.x, h.y, h.d,
+        h.x, h.y, h.mark ? '' : h.d,
         h.through ? p.thickness : (h.depth || 0),
-        h.side === 'edge' ? 'в торец'
+        // Точка разметки (h.mark, напр. саморез навески) — НЕ сверлится.
+        h.mark ? 'разметка, не сверлить'
+        : h.side === 'edge' ? 'в торец'
           // У дна и полки «изнанка» — это НИЗ детали: гнездо эксцентрика
           // прячут снизу, чтобы его не было видно внутри корпуса.
           : (h.through ? 'насквозь'
@@ -293,7 +296,9 @@ function buildDrillDxf(model) {
       // Слой несёт диаметр и сторону — станку этого достаточно, чтобы
       // выбрать инструмент и понять, с какой стороны сверлить.
       // Слой несёт диаметр и операцию: сквозное, с изнанки или в торец.
-      const layer = h.side === 'edge' ? `DRILL_D${h.d}_EDGE`
+      // Точка разметки (h.mark) — не сверление: свой слой MARK_<назначение>.
+      const layer = h.mark ? `MARK_${String(h.kind || 'POINT').toUpperCase()}`
+        : h.side === 'edge' ? `DRILL_D${h.d}_EDGE`
         : (h.through ? `DRILL_D${h.d}_THROUGH` : `DRILL_D${h.d}_BACK`);
       out.push.apply(out, dxfCircle(h.x, cursorY + h.y, h.d / 2, layer));
     }

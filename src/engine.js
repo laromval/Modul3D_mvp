@@ -1816,6 +1816,11 @@ function makePart(o) {
     // ПАЗЫ: прямые канавки в системе координат детали. Нужны станку так же,
     // как отверстия: x0,y0 → x1,y1 — ось паза, w — ширина, depth — глубина.
     grooves: o.grooves || [],
+    // СКВОЗНЫЕ ПРЯМОУГОЛЬНЫЕ ВЫРЕЗЫ у кромки детали: [{ kind, x0, y0, x1, y1,
+    // note }] в той же системе координат детали (x — по длине, y — по
+    // ширине). Сейчас — вырезы задней стенки под крюк навески верхнего
+    // модуля (kind 'hangerBackCut', см. applyWallHanger).
+    notches: o.notches || [],
     // Индекс секции/зоны фасада (у дверей — kind:'door', и у фасадов ящиков —
     // kind:'drawerFront'; zoneIndex осмыслен только у дверей) — числовые,
     // в отличие от текстового `section`, поэтому по ним безопасно искать
@@ -2277,6 +2282,97 @@ function resolveBackMount(p, sides, tb) {
   const w = round1(Number(tb) + 0.5);
   return { mode: 'groove', manual: mount === 'groove', parts, offset, depth, entry, w,
     E: round1(offset + w) };
+}
+
+// НАВЕСКА ВЕРХНЕГО МОДУЛЯ (ПРАВИЛА-КОНСТРУИРОВАНИЯ.md, раздел «Навеска
+// верхних модулей»; числа — catalog.HANGER_SYSTEMS, чертёж Blum 48N0510,
+// подтверждено пользователем 2026-09-27). Для навесного модуля
+// (isWallHung(p)) с выбранной системой навески p.hangerSystem:
+//  1) на ОБЕИХ боковинах, с внутренней пласти — две точки РАЗМЕТКИ под
+//     саморезы навески (без сверления): линия на screwLineFromTop ниже верха
+//     боковины; 1-й саморез от СТЕНЫ = отступ задней стенки (паз —
+//     bm.offset, накладная — 0) + её фактическая толщина + screwGapFromBack,
+//     второй — на screwStep дальше вперёд. На детали y считается от её
+//     ФАКТИЧЕСКОГО заднего края: боковина с пазом удлинена назад до стены
+//     (y = от стены), у накладной стенки боковина стоит перед ней (y меньше
+//     на толщину стенки);
+//  2) в задней стенке — два угловых выреза backCut.w × backCut.h сверху
+//     (w — от внутренней грани боковины, h — от верха модуля) под крюк;
+//     хранятся в part.notches (координаты детали: x — по длине от левого
+//     края, y — по ширине от низа); отрисовку делает следующий этап.
+// Возвращает hangerHardware для сметы: [{ system, qty }] (пусто, если модуль
+// не навесной или система не задана).
+// Условный диаметр маркера точки разметки на чертеже/в DXF — не сверлится.
+const HANGER_MARK_D = 2;
+function applyWallHanger(p, parts, warnings, bm, backPart, D, H) {
+  const sys = p.hangerSystem;
+  if (!sys || !isWallHung(p)) return [];
+  const tb = backPart ? Number(backPart.thickness) || 0 : 0;
+  const backOffset = (bm && bm.mode === 'groove') ? Number(bm.offset) || 0 : 0;
+  // 1-й саморез от стены (задней плоскости модуля) и сама плоскость стены
+  // в локальных координатах модуля: у паза стена — задний край деталей,
+  // удлинённых на E; у накладной — задняя пласть стенки.
+  const fromWall = round1(backOffset + tb + sys.screwGapFromBack);
+  const wallZ = (bm && bm.mode === 'groove') ? -D / 2 - bm.E : -D / 2 - tb;
+  const reach = sys.hookReach || null;
+  if (reach && (fromWall < reach.min || fromWall > reach.max)) {
+    warnings.push(`Навеска: 1-й саморез навеса в ${fromWall} мм от стены — вне хода крюка `
+      + `${reach.min}–${reach.max} мм, крюк навеса не достанет до шины — измените отступ задней стенки.`);
+  }
+  if (!sys.drawingVerified && sys.genericNote) {
+    warnings.push(`Навеска «${sys.name}»: ${sys.genericNote}.`);
+  }
+  const sides = parts.filter((q) => q.kind === 'side');
+  for (const sp of sides) {
+    const sideRear = sp.box.z - sp.box.d / 2;
+    const y1 = round1(fromWall - (sideRear - wallZ));
+    const y2 = round1(y1 + sys.screwStep);
+    const x = round1(sp.box.h - sys.screwLineFromTop);
+    const marks = [y1, y2].map((y) => ({
+      x, y, d: HANGER_MARK_D, depth: 0, through: false, side: 'front',
+      kind: 'hangerScrew', mark: true,
+    }));
+    // Совпадение с уже существующей присадкой боковины (конфирмат/Rastex
+    // крыши, полкодержатели...) — только предупреждаем, размеры не двигаем.
+    const clash = (sp.holes || []).some((h) => h.side !== 'edge' && marks.some((m) =>
+      Math.hypot(h.x - m.x, h.y - m.y) < (Number(h.d) || 0) / 2 + HANGER_MARK_D / 2));
+    if (clash) {
+      warnings.push(`Навеска: разметка саморезов навеса на детали «${sp.name}» попадает `
+        + `в другое отверстие присадки — проверьте положение полок/крепежа.`);
+    }
+    if (y1 < 0 || y2 > sp.box.d) {
+      warnings.push(`Навеска: разметка саморезов навеса выходит за деталь «${sp.name}».`);
+    }
+    sp.holes.push.apply(sp.holes, marks);
+  }
+  // Вырезы в задней стенке под крюк навеса.
+  if (backPart && sys.backCut) {
+    const bb = backPart.box;
+    const backLeft = bb.x - bb.w / 2;
+    const backBottom = bb.y - bb.h / 2;
+    const L = backPart.length, Wd = backPart.width;
+    const left = sides.filter((q) => q.box.x < 0)[0];
+    const right = sides.filter((q) => q.box.x > 0)[0];
+    const y0 = round1(H - sys.backCut.h - backBottom);
+    const note = `Вырез ${sys.backCut.w}×${sys.backCut.h} мм под крюк навески`;
+    const notches = [];
+    if (y0 > 0 && y0 < Wd) {
+      if (left) {
+        const x1 = round1((left.box.x + left.box.w / 2) - backLeft + sys.backCut.w);
+        if (x1 > 0 && x1 < L) notches.push({ kind: 'hangerBackCut', x0: 0, y0, x1, y1: Wd, note });
+      }
+      if (right) {
+        const x0 = round1((right.box.x - right.box.w / 2) - backLeft - sys.backCut.w);
+        if (x0 > 0 && x0 < L) notches.push({ kind: 'hangerBackCut', x0, y0, x1: L, y1: Wd, note });
+      }
+    }
+    if (notches.length) {
+      backPart.notches = (backPart.notches || []).concat(notches);
+      backPart.note = (backPart.note ? backPart.note + '; ' : '')
+        + `вырезы ${sys.backCut.w}×${sys.backCut.h} под крюк навески`;
+    }
+  }
+  return [{ system: p.hangerSystemId || null, qty: 1 }];
 }
 
 /**
@@ -4409,6 +4505,9 @@ function buildModuleParts(p) {
   // ПОСЛЕДНИЙ шаг: все формулы корпуса уже отработали, соседние детали
   // пересчитывать не нужно (и не будем).
   applyPartOverrides(parts, p.partOverrides, warnings, bm);
+  // Навеска верхнего модуля — ПОСЛЕ ручных правок: разметка считается от
+  // фактической толщины задней стенки (её могли переопределить вручную).
+  const hangerHardware = applyWallHanger(p, parts, warnings, bm, backPart, D, H);
   // Направление текстуры — тоже постобработка: только помечает детали
   // (см. блок «НАПРАВЛЕНИЕ ТЕКСТУРЫ»), размеров и присадки не трогает.
   applyGrainDirection(parts, p.grainGroups, p.grainOverrides);
@@ -4429,7 +4528,7 @@ function buildModuleParts(p) {
     },
     parts,   // сырые детали модуля, в локальных координатах
     hardwareContext: { drawerHardware, doorHardware, handleHardware, liftHardware,
-      jointRows,
+      jointRows, hangerHardware,
       sectionsCount: n, jointCount: 2 + dividers },
     warnings,
   };
@@ -4464,7 +4563,8 @@ function buildModel(project) {
       project: proj, modules: [], isMulti: false,
       dims: { W: 0, H: 0, D: 0 },
       parts: [], partsRaw: [],
-      hardwareContext: { drawerHardware: [], doorHardware: [], sectionsCount: 0, jointCount: 0 },
+      hardwareContext: { drawerHardware: [], doorHardware: [], sectionsCount: 0, jointCount: 0,
+        hangerHardware: [], wallRails: [] },
       warnings: [], isEmpty: true,
     };
   }
@@ -4477,7 +4577,14 @@ function buildModel(project) {
   const handleHardware = [];
   const liftHardware = [];
   const jointRows = [];
+  const hangerHardware = [];
   let jointCount = 0;
+  // Система навески верхних модулей — одна на проект (project.hangerSystem,
+  // по умолчанию catalog.DEFAULT_HANGER_SYSTEM). Позиция удалена из каталога
+  // — берётся первая доступная, с предупреждением (resolveHangerSystem).
+  const catH = window.Modul3D.catalog || {};
+  const hangerRes = (catH.resolveHangerSystem && mods.some((m) => isWallHung(m)))
+    ? catH.resolveHangerSystem(proj.hangerSystem) : { id: null, sys: null, warning: null };
 
   // Поворот модуля вокруг вертикальной оси: 0 / 90 / 180 / 270°.
   const rotOf = (m) => {
@@ -4640,7 +4747,10 @@ function buildModel(project) {
           : runDepth - e.z1;                       // передние плоскости совпадают
         const frontV = offV + e.z1;                // фасадная плоскость модуля
         cursor += (e.x1 - e.x0);
-        const pl = { U, V, dirRot, originX, originZ, offU, offV, corner: null };
+        // u0/u1 — занятый модулем отрезок вдоль прогона: по ним шина
+        // навесного ряда делится на НЕПРЕРЫВНЫЕ участки (см. wallRails).
+        const pl = { U, V, dirRot, originX, originZ, offU, offV, corner: null,
+          u0: offU + e.x0, u1: cursor };
         if (isCorner(m)) {
           pl.corner = { cursor, frontV };
           lastCornerU = cursor;
@@ -4730,6 +4840,9 @@ function buildModel(project) {
       // отдельных деталей — в объекте модуля (как partOverrides).
       grainGroups: proj.grainGroups || {},
       grainOverrides: m.grainOverrides || {},
+      // Навеска верхнего модуля (applyWallHanger): объект системы из
+      // catalog.HANGER_SYSTEMS и её код — для сметы.
+      hangerSystem: hangerRes.sys, hangerSystemId: hangerRes.id,
     });
 
     const manualRot = rotOf(m);
@@ -4774,6 +4887,7 @@ function buildModel(project) {
     (built.hardwareContext.handleHardware || []).forEach((d) => handleHardware.push(d));
     (built.hardwareContext.liftHardware || []).forEach((d) => liftHardware.push(d));
     (built.hardwareContext.jointRows || []).forEach((d) => jointRows.push(d));
+    (built.hardwareContext.hangerHardware || []).forEach((d) => hangerHardware.push(d));
     jointCount += built.hardwareContext.jointCount;
 
     const c = carcass(m);
@@ -4895,6 +5009,34 @@ function buildModel(project) {
   const countertopJoints = joinCountertopSeams(allParts, proj, warnings);
 
   // Одинаковые предупреждения схлопываем — иначе список превращается в простыню
+  // ШИНА МОНТАЖНАЯ под навесные модули: по каждому НЕПРЕРЫВНОМУ участку
+  // верхнего ряда (прогон до угла; разрыв — если модули не встык) длина
+  // L = сумма ширин модулей, отрезков ceil(L / WALL_RAIL_LENGTH).
+  const wallRails = [];
+  if (hangerRes.warning) warnings.push(hangerRes.warning);
+  if (hangerRes.sys && catH.FASTENER_PRICES && catH.FASTENER_PRICES[catH.WALL_RAIL_KEY]) {
+    const railLen = Number(catH.WALL_RAIL_LENGTH) || 2000;
+    for (const run of wallRuns) {
+      let seg = null;
+      const flush = () => {
+        if (seg && seg.length > 0) {
+          wallRails.push({ length: round1(seg.length), pieces: Math.ceil(seg.length / railLen - 1e-9) });
+        }
+        seg = null;
+      };
+      for (const i of run) {
+        const pl = place[i];
+        if (seg && Math.abs(pl.u0 - seg.u1) > 0.5) flush();
+        if (!seg) seg = { length: 0, u1: pl.u0 };
+        seg.length += Number(mods[i].width || 0);
+        seg.u1 = pl.u1;
+      }
+      flush();
+    }
+  } else if (hangerRes.sys) {
+    warnings.push('Шина монтажная для навесных модулей удалена из каталога — в смету не попадёт.');
+  }
+
   const uniqueWarnings = warnings.filter((w, i) => warnings.indexOf(w) === i);
 
   // Направление текстуры → порядок Длина/Ширина и кромок в деталировке.
@@ -4928,7 +5070,7 @@ function buildModel(project) {
     parts: merged,
     partsRaw,
     hardwareContext: { drawerHardware, doorHardware, handleHardware, liftHardware, jointRows,
-      countertopJoints,
+      countertopJoints, hangerHardware, wallRails,
       sectionsCount: mods.length, jointCount },
     warnings: uniqueWarnings,
     // Группы модулей, чьи столешницы физически соприкасаются (см.
@@ -5296,7 +5438,7 @@ function mergeKey(part) {
     // Присадка/пазы/тип фасада — иначе две иначе одинаковые детали с разной
     // присадкой (например, деталь с ручными правками из part.overrides)
     // молча склеятся в одну строку и потеряют/задвоят отверстия.
-    part.holes, part.grooves, part.facadeType,
+    part.holes, part.grooves, part.notches || [], part.facadeType,
     // Алюм. фасады одного размера, но другого профиля/цвета/заполнения/
     // режима цены — разные строки (и разные позиции сметы).
     part.aluFrame ? [part.aluFrame.profile, part.aluFrame.color, part.aluFrame.fill,

@@ -174,6 +174,11 @@ const state = {
   // стяжку автоматически, это переключает только угол; читает engine.js
   // (joinCountertopSeams) как proj.countertopCornerJoint.
   countertopCornerJoint: 'strip',
+  // Навес для верхних (навесных) модулей — общий на проект (блок «Навес для
+  // верхних модулей» на экране «Материалы», hangerSystemBlock). Код из
+  // catalog.HANGER_SYSTEMS; читает engine.js как proj.hangerSystem
+  // (присадка навески, вырезы задней стенки, смета навесов и шины).
+  hangerSystem: window.Modul3D.catalog.DEFAULT_HANGER_SYSTEM,
   // Направление текстуры по группам деталей — общее на проект (блок
   // «Направление текстуры», materialsBlock ниже): { [groupId]: 'across' },
   // нет ключа = «Авто». Читает engine.js как proj.grainGroups. Настройка
@@ -1570,6 +1575,7 @@ function snapshot() {
     jointType: state.jointType, worktopDepth: state.worktopDepth,
     countertopCornerJoint: state.countertopCornerJoint,
     grainGroups: state.grainGroups,
+    hangerSystem: state.hangerSystem,
   });
 }
 
@@ -1587,6 +1593,8 @@ function applySnapshot(snap) {
   Object.keys(o).forEach((k) => { state[k] = o[k]; });
   // Снимок без этого поля (старый) не должен оставлять группы от другого проекта.
   if (!o.grainGroups) state.grainGroups = {};
+  // Снимок/проект до выбора навеса (до v315) — навес по умолчанию.
+  if (!o.hangerSystem) state.hangerSystem = window.Modul3D.catalog.DEFAULT_HANGER_SYSTEM;
   migrateFacadeMatCode(o);
   // state.modules целиком заменён — режим изоляции (по имени модуля) и
   // выбор детали внутри него могли устареть, снимаем безусловно.
@@ -1713,6 +1721,8 @@ function restoreProjectData(data) {
   // Проект из файла до появления «Направления текстуры» — все группы «Авто»,
   // а не то, что было выставлено в предыдущем открытом проекте.
   if (!data.state.grainGroups) state.grainGroups = {};
+  // Проект до выбора навеса — навес по умолчанию, а не из прошлого проекта.
+  if (!data.state.hangerSystem) state.hangerSystem = window.Modul3D.catalog.DEFAULT_HANGER_SYSTEM;
   migrateFacadeMatCode(data.state);
   migrateDrawerFieldsToSections(data);
   // Открыт другой проект (или восстановлено автосохранение) — модули заменены
@@ -7868,7 +7878,9 @@ const LIB_EDGE_RESERVED_NAMES = [EDGE_FRONT, EDGE_BACK, EDGE_MID];
 // rod, rodHolder, countertopGlueToCarcass, countertopSealant,
 // countertopCornerTie, countertopStraightTie — из HARDWARE_PRICES; confirmat,
 // minifixBolt, minifixCam, dowel, backPanelScrew, worktopScrew — из
-// FASTENER_PRICES, ВСЕ 6 ключей), и удаление любого из них либо уронит расчёт
+// FASTENER_PRICES, ВСЕ 6 ключей; плюс навесы верхних модулей и шина —
+// hangerBlum48N0510, hangerGtvR1, hangerGtvForzaL/R, wallRailGtv2m, их читает
+// смета через catalog.HANGER_SYSTEMS), и удаление любого из них либо уронит расчёт
 // TypeError'ом, либо молча обнулит строку стоимости. Пара ключей
 // HARDWARE_PRICES (handle, drawerRunnerPair) технически нигде в расчёте не
 // читается, но защищена наравне со всеми остальными — иначе в UI возникла бы
@@ -11219,6 +11231,32 @@ function applyFacadeToWholeProject() {
 // берётся из engine.GRAIN_GROUPS, чтобы не расходиться с правилами движка.
 // Обработчики — on('p-grain-<id>') в bindPanelEvents. Настройка отдельной
 // детали — на экране «Деталь» (partGrainField) и приоритетнее группы.
+// Блок «Навес для верхних модулей» экрана «Материалы» — общий на проект
+// (state.hangerSystem → proj.hangerSystem в движке). Список — из
+// catalog.HANGER_SYSTEM_ORDER, только системы, чьи позиции ещё есть в
+// каталоге (hangerSystemAvailable; удалённую ядро заменит с предупреждением).
+// У систем без чертежа производителя (drawingVerified:false) — пометка
+// «присадка по чертежу Blum». Обработчик — on('p-hangerSystem') в bindPanelEvents.
+function hangerSystemBlock() {
+  const cat = window.Modul3D.catalog;
+  const ids = (cat.HANGER_SYSTEM_ORDER || []).filter((id) => cat.hangerSystemAvailable(id));
+  if (!ids.length) return '';
+  const cur = state.hangerSystem || cat.DEFAULT_HANGER_SYSTEM;
+  const opts = ids.map((id) => {
+    const sys = cat.HANGER_SYSTEMS[id];
+    const label = sys.name + (sys.drawingVerified ? '' : ' — присадка по чертежу Blum');
+    return `<option value="${esc(id)}" ${id === cur ? 'selected' : ''}>${esc(label)}</option>`;
+  }).join('');
+  return `
+    <h3>Навес для верхних модулей</h3>
+    <div class="field">
+      <label>Навес</label>
+      <select id="p-hangerSystem">${opts}</select>
+    </div>
+    <div class="hint">Для навесных модулей: разметка саморезов навеса на боковинах,
+    вырезы под крюк в задней стенке, навесы и монтажная шина в смете.</div>`;
+}
+
 function grainGroupsBlock() {
   const groups = window.Modul3D.engine.GRAIN_GROUPS || [];
   const cur = state.grainGroups || {};
@@ -11545,7 +11583,7 @@ function renderParamsPanel() {
   if (!mod) {
     screen = emptyProjectBlock();
   } else if (state.panelView === 'materials') {
-    screen = materialsBackLinkBlock() + materialsBlock() + grainGroupsBlock();
+    screen = materialsBackLinkBlock() + materialsBlock() + hangerSystemBlock() + grainGroupsBlock();
   } else if (state.panelView === 'drawers') {
     screen = drawersPanelBlock(mod, state.drawersSectionIndex);
   } else if (state.panelView === 'part') {
@@ -13709,6 +13747,7 @@ function bindPanelEvents() {
   });
 
   on('p-worktop', 'change', (e) => { state.worktopDepth = Number(e.target.value) || 0; recompute(); });
+  on('p-hangerSystem', 'change', (e) => { state.hangerSystem = e.target.value; recompute(); });
   on('p-bodyThickness', 'change', (e) => { state.bodyThickness = Number(e.target.value); recompute(); });
   on('p-facadeThickness', 'change', (e) => { state.facadeThickness = Number(e.target.value); recompute(); });
   // «Направление текстуры» по группам (grainGroupsBlock): 'across' пишем,
@@ -14012,6 +14051,8 @@ function recompute(isRetry) {
     // Направление текстуры по группам деталей (блок «Направление текстуры»
     // на экране параметров) — читает applyGrainDirection() в engine.js.
     grainGroups: state.grainGroups,
+    // Навес верхних модулей (hangerSystemBlock) — engine.js applyWallHanger.
+    hangerSystem: state.hangerSystem,
     modules: state.modules.map(m => ({
       name: m.name, width: m.width, height: m.height, depth: m.depth,
       rotation: m.rotation || 0, corner: !!m.corner, family: m.family || 'custom',
@@ -14149,7 +14190,10 @@ function buildOverlayDims() {
         const md = mod.dims;
         g += hDim(P(mod.offsetX - md.W / 2, y0, zf), P(mod.offsetX + md.W / 2, y0, zf), 24, `${Math.round(md.W)}`);
       }
-      const yTopMod = y0 ? y0 + (Number(mod.dims.H) || 0) : d.H;
+      // Подпись — над верхом САМОГО модуля (низ + его высота). Раньше у
+      // напольных бралась высота всего проекта d.H, и при верхнем ряде
+      // подписи нижних модулей налезали на подписи верхних.
+      const yTopMod = y0 + (Number(mod.dims.H) || 0);
       g += txtEl(P(mod.offsetX, yTopMod, zf), mod.name, -12);
     }
     // фасады видны — размечаем сами фасады; скрыты — внутреннюю начинку

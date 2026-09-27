@@ -1122,8 +1122,157 @@
     "sourceSiteId": "mobilierMd",
     "sourceArticle": "WZ-SCTYLPR-WK",
     "categoryPathEdited": true
+  },
+  "hangerBlum48N0510": {
+    "name": "Навеска Blum на саморезы 48N0510 (Л+П)",
+    "unit": "компл. (Л+П)",
+    "price": 54,
+    "article": "48N0510.02/.03",
+    "category": "fastener",
+    "sourceUrl": "https://tehmob.md/15645-naves-kukhonnyj-blum-lr.html",
+    "subcategory": "Blum",
+    "categoryPath": [
+      "Навесы",
+      "Blum"
+    ],
+    "categoryPathEdited": true
+  },
+  "hangerGtvR1": {
+    "name": "Навес кухонный GTV R1 ZK-R1-KPL-10 (Л+П)",
+    "unit": "компл. (Л+П)",
+    "price": 24,
+    "article": "ZK-R1-KPL-10",
+    "category": "fastener",
+    "sourceUrl": "https://mobilier.md/accesorii-pentru-mobilier/furnitura-functionala/elemente-de-asamblare/zk-r1-kpl-10-suport-corp-suspendat-set-stigadreapta-alb.html",
+    "subcategory": "GTV",
+    "categoryPath": [
+      "Навесы",
+      "GTV"
+    ],
+    "sourceSiteId": "mobilierMd",
+    "sourceArticle": "ZK-R1-KPL-10",
+    "categoryPathEdited": true
+  },
+  "hangerGtvForzaL": {
+    "name": "Навес кухонный GTV FORZA ZK-FORZA-ZAW-KPL, левый",
+    "unit": "шт",
+    "price": 14,
+    "article": "ZK-FORZA-ZAW-KPL-L",
+    "category": "fastener",
+    "sourceUrl": "https://mobilier.md/ru/mebelnaya-furnitura/funkcionalnaya-furnitura/soedinitelnye-elementy/zk-forza-zaw-kpl-naves-kuhonnyy-forza-levyy.html",
+    "subcategory": "GTV",
+    "categoryPath": [
+      "Навесы",
+      "GTV"
+    ],
+    "sourceSiteId": "mobilierMd",
+    "categoryPathEdited": true
+  },
+  "hangerGtvForzaR": {
+    "name": "Навес кухонный GTV FORZA ZK-FORZA-ZAW-KPL, правый",
+    "unit": "шт",
+    "price": 14,
+    "article": "ZK-FORZA-ZAW-KPL-R",
+    "category": "fastener",
+    "sourceUrl": "https://mobilier.md/ru/mebelnaya-furnitura/funkcionalnaya-furnitura/soedinitelnye-elementy/zk-forza-zaw-kpl-naves-kuhonnyy-forza-pravyy.html",
+    "subcategory": "GTV",
+    "categoryPath": [
+      "Навесы",
+      "GTV"
+    ],
+    "sourceSiteId": "mobilierMd",
+    "categoryPathEdited": true
+  },
+  "wallRailGtv2m": {
+    "name": "Шина монтажная для навесных модулей GTV LO-M2M-00-125-A, 2 м",
+    "unit": "шт",
+    "price": 65,
+    "article": "LO-M2M-00-125-A",
+    "category": "fastener",
+    "sourceUrl": "https://mobilier.md/accesorii-pentru-mobilier/furnitura-functionala/elemente-de-asamblare/lo-m2m-00-125-a-bara-suport-corp-suspendat-l-2m.html",
+    "subcategory": "GTV",
+    "categoryPath": [
+      "Навесы",
+      "GTV"
+    ],
+    "sourceSiteId": "mobilierMd",
+    "sourceArticle": "LO-M2M-00-125-A",
+    "categoryPathEdited": true
   }
 };
+  // hangerBlum48N0510: сайт tehmob.md пока НЕ подключён в реестр парсеров
+  // (server/src/services/catalogLinkParsers/registry.js) — «Обновить цены»
+  // эту позицию не обновит. Альтернативный источник из реестра — sebas.md
+  // (https://sebas.md/ru/shop/naveska-na-samorezy-blum/), 30 MDL, но единица
+  // (шт или комплект Л+П) на сайте не указана, поэтому цена — с tehmob.md.
+
+  // СИСТЕМЫ НАВЕСКИ ВЕРХНИХ МОДУЛЕЙ — технические данные для присадки
+  // (engine.js, buildModuleParts → «НАВЕСКА ВЕРХНЕГО МОДУЛЯ») и состав
+  // комплекта для сметы (specification.js). Держим ОТДЕЛЬНО от
+  // FASTENER_PRICES: серверная публикация каталога (catalogPublishCodegen.js)
+  // перезаписывает FASTENER_PRICES целиком, техданные там потерялись бы.
+  // Размеры — по чертежу Blum 48N0510 (https://sebas.md/wp-content/uploads/
+  // 2025/11/48N0510_RU.pdf, каталог Blum 2024/25 стр. 598), подтверждены
+  // пользователем-технологом 2026-09-27 (ПРАВИЛА-КОНСТРУИРОВАНИЯ.md, раздел
+  // «Навеска верхних модулей»):
+  //   screwLineFromTop — линия саморезов ниже верха боковины, мм;
+  //   screwGapFromBack — 1-й саморез от внутренней пласти задней стенки, мм
+  //     (1-й саморез от стены = отступ стенки + её толщина + 14);
+  //   screwStep — шаг между двумя саморезами, мм (система 32);
+  //   backCut — вырез в задней стенке под крюк у каждой боковины:
+  //     w — по ширине от внутренней грани боковины, h — по высоте от верха;
+  //   hookReach — ход крюка: допустимое положение 1-го самореза от стены.
+  // GTV — ЧЕРТЕЖА ПРОИЗВОДИТЕЛЯ НЕТ: присадка по числам Blum
+  // (drawingVerified:false, в предупреждении модуля — genericNote).
+  const HANGER_BLUM_GEOMETRY = {
+    screwLineFromTop: 33, screwGapFromBack: 14, screwStep: 32,
+    backCut: { w: 22, h: 33 }, hookReach: { min: 31, max: 45 },
+  };
+  const HANGER_GENERIC_NOTE = 'присадка по чертежу Blum 48N0510, не по чертежу GTV';
+  const HANGER_SYSTEMS = {
+    blum48N0510: Object.assign({
+      name: 'Blum 48N0510 на саморезы',
+      items: [{ key: 'hangerBlum48N0510', perModule: 1 }],
+      drawingVerified: true,
+    }, HANGER_BLUM_GEOMETRY),
+    gtvR1: Object.assign({
+      name: 'GTV R1 ZK-R1-KPL-10',
+      items: [{ key: 'hangerGtvR1', perModule: 1 }],
+      drawingVerified: false,
+      genericNote: HANGER_GENERIC_NOTE,
+    }, HANGER_BLUM_GEOMETRY),
+    gtvForza: Object.assign({
+      name: 'GTV FORZA ZK-FORZA-ZAW-KPL',
+      items: [{ key: 'hangerGtvForzaL', perModule: 1 }, { key: 'hangerGtvForzaR', perModule: 1 }],
+      drawingVerified: false,
+      genericNote: HANGER_GENERIC_NOTE,
+    }, HANGER_BLUM_GEOMETRY),
+  };
+  const HANGER_SYSTEM_ORDER = ['blum48N0510', 'gtvR1', 'gtvForza'];
+  const DEFAULT_HANGER_SYSTEM = 'blum48N0510';
+  // Шина монтажная — одна позиция на все системы навески; длина отрезка, мм.
+  const WALL_RAIL_KEY = 'wallRailGtv2m';
+  const WALL_RAIL_LENGTH = 2000;
+  // Система доступна, только пока ВСЕ позиции её комплекта есть в каталоге
+  // (ловушка как у HANDLE_ORDER/LIFT_ORDER: позицию удалили из Библиотеки —
+  // ссылаться на неё нельзя). resolveHangerSystem(id) → { id, sys, warning }:
+  // запрошенная недоступна — первая доступная из HANGER_SYSTEM_ORDER и
+  // предупреждение; нет ни одной — sys null.
+  function hangerSystemAvailable(id) {
+    const s = HANGER_SYSTEMS[id];
+    return !!(s && s.items.every((it) => FASTENER_PRICES[it.key]));
+  }
+  function resolveHangerSystem(id) {
+    const want = id || DEFAULT_HANGER_SYSTEM;
+    if (hangerSystemAvailable(want)) return { id: want, sys: HANGER_SYSTEMS[want], warning: null };
+    const alt = HANGER_SYSTEM_ORDER.find(hangerSystemAvailable) || null;
+    const nm = (HANGER_SYSTEMS[want] && HANGER_SYSTEMS[want].name) || want;
+    return {
+      id: alt, sys: alt ? HANGER_SYSTEMS[alt] : null,
+      warning: `Навес «${nm}» удалён из каталога — `
+        + (alt ? `используется «${HANGER_SYSTEMS[alt].name}».` : 'навес и его присадка не считаются.'),
+    };
+  }
 
   const JOINT_LABEL = {
     confirmat: 'Конфирмат',
@@ -1730,6 +1879,8 @@
     ALU_PROFILE_COLORS, ALU_PROFILE_COLOR_ORDER, ALU_PROFILES, ALU_PROFILE_ORDER,
     ALU_FRAME_EXTRAS, ALU_MAKERS, ALU_MAKER_ORDER,
     HANDLES, HANDLE_ORDER, HANDLE_HOLE_D, LIFTS, LIFT_ORDER,
+    HANGER_SYSTEMS, HANGER_SYSTEM_ORDER, DEFAULT_HANGER_SYSTEM, WALL_RAIL_KEY, WALL_RAIL_LENGTH,
+    hangerSystemAvailable, resolveHangerSystem,
     HARDWARE_CATEGORY_LABEL, HARDWARE_CATEGORY_ORDER,
     findMaterialByCode, findCountertopMaterialByCode, decorHasPattern,
     DEFAULT_DECOR_CODE, defaultDecor,

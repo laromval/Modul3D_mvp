@@ -279,6 +279,29 @@ function buildSpecification(model) {
     + (Number.isFinite(r.screws) ? r.screws : SCREWS_PER_BACK_FALLBACK) * (r.qty || 1), 0);
   if (backScrews > 0) fasteners.push(fRow(FASTENER_PRICES.backPanelScrew, backScrews));
 
+  // Навесы верхних модулей: по одному комплекту системы на навесной модуль
+  // (engine.js applyWallHanger → hardwareContext.hangerHardware), состав
+  // комплекта — catalog.HANGER_SYSTEMS[system].items; одинаковые позиции
+  // суммируются. Шина монтажная — сумма отрезков по непрерывным участкам
+  // верхнего ряда (hardwareContext.wallRails).
+  const hangerSystems = window.Modul3D.catalog.HANGER_SYSTEMS || {};
+  const hangerQty = new Map();
+  for (const h of (hardwareContext.hangerHardware || [])) {
+    const sys = hangerSystems[h.system];
+    if (!sys) continue;
+    for (const it of sys.items) {
+      hangerQty.set(it.key, (hangerQty.get(it.key) || 0) + (it.perModule || 1) * (h.qty || 1));
+    }
+  }
+  for (const [key, qty] of hangerQty) {
+    if (FASTENER_PRICES[key] && qty > 0) fasteners.push(fRow(FASTENER_PRICES[key], qty));
+  }
+  const railKey = window.Modul3D.catalog.WALL_RAIL_KEY;
+  const railPieces = (hardwareContext.wallRails || []).reduce((s, r) => s + (r.pieces || 0), 0);
+  if (railPieces > 0 && FASTENER_PRICES[railKey]) {
+    fasteners.push(fRow(FASTENER_PRICES[railKey], railPieces));
+  }
+
   // ---------- Столешница: крепёж ----------
   // Шаг расчёта количества (ширина/400, минимум 2) намеренно повторяет
   // существующую формулу clipCount выше (крепление цоколя) — тот же принцип

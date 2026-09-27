@@ -1000,6 +1000,8 @@ const DRILL_COLOR = {
   // Алюм. рамка под петлю Blum 71T950A (engine.js aluHingeCuts)
   aluHingeScrew: 0xe0402a,
   aluHingeSlot: 0x1f6fd1,
+  // Разметка саморезов навески верхнего модуля (engine.js applyWallHanger)
+  hangerScrew: 0x0a7d2c,
 };
 const DRILL_TITLE = {
   minifixCam: 'Rastex, эксцентрик Ø15',
@@ -1027,6 +1029,7 @@ const DRILL_TITLE = {
   dowelFace: 'Нагель Ø8 в пласть',
   aluHingeScrew: 'Петля алюм. рамки, саморез Ø5 (зенк. до Ø7)',
   aluHingeSlot: 'Петля алюм. рамки, паз под механизм',
+  hangerScrew: 'Навеска, разметка самореза (не сверлить)',
 };
 
 // Стеклянный фасад (материал GLASS-4, «сатин бронз») — тёплый тонированный

@@ -4177,6 +4177,89 @@ for (const glass of [false, true]) {
     if (Math.abs(xMax(p5) - xMax(p3)) > 0.6) problems.push(`Г-кухня: верхний второго ряда не у стены (${xMax(p5)} vs ${xMax(p3)})`);
     cases += 1;
   }
+
+  // 4) Навеска верхних модулей (этап 2, решения пользователя 2026-09-27):
+  //    разметка саморезов Blum 48N0510 на обеих боковинах (33 ниже верха,
+  //    1-й = отступ паза 15 + tb + 14 от стены, шаг 32), два выреза 22×33 в
+  //    задней стенке, в смете навес на каждый верхний модуль и шина
+  //    ceil(L/2000) на непрерывный ряд; у нижних — ничего из этого.
+  {
+    const cat = window.Modul3D.catalog;
+    const tb = base.backThickness;
+    const ups = ['upper600', 'upper800', 'upper600', 'upper800'];
+    const mods = [byId('lower600'), byId('lower600drawers')].concat(ups.map(byId)).map(toModule);
+    const model = buildModel(Object.assign({}, base, { modules: mods }));
+    inspect(model, 'навеска верхних');
+    const upNames = mods.filter((m) => m.wallHung !== false && m.base.type === 'plinth' && !(m.base.plinthHeight > 0)).map((m) => m.name);
+    if (upNames.length !== ups.length) problems.push(`навеска: верхних модулей ${upNames.length} вместо ${ups.length}`);
+    for (const nm of upNames) {
+      const mp = model.partsRaw.filter((p) => p.module === nm);
+      const sides = mp.filter((p) => p.kind === 'side');
+      if (sides.length !== 2) problems.push(`навеска ${nm}: боковин ${sides.length}`);
+      for (const sp of sides) {
+        const hs = sp.holes.filter((h) => h.kind === 'hangerScrew').sort((a, b) => a.y - b.y);
+        const y1 = 15 + tb + 14;
+        if (hs.length !== 2) { problems.push(`навеска ${nm}: на «${sp.name}» ${hs.length} точек разметки вместо 2`); continue; }
+        if (Math.abs(hs[0].y - y1) > 0.05 || Math.abs(hs[1].y - (y1 + 32)) > 0.05) {
+          problems.push(`навеска ${nm}: саморезы на y ${hs[0].y}/${hs[1].y} вместо ${y1}/${y1 + 32}`);
+        }
+        if (hs.some((h) => Math.abs(h.x - (sp.boxes[0].h - 33)) > 0.05)) {
+          problems.push(`навеска ${nm}: линия саморезов x ${hs[0].x} вместо ${sp.boxes[0].h - 33}`);
+        }
+        if (hs.some((h) => !h.mark || h.depth !== 0 || h.side !== 'front')) problems.push(`навеска ${nm}: точка не «разметка без сверления»`);
+      }
+      const back = mp.filter((p) => p.kind === 'back')[0];
+      const notches = (back && back.notches) || [];
+      if (notches.length !== 2) { problems.push(`навеска ${nm}: вырезов в задней стенке ${notches.length} вместо 2`); continue; }
+      const bb = back.boxes[0];
+      const modTop = Math.max.apply(null, sides.map((s) => s.boxes[0].y + s.boxes[0].h / 2));
+      const backL = bb.x - bb.w / 2, backBot = bb.y - bb.h / 2;
+      const lIn = Math.min.apply(null, sides.map((s) => s.boxes[0].x)) + sides[0].boxes[0].w / 2;
+      const rIn = Math.max.apply(null, sides.map((s) => s.boxes[0].x)) - sides[0].boxes[0].w / 2;
+      notches.forEach((n) => {
+        if (Math.abs((modTop - (backBot + n.y0)) - 33) > 0.1 || Math.abs(n.y1 - back.width) > 0.05) {
+          problems.push(`навеска ${nm}: вырез по высоте не 33 от верха модуля (y0 ${n.y0})`);
+        }
+      });
+      const nl = notches.filter((n) => n.x0 === 0)[0], nr = notches.filter((n) => n.x0 > 0)[0];
+      if (!nl || Math.abs(backL + nl.x1 - lIn - 22) > 0.1) problems.push(`навеска ${nm}: левый вырез не 22 от внутренней грани боковины`);
+      if (!nr || Math.abs(rIn - (backL + nr.x0) - 22) > 0.1 || Math.abs(nr.x1 - back.length) > 0.05) {
+        problems.push(`навеска ${nm}: правый вырез не 22 от внутренней грани боковины`);
+      }
+    }
+    // У нижних модулей — ни разметки, ни вырезов
+    model.partsRaw.filter((p) => upNames.indexOf(p.module) === -1).forEach((p) => {
+      if ((p.holes || []).some((h) => h.kind === 'hangerScrew') || (p.notches || []).length) {
+        problems.push(`навеска: у нижнего модуля «${p.module}» деталь «${p.name}» с разметкой навеса`);
+      }
+    });
+    // Смета: навесов = число верхних; шин = ceil(L/2000) (600+800+600+800 = 2800 → 2)
+    const sp = buildSpecification(model);
+    const row = (key) => (sp.fasteners || []).filter((r) => r.article === cat.FASTENER_PRICES[key].article)[0];
+    const hRow = row('hangerBlum48N0510'), rRow = row('wallRailGtv2m');
+    if (!hRow || hRow.qty !== upNames.length) problems.push(`навеска: в смете навесов ${hRow && hRow.qty} вместо ${upNames.length}`);
+    if (!rRow || rRow.qty !== Math.ceil(2800 / 2000)) problems.push(`навеска: в смете шин ${rRow && rRow.qty} вместо 2`);
+    const rails = model.hardwareContext.wallRails || [];
+    if (rails.length !== 1 || rails[0].length !== 2800) problems.push(`навеска: шина ${JSON.stringify(rails)} вместо одного ряда 2800`);
+    // Только нижние — навесов и шины нет
+    const lowOnly = buildModel(Object.assign({}, base, { modules: [byId('lower600')].map(toModule) }));
+    const spLow = buildSpecification(lowOnly);
+    if ((spLow.fasteners || []).some((r) => /Навес|Шина монтажная/.test(r.name))) problems.push('навеска: у кухни без верхних в смете навес/шина');
+    // Накладная стенка: 1-й саморез от стены tb + 14 = 17 — вне 31–45, предупреждение
+    const ov = toModule(byId('upper600'), 0); ov.backMount = 'overlay';
+    const mOv = buildModel(Object.assign({}, base, { modules: [ov] }));
+    if (!mOv.warnings.some((w) => /крюк навеса не достанет до шины/.test(w))) problems.push('навеска: нет предупреждения при 1-м саморезе вне 31–45 мм');
+    if (model.warnings.some((w) => /крюк навеса не достанет/.test(w))) problems.push('навеска: ложное предупреждение о ходе крюка при пазе 15');
+    // GTV — присадка по Blum, предупреждение один раз на модуль; Forza — Л и П поштучно
+    const mG = buildModel(Object.assign({}, base, { hangerSystem: 'gtvForza', modules: [toModule(byId('upper600'), 0)] }));
+    if (mG.warnings.filter((w) => /не по чертежу GTV/.test(w)).length !== 1) problems.push('навеска GTV: нет (или не одно) предупреждения о присадке по Blum');
+    const spG = buildSpecification(mG);
+    ['hangerGtvForzaL', 'hangerGtvForzaR'].forEach((k) => {
+      const r = (spG.fasteners || []).filter((x) => x.article === cat.FASTENER_PRICES[k].article)[0];
+      if (!r || r.qty !== 1) problems.push(`навеска GTV: ${k} в смете ${r && r.qty} вместо 1`);
+    });
+    cases += 1;
+  }
 }
 
 // --- пустой проект: программа стартует без модулей -------------------------
