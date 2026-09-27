@@ -2424,17 +2424,25 @@ function applyWallHanger(p, parts, warnings, bm, backPart, D, H) {
 // шпаклюются/остаются как есть) — периметр кромки детали и площадь листа в
 // смете не меняются, только пометка в note.
 const RAIL_NOTCH = { h: 45, d: 20 }; // решение пользователя 2026-09-26
-// Боковина «на дно» (sides[key] === 'onBottom') не режется: она не удлинена
-// в паз до стены (parts.left/right groove задаёт только floor/besideBottom,
-// см. resolveBackMount), реально до шины не достаёт и мешать ей не может —
-// выпил там был бы лишним отверстием без функции (решение пользователя
-// 2026-09-27, баг с обеими боковинами «на дно» на верхнем модуле).
-function applyRailNotch(p, parts, sideVisible, sides, warnings) {
+// Боковина «на дно» (sides[key] === 'onBottom') по умолчанию не режется: в
+// АВТО-режиме она не удлинена в паз до стены (parts.left/right groove задаёт
+// только floor/besideBottom, см. resolveBackMount), реально до шины не
+// достаёт и мешать ей не может — выпил там был бы лишним отверстием без
+// функции (решение пользователя 2026-09-27, баг с обеими боковинами «на
+// дно» на верхнем модуле). НО если пользователь вручную поставил «Задняя
+// стенка → В паз» и не снял галочку с этой боковины — она ТОЖЕ удлиняется
+// в паз до стены (bm.parts[key] === true), и тогда выпил снова нужен: та
+// же физическая причина (боковина реально дотягивается до шины), просто
+// теперь она возникла по ручному выбору, а не по типу низа боковины
+// (найдено пользователем 2026-09-27 — «В паз» добавился, боковины стали
+// как дно, а выреза нет, хотя он там нужен).
+function applyRailNotch(p, parts, sideVisible, sides, bm, warnings) {
   if (!isWallHung(p)) return;
+  const inGroove = (key) => !!(bm && bm.mode === 'groove' && bm.parts && bm.parts[key]);
   for (const sp of parts.filter((q) => q.kind === 'side')) {
     const key = sp.box.x < 0 ? 'left' : 'right';
     if (sideVisible[key] !== false) continue;
-    if (sides[key] === 'onBottom') continue;
+    if (sides[key] === 'onBottom' && !inGroove(key)) continue;
     const len = Number(sp.length) || 0;
     const wid = Number(sp.width) || 0;
     if (len <= RAIL_NOTCH.h || wid <= RAIL_NOTCH.d) continue;
@@ -4651,7 +4659,7 @@ function buildModuleParts(p) {
   // фактической толщины задней стенки (её могли переопределить вручную).
   const hangerHardware = applyWallHanger(p, parts, warnings, bm, backPart, D, H);
   // Выпил под монтажную шину — после разметки навеса (проверка попадания).
-  applyRailNotch(p, parts, sideVisible, sides, warnings);
+  applyRailNotch(p, parts, sideVisible, sides, bm, warnings);
   // Направление текстуры — тоже постобработка: только помечает детали
   // (см. блок «НАПРАВЛЕНИЕ ТЕКСТУРЫ»), размеров и присадки не трогает.
   applyGrainDirection(parts, p.grainGroups, p.grainOverrides);

@@ -4395,7 +4395,8 @@ for (const glass of [false, true]) {
     //    материал видимой, дно/ДВП меняли размер, у фасадов появлялся
     //    перепад). Теперь стенка остаётся В ПАЗУ (паз только в дне), боковины
     //    по-прежнему не видны (закрыты соседями), выреза под шину на них нет
-    //    (отдельное правило — «на дно» не режется никогда), ложного
+    //    (АВТО-режим не удлиняет боковину «на дно» в паз — ей физически не
+    //    достать до шины, см. (f) ниже про обратный случай), ложного
     //    предупреждения о ходе крюка тоже нет (навеска считается от обычного
     //    паза, а не от накладной стенки).
     const mOnBottom = buildModel(Object.assign({}, base, { modules: row3({ leftSide: 'onBottom', rightSide: 'onBottom' }) }));
@@ -4419,6 +4420,24 @@ for (const glass of [false, true]) {
       modules: row3({ leftSide: 'onBottom', rightSide: 'floor' }).slice(0, 2) }));
     const lSOB = midSides(mMixOB).filter((q) => /левая/.test(q.name))[0];
     if (!lSOB || railOf(lSOB).length !== 0) problems.push('выпил под шину: у закрытой «на дно» боковины есть выпил (должно не резаться)');
+    // f) боковина «на дно», но ЗАДНЯЯ СТЕНКА ВРУЧНУЮ переведена в «В паз»
+    //    (backMount:'groove', галочки боковин по умолчанию не сняты) — в
+    //    отличие от (c), тут боковина ФАКТИЧЕСКИ удлиняется в паз до стены
+    //    (bm.parts[key] === true, тот же механизм, что даёт ей размер дна),
+    //    и вырез снова нужен — та же причина (боковина реально дотягивается
+    //    до шины), просто включена вручную, а не типом низа (найдено
+    //    пользователем 2026-09-27, регрессия от прошлой правки этого дня).
+    const mOnBottomGroove = buildModel(Object.assign({}, base, {
+      modules: row3({ leftSide: 'onBottom', rightSide: 'onBottom', backMount: 'groove' }) }));
+    inspect(mOnBottomGroove, 'выпил под шину: «на дно» + ручной «В паз»');
+    const midGroove = midSides(mOnBottomGroove);
+    if (!midGroove.every((sp) => railOf(sp).length === 1)) {
+      problems.push('выпил под шину: «на дно» + ручной «В паз» — выпила нет, хотя боковина удлинена до стены');
+    }
+    const bottomGroove = mOnBottomGroove.partsRaw.filter((q) => q.kind === 'bottom' && q.module === 'М')[0];
+    if (!midGroove.every((sp) => Math.abs(sp.width - (bottomGroove ? bottomGroove.width : -1)) < 0.05)) {
+      problems.push('выпил под шину: «на дно» + ручной «В паз» — боковина не того же размера, что дно');
+    }
     cases += 1;
   }
 
