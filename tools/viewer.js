@@ -397,8 +397,10 @@ check('сквозные вырезы (выпил под шину, вырез п�
     hangerSystem: 'blum48N0510',
     // Два верхних вплотную (решение 2026-09-27): выпил только на
     // закрытых соседом боковинах стыка, торцы ряда видимые — без выпила.
+    // «до пола», не «на дно»: у боковины «на дно» выпила нет никогда
+    // (отдельное правило, решение 2026-09-27, geometry.js кейс 5c/5e).
     modules: ['Верх 1', 'Верх 2'].map((nm) => ({ name: nm, family: 'kitchen', width: 600, height: 720, depth: 320,
-      topType: 'full', leftSide: 'onBottom', rightSide: 'onBottom', backMount: 'groove',
+      topType: 'full', leftSide: 'floor', rightSide: 'floor', backMount: 'groove',
       base: { type: 'plinth', plinthHeight: 0 },
       sections: [{ shelves: 1, drawers: 0, facade: 'doorLeft', handle: 'bow160' }] })),
   });

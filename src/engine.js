@@ -2253,8 +2253,17 @@ function resolveBackMount(p, sides, tb) {
     if (p.family === 'kitchen' && !hung) return overlay;
     // Паз режется только в боковине, чья пласть открыта наружу целиком:
     // «до пола» или «сбоку дна». Боковины «на дно» — накладная стенка.
+    // Исключение — НАВЕСНОЙ модуль: у него паз в дне не зависит от боковин
+    // вовсе (parts.bottom = hung ниже), поэтому даже если ОБЕ боковины «на
+    // дно» (ни одна не подходит под q()), стенка всё равно должна остаться
+    // В ПАЗ (паз только в дне) — иначе весь корпус на дне переезжает в
+    // «накладную» геометрию (extent()/backOut() считают иначе), и модуль
+    // визуально рассинхронизируется с соседями по ряду: ломается определение
+    // «закрыта ли боковина соседом» (sideCovered ниже), она красится в
+    // материал видимой боковины, дно/ДВП меняют размеры, у фасадов появляется
+    // перепад (баг 2026-09-27, обе боковины «на дно» на верхнем модуле).
     const q = (v) => v === 'floor' || v === 'besideBottom';
-    if (!q(sides.left) && !q(sides.right)) return overlay;
+    if (!hung && !q(sides.left) && !q(sides.right)) return overlay;
     offset = BACK_GROOVE_DEFAULTS.offset;
     depth = BACK_GROOVE_DEFAULTS.depth;
     entry = BACK_GROOVE_DEFAULTS.entry;
@@ -2280,7 +2289,15 @@ function resolveBackMount(p, sides, tb) {
   // (rails/railsEdge) и у корпуса без крыши под толстой столешницей верх
   // считается «без паза».
   const topIsPanel = !(p.topType === 'rails' || p.topType === 'railsEdge') && !skipTopPanelOf(p);
-  if (!topIsPanel) parts.top = false;
+  // НАВЕСНОЙ модуль: крышка вкладная между боковинами и доходит прямо до
+  // ДВП, паз в ней не режут никогда — то же правило, что и в АВТО-режиме
+  // (parts.top = !hung && !tall выше), но там оно применялось только по
+  // умолчанию. В РУЧНОМ режиме «В паз» чекбокс «крыша» ничем не блокировался
+  // для навесных модулей (backGrooveTopBlockedReason в app.js проверяет
+  // только topType/отсутствие крыши) — из-за этого ручной выбор паза у
+  // верхнего модуля мог прорезать и крышку тоже (решение пользователя
+  // 2026-09-27: паз в крышке — только у напольных модулей).
+  if (!topIsPanel || hung) parts.top = false;
   if (!parts.left && !parts.right && !parts.top && !parts.bottom) return overlay;
   const w = round1(Number(tb) + 0.5);
   return { mode: 'groove', manual: mount === 'groove', parts, offset, depth, entry, w,
@@ -2407,11 +2424,17 @@ function applyWallHanger(p, parts, warnings, bm, backPart, D, H) {
 // шпаклюются/остаются как есть) — периметр кромки детали и площадь листа в
 // смете не меняются, только пометка в note.
 const RAIL_NOTCH = { h: 45, d: 20 }; // решение пользователя 2026-09-26
-function applyRailNotch(p, parts, sideVisible, warnings) {
+// Боковина «на дно» (sides[key] === 'onBottom') не режется: она не удлинена
+// в паз до стены (parts.left/right groove задаёт только floor/besideBottom,
+// см. resolveBackMount), реально до шины не достаёт и мешать ей не может —
+// выпил там был бы лишним отверстием без функции (решение пользователя
+// 2026-09-27, баг с обеими боковинами «на дно» на верхнем модуле).
+function applyRailNotch(p, parts, sideVisible, sides, warnings) {
   if (!isWallHung(p)) return;
   for (const sp of parts.filter((q) => q.kind === 'side')) {
     const key = sp.box.x < 0 ? 'left' : 'right';
     if (sideVisible[key] !== false) continue;
+    if (sides[key] === 'onBottom') continue;
     const len = Number(sp.length) || 0;
     const wid = Number(sp.width) || 0;
     if (len <= RAIL_NOTCH.h || wid <= RAIL_NOTCH.d) continue;
@@ -4605,7 +4628,7 @@ function buildModuleParts(p) {
   // фактической толщины задней стенки (её могли переопределить вручную).
   const hangerHardware = applyWallHanger(p, parts, warnings, bm, backPart, D, H);
   // Выпил под монтажную шину — после разметки навеса (проверка попадания).
-  applyRailNotch(p, parts, sideVisible, warnings);
+  applyRailNotch(p, parts, sideVisible, sides, warnings);
   // Направление текстуры — тоже постобработка: только помечает детали
   // (см. блок «НАПРАВЛЕНИЕ ТЕКСТУРЫ»), размеров и присадки не трогает.
   applyGrainDirection(parts, p.grainGroups, p.grainOverrides);

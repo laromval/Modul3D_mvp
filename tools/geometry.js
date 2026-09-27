@@ -4313,6 +4313,12 @@ for (const glass of [false, true]) {
   //    верхнем заднем углу (x — по высоте боковины от низа, y — от заднего
   //    края); у видимой — нет. Паз под заднюю стенку в выпил не заходит;
   //    3D (slabCutsForPart), чертёж, CSV и DXF видят вырезы.
+  //    Отдельное правило (решение пользователя 2026-09-27, баг с обеими
+  //    боковинами «на дно» на верхнем модуле): у боковины «на дно» выпила
+  //    НЕТ никогда — независимо от видимости и режима задней стенки, боковина
+  //    такого типа реально не мешает шине. Ниже поэтому пункты (b) и (d)
+  //    используют «до пола», а не «на дно» — тип «на дно» проверяет
+  //    отдельный пункт (c).
   {
     const RN = window.Modul3D.engine.RAIL_NOTCH;
     if (!RN || RN.h !== 45 || RN.d !== 20) problems.push('выпил под шину: RAIL_NOTCH не 45×20');
@@ -4323,13 +4329,13 @@ for (const glass of [false, true]) {
     sidesOf(mVis).forEach((sp) => {
       if (railOf(sp).length) problems.push(`выпил под шину: у видимой «${sp.name}» есть выпил`);
     });
-    // b) средний из трёх одинаковых (обе боковины закрыты соседями —
-    //    невидимые, решение 2026-09-27), стенка в паз вручную — выпил на
-    //    обеих, паз обрезан у выпила, разметка навеса вне выпила
+    // b) средний из трёх одинаковых (обе боковины «до пола», закрыты
+    //    соседями — невидимые, решение 2026-09-27), стенка в паз вручную —
+    //    выпил на обеих, паз обрезан у выпила, разметка навеса вне выпила
     const row3 = (patch) => ['Л', 'М', 'П'].map((nm, i) => Object.assign(toModule(byId('upper600'), i), patch, { name: nm }));
     const midSides = (m) => sidesOf(m).filter((q) => q.module === 'М');
     const mHid = buildModel(Object.assign({}, base, {
-      modules: row3({ leftSide: 'onBottom', rightSide: 'onBottom', backMount: 'groove' }) }));
+      modules: row3({ leftSide: 'floor', rightSide: 'floor', backMount: 'groove' }) }));
     inspect(mHid, 'выпил под шину: невидимые боковины');
     const viewerApi = window.Modul3D.viewer || {};
     for (const sp of midSides(mHid)) {
@@ -4368,7 +4374,7 @@ for (const glass of [false, true]) {
     // Смета: площадь листа по-прежнему по целому прямоугольнику
     const areaOf = (m) => midSides(m).reduce((a, q) => a + q.length * q.width * (q.qty || 1), 0);
     const mPlain = buildModel(Object.assign({}, base, {
-      modules: row3({ leftSide: 'onBottom', rightSide: 'onBottom', backMount: 'groove', wallHung: false }) }));
+      modules: row3({ leftSide: 'floor', rightSide: 'floor', backMount: 'groove', wallHung: false }) }));
     if (sidesOf(mPlain).some((sp) => railOf(sp).length)) problems.push('выпил под шину: у ненавесного модуля есть выпил');
     if (Math.abs(areaOf(mPlain) - areaOf(mHid)) > 1) problems.push('выпил под шину: площадь боковин изменилась из-за выпила');
     // CSV/DXF: строка на каждый вырез, контур с вырезами полилинией
@@ -4383,23 +4389,36 @@ for (const glass of [false, true]) {
     const htmlH = String(buildDrawings(mHid, true));
     if (!/Выпил под монтажную шину 45×20/.test(htmlH)) problems.push('выпил под шину: на чертеже нет подписи выпила');
     if (!/<path class="dw-facade"/.test(htmlH)) problems.push('выпил под шину: на чертеже контур без выреза');
-    // c) накладная стенка (авто при боковинах «на дно»): 1-й саморез навеса
-    //    в 14 мм от заднего края боковины — по глубине в зоне выпила 20, но
-    //    по высоте линия саморезов (крыша 18 + 33 = 51 от верха) ниже выпила
-    //    45 — в выпил не попадает (решение 2026-09-27); предупреждение только
-    //    о ходе крюка (17 мм вне 31–45).
-    const mOv = buildModel(Object.assign({}, base, { modules: row3({ leftSide: 'onBottom', rightSide: 'onBottom' }) }));
-    if (!midSides(mOv).every((sp) => railOf(sp).length === 1)) problems.push('выпил под шину: при накладной стенке нет выпила');
-    if (mOv.warnings.some((w) => /попадает в выпил/.test(w))) problems.push('выпил под шину: ложное предупреждение о разметке в выпиле (линия саморезов len − 51 ниже выпила 45)');
-    if (!mOv.warnings.some((w) => /крюк навеса не достанет/.test(w))) problems.push('выпил под шину: при накладной стенке нет предупреждения о ходе крюка');
-    // d) слева сосед (левая закрыта), справа торец ряда (правая видимая) —
-    //    выпил только на левой; тип боковины у навесного видимость не задаёт
+    // c) авто-режим, ОБЕ боковины «на дно» (регрессия на баг 2026-09-27:
+    //    раньше это ошибочно давало накладную заднюю стенку — resolveBackMount
+    //    бросал в overlay ещё до parts.bottom = hung — боковина красилась в
+    //    материал видимой, дно/ДВП меняли размер, у фасадов появлялся
+    //    перепад). Теперь стенка остаётся В ПАЗУ (паз только в дне), боковины
+    //    по-прежнему не видны (закрыты соседями), выреза под шину на них нет
+    //    (отдельное правило — «на дно» не режется никогда), ложного
+    //    предупреждения о ходе крюка тоже нет (навеска считается от обычного
+    //    паза, а не от накладной стенки).
+    const mOnBottom = buildModel(Object.assign({}, base, { modules: row3({ leftSide: 'onBottom', rightSide: 'onBottom' }) }));
+    if (!midSides(mOnBottom).every((sp) => railOf(sp).length === 0)) problems.push('выпил под шину: у боковины «на дно» есть выпил (должно не резаться)');
+    if (midSides(mOnBottom).some((sp) => /видимая/.test(sp.name))) problems.push('выпил под шину: боковина «на дно» между соседями стала видимой (баг 2026-09-27)');
+    const backOB = mOnBottom.partsRaw.filter((q) => q.kind === 'back' && q.module === 'М')[0];
+    if (!backOB || !/В паз/.test(backOB.note || '')) problems.push('выпил под шину: обе боковины «на дно» — задняя стенка не в пазу (регрессия на баг 2026-09-27)');
+    if (mOnBottom.warnings.some((w) => /крюк навеса не достанет/.test(w))) problems.push('выпил под шину: ложное предупреждение о ходе крюка при боковинах «на дно» (регрессия на баг 2026-09-27)');
+    // d) слева сосед (левая «до пола», закрыта), справа торец ряда (правая
+    //    видимая) — выпил только на закрытой; тип боковины у навесного
+    //    видимость не задаёт (закрытость решает геометрия соседей, не тип)
     const mMix = buildModel(Object.assign({}, base, {
-      modules: row3({ leftSide: 'onBottom', rightSide: 'floor' }).slice(0, 2) }));
+      modules: row3({ leftSide: 'floor', rightSide: 'floor' }).slice(0, 2) }));
     const lS = midSides(mMix).filter((q) => /левая/.test(q.name))[0];
     const rS = midSides(mMix).filter((q) => /правая/.test(q.name))[0];
     if (!lS || railOf(lS).length !== 1) problems.push('выпил под шину: у невидимой левой нет выпила');
     if (!rS || railOf(rS).length !== 0) problems.push('выпил под шину: у видимой правой есть выпил');
+    // e) слева сосед, боковина «на дно» — закрыта соседом (геометрия та же,
+    //    что и у (d)), но выпила быть не должно (тип «на дно», правило (c))
+    const mMixOB = buildModel(Object.assign({}, base, {
+      modules: row3({ leftSide: 'onBottom', rightSide: 'floor' }).slice(0, 2) }));
+    const lSOB = midSides(mMixOB).filter((q) => /левая/.test(q.name))[0];
+    if (!lSOB || railOf(lSOB).length !== 0) problems.push('выпил под шину: у закрытой «на дно» боковины есть выпил (должно не резаться)');
     cases += 1;
   }
 

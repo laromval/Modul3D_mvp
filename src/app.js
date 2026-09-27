@@ -10412,6 +10412,7 @@ function moduleIsWallHung(mod) {
 // «Крыши нет» (под толстой столешницей) не вычисляем сами, а смотрим по
 // последней модели: у модуля нет ни одной детали вида 'top'.
 function backGrooveTopBlockedReason(mod) {
+  if (moduleIsWallHung(mod)) return 'навесной модуль';
   if (mod.topType === 'rails' || mod.topType === 'railsEdge') return 'верх — планки';
   const rows = (currentModel && currentModel.partsRaw) || [];
   const own = rows.filter((r) => r.module === mod.name);
