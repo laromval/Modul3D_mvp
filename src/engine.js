@@ -2292,15 +2292,17 @@ function resolveBackMount(p, sides, tb) {
 // подтверждено пользователем 2026-09-27). Для навесного модуля
 // (isWallHung(p)) с выбранной системой навески p.hangerSystem:
 //  1) на ОБЕИХ боковинах, с внутренней пласти — две точки РАЗМЕТКИ под
-//     саморезы навески (без сверления): линия на screwLineFromTop ниже верха
-//     боковины; 1-й саморез от СТЕНЫ = отступ задней стенки (паз —
+//     саморезы навески (без сверления): линия на screwLineFromTop ниже
+//     ВНУТРЕННЕЙ (нижней) плоскости крыши — крыша у нас вкладная, поэтому от
+//     верха боковины это толщина крыши + 33 (решение 2026-09-27); 1-й саморез от СТЕНЫ = отступ задней стенки (паз —
 //     bm.offset, накладная — 0) + её фактическая толщина + screwGapFromBack,
 //     второй — на screwStep дальше вперёд. На детали y считается от её
 //     ФАКТИЧЕСКОГО заднего края: боковина с пазом удлинена назад до стены
 //     (y = от стены), у накладной стенки боковина стоит перед ней (y меньше
 //     на толщину стенки);
 //  2) в задней стенке — два угловых выреза backCut.w × backCut.h сверху
-//     (w — от внутренней грани боковины, h — от верха модуля) под крюк;
+//     (w — от внутренней грани боковины, h — от внутренней плоскости крыши,
+//     т.е. от верха модуля толщина крыши + h) под крюк;
 //     хранятся в part.notches (координаты детали: x — по длине от левого
 //     края, y — по ширине от низа); отрисовку делает следующий этап.
 // Возвращает hangerHardware для сметы: [{ system, qty }] (пусто, если модуль
@@ -2326,11 +2328,26 @@ function applyWallHanger(p, parts, warnings, bm, backPart, D, H) {
     warnings.push(`Навеска «${sys.name}»: ${sys.genericNote}.`);
   }
   const sides = parts.filter((q) => q.kind === 'side');
+  // Все вертикальные размеры Blum 48N0510 (линия саморезов, высота выреза)
+  // отсчитываются от ВНУТРЕННЕЙ (нижней) плоскости крыши — у Blum крыша
+  // лежит на боковинах. У нас крыша вкладная между боковинами (занимает
+  // верхние t мм боковины), поэтому плоскость отсчёта = низ фактической
+  // детали крыши (решение пользователя 2026-09-27). Нет крыши — верх модуля.
+  const roofs = parts.filter((q) => q.kind === 'top' && q.box);
+  let refY = null;
+  for (const r of roofs) {
+    const rTop = r.box.y + r.box.h / 2;
+    const rBot = rTop - (Number(r.thickness) || r.box.h);
+    if (refY === null || rBot > refY) refY = rBot;
+  }
+  if (refY === null) refY = H;
+  const lineY = refY - sys.screwLineFromTop;
   for (const sp of sides) {
     const sideRear = sp.box.z - sp.box.d / 2;
     const y1 = round1(fromWall - (sideRear - wallZ));
     const y2 = round1(y1 + sys.screwStep);
-    const x = round1(sp.box.h - sys.screwLineFromTop);
+    const sideBottom = sp.box.y - sp.box.h / 2;
+    const x = round1(Math.min(lineY, sp.box.y + sp.box.h / 2 - sys.screwLineFromTop) - sideBottom);
     const marks = [y1, y2].map((y) => ({
       x, y, d: HANGER_MARK_D, depth: 0, through: false, side: 'front',
       kind: 'hangerScrew', mark: true,
@@ -2356,8 +2373,10 @@ function applyWallHanger(p, parts, warnings, bm, backPart, D, H) {
     const L = backPart.length, Wd = backPart.width;
     const left = sides.filter((q) => q.box.x < 0)[0];
     const right = sides.filter((q) => q.box.x > 0)[0];
-    const y0 = round1(H - sys.backCut.h - backBottom);
-    const note = `Вырез ${sys.backCut.w}×${sys.backCut.h} мм под крюк навески`;
+    // По высоте — до backCut.h ниже внутренней плоскости крыши (refY).
+    const y0 = round1(Math.min(refY, H) - sys.backCut.h - backBottom);
+    const cutH = round1(Wd - y0);
+    const note = `Вырез ${sys.backCut.w}×${cutH} мм под крюк навески (${sys.backCut.h} мм ниже крыши)`;
     const notches = [];
     if (y0 > 0 && y0 < Wd) {
       if (left) {
@@ -2372,7 +2391,7 @@ function applyWallHanger(p, parts, warnings, bm, backPart, D, H) {
     if (notches.length) {
       backPart.notches = (backPart.notches || []).concat(notches);
       backPart.note = (backPart.note ? backPart.note + '; ' : '')
-        + `вырезы ${sys.backCut.w}×${sys.backCut.h} под крюк навески`;
+        + `вырезы ${sys.backCut.w}×${cutH} под крюк навески`;
     }
   }
   return [{ system: p.hangerSystemId || null, qty: 1 }];
@@ -2414,8 +2433,11 @@ function applyRailNotch(p, parts, sideVisible, warnings) {
       }
     }
     // Разметка саморезов навеса / присадка внутри выпила — только предупреждаем.
-    const inside = (sp.holes || []).some((h) => h.side !== 'edge' && h.x > x0 && h.x < len
-      && h.y >= 0 && h.y < RAIL_NOTCH.d);
+    const inside = (sp.holes || []).some((h) => {
+      const r = (Number(h.d) || 0) / 2;
+      return h.side !== 'edge' && h.x + r > x0 && h.x - r < len
+        && h.y + r >= 0 && h.y - r < RAIL_NOTCH.d;
+    });
     if (inside) {
       warnings.push(`Навеска: на детали «${sp.name}» отверстие/разметка попадает в выпил `
         + `под шину ${RAIL_NOTCH.h}×${RAIL_NOTCH.d} мм — проверьте отступ задней стенки.`);

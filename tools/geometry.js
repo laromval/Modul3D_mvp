@@ -4203,8 +4203,10 @@ for (const glass of [false, true]) {
         if (Math.abs(hs[0].y - y1) > 0.05 || Math.abs(hs[1].y - (y1 + 32)) > 0.05) {
           problems.push(`навеска ${nm}: саморезы на y ${hs[0].y}/${hs[1].y} вместо ${y1}/${y1 + 32}`);
         }
-        if (hs.some((h) => Math.abs(h.x - (sp.boxes[0].h - 33)) > 0.05)) {
-          problems.push(`навеска ${nm}: линия саморезов x ${hs[0].x} вместо ${sp.boxes[0].h - 33}`);
+        // 33 — от ВНУТРЕННЕЙ плоскости вкладной крыши (решение 2026-09-27):
+        // от верха боковины = толщина крыши (base 18) + 33 = 51.
+        if (hs.some((h) => Math.abs(h.x - (sp.boxes[0].h - 51)) > 0.05)) {
+          problems.push(`навеска ${nm}: линия саморезов x ${hs[0].x} вместо ${sp.boxes[0].h - 51} (len − 51)`);
         }
         if (hs.some((h) => !h.mark || h.depth !== 0 || h.side !== 'front')) problems.push(`навеска ${nm}: точка не «разметка без сверления»`);
       }
@@ -4217,12 +4219,17 @@ for (const glass of [false, true]) {
       const lIn = Math.min.apply(null, sides.map((s) => s.boxes[0].x)) + sides[0].boxes[0].w / 2;
       const rIn = Math.max.apply(null, sides.map((s) => s.boxes[0].x)) - sides[0].boxes[0].w / 2;
       notches.forEach((n) => {
-        if (Math.abs((modTop - (backBot + n.y0)) - 33) > 0.1 || Math.abs(n.y1 - back.width) > 0.05) {
-          problems.push(`навеска ${nm}: вырез по высоте не 33 от верха модуля (y0 ${n.y0})`);
+        // 33 ниже внутренней плоскости крыши 18 → 51 от верха модуля;
+        // верх стенки на 1 мм ниже → на детали вырез высотой 50.
+        if (Math.abs((modTop - (backBot + n.y0)) - 51) > 0.1 || Math.abs(n.y1 - back.width) > 0.05
+          || Math.abs(back.width - n.y0 - 50) > 0.1) {
+          problems.push(`навеска ${nm}: вырез по высоте не 51 от верха модуля / не 50 на детали (y0 ${n.y0}, ширина стенки ${back.width})`);
         }
       });
       const nl = notches.filter((n) => n.x0 === 0)[0], nr = notches.filter((n) => n.x0 > 0)[0];
       if (!nl || Math.abs(backL + nl.x1 - lIn - 22) > 0.1) problems.push(`навеска ${nm}: левый вырез не 22 от внутренней грани боковины`);
+      if (nl && Math.abs(nl.x1 - 30) > 0.05) problems.push(`навеска ${nm}: левый вырез шириной ${nl.x1} на детали вместо 30 (паз 8 + 22)`);
+      if (nr && Math.abs(back.length - nr.x0 - 30) > 0.05) problems.push(`навеска ${nm}: правый вырез шириной ${back.length - nr.x0} на детали вместо 30`);
       if (!nr || Math.abs(rIn - (backL + nr.x0) - 22) > 0.1 || Math.abs(nr.x1 - back.length) > 0.05) {
         problems.push(`навеска ${nm}: правый вырез не 22 от внутренней грани боковины`);
       }
@@ -4241,6 +4248,28 @@ for (const glass of [false, true]) {
     if (!rRow || rRow.qty !== Math.ceil(2800 / 2000)) problems.push(`навеска: в смете шин ${rRow && rRow.qty} вместо 2`);
     const rails = model.hardwareContext.wallRails || [];
     if (rails.length !== 1 || rails[0].length !== 2800) problems.push(`навеска: шина ${JSON.stringify(rails)} вместо одного ряда 2800`);
+    // Крыша 16 (bodyThickness 16): саморезы на len − 49, вырез на детали
+    // стенки высотой 49 − 1 = 48, шириной 30 (паз).
+    {
+      const m16 = buildModel(Object.assign({}, base, { bodyThickness: 16, modules: [toModule(byId('upper600'), 0)] }));
+      const p16 = m16.partsRaw;
+      p16.filter((p) => p.kind === 'side').forEach((sp) => {
+        const hs = sp.holes.filter((h) => h.kind === 'hangerScrew');
+        if (hs.length !== 2 || hs.some((h) => Math.abs(h.x - (sp.length - 49)) > 0.05)) {
+          problems.push(`навеска крыша 16: саморезы на x ${hs.map((h) => h.x)} вместо len − 49 = ${sp.length - 49}`);
+        }
+      });
+      const b16 = p16.filter((p) => p.kind === 'back')[0];
+      const n16 = (b16 && b16.notches) || [];
+      if (n16.length !== 2 || n16.some((n) => Math.abs(b16.width - n.y0 - 48) > 0.05)) {
+        problems.push(`навеска крыша 16: вырез в стенке не высотой 48 (${JSON.stringify(n16)})`);
+      }
+      const l16 = n16.filter((n) => n.x0 === 0)[0];
+      if (!l16 || Math.abs(l16.x1 - 30) > 0.05) problems.push(`навеска крыша 16: ширина выреза ${l16 && l16.x1} вместо 30`);
+      if (m16.warnings.some((w) => /разметка саморезов навеса .*попадает|попадает в выпил/.test(w))) {
+        problems.push('навеска крыша 16: разметка саморезов попала в присадку/выпил');
+      }
+    }
     // Только нижние — навесов и шины нет
     const lowOnly = buildModel(Object.assign({}, base, { modules: [byId('lower600')].map(toModule) }));
     const spLow = buildSpecification(lowOnly);
@@ -4336,12 +4365,16 @@ for (const glass of [false, true]) {
     if (!/Выпил под монтажную шину 45×20/.test(htmlH)) problems.push('выпил под шину: на чертеже нет подписи выпила');
     if (!/<path class="dw-facade"/.test(htmlH)) problems.push('выпил под шину: на чертеже контур без выреза');
     // c) накладная стенка (авто при боковинах «на дно»): 1-й саморез навеса
-    //    в 14 мм от заднего края боковины — в зоне выпила 20, предупреждение
+    //    в 14 мм от заднего края боковины — по глубине в зоне выпила 20, но
+    //    по высоте линия саморезов (крыша 18 + 33 = 51 от верха) ниже выпила
+    //    45 — в выпил не попадает (решение 2026-09-27); предупреждение только
+    //    о ходе крюка (17 мм вне 31–45).
     const ov = toModule(byId('upper600'), 0);
     ov.leftSide = 'onBottom'; ov.rightSide = 'onBottom';
     const mOv = buildModel(Object.assign({}, base, { modules: [ov] }));
     if (!sidesOf(mOv).every((sp) => railOf(sp).length === 1)) problems.push('выпил под шину: при накладной стенке нет выпила');
-    if (!mOv.warnings.some((w) => /попадает в выпил/.test(w))) problems.push('выпил под шину: нет предупреждения о разметке в выпиле');
+    if (mOv.warnings.some((w) => /попадает в выпил/.test(w))) problems.push('выпил под шину: ложное предупреждение о разметке в выпиле (линия саморезов len − 51 ниже выпила 45)');
+    if (!mOv.warnings.some((w) => /крюк навеса не достанет/.test(w))) problems.push('выпил под шину: при накладной стенке нет предупреждения о ходе крюка');
     // d) одна видимая (до пола), другая нет (на дно) — выпил только на второй
     const mix = toModule(byId('upper600'), 0);
     mix.leftSide = 'onBottom'; mix.rightSide = 'floor';
