@@ -14453,6 +14453,16 @@ function renderDrillLegend() {
       grooves.set(key, (grooves.get(key) || 0) + 1);
     }
   }
+  // Сквозные вырезы (part.notches: выпил под шину, вырез под крюк навески) —
+  // своей строкой по виду и размеру; фильтр по data-kind, как у отверстий.
+  for (const p of (currentModel.partsRaw || [])) {
+    for (const n of (p.notches || [])) {
+      const w = Math.round(Math.abs(n.x1 - n.x0) * 10) / 10;
+      const h = Math.round(Math.abs(n.y1 - n.y0) * 10) / 10;
+      const key = `${n.kind}|вырез ${w}×${h} · насквозь`;
+      count.set(key, (count.get(key) || 0) + 1);
+    }
+  }
   const rows = Array.from(count.keys()).sort().map((key) => {
     const [kind, spec] = key.split('|');
     const c = ((DRILL_COLOR[kind] || 0x555555)).toString(16).padStart(6, '0');

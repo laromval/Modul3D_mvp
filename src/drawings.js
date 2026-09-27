@@ -1143,6 +1143,112 @@ function aluHingeTable(p) {
     + `</tbody></table>`;
 }
 
+// СКВОЗНЫЕ ВЫРЕЗЫ ДЕТАЛИ (part.notches, engine.js): выпил под монтажную
+// шину в верхнем заднем углу боковины навесного модуля (railNotch) и вырезы
+// под крюк навески в задней стенке (hangerBackCut). Координаты — те же, что
+// у присадки на чертеже детали: x — по длине слева, y — по ширине снизу.
+const NOTCH_TITLE = {
+  railNotch: 'Выпил под монтажную шину',
+  hangerBackCut: 'Вырез под крюк навески',
+};
+function partNotches(p) {
+  const L = Number(p.length) || 0, Wd = Number(p.width) || 0;
+  const out = [];
+  for (const n of (p.notches || [])) {
+    const cl = (v, m) => Math.min(Math.max(v, 0), m);
+    const xa = cl(Math.min(n.x0, n.x1), L), xb = cl(Math.max(n.x0, n.x1), L);
+    const ya = cl(Math.min(n.y0, n.y1), Wd), yb = cl(Math.max(n.y0, n.y1), Wd);
+    if (xb - xa > 0.01 && yb - ya > 0.01) out.push({ kind: n.kind, note: n.note, xa, xb, ya, yb });
+  }
+  return out;
+}
+// Размер выреза на детали (то, что фрезеруется): по длине × по ширине.
+function notchSizeText(n) { return `${mm1(n.xb - n.xa)}×${mm1(n.yb - n.ya)}`; }
+// Сводка вырезов для подписи под чертежом: «2× Вырез под крюк навески 30×33».
+function notchSummary(p) {
+  const by = {};
+  for (const n of partNotches(p)) {
+    const k = `${NOTCH_TITLE[n.kind] || 'Вырез'} ${notchSizeText(n)} насквозь`;
+    by[k] = (by[k] || 0) + 1;
+  }
+  return Object.keys(by).map((k) => `${by[k]}×${k}`).join(', ');
+}
+// Контур детали: прямоугольник, а при сквозных вырезах — ломаная по их
+// краям (контур собирается из отрезков сторон минус участки вырезов и
+// внутренних сторон вырезов, отрезки сцепляются в замкнутые петли).
+function partContour(p, x0, y0, fw, fh, scale, cls) {
+  const ns = partNotches(p);
+  if (!ns.length) return rect(x0, y0, fw, fh, cls);
+  const L = Number(p.length) || 0, Wd = Number(p.width) || 0;
+  const E = 0.01;
+  const cut = (a, b, list) => {
+    let segs = [[a, b]];
+    for (const c of list) {
+      const nx = [];
+      for (const sg of segs) {
+        if (c[1] <= sg[0] + E || c[0] >= sg[1] - E) { nx.push(sg); continue; }
+        if (c[0] - sg[0] > E) nx.push([sg[0], c[0]]);
+        if (sg[1] - c[1] > E) nx.push([c[1], sg[1]]);
+      }
+      segs = nx;
+    }
+    return segs;
+  };
+  const segs = [];
+  cut(0, L, ns.filter((n) => n.ya <= E).map((n) => [n.xa, n.xb])).forEach((g) => segs.push([[g[0], 0], [g[1], 0]]));
+  cut(0, L, ns.filter((n) => n.yb >= Wd - E).map((n) => [n.xa, n.xb])).forEach((g) => segs.push([[g[0], Wd], [g[1], Wd]]));
+  cut(0, Wd, ns.filter((n) => n.xa <= E).map((n) => [n.ya, n.yb])).forEach((g) => segs.push([[0, g[0]], [0, g[1]]]));
+  cut(0, Wd, ns.filter((n) => n.xb >= L - E).map((n) => [n.ya, n.yb])).forEach((g) => segs.push([[L, g[0]], [L, g[1]]]));
+  for (const n of ns) {
+    if (n.xa > E) segs.push([[n.xa, n.ya], [n.xa, n.yb]]);
+    if (n.xb < L - E) segs.push([[n.xb, n.ya], [n.xb, n.yb]]);
+    if (n.ya > E) segs.push([[n.xa, n.ya], [n.xb, n.ya]]);
+    if (n.yb < Wd - E) segs.push([[n.xa, n.yb], [n.xb, n.yb]]);
+  }
+  const key = (q) => `${Math.round(q[0] * 10)}|${Math.round(q[1] * 10)}`;
+  const used = segs.map(() => false);
+  const X = (v) => x0 + v * scale, Y = (v) => y0 + fh - v * scale;
+  let d = '';
+  for (let i = 0; i < segs.length; i++) {
+    if (used[i]) continue;
+    used[i] = true;
+    const pts = [segs[i][0], segs[i][1]];
+    const startK = key(pts[0]);
+    for (let guard = 0; guard < segs.length && key(pts[pts.length - 1]) !== startK; guard++) {
+      const endK = key(pts[pts.length - 1]);
+      let j = -1;
+      for (let k = 0; k < segs.length; k++) {
+        if (used[k]) continue;
+        if (key(segs[k][0]) === endK) { j = k; pts.push(segs[k][1]); break; }
+        if (key(segs[k][1]) === endK) { j = k; pts.push(segs[k][0]); break; }
+      }
+      if (j < 0) break;
+      used[j] = true;
+    }
+    d += 'M' + pts.map((q) => `${r(X(q[0]))},${r(Y(q[1]))}`).join(' L') + ' Z ';
+  }
+  return `<path class="${cls}" fill-rule="evenodd" d="${d.trim()}"/>`;
+}
+// Размеры сквозных вырезов — внутри детали, от сторон выреза вглубь: длина
+// выреза (по x) и его ширина (по y).
+function notchDims(p, x0, y0, fw, fh, scale) {
+  const ns = partNotches(p);
+  if (!ns.length) return '';
+  const L = Number(p.length) || 0;
+  const X = (v) => x0 + v * scale, Y = (v) => y0 + fh - v * scale;
+  let b = '';
+  for (const n of ns) {
+    // Горизонтальный размер — у той стороны выреза, что внутри детали.
+    const atBottom = n.ya <= 0.01;
+    const yIn = atBottom ? n.yb : n.ya;
+    b += dimH(X(n.xa), X(n.xb), Y(yIn), 0, mm1(n.xb - n.xa), atBottom ? -1 : 1);
+    const atRight = n.xb >= L - 0.01;
+    const xIn = atRight ? n.xa : n.xb;
+    b += dimV(Y(n.yb), Y(n.ya), X(xIn), 0, mm1(n.yb - n.ya), atRight ? -1 : 1);
+  }
+  return b;
+}
+
 // Чертежи ДЕТАЛЕЙ: фасады и любые другие детали с присадкой или пазом.
 // Раньше свой лист был только у фасада, и присадку остальных деталей
 // (стенки ящика, боковины, планки) на чертежах было просто не видно.
@@ -1159,6 +1265,8 @@ function buildPartDrawings(model, scale, pick, emptyText) {
     f.aluFrame ? `alu:${f.aluFrame.profile}:${f.frameW}:${f.aluFrame.fill}` : '',
     (f.holes || []).map((h) => `${h.kind}:${h.x}:${h.y}:${h.d}:${h.depth || 0}`)
       .sort().join('|'),
+    // Сквозные вырезы (выпил под шину, вырез под крюк) — тоже по шаблону.
+    (f.notches || []).map((n) => `${n.kind}:${n.x0}:${n.y0}:${n.x1}:${n.y1}`).sort().join('|'),
   ].join('/');
 
   const groups = {};
@@ -1185,7 +1293,8 @@ function buildPartDrawings(model, scale, pick, emptyText) {
     const PAD_R = PAD;
     const PAD_B = PAD;
     const W = fw + PAD_L + PAD_R, H = fh + PAD_T + PAD_B;
-    let body = rect(PAD_L, PAD_T, fw, fh, 'dw-facade');
+    // Контур детали — с учётом сквозных вырезов (part.notches).
+    let body = partContour(p, PAD_L, PAD_T, fw, fh, scale, 'dw-facade');
     // Алюминиевый фасад из профиля (engine.js, part.aluFrame): внутренний
     // контур рамки шириной frameW — граница профиля и заполнения. Рисуем его
     // только если ширина рамки реально указана у профиля в каталоге
@@ -1203,11 +1312,12 @@ function buildPartDrawings(model, scale, pick, emptyText) {
     // Сначала цепочка присадки — она ближе к детали, потом габарит снаружи.
     body += facadeHoles(p, PAD_L, PAD_T, fw, fh, scale);
     const usedLv = facadeHoles.levels || { bottom: 0, right: 0 };
+    body += notchDims(p, PAD_L, PAD_T, fw, fh, scale);
     body += dimH(PAD_L, PAD_L + fw, PAD_T + fh, usedLv.bottom || 0, String(p.length));
     body += dimV(PAD_T, PAD_T + fh, PAD_L + fw, usedLv.right || 0, String(p.width));
-    const drill = (p.holes || []).length
+    const drill = ((p.holes || []).length
       ? ` · присадка: ${holeSummary(p)}`
-      : '';
+      : '') + (partNotches(p).length ? ` · вырезы: ${notchSummary(p)}` : '');
     const aluSl = (p.grooves || []).filter((g) => g.kind === 'aluHingeSlot');
     const otherGr = (p.grooves || []).filter((g) => g.kind !== 'aluHingeSlot');
     const paz = (otherGr.length
@@ -1238,7 +1348,7 @@ function buildFacadeDrawings(model, scale) {
 function buildDrilledPartDrawings(model, scale) {
   return buildPartDrawings(model, scale,
     (p) => !FACADE_KINDS[p.kind] && !p.hardware
-      && (((p.holes || []).length) || ((p.grooves || []).length)),
+      && (((p.holes || []).length) || ((p.grooves || []).length) || ((p.notches || []).length)),
     'Деталей с присадкой в проекте нет.');
 }
 
@@ -1341,12 +1451,13 @@ function buildPartEditorView(part, opts) {
   }
   // Контур детали — тот же класс dw-facade, что у печатного чертежа детали,
   // чтобы редактор визуально не отличался от остальных чертежей проекта.
-  body += rect(PAD_L, PAD_T, fw, fh, 'dw-facade');
+  body += partContour(p, PAD_L, PAD_T, fw, fh, scale, 'dw-facade');
   // Присадка и пазы — переиспользуем те же расчёты, что идут в деталировку
   // и в 3D (facadeHoles уже строит размерные цепочки от кромок до отверстий).
   body += facadeHoles(p, PAD_L, PAD_T, fw, fh, scale);
   const usedLv = facadeHoles.levels || { bottom: 0, right: 0 };
   body += grooveRects(p, PAD_L, PAD_T, fw, fh, scale);
+  body += notchDims(p, PAD_L, PAD_T, fw, fh, scale);
   // Габаритные размеры детали — длина и ширина, тем же стилем dimH/dimV,
   // что и везде в проекте.
   body += dimH(PAD_L, PAD_L + fw, PAD_T + fh, usedLv.bottom || 0, String(p.length));

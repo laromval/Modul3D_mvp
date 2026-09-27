@@ -38,10 +38,12 @@ function isGlassPart(p) {
 }
 
 function drilledParts(model) {
-  // Деталь идёт на станок, если у неё есть присадка ИЛИ паз: паз — такая же
-  // операция, её тоже режут на ЧПУ.
+  // Деталь идёт на станок, если у неё есть присадка, паз ИЛИ сквозной вырез
+  // (part.notches: выпил под шину, вырез под крюк навески) — это такие же
+  // операции, их тоже режут на ЧПУ.
   return (model.parts || []).filter((p) => !p.hardware && !isGlassPart(p)
-    && ((p.holes && p.holes.length) || (p.grooves && p.grooves.length)));
+    && ((p.holes && p.holes.length) || (p.grooves && p.grooves.length)
+      || (p.notches && p.notches.length)));
 }
 
 // Общий помощник: POST на сервер экспорта с JWT, скачивание готового файла

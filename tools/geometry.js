@@ -4260,6 +4260,98 @@ for (const glass of [false, true]) {
     });
     cases += 1;
   }
+
+  // 5) Выпил под монтажную шину (этап 3, решение пользователя 2026-09-26):
+  //    у навесного модуля на НЕвидимой боковине — сквозной выпил 45×20 в
+  //    верхнем заднем углу (x — по высоте боковины от низа, y — от заднего
+  //    края); у видимой — нет. Паз под заднюю стенку в выпил не заходит;
+  //    3D (slabCutsForPart), чертёж, CSV и DXF видят вырезы.
+  {
+    const RN = window.Modul3D.engine.RAIL_NOTCH;
+    if (!RN || RN.h !== 45 || RN.d !== 20) problems.push('выпил под шину: RAIL_NOTCH не 45×20');
+    const railOf = (sp) => (sp.notches || []).filter((n) => n.kind === 'railNotch');
+    const sidesOf = (m) => m.partsRaw.filter((q) => q.kind === 'side');
+    // a) пресет: боковины «до пола» → видимые → выпила нет
+    const mVis = buildModel(Object.assign({}, base, { modules: [toModule(byId('upper600'), 0)] }));
+    sidesOf(mVis).forEach((sp) => {
+      if (railOf(sp).length) problems.push(`выпил под шину: у видимой «${sp.name}» есть выпил`);
+    });
+    // b) обе боковины «на дно» (невидимые), стенка в паз вручную — выпил
+    //    на обеих, паз обрезан у выпила, разметка навеса вне выпила
+    const hid = toModule(byId('upper600'), 0);
+    hid.leftSide = 'onBottom'; hid.rightSide = 'onBottom'; hid.backMount = 'groove';
+    const mHid = buildModel(Object.assign({}, base, { modules: [hid] }));
+    inspect(mHid, 'выпил под шину: невидимые боковины');
+    const viewerApi = window.Modul3D.viewer || {};
+    for (const sp of sidesOf(mHid)) {
+      const rn = railOf(sp);
+      if (rn.length !== 1) { problems.push(`выпил под шину: у «${sp.name}» выпилов ${rn.length} вместо 1`); continue; }
+      const n = rn[0], len = sp.length;
+      if (Math.abs(n.x0 - (len - 45)) > 0.05 || n.y0 !== 0 || Math.abs(n.x1 - len) > 0.05 || n.y1 !== 20) {
+        problems.push(`выпил под шину: «${sp.name}» ${n.x0};${n.y0}–${n.x1};${n.y1} вместо ${len - 45};0–${len};20`);
+      }
+      const gs = (sp.grooves || []).filter((g) => g.kind === 'backGroove');
+      if (!gs.length) problems.push(`выпил под шину: у «${sp.name}» нет паза под стенку (режим «в паз»)`);
+      gs.forEach((g) => {
+        if (Math.max(g.x0, g.x1) > len - 45 + 0.05) problems.push(`выпил под шину: паз «${sp.name}» заходит в выпил (x до ${Math.max(g.x0, g.x1)})`);
+      });
+      if (!/выпил 45×20/.test(sp.note || '')) problems.push(`выпил под шину: нет пометки в note «${sp.name}»`);
+      // 3D: вырез попал в описание пласти и не вышел за габарит
+      if (viewerApi.slabCutsForPart) {
+        const row = mHid.parts.filter((q) => q.kind === 'side' && q.name === sp.name)[0] || sp;
+        const cuts = viewerApi.slabCutsForPart(row, row.box.w, row.box.d);
+        const cn = cuts.notches || [];
+        if (cn.length !== 1) problems.push(`выпил под шину: в 3D у «${sp.name}» вырезов ${cn.length}`);
+        cn.forEach((c) => {
+          if (c.u0 < 0 || c.v0 < 0 || c.u1 > cuts.uSize + 0.01 || c.v1 > cuts.vSize + 0.01) problems.push('выпил под шину: вырез в 3D вышел за габарит');
+          if (Math.abs((c.u1 - c.u0) * (c.v1 - c.v0) - 45 * 20) > 0.5) problems.push(`выпил под шину: в 3D вырез ${c.u1 - c.u0}×${c.v1 - c.v0}`);
+        });
+      }
+    }
+    if (mHid.warnings.some((w) => /попадает в выпил/.test(w))) problems.push('выпил под шину: ложное предупреждение при пазе 15');
+    // Задняя стенка — по-прежнему 2 выреза под крюк, в 3D тоже 2
+    const backH = mHid.parts.filter((q) => q.kind === 'back')[0];
+    if (!backH || (backH.notches || []).length !== 2) problems.push(`выпил под шину: у задней стенки вырезов ${backH && (backH.notches || []).length} вместо 2`);
+    else if (viewerApi.slabCutsForPart) {
+      const cb = viewerApi.slabCutsForPart(backH, backH.box.w, backH.box.d);
+      if ((cb.notches || []).length !== 2) problems.push(`выпил под шину: в 3D у задней стенки вырезов ${(cb.notches || []).length} вместо 2`);
+    }
+    // Смета: площадь листа по-прежнему по целому прямоугольнику
+    const areaOf = (m) => m.parts.filter((q) => q.kind === 'side').reduce((a, q) => a + q.length * q.width * q.qty, 0);
+    const plain = toModule(byId('upper600'), 0);
+    plain.leftSide = 'onBottom'; plain.rightSide = 'onBottom'; plain.backMount = 'groove'; plain.wallHung = false;
+    const mPlain = buildModel(Object.assign({}, base, { modules: [plain] }));
+    if (sidesOf(mPlain).some((sp) => railOf(sp).length)) problems.push('выпил под шину: у ненавесного модуля есть выпил');
+    if (Math.abs(areaOf(mPlain) - areaOf(mHid)) > 1) problems.push('выпил под шину: площадь боковин изменилась из-за выпила');
+    // CSV/DXF: строка на каждый вырез, контур с вырезами полилинией
+    const csvH = buildDrillCsv(mHid);
+    const notchTotal = mHid.parts.reduce((a, q) => a + (q.notches || []).length, 0);
+    if ((csvH.match(/насквозь;Выпил под шину/g) || []).length !== mHid.parts.filter((q) => railOf(q).length).length) problems.push('выпил под шину: нет строки выпила в CSV');
+    if ((csvH.match(/;вырез [\d.]+×[\d.]+ мм;/g) || []).length !== notchTotal) problems.push('выпил под шину: CSV — не по строке на вырез');
+    const dxfH = buildDrillDxf(mHid);
+    if ((dxfH.match(/POLYLINE/g) || []).length < 2) problems.push('выпил под шину: в DXF нет контура полилинией');
+    if (/NaN|undefined/.test(csvH + dxfH)) problems.push('выпил под шину: NaN в CSV/DXF');
+    // Чертёж детали: контур с вырезом (path) и подпись выреза
+    const htmlH = String(buildDrawings(mHid, true));
+    if (!/Выпил под монтажную шину 45×20/.test(htmlH)) problems.push('выпил под шину: на чертеже нет подписи выпила');
+    if (!/<path class="dw-facade"/.test(htmlH)) problems.push('выпил под шину: на чертеже контур без выреза');
+    // c) накладная стенка (авто при боковинах «на дно»): 1-й саморез навеса
+    //    в 14 мм от заднего края боковины — в зоне выпила 20, предупреждение
+    const ov = toModule(byId('upper600'), 0);
+    ov.leftSide = 'onBottom'; ov.rightSide = 'onBottom';
+    const mOv = buildModel(Object.assign({}, base, { modules: [ov] }));
+    if (!sidesOf(mOv).every((sp) => railOf(sp).length === 1)) problems.push('выпил под шину: при накладной стенке нет выпила');
+    if (!mOv.warnings.some((w) => /попадает в выпил/.test(w))) problems.push('выпил под шину: нет предупреждения о разметке в выпиле');
+    // d) одна видимая (до пола), другая нет (на дно) — выпил только на второй
+    const mix = toModule(byId('upper600'), 0);
+    mix.leftSide = 'onBottom'; mix.rightSide = 'floor';
+    const mMix = buildModel(Object.assign({}, base, { modules: [mix] }));
+    const lS = sidesOf(mMix).filter((q) => /левая/.test(q.name))[0];
+    const rS = sidesOf(mMix).filter((q) => /правая/.test(q.name))[0];
+    if (!lS || railOf(lS).length !== 1) problems.push('выпил под шину: у невидимой левой нет выпила');
+    if (!rS || railOf(rS).length !== 0) problems.push('выпил под шину: у видимой правой есть выпил');
+    cases += 1;
+  }
 }
 
 // --- пустой проект: программа стартует без модулей -------------------------

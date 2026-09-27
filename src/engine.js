@@ -1819,7 +1819,10 @@ function makePart(o) {
     // СКВОЗНЫЕ ПРЯМОУГОЛЬНЫЕ ВЫРЕЗЫ у кромки детали: [{ kind, x0, y0, x1, y1,
     // note }] в той же системе координат детали (x — по длине, y — по
     // ширине). Сейчас — вырезы задней стенки под крюк навески верхнего
-    // модуля (kind 'hangerBackCut', см. applyWallHanger).
+    // модуля (kind 'hangerBackCut', см. applyWallHanger) и выпил под
+    // монтажную шину в невидимой боковине навесного модуля (kind
+    // 'railNotch', см. applyRailNotch). Площадь листа и кромка детали от
+    // выреза не меняются (лист режется целым прямоугольником).
     notches: o.notches || [],
     // Индекс секции/зоны фасада (у дверей — kind:'door', и у фасадов ящиков —
     // kind:'drawerFront'; zoneIndex осмыслен только у дверей) — числовые,
@@ -2373,6 +2376,51 @@ function applyWallHanger(p, parts, warnings, bm, backPart, D, H) {
     }
   }
   return [{ system: p.hangerSystemId || null, qty: 1 }];
+}
+
+// ВЫПИЛ ПОД МОНТАЖНУЮ ШИНУ у навесного модуля (решение пользователя
+// 2026-09-26, ПРАВИЛА-КОНСТРУИРОВАНИЯ.md «Навеска верхних модулей»): на
+// каждой НЕвидимой боковине навесного модуля — сквозной прямоугольный выпил
+// в ВЕРХНЕМ ЗАДНЕМ углу: h мм по высоте (от верха боковины) × d мм по
+// глубине (от заднего торца).
+// Видимую боковину не пилим — выпил был бы виден снаружи.
+// Торцы выпила НЕ кромятся (решение пользователя: прокрашиваются/
+// шпаклюются/остаются как есть) — периметр кромки детали и площадь листа в
+// смете не меняются, только пометка в note.
+const RAIL_NOTCH = { h: 45, d: 20 }; // решение пользователя 2026-09-26
+function applyRailNotch(p, parts, sideVisible, warnings) {
+  if (!isWallHung(p)) return;
+  for (const sp of parts.filter((q) => q.kind === 'side')) {
+    const key = sp.box.x < 0 ? 'left' : 'right';
+    if (sideVisible[key] !== false) continue;
+    const len = Number(sp.length) || 0;
+    const wid = Number(sp.width) || 0;
+    if (len <= RAIL_NOTCH.h || wid <= RAIL_NOTCH.d) continue;
+    // Координаты детали — как у drillPanel/hangerScrew: x — по длине
+    // (высоте боковины) от её низа, y — по ширине от заднего края.
+    const x0 = round1(len - RAIL_NOTCH.h);
+    const nt = { kind: 'railNotch', x0, y0: 0, x1: round1(len), y1: RAIL_NOTCH.d,
+      note: `Выпил под монтажную шину ${RAIL_NOTCH.h}×${RAIL_NOTCH.d}, торцы без кромки` };
+    sp.notches = (sp.notches || []).concat([nt]);
+    sp.note = (sp.note ? sp.note + '; ' : '')
+      + `выпил ${RAIL_NOTCH.h}×${RAIL_NOTCH.d} под монтажную шину в верхнем заднем углу, торцы выпила без кромки`;
+    // Паз под заднюю стенку не должен идти через вырезанную зону — обрезаем
+    // его у низа выпила (полоса паза заходит в глубину выпила).
+    for (const g of (sp.grooves || [])) {
+      if (g.kind !== 'backGroove') continue;
+      const gy0 = Math.min(g.y0, g.y1) - (Number(g.w) || 0) / 2;
+      if (gy0 < RAIL_NOTCH.d && Math.max(g.x0, g.x1) > x0) {
+        if (g.x1 >= g.x0) g.x1 = x0; else g.x0 = x0;
+      }
+    }
+    // Разметка саморезов навеса / присадка внутри выпила — только предупреждаем.
+    const inside = (sp.holes || []).some((h) => h.side !== 'edge' && h.x > x0 && h.x < len
+      && h.y >= 0 && h.y < RAIL_NOTCH.d);
+    if (inside) {
+      warnings.push(`Навеска: на детали «${sp.name}» отверстие/разметка попадает в выпил `
+        + `под шину ${RAIL_NOTCH.h}×${RAIL_NOTCH.d} мм — проверьте отступ задней стенки.`);
+    }
+  }
 }
 
 /**
@@ -4508,6 +4556,8 @@ function buildModuleParts(p) {
   // Навеска верхнего модуля — ПОСЛЕ ручных правок: разметка считается от
   // фактической толщины задней стенки (её могли переопределить вручную).
   const hangerHardware = applyWallHanger(p, parts, warnings, bm, backPart, D, H);
+  // Выпил под монтажную шину — после разметки навеса (проверка попадания).
+  applyRailNotch(p, parts, sideVisible, warnings);
   // Направление текстуры — тоже постобработка: только помечает детали
   // (см. блок «НАПРАВЛЕНИЕ ТЕКСТУРЫ»), размеров и присадки не трогает.
   applyGrainDirection(parts, p.grainGroups, p.grainOverrides);
@@ -6065,7 +6115,7 @@ window.Modul3D.engine = {
   // Высота, выше которой некухонный модуль — «шкаф» (крыша без паза в авто).
   BACK_GROOVE_TALL_H,
   // Навесной модуль: отметка верха по умолчанию (2400) и сам признак.
-  WALL_MOUNT_TOP_DEFAULT, isWallHung,
+  WALL_MOUNT_TOP_DEFAULT, isWallHung, RAIL_NOTCH,
   // Алюминиевый рамочный фасад: нормализованные параметры секции (с
   // умолчаниями для старых сохранений) — одни и те же для UI/3D/сметы.
   aluFacadeOf, aluFillSize, ALU_HINGE_NOTE,

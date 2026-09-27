@@ -570,6 +570,122 @@ function fanBottom(mesh, ring, cx, cy, map, depth, n) {
   for (let i = 0; i < N; i++) mesh.tri(c0, map(ring[i], depth), map(ring[(i + 1) % N], depth), n);
 }
 
+// СКВОЗНЫЕ ПРЯМОУГОЛЬНЫЕ ВЫРЕЗЫ ДЕТАЛИ (part.notches: выпил под монтажную
+// шину в боковине, вырез под крюк навески в задней стенке). Плоские
+// раскладки (пласть, торец, дно паза) строятся как для целой детали, а
+// потом из них вычитается прямоугольник выреза: каждый треугольник режется
+// полуплоскостями (Сазерленд — Ходжмен) на выпуклые куски СНАРУЖИ
+// прямоугольника. Вырезы — по краю детали и редкие, лишние вершины от
+// подрезки на внешний вид не влияют (всё в одной плоскости).
+function clipHalf(poly, axis, val, keepLess) {
+  const out = [];
+  const inside = (p) => (keepLess ? p[axis] <= val + GEO_EPS : p[axis] >= val - GEO_EPS);
+  for (let i = 0; i < poly.length; i++) {
+    const a = poly[i], b = poly[(i + 1) % poly.length];
+    const ia = inside(a), ib = inside(b);
+    if (ia) out.push(a);
+    if (ia !== ib) {
+      const t = (val - a[axis]) / (b[axis] - a[axis]);
+      out.push([a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t]);
+    }
+  }
+  return out;
+}
+function polyArea2(poly) {
+  let s = 0;
+  for (let i = 0; i < poly.length; i++) {
+    const a = poly[i], b = poly[(i + 1) % poly.length];
+    s += a[0] * b[1] - b[0] * a[1];
+  }
+  return Math.abs(s);
+}
+// Куски выпуклого многоугольника вне прямоугольника r {x0,y0,x1,y1}.
+function polyMinusRect(poly, r) {
+  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+  for (const p of poly) {
+    if (p[0] < minX) minX = p[0];
+    if (p[0] > maxX) maxX = p[0];
+    if (p[1] < minY) minY = p[1];
+    if (p[1] > maxY) maxY = p[1];
+  }
+  if (maxX <= r.x0 + GEO_EPS || minX >= r.x1 - GEO_EPS
+    || maxY <= r.y0 + GEO_EPS || minY >= r.y1 - GEO_EPS) return [poly];
+  const left = clipHalf(poly, 0, r.x0, true);
+  const rest = clipHalf(poly, 0, r.x0, false);
+  const right = clipHalf(rest, 0, r.x1, false);
+  const mid = clipHalf(rest, 0, r.x1, true);
+  const low = clipHalf(mid, 1, r.y0, true);
+  const mid2 = clipHalf(mid, 1, r.y0, false);
+  const high = clipHalf(mid2, 1, r.y1, false);
+  return [left, right, low, high].filter((q) => q.length >= 3 && polyArea2(q) > 1e-6);
+}
+// Вычитает прямоугольники rects из плоской раскладки surf (на месте).
+function surfMinusRects(surf, rects) {
+  if (!rects.length) return surf;
+  const tris = [];
+  for (const t of surf.tris) {
+    let pieces = [t];
+    for (const r of rects) {
+      const next = [];
+      for (const pc of pieces) for (const q of polyMinusRect(pc, r)) next.push(q);
+      pieces = next;
+      if (!pieces.length) break;
+    }
+    for (const pc of pieces) {
+      if (pc === t) { tris.push(t); continue; }
+      for (let k = 1; k < pc.length - 1; k++) tris.push([pc[0], pc[k], pc[k + 1]]);
+    }
+  }
+  surf.tris = tris;
+  return surf;
+}
+// Отрезок [a,b] минус набор отрезков — для рёбер контура с вырезами.
+function subtractIntervals(a, b, cuts) {
+  let segs = [[a, b]];
+  for (const c of cuts) {
+    const next = [];
+    for (const sg of segs) {
+      if (c[1] <= sg[0] + GEO_EPS || c[0] >= sg[1] - GEO_EPS) { next.push(sg); continue; }
+      if (c[0] - sg[0] > GEO_EPS) next.push([sg[0], c[0]]);
+      if (sg[1] - c[1] > GEO_EPS) next.push([c[1], sg[1]]);
+    }
+    segs = next;
+  }
+  return segs;
+}
+// Контур детали со сквозными вырезами (в метрах): рёбра прямоугольника
+// минус участки вырезов, внутренние стороны вырезов — на обеих пластях, и
+// вертикальные рёбра во всех углах получившегося контура.
+function slabNotchedOutline(U, V, T, notches) {
+  const hu = U / 2, hv = V / 2, ht = T / 2;
+  const segs = [];   // [[u,v],[u,v]] в координатах пласти 0..U, 0..V
+  const touch = (n, id) => (id === 'u0' ? n.u0 <= GEO_EPS : id === 'u1' ? n.u1 >= U - GEO_EPS
+    : id === 'v0' ? n.v0 <= GEO_EPS : n.v1 >= V - GEO_EPS);
+  const vCuts = (id) => notches.filter((n) => touch(n, id)).map((n) => [n.v0, n.v1]);
+  const uCuts = (id) => notches.filter((n) => touch(n, id)).map((n) => [n.u0, n.u1]);
+  subtractIntervals(0, U, uCuts('v0')).forEach((g) => segs.push([[g[0], 0], [g[1], 0]]));
+  subtractIntervals(0, U, uCuts('v1')).forEach((g) => segs.push([[g[0], V], [g[1], V]]));
+  subtractIntervals(0, V, vCuts('u0')).forEach((g) => segs.push([[0, g[0]], [0, g[1]]]));
+  subtractIntervals(0, V, vCuts('u1')).forEach((g) => segs.push([[U, g[0]], [U, g[1]]]));
+  for (const n of notches) {
+    if (n.u0 > GEO_EPS) segs.push([[n.u0, n.v0], [n.u0, n.v1]]);
+    if (n.u1 < U - GEO_EPS) segs.push([[n.u1, n.v0], [n.u1, n.v1]]);
+    if (n.v0 > GEO_EPS) segs.push([[n.u0, n.v0], [n.u1, n.v0]]);
+    if (n.v1 < V - GEO_EPS) segs.push([[n.u0, n.v1], [n.u1, n.v1]]);
+  }
+  const out = [];
+  const put = (a, za, b, zb) => out.push((a[0] - hu) * MM, (a[1] - hv) * MM, za * MM,
+    (b[0] - hu) * MM, (b[1] - hv) * MM, zb * MM);
+  const corners = new Map();
+  for (const sg of segs) {
+    put(sg[0], -ht, sg[1], -ht);
+    put(sg[0], ht, sg[1], ht);
+    for (const p of sg) corners.set(`${p[0].toFixed(3)}|${p[1].toFixed(3)}`, p);
+  }
+  corners.forEach((p) => put(p, -ht, p, ht));
+  return out;
+}
+
 // 12 рёбер прямоугольного короба детали (в метрах) — всегда корректны,
 // не зависят от вырезов.
 function slabBoxOutline(U, V, T) {
@@ -596,6 +712,8 @@ function slabBoxOutline(U, V, T) {
 //   edgeHoles — отверстия в торец: {alongU, uPos, vPos, len, r, N}
 //               (координаты от центра детали, как их отдаёт edgeDrill);
 //   grooves   — пазы: {u0, u1, v0, v1, depth, dir};
+//   notches   — сквозные прямоугольные вырезы у кромки: {u0, u1, v0, v1}
+//               (выпил под шину, вырез под крюк навески);
 //   uv        — нужны ли UV для текстуры «под древесину»;
 //   uvSwap    — (только вместе с uv) поменять u и v местами в UV: волокно
 //               текстуры идёт вдоль её оси x, так что при uvSwap оно ляжет
@@ -608,6 +726,14 @@ function buildSlabGeometry(spec) {
   const holes = spec.holes || [];
   const edges = spec.edgeHoles || [];
   const grooves = spec.grooves || [];
+  const notches = (spec.notches || []).filter((n) => n.u1 - n.u0 > GEO_EPS && n.v1 - n.v0 > GEO_EPS);
+  const notchRects = notches.map((n) => ({ x0: n.u0, y0: n.v0, x1: n.u1, y1: n.v1 }));
+  // Отверстие, центр которого попал в сквозной вырез, резать уже нечего.
+  const inNotch = (u, v) => notches.some((n) => u > n.u0 + GEO_EPS && u < n.u1 - GEO_EPS
+    && v > n.v0 + GEO_EPS && v < n.v1 - GEO_EPS);
+  if (notches.length) {
+    for (let i = holes.length - 1; i >= 0; i--) if (inNotch(holes[i].u, holes[i].v)) holes.splice(i, 1);
+  }
   const mesh = new SlabMesh();
   const outline = [];
   const seg = (a, b) => outline.push(a[0] * MM, a[1] * MM, a[2] * MM, b[0] * MM, b[1] * MM, b[2] * MM);
@@ -688,7 +814,7 @@ function buildSlabGeometry(spec) {
       bands.push({ x0: g.u0, y0: g.v0, x1: g.u1, y1: g.v1 });
       if ((g.v1 - g.v0) > (g.u1 - g.u0)) swap = true;     // паз идёт вдоль V
     }
-    const surf = layoutFace(U, V, circles, bands, swap);
+    const surf = surfMinusRects(layoutFace(U, V, circles, bands, swap), notchRects);
     mesh.plane(surf, (p) => [p[0] - hu, p[1] - hv, dir * ht], [0, 0, dir]);
   }
 
@@ -720,6 +846,12 @@ function buildSlabGeometry(spec) {
     { id: 'v1', W: U, H: T, n: [0, 1, 0], ax: [0, -1, 0], ex: [1, 0, 0], ey: [0, 0, 1], map: (p) => [p[0] - hu, hv, p[1] - ht] },
   ];
   for (const sd of sides) {
+    // Участки этой кромки, срезанные сквозным вырезом (в 2D-системе торца:
+    // x — вдоль кромки, y — по толщине, вырез на всю толщину).
+    const alongE = (sd.id === 'u0' || sd.id === 'u1');
+    const edgeCuts = notches.filter((n) => (sd.id === 'u0' ? n.u0 <= GEO_EPS
+      : sd.id === 'u1' ? n.u1 >= U - GEO_EPS : sd.id === 'v0' ? n.v0 <= GEO_EPS : n.v1 >= V - GEO_EPS))
+      .map((n) => ({ x0: alongE ? n.v0 : n.u0, x1: alongE ? n.v1 : n.u1, y0: -1, y1: T + 1 }));
     const circles = [];
     for (const h of edges) {
       // От какой кромки сверлят, говорит САМА присадка (atStart из
@@ -735,6 +867,8 @@ function buildSlabGeometry(spec) {
       const r = Math.max(Math.min(h.r, ht), 0.05);
       const raw = h.alongU ? h.vPos + hv : h.uPos + hu;
       const cx = sd.W <= 2 * r ? sd.W / 2 : Math.min(Math.max(raw, r), sd.W - r);
+      // Лунка на участке кромки, срезанном вырезом, — сверлить некуда.
+      if (edgeCuts.some((c) => cx > c.x0 && cx < c.x1)) continue;
       h.r = r;
       h.len = Math.min(Math.max(h.len, 0), (h.alongU ? U : V));
       h.ring = ringPoints(cx, ht, r, h.N);
@@ -756,9 +890,30 @@ function buildSlabGeometry(spec) {
       });
     }
     const from = mesh.pos.length / 3;
-    mesh.plane(layoutFace(sd.W, sd.H, circles, bands, false), sd.map, sd.n);
+    mesh.plane(surfMinusRects(layoutFace(sd.W, sd.H, circles, bands, false), edgeCuts), sd.map, sd.n);
     // Диапазон вершин торца — для UV ниже (волокно кромки идёт ВДОЛЬ кромки).
     edgeFaces.push({ from, to: mesh.pos.length / 3, alongIdx: sd.ex[0] === 1 ? 0 : 1 });
+  }
+
+  // --- 3а. Стенки сквозных вырезов (новые торцы детали по контуру выреза,
+  // на всю толщину). UV — как у торцов: волокно вдоль стенки.
+  for (const n of notches) {
+    const wallU = (u, n0) => {
+      const from = mesh.pos.length / 3;
+      mesh.quad([u - hu, n.v0 - hv, -ht], [u - hu, n.v1 - hv, -ht],
+        [u - hu, n.v1 - hv, ht], [u - hu, n.v0 - hv, ht], [n0, 0, 0]);
+      edgeFaces.push({ from, to: mesh.pos.length / 3, alongIdx: 1 });
+    };
+    const wallV = (v, n1) => {
+      const from = mesh.pos.length / 3;
+      mesh.quad([n.u0 - hu, v - hv, -ht], [n.u1 - hu, v - hv, -ht],
+        [n.u1 - hu, v - hv, ht], [n.u0 - hu, v - hv, ht], [0, n1, 0]);
+      edgeFaces.push({ from, to: mesh.pos.length / 3, alongIdx: 0 });
+    };
+    if (n.u0 > GEO_EPS) wallU(n.u0, 1);
+    if (n.u1 < U - GEO_EPS) wallU(n.u1, -1);
+    if (n.v0 > GEO_EPS) wallV(n.v0, 1);
+    if (n.v1 < V - GEO_EPS) wallV(n.v1, -1);
   }
 
   // --- 4. Стенки и дно отверстий в торец ---
@@ -779,7 +934,7 @@ function buildSlabGeometry(spec) {
     const zTop = g.dir * ht, zBot = g.dir * (ht - g.depth);
     const bottom = new Surface2D();
     bottom.rect(g.u0, g.v0, g.u1, g.v1);
-    mesh.plane(bottom, (p) => [p[0] - hu, p[1] - hv, zBot], [0, 0, g.dir]);
+    mesh.plane(surfMinusRects(bottom, notchRects), (p) => [p[0] - hu, p[1] - hv, zBot], [0, 0, g.dir]);
     // Стенку строим только там, где паз НЕ выходит на кромку детали.
     const wall = (ua, va, ub, vb, n) => mesh.quad(
       [ua - hu, va - hv, zTop], [ub - hu, vb - hv, zTop],
@@ -793,8 +948,8 @@ function buildSlabGeometry(spec) {
     loop([[g.u0, g.v0], [g.u1, g.v0], [g.u1, g.v1], [g.u0, g.v1]], (p) => [p[0] - hu, p[1] - hv, zTop]);
   }
 
-  // --- 6. Контур короба детали (12 рёбер) ---
-  const box = slabBoxOutline(U, V, T);
+  // --- 6. Контур короба детали (12 рёбер; с вырезами — по их контуру) ---
+  const box = notches.length ? slabNotchedOutline(U, V, T, notches) : slabBoxOutline(U, V, T);
   for (let i = 0; i < box.length; i++) outline.push(box[i]);
 
   const geometry = new THREE.BufferGeometry();
@@ -964,10 +1119,23 @@ function slabCutsForPart(row, locW, locD) {
       dir: (worldPlus ? 1 : -1) * zSign,
     });
   }
+  // СКВОЗНЫЕ ВЫРЕЗЫ (part.notches, engine.js: railNotch — выпил под
+  // монтажную шину в боковине, hangerBackCut — вырез под крюк навески в
+  // задней стенке): прямоугольник в координатах детали → в координатах
+  // пласти тем же toU/toV, что и отверстия/пазы; за габарит не выходит.
+  const slabNotches = [];
+  for (const n of (row.notches || [])) {
+    const a = { x: n.x0, y: n.y0 }, b = { x: n.x1, y: n.y1 };
+    const cl = (x, size) => Math.min(Math.max(x, 0), size);
+    const u0 = cl(Math.min(toU(a), toU(b)), uSize), u1 = cl(Math.max(toU(a), toU(b)), uSize);
+    const v0 = cl(Math.min(toV(a), toV(b)), vSize), v1 = cl(Math.max(toV(a), toV(b)), vSize);
+    if (!(u1 - u0 > 0.01) || !(v1 - v0 > 0.01)) continue;
+    slabNotches.push({ u0, u1, v0, v1, kind: n.kind || null });
+  }
   return {
     planeIsX, planeIsY, uSize, vSize, tSize,
     frontIsPlus, zSign, lenIsU, toU, toV,
-    holes: faceHoles, edgeHoles, grooves: slabGrooves,
+    holes: faceHoles, edgeHoles, grooves: slabGrooves, notches: slabNotches,
   };
 }
 
@@ -1002,6 +1170,10 @@ const DRILL_COLOR = {
   aluHingeSlot: 0x1f6fd1,
   // Разметка саморезов навески верхнего модуля (engine.js applyWallHanger)
   hangerScrew: 0x0a7d2c,
+  // Сквозные вырезы (part.notches): выпил под монтажную шину в боковине
+  // навесного модуля и вырез под крюк навески в задней стенке.
+  railNotch: 0xc2410c,
+  hangerBackCut: 0x7c3aed,
 };
 const DRILL_TITLE = {
   minifixCam: 'Rastex, эксцентрик Ø15',
@@ -1030,6 +1202,8 @@ const DRILL_TITLE = {
   aluHingeScrew: 'Петля алюм. рамки, саморез Ø5 (зенк. до Ø7)',
   aluHingeSlot: 'Петля алюм. рамки, паз под механизм',
   hangerScrew: 'Навеска, разметка самореза (не сверлить)',
+  railNotch: 'Выпил под монтажную шину (насквозь)',
+  hangerBackCut: 'Вырез под крюк навески (насквозь)',
 };
 
 // Стеклянный фасад (материал GLASS-4, «сатин бронз») — тёплый тонированный
@@ -3369,6 +3543,7 @@ class Viewer3D {
       const faceHoles = cuts.holes;        // отверстия в пласть
       const edgeHoles = cuts.edgeHoles;    // отверстия в торец
       const slabGrooves = cuts.grooves;    // пазы
+      const slabNotches = cuts.notches;    // сквозные вырезы у кромки
 
       // Материал по типу детали: ЛДСП — с текстурой «под древесину»,
       // МДФ в плёнке/эмали — гладкий и глянцевый, стекло — прозрачное.
@@ -3431,6 +3606,7 @@ class Viewer3D {
         .map((h) => `h${h.u.toFixed(2)},${h.v.toFixed(2)},${h.r.toFixed(2)},${h.dir},${h.depth.toFixed(2)},${h.through ? 1 : 0}`)
         .concat(edgeHoles.map((h) => `e${h.alongU ? 1 : 0}${h.atStart ? 's' : 'e'},${h.uPos.toFixed(2)},${h.vPos.toFixed(2)},${h.r.toFixed(2)},${h.len.toFixed(2)}`))
         .concat(slabGrooves.map((g) => `g${g.u0.toFixed(2)},${g.v0.toFixed(2)},${g.u1.toFixed(2)},${g.v1.toFixed(2)},${g.depth.toFixed(2)},${g.dir}`))
+        .concat(slabNotches.map((n) => `n${n.u0.toFixed(2)},${n.v0.toFixed(2)},${n.u1.toFixed(2)},${n.v1.toFixed(2)}`))
         .sort().join('|');
       // Направление волокна входит в ключ: от него зависит UV геометрии
       // (u↔v), и две детали одного размера с разным волокном не должны
@@ -3452,7 +3628,7 @@ class Viewer3D {
           // же кольцам, так что окружность рисуется ровно по граням выреза.
           const built = buildSlabGeometry({
             uSize, vSize, tSize,
-            holes: faceHoles, edgeHoles, grooves: slabGrooves,
+            holes: faceHoles, edgeHoles, grooves: slabGrooves, notches: slabNotches,
             uv: !!tex, uvSwap: grainV,
           });
           if (built.geometry.attributes.position.count) {
@@ -3630,6 +3806,30 @@ class Viewer3D {
             }
             marker.userData.module = row.module;
             mesh.add(marker);
+          }
+        }
+        // Сквозные вырезы в режиме проверки: цветной полупрозрачный брусок
+        // ровно по вырезу (на всю толщину), поверх деталей — как метки
+        // отверстий, с тем же фильтром по виду (легенда присадки).
+        if (drillCheck && slabNotches.length) {
+          for (const n of slabNotches) {
+            if (drillOnly && n.kind !== drillOnly) continue;
+            const du = (n.u1 - n.u0) * MM, dv = (n.v1 - n.v0) * MM, dt = tSize * 1.02 * MM;
+            const uc = ((n.u0 + n.u1) / 2 - uSize / 2) * MM;
+            const vc = ((n.v0 + n.v1) / 2 - vSize / 2) * MM;
+            const geo = planeIsX ? new THREE.BoxGeometry(dt, dv, du)
+              : (planeIsY ? new THREE.BoxGeometry(du, dt, dv) : new THREE.BoxGeometry(du, dv, dt));
+            const nm = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({
+              color: DRILL_COLOR[n.kind] || 0x555555, roughness: 0.35, metalness: 0.1,
+              depthTest: false, transparent: true, opacity: 0.6,
+            }));
+            nm.renderOrder = 999;
+            nm.userData.drill = n.kind;
+            nm.userData.module = row.module;
+            if (planeIsX) nm.position.set(0, vc, uc);
+            else if (planeIsY) nm.position.set(uc, 0, vc);
+            else nm.position.set(uc, vc, 0);
+            mesh.add(nm);
           }
         }
         // ПОДСКАЗКА ОСЕЙ на экране «Дополнительные отверстия»: рисуем два

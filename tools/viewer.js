@@ -383,6 +383,61 @@ check('у детали нет геометрии, оторванной от по
   return true;
 });
 
+// СКВОЗНЫЕ ВЫРЕЗЫ (part.notches, этап 3 навески): выпил под монтажную шину
+// 45×20 в боковине навесного модуля и 2 выреза под крюк в задней стенке.
+// Геометрия детали не должна иметь ни одного треугольника пласти/торца
+// внутри выреза, все вершины — в габарите, у выреза есть стенки, контур
+// длиннее 12 рёбер короба; сцена с вырезами строится и в режиме проверки
+// присадки (метки вырезов с видом railNotch/hangerBackCut).
+check('сквозные вырезы (выпил под шину, вырез под крюк) в геометрии', () => {
+  const up = B.engine.buildModel({
+    bodyThickness: 18, backThickness: 3,
+    decor: DECORS[1], facadeDecor: DECORS[0], backMaterial: BACK_MATERIALS[0],
+    drawerDecor: DECORS[1], drawerThickness: 16, jointType: 'minifix', worktopDepth: 600,
+    hangerSystem: 'blum48N0510',
+    modules: [{ name: 'Верх', family: 'kitchen', width: 600, height: 720, depth: 320,
+      topType: 'full', leftSide: 'onBottom', rightSide: 'onBottom', backMount: 'groove',
+      base: { type: 'plinth', plinthHeight: 0 },
+      sections: [{ shelves: 1, drawers: 0, facade: 'doorLeft', handle: 'bow160' }] }],
+  });
+  const bad = [];
+  const notched = up.parts.filter((q) => (q.notches || []).length);
+  const sidesN = notched.filter((q) => q.kind === 'side').length;
+  const backN = notched.filter((q) => q.kind === 'back').reduce((a, q) => a + q.notches.length, 0);
+  if (sidesN !== 1 || backN !== 2) bad.push(`вырезов: боковин с выпилом ${sidesN} (строк), у стенки ${backN}`);
+  for (const row of notched) {
+    const cuts = B.viewer.slabCutsForPart(row, row.box.w, row.box.d);
+    const built = B.viewer.buildSlabGeometry({
+      uSize: cuts.uSize, vSize: cuts.vSize, tSize: cuts.tSize,
+      holes: cuts.holes, edgeHoles: cuts.edgeHoles, grooves: cuts.grooves, notches: cuts.notches,
+    });
+    const pos = built.geometry.attributes.position.array;
+    const hu = cuts.uSize / 2, hv = cuts.vSize / 2, ht = cuts.tSize / 2, M = 0.001, eps = 1e-6;
+    for (let i = 0; i < pos.length; i += 3) {
+      if (Math.abs(pos[i]) > hu * M + eps || Math.abs(pos[i + 1]) > hv * M + eps || Math.abs(pos[i + 2]) > ht * M + eps) {
+        bad.push(`${row.name}: вершина за габаритом`); break;
+      }
+    }
+    for (let t = 0; t < pos.length; t += 9) {
+      const cu = (pos[t] + pos[t + 3] + pos[t + 6]) / 3 / M + hu;
+      const cv = (pos[t + 1] + pos[t + 4] + pos[t + 7]) / 3 / M + hv;
+      if (cuts.notches.some((n) => cu > n.u0 + 0.01 && cu < n.u1 - 0.01 && cv > n.v0 + 0.01 && cv < n.v1 - 0.01)) {
+        bad.push(`${row.name}: треугольник внутри выреза`); break;
+      }
+    }
+    if (built.outline.length <= 12 * 6) bad.push(`${row.name}: контур не повторяет вырез`);
+  }
+  // Сцена с вырезами — обычный режим и проверка присадки с фильтром
+  const v2 = new B.viewer.Viewer3D(host);
+  v2.render(up, { hideFacades: true, drillCheck: true });
+  let marks = 0;
+  v2.group.traverse((o) => { if (o.userData && (o.userData.drill === 'railNotch' || o.userData.drill === 'hangerBackCut')) marks += 1; });
+  if (marks !== 4) bad.push(`меток вырезов в режиме проверки ${marks} вместо 4 (2 выпила + 2 выреза)`);
+  v2.render(up, { hideFacades: false, drillCheck: true, drillOnly: 'railNotch' });
+  if (bad.length) { fails.push('вырезы: ' + bad.slice(0, 4).join('; ')); return false; }
+  return true;
+});
+
 if (fails.length) {
   console.log('VIEWER: ПРОВАЛ');
   fails.forEach((f) => console.log('  x ' + f));

@@ -198,6 +198,81 @@ const PURPOSE = {
   hangerScrew: 'разметка саморез навески',
 };
 
+// Назначение сквозных вырезов детали (part.notches, engine.js).
+const NOTCH_PURPOSE = {
+  railNotch: 'Выпил под шину',
+  hangerBackCut: 'Вырез под крюк навески',
+};
+
+// Контур детали L×W со сквозными прямоугольными вырезами у кромки
+// (part.notches: {x0,y0,x1,y1} в координатах детали — x по длине, y по
+// ширине от левого нижнего угла). Возвращает замкнутые петли точек
+// [[x,y],...]: стороны прямоугольника минус участки вырезов плюс
+// внутренние стороны вырезов, сцепленные в обход.
+function notchedContour(L, W, notches) {
+  const E = 0.01;
+  const ns = [];
+  for (const n of (notches || [])) {
+    const cl = (v, m) => Math.min(Math.max(Number(v) || 0, 0), m);
+    const xa = cl(Math.min(n.x0, n.x1), L), xb = cl(Math.max(n.x0, n.x1), L);
+    const ya = cl(Math.min(n.y0, n.y1), W), yb = cl(Math.max(n.y0, n.y1), W);
+    if (xb - xa > E && yb - ya > E) ns.push({ xa, xb, ya, yb });
+  }
+  if (!ns.length) return [[[0, 0], [L, 0], [L, W], [0, W]]];
+  const cut = (a, b, list) => {
+    let segs = [[a, b]];
+    for (const c of list) {
+      const nx = [];
+      for (const sg of segs) {
+        if (c[1] <= sg[0] + E || c[0] >= sg[1] - E) { nx.push(sg); continue; }
+        if (c[0] - sg[0] > E) nx.push([sg[0], c[0]]);
+        if (sg[1] - c[1] > E) nx.push([c[1], sg[1]]);
+      }
+      segs = nx;
+    }
+    return segs;
+  };
+  const segs = [];
+  cut(0, L, ns.filter((n) => n.ya <= E).map((n) => [n.xa, n.xb])).forEach((g) => segs.push([[g[0], 0], [g[1], 0]]));
+  cut(0, L, ns.filter((n) => n.yb >= W - E).map((n) => [n.xa, n.xb])).forEach((g) => segs.push([[g[0], W], [g[1], W]]));
+  cut(0, W, ns.filter((n) => n.xa <= E).map((n) => [n.ya, n.yb])).forEach((g) => segs.push([[0, g[0]], [0, g[1]]]));
+  cut(0, W, ns.filter((n) => n.xb >= L - E).map((n) => [n.ya, n.yb])).forEach((g) => segs.push([[L, g[0]], [L, g[1]]]));
+  for (const n of ns) {
+    if (n.xa > E) segs.push([[n.xa, n.ya], [n.xa, n.yb]]);
+    if (n.xb < L - E) segs.push([[n.xb, n.ya], [n.xb, n.yb]]);
+    if (n.ya > E) segs.push([[n.xa, n.ya], [n.xb, n.ya]]);
+    if (n.yb < W - E) segs.push([[n.xa, n.yb], [n.xb, n.yb]]);
+  }
+  const key = (q) => `${Math.round(q[0] * 10)}|${Math.round(q[1] * 10)}`;
+  const used = segs.map(() => false);
+  const loops = [];
+  for (let i = 0; i < segs.length; i++) {
+    if (used[i]) continue;
+    used[i] = true;
+    const pts = [segs[i][0], segs[i][1]];
+    const startK = key(pts[0]);
+    for (let guard = 0; guard < segs.length && key(pts[pts.length - 1]) !== startK; guard++) {
+      const endK = key(pts[pts.length - 1]);
+      let j = -1;
+      for (let k = 0; k < segs.length; k++) {
+        if (used[k]) continue;
+        if (key(segs[k][0]) === endK) { j = k; pts.push(segs[k][1]); break; }
+        if (key(segs[k][1]) === endK) { j = k; pts.push(segs[k][0]); break; }
+      }
+      if (j < 0) break;
+      used[j] = true;
+    }
+    if (key(pts[pts.length - 1]) === startK) pts.pop();
+    // Лишние точки посреди прямой стороны (стыки отрезков) контуру не нужны.
+    const clean = pts.filter((q, idx) => {
+      const a = pts[(idx - 1 + pts.length) % pts.length], b = pts[(idx + 1) % pts.length];
+      return Math.abs((q[0] - a[0]) * (b[1] - q[1]) - (q[1] - a[1]) * (b[0] - q[0])) > E;
+    });
+    loops.push(clean.length >= 3 ? clean : pts);
+  }
+  return loops;
+}
+
 // Стекло на присадочный станок не идёт: отверстия в нём делают стеклорезчики
 // своим инструментом. Поэтому стеклянные детали в выгрузку не попадают.
 function isGlassPart(p) {
@@ -205,10 +280,12 @@ function isGlassPart(p) {
 }
 
 function drilledParts(model) {
-  // Деталь идёт на станок, если у неё есть присадка ИЛИ паз: паз — такая же
-  // операция, её тоже режут на ЧПУ.
+  // Деталь идёт на станок, если у неё есть присадка, паз ИЛИ сквозной вырез
+  // (part.notches: выпил под шину, вырез под крюк навески) — это такие же
+  // операции, их тоже режут на ЧПУ.
   return (model.parts || []).filter((p) => !p.hardware && !isGlassPart(p)
-    && ((p.holes && p.holes.length) || (p.grooves && p.grooves.length)));
+    && ((p.holes && p.holes.length) || (p.grooves && p.grooves.length)
+      || (p.notches && p.notches.length)));
 }
 
 // --- CSV -------------------------------------------------------------------
@@ -217,7 +294,7 @@ function buildDrillCsv(model) {
                  'Длина', 'Ширина', 'Кол-во', 'X', 'Y', 'Диаметр', 'Глубина',
                  'Сторона', 'Назначение']];
   for (const p of drilledParts(model)) {
-    for (const h of p.holes) {
+    for (const h of (p.holes || [])) {
       rows.push([
         p.num, p.module || '', p.name, p.section, p.material, p.thickness,
         p.length, p.width, p.qty,
@@ -249,6 +326,19 @@ function buildDrillCsv(model) {
         (g.note || 'паз') + (g.side === 'inner' ? ', с внутренней стороны' : ''),
       ]);
     }
+    // СКВОЗНЫЕ ВЫРЕЗЫ (выпил под шину, вырез под крюк навески): X/Y — угол
+    // выреза, размер по длине×ширине, глубина — на всю толщину.
+    for (const n of (p.notches || [])) {
+      const w = Math.round(Math.abs(n.x1 - n.x0) * 10) / 10;
+      const h = Math.round(Math.abs(n.y1 - n.y0) * 10) / 10;
+      rows.push([
+        p.num, p.module || '', p.name, p.section, p.material, p.thickness,
+        p.length, p.width, p.qty,
+        n.x0, n.y0, `вырез ${w}×${h} мм`, p.thickness,
+        `вырез ${n.x0};${n.y0}–${n.x1};${n.y1} насквозь`,
+        [NOTCH_PURPOSE[n.kind] || 'Вырез', n.note].filter(Boolean).join(': '),
+      ]);
+    }
   }
   // разделитель «;» — так Excel в русской локали открывает файл без плясок
   return rows.map((r) => r.join(';')).join('\r\n');
@@ -270,6 +360,17 @@ function dxfCircle(x, y, r, layer) {
           '10', x.toFixed(2), '20', y.toFixed(2), '30', '0.0',
           '40', r.toFixed(2)];
 }
+// Замкнутая полилиния (R12: POLYLINE + VERTEX + SEQEND, флаг 70=1).
+function dxfPolyline(pts, dy, layer) {
+  const out = ['0', 'POLYLINE', '8', layer, '66', '1',
+               '10', '0.0', '20', '0.0', '30', '0.0', '70', '1'];
+  for (const q of pts) {
+    out.push('0', 'VERTEX', '8', layer,
+             '10', q[0].toFixed(2), '20', (q[1] + dy).toFixed(2), '30', '0.0');
+  }
+  out.push('0', 'SEQEND', '8', layer);
+  return out;
+}
 function dxfText(x, y, h, text, layer) {
   return ['0', 'TEXT', '8', layer,
           '10', x.toFixed(2), '20', y.toFixed(2), '30', '0.0',
@@ -283,16 +384,24 @@ function buildDrillDxf(model) {
 
   for (const p of drilledParts(model)) {
     const L = p.length, W = p.width;
-    // контур детали
-    out.push.apply(out, dxfLine(0, cursorY, L, cursorY, 'CONTOUR'));
-    out.push.apply(out, dxfLine(L, cursorY, L, cursorY + W, 'CONTOUR'));
-    out.push.apply(out, dxfLine(L, cursorY + W, 0, cursorY + W, 'CONTOUR'));
-    out.push.apply(out, dxfLine(0, cursorY + W, 0, cursorY, 'CONTOUR'));
+    // контур детали: без вырезов — прямоугольник четырьмя LINE, как
+    // раньше; со сквозными вырезами (part.notches) — замкнутой полилинией
+    // по фактическому контуру, чтобы станок сразу резал деталь с вырезом.
+    if ((p.notches || []).length) {
+      for (const loop of notchedContour(L, W, p.notches)) {
+        out.push.apply(out, dxfPolyline(loop, cursorY, 'CONTOUR'));
+      }
+    } else {
+      out.push.apply(out, dxfLine(0, cursorY, L, cursorY, 'CONTOUR'));
+      out.push.apply(out, dxfLine(L, cursorY, L, cursorY + W, 'CONTOUR'));
+      out.push.apply(out, dxfLine(L, cursorY + W, 0, cursorY + W, 'CONTOUR'));
+      out.push.apply(out, dxfLine(0, cursorY + W, 0, cursorY, 'CONTOUR'));
+    }
     // подпись
     out.push.apply(out, dxfText(0, cursorY - 22, 14,
       `${p.num} ${p.name} ${L}x${W} ${p.thickness}mm x${p.qty}`, 'TEXT'));
     // отверстия: слой с диаметром, чтобы оператор видел инструмент
-    for (const h of p.holes) {
+    for (const h of (p.holes || [])) {
       // Слой несёт диаметр и сторону — станку этого достаточно, чтобы
       // выбрать инструмент и понять, с какой стороны сверлить.
       // Слой несёт диаметр и операцию: сквозное, с изнанки или в торец.
@@ -326,4 +435,5 @@ module.exports = {
   buildSpecificationWorkbook,
   buildDrillCsv,
   buildDrillDxf,
+  notchedContour,
 };
