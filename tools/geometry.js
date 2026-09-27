@@ -4090,6 +4090,95 @@ for (const glass of [false, true]) {
   cases += 1;
 }
 
+// --- навесные (верхние) модули: отметка, ряд над нижними, ручки внизу -----
+// Решение пользователя 2026-09-26: верх навесного по умолчанию 2400 от пола
+// (поле mountTop), верхний ряд — отдельным курсором от начала прогона,
+// задней стороной по стене; ручки дверей навесного — всегда внизу фасада.
+{
+  const K = window.Modul3D.presets.PRESETS.filter((g) => g.id === 'kitchen')[0];
+  const byId = (id) => K.items.filter((i) => i.id === id)[0].make();
+  const toModule = (m, i) => ({
+    name: `Модуль ${i + 1}`, width: m.width, height: m.height, depth: m.depth,
+    family: m.family, wallHung: m.wallHung, mountTop: m.mountTop,
+    rotation: m.rotation, corner: m.corner, topType: m.topType, railWidth: m.railWidth,
+    leftSide: m.leftSide, rightSide: m.rightSide,
+    base: m.baseType === 'plinth' ? { type: 'plinth', plinthHeight: m.plinthHeight }
+                                  : { type: m.baseType, legHeight: m.legHeight },
+    sections: m.sections,
+  });
+  const yRange = (parts) => {
+    let lo = Infinity, hi = -Infinity;
+    parts.forEach((p) => p.boxes.forEach((b) => { lo = Math.min(lo, b.y - b.h / 2); hi = Math.max(hi, b.y + b.h / 2); }));
+    return [lo, hi];
+  };
+  const zMin = (parts) => Math.min.apply(null, parts.map((p) => p.boxes[0].z - p.boxes[0].d / 2));
+  const xRange = (parts) => [Math.min.apply(null, parts.map((p) => p.boxes[0].x - p.boxes[0].w / 2)),
+    Math.max.apply(null, parts.map((p) => p.boxes[0].x + p.boxes[0].w / 2))];
+
+  // 1) Одиночный верхний 720: все детали в [1680, 2400], габарит H = 2400
+  {
+    const model = buildModel(Object.assign({}, base, { modules: [toModule(byId('upper600'), 0)] }));
+    inspect(model, 'навесной 720');
+    const [lo, hi] = yRange(model.partsRaw);
+    if (lo < 1680 - 0.6 || hi > 2400 + 0.6) problems.push(`навесной 720: детали по высоте ${lo}…${hi}, а не в 1680…2400`);
+    if (model.dims.H !== 2400) problems.push(`навесной 720: габарит H ${model.dims.H} вместо 2400`);
+    if (model.modules[0].offsetY !== 1680) problems.push(`навесной 720: offsetY ${model.modules[0].offsetY} вместо 1680`);
+    const html = String(buildDrawings(model));
+    if (/NaN|Infinity/.test(html)) problems.push('навесной 720: NaN в чертежах');
+    // Ручка двери — у НИЖНЕГО края фасада
+    const doors = model.partsRaw.filter((p) => p.kind === 'door');
+    if (!doors.length) problems.push('навесной 720: нет двери');
+    doors.forEach((d) => {
+      const hy = d.holes.filter((h) => h.kind === 'handle').map((h) => h.y);
+      if (!hy.length) problems.push('навесной 720: у двери нет отверстий ручки');
+      else if (Math.max.apply(null, hy) > d.boxes[0].h / 2) {
+        problems.push(`навесной 720: ручка не внизу фасада (отверстия на ${hy.join(', ')} при высоте ${d.boxes[0].h})`);
+      }
+    });
+    // Своя отметка верха
+    const m2 = toModule(byId('upper600'), 0); m2.mountTop = 2200;
+    const model2 = buildModel(Object.assign({}, base, { modules: [m2] }));
+    const [lo2, hi2] = yRange(model2.partsRaw);
+    if (Math.abs(hi2 - 2200) > 0.6 || Math.abs(lo2 - 1480) > 0.6) problems.push(`навесной mountTop 2200: детали ${lo2}…${hi2}`);
+    cases += 1;
+  }
+
+  // 2) Прямая кухня: нижние и верхние вперемешку в списке — верхние над нижними
+  {
+    const mods = [byId('lower600'), byId('upper600'), byId('lower600drawers'), byId('upper800'), byId('sink800')]
+      .map(toModule);
+    const model = buildModel(Object.assign({}, base, { modules: mods }));
+    inspect(model, 'кухня: нижние + верхние');
+    const up = model.partsRaw.filter((p) => p.module === 'Модуль 2' || p.module === 'Модуль 4');
+    const low = model.partsRaw.filter((p) => !(p.module === 'Модуль 2' || p.module === 'Модуль 4'));
+    const [upLo] = yRange(up), [, lowHi] = yRange(low);
+    if (!(upLo > lowHi)) problems.push(`кухня: верхние (низ ${upLo}) не над нижними (верх ${lowHi})`);
+    if (Math.abs(zMin(up) - zMin(low)) > 0.6) problems.push(`кухня: задняя грань верхних ${zMin(up)} не по стене ${zMin(low)}`);
+    const [ux0, ux1] = xRange(up), [lx0] = xRange(low);
+    if (Math.abs(ux0 - lx0) > 0.6) problems.push(`кухня: верхний ряд начинается с ${ux0}, а нижний с ${lx0}`);
+    if (Math.abs((ux1 - ux0) - 1400) > 0.6) problems.push(`кухня: верхний ряд длиной ${ux1 - ux0} вместо 1400 (600+800)`);
+    if (model.dims.H !== 2400) problems.push(`кухня: габарит H ${model.dims.H} вместо 2400`);
+    if (!(model.modules[1].offsetY > 0) || model.modules[0].offsetY !== 0) problems.push('кухня: offsetY модулей не тот');
+    cases += 1;
+  }
+
+  // 3) Г-образная кухня: верхний угловой поворачивает верхний ряд
+  {
+    const mods = [byId('lower600'), byId('cornerLower'), byId('lower600'),
+      byId('upper600'), byId('cornerUpper'), byId('upper600')].map(toModule);
+    const model = buildModel(Object.assign({}, base, { modules: mods }));
+    inspect(model, 'Г-кухня с верхним угловым');
+    if (model.modules[5].rotation !== 270) problems.push('Г-кухня: верхний после верхнего углового не развернулся');
+    if (model.modules[3].rotation !== 0 || model.modules[4].rotation !== 0) problems.push('Г-кухня: верхние до углового развёрнуты');
+    // Верхний перпендикулярного ряда — над нижним перпендикулярного ряда, к той же стене
+    const p5 = model.partsRaw.filter((p) => p.module === 'Модуль 6');
+    const p3 = model.partsRaw.filter((p) => p.module === 'Модуль 3');
+    const xMax = (ps) => Math.max.apply(null, ps.map((p) => p.boxes[0].x + p.boxes[0].w / 2));
+    if (Math.abs(xMax(p5) - xMax(p3)) > 0.6) problems.push(`Г-кухня: верхний второго ряда не у стены (${xMax(p5)} vs ${xMax(p3)})`);
+    cases += 1;
+  }
+}
+
 // --- пустой проект: программа стартует без модулей -------------------------
 {
   const empty = buildModel(Object.assign({}, base, { modules: [] }));

@@ -341,7 +341,34 @@ function overallDims(model, F, bottomY, leftX) {
     }
   }
   s += dimH(F.x(-d.W / 2), F.x(d.W / 2), bottomY, lv, String(Math.round(d.W)));
-  s += dimV(F.y(0), F.y(d.H), leftX, 0, String(Math.round(d.H)), -1);
+  // Навесные модули (m.offsetY > 0 — низ от пола): цепочка отметок по высоте
+  // — верх нижнего ряда, низ и верх верхних, — общий габарит за ней.
+  let lvH = 0;
+  if (mods.some((m) => Number(m.offsetY) > 0)) {
+    const marks = [0, d.H];
+    const floorTop = Math.max.apply(null, [0].concat(mods
+      .filter((m) => !(Number(m.offsetY) > 0)).map((m) => Number(m.dims.H) || 0)));
+    if (floorTop > 0) marks.push(floorTop);
+    for (const m of mods) {
+      const oy = Number(m.offsetY) || 0;
+      if (oy > 0) marks.push(oy, oy + (Number(m.dims.H) || 0));
+    }
+    const uniq = marks.map((v) => Math.round(v)).filter((v, i, a) => a.indexOf(v) === i)
+      .sort((x, y) => x - y);
+    const chain = [];
+    for (let i = 0; i < uniq.length - 1; i++) {
+      const h = uniq[i + 1] - uniq[i];
+      if (h < 10) continue;
+      chain.push({ a: F.y(uniq[i + 1]), b: F.y(uniq[i]), label: String(h) });
+    }
+    if (chain.length > 1) {
+      for (const it of packDims(chain, 0)) {
+        s += dimV(it.a, it.b, leftX, it.level, it.label, -1);
+        lvH = Math.max(lvH, it.level + 1);
+      }
+    }
+  }
+  s += dimV(F.y(0), F.y(d.H), leftX, lvH, String(Math.round(d.H)), -1);
   return s;
 }
 
@@ -367,12 +394,22 @@ function frontDims(model, F, bottomY, leftX) {
   // По высоте: цепочка ярусов — цоколь, полки, ящики, верх
   const marks = [0];
   const m0 = mods[0].dims;
-  if (m0.baseH > 0) marks.push(m0.baseH);
+  const oy0 = Number(mods[0].offsetY) || 0;
+  if (m0.baseH > 0) marks.push(oy0 + m0.baseH);
   for (const p of model.partsRaw) {
     if (p.module !== mods[0].name) continue;
     const b = p.boxes[0];
     if (p.kind === 'shelf') marks.push(b.y - b.h / 2);
     if (p.kind === 'drawerFront') marks.push(b.y + b.h / 2);
+  }
+  // Навесные модули: отметки их низа и верха от пола (у первого модуля —
+  // и верх напольного, иначе цепочка перескочила бы от него сразу к 2400).
+  if (mods.some((m) => Number(m.offsetY) > 0)) {
+    marks.push(oy0 + (Number(m0.H) || 0));
+    for (const m of mods) {
+      const oy = Number(m.offsetY) || 0;
+      if (oy > 0) marks.push(oy, oy + (Number(m.dims.H) || 0));
+    }
   }
   marks.push(d.H);
   const uniq = marks.map((v) => Math.round(v)).filter((v, i, a) => a.indexOf(v) === i)
@@ -579,8 +616,16 @@ function buildModuleDrawing(model, mod, scale) {
   // одной планкой). На чертёж отдельного модуля она не идёт: планка длиннее
   // корпуса и вылезает за рамку. Её место — общий вид и деталировка.
   const runWide = (p) => p.kind === 'plinth' && String(p.module || '').indexOf(' + ') !== -1;
+  // Навесной модуль поднят на свою отметку (mod.offsetY — низ от пола): его
+  // рабочий чертёж строится от низа МОДУЛЯ, как у напольного, иначе он
+  // «вырастает» до отметки верха (2400). Боксы копируем со сдвигом по Y —
+  // модель не трогаем, габариты md.* и так в координатах модуля.
+  const oy = Number(mod.offsetY) || 0;
   const parts = model.partsRaw.filter(p => belongs(p) && !FACADE_KINDS[p.kind]
-    && !p.hardware && !runWide(p));
+    && !p.hardware && !runWide(p))
+    .map((p) => (oy ? Object.assign({}, p, {
+      boxes: p.boxes.map((b) => Object.assign({}, b, { y: b.y - oy })),
+    }) : p));
   if (!parts.length) return '';
 
   // Глубина и Z-центр берём по фактическим деталям — модули выровнены по фронту
@@ -1316,7 +1361,8 @@ function buildPartEditorView(part, opts) {
 // всего чертежа — так сразу видно, где чей корпус.
 function moduleLabel(m, F) {
   const x = F.x(m.offsetX - (m.dims.W || 0) / 2) + 5;
-  const y = F.y(m.dims.H || 0) + 12;
+  // Навесной модуль поднят на отметку m.offsetY — подпись в его верхнем углу.
+  const y = F.y((Number(m.offsetY) || 0) + (m.dims.H || 0)) + 12;
   return text(x, y, m.name, 'dw-sec', 'start');
 }
 

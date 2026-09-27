@@ -2124,6 +2124,8 @@ function libModThumbDataUrl(groupId, it) {
         rotation: m.rotation || 0, corner: !!m.corner, family: m.family || 'custom',
         topType: m.topType, railWidth: m.railWidth, noBack: !!m.noBack,
         backMount: m.backMount, backGroove: m.backGroove, wallHung: m.wallHung,
+        // Отметка верха навесного модуля от пола (engine.js, mountBottom).
+        mountTop: m.mountTop,
         blindPanel: !!m.blindPanel, blindStrip: m.blindStrip,
         leftSide: m.leftSide, rightSide: m.rightSide,
         base: m.baseType === 'plinth'
@@ -2174,6 +2176,8 @@ function libModProjectModuleOf(m) {
     rotation: m.rotation || 0, corner: !!m.corner, family: m.family || 'custom',
     topType: m.topType, railWidth: m.railWidth, noBack: !!m.noBack,
     backMount: m.backMount, backGroove: m.backGroove, wallHung: m.wallHung,
+    // Отметка верха навесного модуля от пола (engine.js, mountBottom).
+    mountTop: m.mountTop,
     blindPanel: !!m.blindPanel, blindStrip: m.blindStrip,
     leftSide: m.leftSide, rightSide: m.rightSide,
     base: m.baseType === 'plinth'
@@ -10323,9 +10327,30 @@ function moduleFieldsBlock(mod) {
         </select>
       </div>
     </div>` : ''}
+    ${mountTopBlock(mod)}
     ${backMountBlock(mod)}
 
     <div id="sectionsList"></div>`;
+}
+
+// Отметка ВЕРХА навесного модуля от пола (решение пользователя 2026-09-26):
+// по умолчанию engine.WALL_MOUNT_TOP_DEFAULT (2400), своё число — mod.mountTop.
+// Низ модуля = верх − высота модуля (считает engine.js, buildModel).
+function wallMountTopDefault() {
+  const v = Number(window.Modul3D.engine.WALL_MOUNT_TOP_DEFAULT);
+  return Number.isFinite(v) && v > 0 ? v : '';
+}
+function mountTopBlock(mod) {
+  if (!moduleIsWallHung(mod)) return '';
+  const top = Number(mod.mountTop) > 0 ? Number(mod.mountTop) : wallMountTopDefault();
+  return `
+    <div class="field-row">
+      <div class="field">
+        <label>Верх модуля от пола, мм</label>
+        <input id="m-mountTop" type="number" step="10" min="0" value="${top}">
+      </div>
+    </div>
+    <div class="hint">Навесной модуль: низ = верх − высота модуля.</div>`;
 }
 
 // Дефолты паза под заднюю стенку берём из движка (engine.js,
@@ -10363,7 +10388,8 @@ function backGrooveTallCabinetMinHeight() {
 
 // Навесной модуль — тот же признак, что isWallHung() в engine.js: явное
 // поле wallHung главнее, без него — кухонный на «цоколе» нулевой высоты.
-// Здесь только для выбора текста подсказки, в расчёт не идёт.
+// Здесь только для UI (текст подсказки, поле «Верх модуля от пола»), в
+// расчёт не идёт — движок решает сам по тем же полям.
 function moduleIsWallHung(mod) {
   if (mod.wallHung === true || mod.wallHung === false) return mod.wallHung;
   return mod.family === 'kitchen' && mod.baseType === 'plinth' && !(Number(mod.plinthHeight) > 0);
@@ -13607,6 +13633,18 @@ function bindPanelEvents() {
   on('m-depth', 'change', (e) => { mod.depth = Number(e.target.value); recompute(); });
   on('m-leftSide', 'change', (e) => { mod.leftSide = e.target.value; recompute(); });
   on('m-rightSide', 'change', (e) => { mod.rightSide = e.target.value; recompute(); });
+  // Отметка верха навесного модуля (mountTopBlock). Пустое/неположительное —
+  // возвращаем прежнее значение; история отмены — через recompute().
+  on('m-mountTop', 'change', (e) => {
+    const raw = String(e.target.value).trim();
+    const x = Number(raw);
+    if (raw === '' || !Number.isFinite(x) || x <= 0) {
+      e.target.value = Number(mod.mountTop) > 0 ? mod.mountTop : wallMountTopDefault();
+      return;
+    }
+    mod.mountTop = x;
+    recompute();
+  });
   // Блок «Задняя стенка» (backMountBlock): режим крепления и параметры паза.
   // Смена режима перерисовывает панель — поля паза видны только при «В паз».
   on('m-backMount', 'change', (e) => {
@@ -13979,6 +14017,8 @@ function recompute(isRetry) {
       rotation: m.rotation || 0, corner: !!m.corner, family: m.family || 'custom',
       topType: m.topType, railWidth: m.railWidth, noBack: !!m.noBack,
       backMount: m.backMount, backGroove: m.backGroove, wallHung: m.wallHung,
+      // Отметка верха навесного модуля от пола (engine.js, mountBottom).
+      mountTop: m.mountTop,
       blindPanel: !!m.blindPanel, blindStrip: m.blindStrip,
       leftSide: m.leftSide, rightSide: m.rightSide,
       base: m.baseType === 'plinth'
@@ -14101,12 +14141,16 @@ function buildOverlayDims() {
     g += vDim(P(-d.W / 2, 0, zf), P(-d.W / 2, d.H, zf), -46, `${Math.round(d.H)}`);
     // Ширины модулей — только если модулей больше одного. При единственном
     // модуле его ширина совпадает с габаритом, и размер дублировался.
+    // Навесной модуль поднят на свою отметку (mod.offsetY — низ от пола):
+    // его ширина — по его низу, подпись — над его верхом.
     for (const mod of m.modules) {
+      const y0 = Number(mod.offsetY) || 0;
       if (m.modules.length > 1) {
         const md = mod.dims;
-        g += hDim(P(mod.offsetX - md.W / 2, 0, zf), P(mod.offsetX + md.W / 2, 0, zf), 24, `${Math.round(md.W)}`);
+        g += hDim(P(mod.offsetX - md.W / 2, y0, zf), P(mod.offsetX + md.W / 2, y0, zf), 24, `${Math.round(md.W)}`);
       }
-      g += txtEl(P(mod.offsetX, d.H, zf), mod.name, -12);
+      const yTopMod = y0 ? y0 + (Number(mod.dims.H) || 0) : d.H;
+      g += txtEl(P(mod.offsetX, yTopMod, zf), mod.name, -12);
     }
     // фасады видны — размечаем сами фасады; скрыты — внутреннюю начинку
     g += state.hideFacades ? innerHeightDims(P, zf) : facadeDims(P, zf);
@@ -14189,13 +14233,15 @@ function innerHeightDims(P, zf) {
 
   for (const mod of m.modules) {
     const md = mod.dims;
+    // Отметки md.* — в координатах модуля; навесной поднят на mod.offsetY.
+    const y0 = Number(mod.offsetY) || 0;
     for (let i = 0; i < md.n; i++) {
       const secL = md.sections[i];
       const x0 = mod.offsetX + secL.x0;
       const cx = x0 + secL.w / 2;
 
       // отметки: дно, низ/верх каждой полки и ящика, крыша
-      const marks = [md.innerBottomY];
+      const marks = [y0 + md.innerBottomY];
       for (const p of m.partsRaw) {
         if (p.module !== mod.name) continue;
         const b = p.boxes[0];
@@ -14203,7 +14249,7 @@ function innerHeightDims(P, zf) {
         if (p.kind === 'shelf') { marks.push(b.y - b.h / 2, b.y + b.h / 2); }
         if (p.kind === 'drawerFront') { marks.push(b.y - b.h / 2, b.y + b.h / 2); }
       }
-      marks.push(md.innerBottomY + md.innerH);
+      marks.push(y0 + md.innerBottomY + md.innerH);
       marks.sort((a, b) => a - b);
 
       // просветы больше 20 мм подписываем

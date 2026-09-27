@@ -1058,6 +1058,9 @@ function hingeHoles(W, H, hingeSide, shelves, warn, secName, glassDoor, railBott
 // у соседних фасадов разной высоты ручки оказываются на одном уровне.
 const HAND_LEVEL = 1000;     // уровень руки от пола, мм
 function handleLevel(o, H, edge) {
+  // Навесной (верхний) модуль — ручка ВСЕГДА у нижнего края фасада, вне
+  // зависимости от отметки (решение пользователя 2026-09-26).
+  if (o.wallHung) return edge;
   const bottom = Number(o.floorY);           // низ фасада от пола
   if (!Number.isFinite(bottom)) return H > 900 ? H / 2 : H - edge;
   const top = bottom + H;
@@ -1165,7 +1168,9 @@ function handleHoles(o) {
       // пенала (zoneIndex 0) продолжает жить по обычным трём случаям ниже —
       // для неё это уже подтверждено как корректное поведение.
       const isUpperZone = Number(o.zoneCount) > 1 && Number(o.zoneIndex) > 0;
-      if (isUpperZone) {
+      if (isUpperZone || o.wallHung) {
+        // Зона пенала выше нижней или навесной модуль (решение пользователя
+        // 2026-09-26: у верхних модулей ручки дверей всегда внизу фасада).
         bottom = edge; top = bottom + h.cc;
       } else if (!Number.isFinite(floorY)) {
         if (H > 900) { const c = H / 2; bottom = c - half; top = c + half; }
@@ -2189,6 +2194,11 @@ function skipTopPanelOf(p) {
 // НАВЕСНОЙ модуль (верхний кухонный). Явное поле wallHung главнее; без него
 // — кухонный модуль на «цоколе» нулевой высоты (так заведены верхние
 // пресеты: plinthHeight 0, основания нет — висит на стене).
+// Отметка ВЕРХА навесного модуля от пола по умолчанию, мм (решение
+// пользователя 2026-09-26). Регулируется полем модуля mountTop; низ модуля =
+// mountTop − высота модуля (см. buildModel, mountBottom).
+const WALL_MOUNT_TOP_DEFAULT = 2400;
+
 function isWallHung(p) {
   if (p.wallHung === true || p.wallHung === false) return p.wallHung;
   const b = p.base || {};
@@ -4123,7 +4133,8 @@ function buildModuleParts(p) {
         const dh = handleHoles({ kind: 'door', width: facadeW, height: doorZoneH,
           handleId: sec.handle, handleCC: sec.handleCC, orient: sec.handleOrient,
           hingeSide: fac === 'doorLeft' ? 'left' : 'right',
-          floorY: doorY - doorZoneH / 2, frame: ft.frame,
+          floorY: (Number(p.mountBottom) || 0) + doorY - doorZoneH / 2, frame: ft.frame,
+          wallHung: isWallHung(p),
           zoneIndex: zi, zoneCount: zonesRaw.length });
         if (dh.overflow) warnings.push(`${secName}: ручка «${dh.handle.name}» не помещается на двери.`);
         if (dh.badCC) warnings.push(`${secName}: у ручки не задано межосевое расстояние — укажите его в секции.`);
@@ -4276,7 +4287,8 @@ function buildModuleParts(p) {
           const dh = handleHoles({ kind: 'door', width: leafW, height: doorZoneH,
             handleId: sec.handle, handleCC: sec.handleCC, orient: sec.handleOrient,
             hingeSide: leaf === 0 ? 'left' : 'right',
-            floorY: doorY - doorZoneH / 2, frame: ft.frame,
+            floorY: (Number(p.mountBottom) || 0) + doorY - doorZoneH / 2, frame: ft.frame,
+            wallHung: isWallHung(p),
             zoneIndex: zi, zoneCount: zonesRaw.length });
           if (dh.count) handleHardware.push({ id: dh.handle.id, qty: dh.count, name: dh.handle.name, cc: dh.handle.cc });
           const leafX = fX - facadeW / 2 + leafW / 2 + leaf * (leafW + 2 * gap);
@@ -4479,9 +4491,12 @@ function buildModel(project) {
   // Глубина модуля, который встаёт СЛЕДОМ (перпендикулярный ряд после угла).
   // По ней строится заглушка углового модуля: она закрывает фронт ровно на
   // ширину соседнего корпуса, иначе стык не сходится.
+  // Сосед ищется в том же ряду (напольный / навесной): верхний и нижний
+  // ряды раскладываются независимо, см. «НАВЕСНЫЕ модули» ниже.
   const nextDepthOf = (m) => {
-    const i = mods.indexOf(m);
-    const nxt = i >= 0 ? mods[i + 1] : null;
+    const same = mods.filter((x) => isWallHung(x) === isWallHung(m));
+    const i = same.indexOf(m);
+    const nxt = i >= 0 ? same[i + 1] : null;
     const d = nxt ? Number(nxt.depth || 0) : 0;
     return d > 0 ? d : (Number(m.blindWidth) || Number(m.depth) || 560);
   };
@@ -4537,213 +4552,296 @@ function buildModel(project) {
   const FILLER_GAP = 50;     // отступ перпендикулярного корпуса от планки
   const isCorner = (m) => !!m.corner;
 
-  // Разбиваем модули на прогоны: угловой модуль — последний в своём прогоне.
-  const runs = [];
-  let cur = [];
-  mods.forEach((m, i) => {
-    cur.push(i);
-    if (isCorner(m) && i < mods.length - 1) { runs.push(cur); cur = []; }
-  });
-  if (cur.length) runs.push(cur);
+  // НАВЕСНЫЕ (верхние) модули — ОТДЕЛЬНЫЙ ряд над напольными (решение
+  // пользователя 2026-09-26). У верхнего ряда свой курсор и свои угловые
+  // повороты: он начинается от того же начала, что и нижний (первый верхний
+  // встаёт над первым нижним), а по глубине прижимается ЗАДНЕЙ стороной к
+  // стене (v = 0 — та же плоскость, что задняя грань самого глубокого нижнего
+  // модуля), а не выравнивается по фасадам нижних. Напольные — как раньше.
+  const floorIdx = [], wallIdx = [];
+  mods.forEach((m, i) => (isWallHung(m) ? wallIdx : floorIdx).push(i));
+  // Разбиваем ряд на прогоны: угловой модуль — последний в своём прогоне.
+  const splitRuns = (idxs) => {
+    const out = [];
+    let cur = [];
+    idxs.forEach((i, k) => {
+      cur.push(i);
+      if (isCorner(mods[i]) && k < idxs.length - 1) { out.push(cur); cur = []; }
+    });
+    if (cur.length) out.push(cur);
+    return out;
+  };
+  const floorRuns = splitRuns(floorIdx);
+  const wallRuns = splitRuns(wallIdx);
+  // Начало раскладки задаёт нижний ряд (если он есть), верхний — от него же.
+  const primaryRuns = floorRuns.length ? floorRuns : wallRuns;
 
-  // Стартовая точка и направление первого прогона
-  let dir = 0;
-  let originX = 0, originZ = 0;
   // Первый прогон центрируем по X, как раньше, чтобы одиночный шкаф стоял в нуле
-  const firstRunLen = (runs[0] || []).reduce((sum, i) => {
+  const firstRunLen = (primaryRuns[0] || []).reduce((sum, i) => {
     const e = extent(mods[i]); return sum + (e.x1 - e.x0);
   }, 0);
-  originX = -firstRunLen / 2;
+  const originX0 = -firstRunLen / 2;
   // По глубине первый прогон центрируем так же, как раньше стоял одиночный
   // модуль (корпус вокруг нуля), — иначе сдвинулись бы все виды на чертежах.
-  const firstRunDepth = Math.max.apply(null, (runs[0] || [0]).map((i) => {
+  // originZ0 — плоскость стены (задняя грань самого глубокого модуля).
+  const firstRunDepth = Math.max.apply(null, (primaryRuns[0] || [0]).map((i) => {
     const e = extent(mods[i]); return e.z1 - e.z0;
   }));
-  const firstRunFront = Math.max.apply(null, (runs[0] || [0]).map((i) => extent(mods[i]).z1));
-  originZ = firstRunFront - firstRunDepth;
+  const firstRunFront = Math.max.apply(null, (primaryRuns[0] || [0]).map((i) => extent(mods[i]).z1));
+  const originZ0 = firstRunFront - firstRunDepth;
+
+  // Раскладка каждого модуля (по индексу в mods): начало и направление его
+  // прогона, смещение в системе прогона, данные угловой фальш-планки.
+  const place = new Array(mods.length);
+  // frames[k] — начало k-го прогона ряда и положение его угла (u конца
+  // углового модуля = стена следующего, перпендикулярного прогона).
+  const layoutLayer = (runs, wall, floorFrames) => {
+    const frames = [];
+    let dir = 0;
+    let originX = originX0, originZ = originZ0;
+    runs.forEach((run, k) => {
+      const U = DIR_U[dir], V = DIR_V[dir];
+      const dirRot = DIR_ROT[dir];
+      // В пределах прогона напольные модули выравниваются по ПЕРЕДНЕМУ краю,
+      // а сам прогон отсчитывается от СТЕНЫ: v = 0 — задняя плоскость самого
+      // глубокого модуля, v = runDepth — общая фасадная плоскость. Так
+      // следующий прогон встаёт ровно от наружной грани углового модуля, а
+      // не сквозь него. Навесные — задней стороной по стене (v = 0).
+      const runDepth = Math.max.apply(null, run.map((i) => {
+        const e = extent(mods[i]); return e.z1 - e.z0;
+      }));
+      let cursor = 0;
+      let lastCornerU = 0, lastCornerV = runDepth;
+      let cornerU = null;
+      // Угол нижнего ряда в этом же прогоне — там перпендикулярная стена.
+      // Верхний угловой модуль встаёт концом в ту же стену, иначе верхний
+      // ряд повернул бы не у стены, а где кончились верхние модули (у
+      // нижнего и верхнего угловых разная ширина: 1000 и 600 в пресетах).
+      const fl = wall && floorFrames ? floorFrames[k] : null;
+      const wallCornerU = fl && fl.cornerU != null && fl.dir === dir
+        ? fl.cornerU - ((originX - fl.originX) * U[0] + (originZ - fl.originZ) * U[1])
+        : null;
+
+      run.forEach((idx) => {
+        const m = mods[idx];
+        const e = extent(m);                       // габарит в системе прогона
+        if (wall && isCorner(m) && wallCornerU != null) {
+          const snap = wallCornerU - (e.x1 - e.x0);
+          if (snap >= cursor - 0.5) cursor = snap;
+          else {
+            warnings.push(`${m.name || `Модуль ${idx + 1}`}: верхние модули до угла `
+              + `длиннее нижнего ряда на ${Math.round(cursor - snap)} мм — верхний угловой `
+              + `не достаёт до угла, ряд поворачивает дальше стены.`);
+          }
+        }
+        const offU = cursor - e.x0;                // левый край встаёт на курсор
+        const offV = wall
+          ? -e.z0                                  // задняя сторона — по стене
+          : runDepth - e.z1;                       // передние плоскости совпадают
+        const frontV = offV + e.z1;                // фасадная плоскость модуля
+        cursor += (e.x1 - e.x0);
+        const pl = { U, V, dirRot, originX, originZ, offU, offV, corner: null };
+        if (isCorner(m)) {
+          pl.corner = { cursor, frontV };
+          lastCornerU = cursor;
+          cornerU = cursor;
+          // Модуль со своей заглушкой уже несёт узел стыка: фальш-планку и
+          // планку крепёжную. Следующий прогон встаёт ВПЛОТНУЮ к ним, без
+          // дополнительного отступа — иначе в углу зияет щель.
+          // Прогон отсчитывается по ЗАНИМАЕМОМУ месту (в него входит вылет
+          // фасада на tBody), поэтому вычитаем эту толщину — иначе корпус
+          // соседа встаёт с зазором в одну плиту.
+          lastCornerV = m.blindPanel
+            ? frontV + (Number(m.blindStrip) || 68) - tBody
+            : frontV + FILLER_W + FILLER_GAP;
+        }
+        place[idx] = pl;
+      });
+      frames.push({ dir, originX, originZ, cornerU });
+
+      // Поворот на следующий прогон: новое начало — у наружной грани углового
+      // модуля, вплотную перед его фасадной плоскостью.
+      const nx = originX + U[0] * lastCornerU + V[0] * lastCornerV;
+      const nz = originZ + U[1] * lastCornerU + V[1] * lastCornerV;
+      originX = nx; originZ = nz;
+      dir = (dir + 1) % 4;
+    });
+    return frames;
+  };
+  const floorFrames = layoutLayer(floorRuns, false, null);
+  layoutLayer(wallRuns, true, floorFrames);
 
   const placed = [];   // фактические габариты корпусов на месте — для dims
   const cornerPlinths = [];   // угловые модули: их цоколь тянем до соседнего ряда
 
-  runs.forEach((run) => {
-    const U = DIR_U[dir], V = DIR_V[dir];
-    const dirRot = DIR_ROT[dir];
-    // В пределах прогона модули выравниваются по ПЕРЕДНЕМУ краю, а сам прогон
-    // отсчитывается от СТЕНЫ: v = 0 — задняя плоскость самого глубокого модуля,
-    // v = runDepth — общая фасадная плоскость. Так следующий прогон встаёт
-    // ровно от наружной грани углового модуля, а не сквозь него.
-    const runDepth = Math.max.apply(null, run.map((i) => {
-      const e = extent(mods[i]); return e.z1 - e.z0;
-    }));
-    let cursor = 0;
-    let lastCornerU = 0, lastCornerV = runDepth;
-
-    run.forEach((idx) => {
-      const m = mods[idx];
-      const name = m.name || `Модуль ${idx + 1}`;
-      const built = buildModuleParts({
-        width: m.width, height: m.height, depth: m.depth,
-        bodyThickness: proj.bodyThickness, backThickness: proj.backThickness,
-        decor: m.carcassDecor || proj.decor, facadeDecor: proj.facadeDecor,
-        facadeMat: proj.facadeMat || proj.decor,
-        facadeThickness: proj.facadeThickness,
-        backMaterial: proj.backMaterial,
-        drawerDecor: proj.drawerDecor, drawerThickness: proj.drawerThickness,
-        base: m.base, legType: m.legType, leftSide: m.leftSide, rightSide: m.rightSide,
-        topType: m.topType, railWidth: m.railWidth, noBack: !!m.noBack,
-        // Задняя стенка: накладная / в паз (см. resolveBackMount) и признак
-        // навесного модуля. Нет полей — 'auto' и правило по умолчанию.
-        backMount: m.backMount, backGroove: m.backGroove, wallHung: m.wallHung,
-        countertop: m.countertop,
-        // Навесному (верхнему) модулю столешница не положена: иначе его
-        // видимая боковина «дотягивается до стены» по глубине столешницы
-        // нижнего ряда (у верхнего 300 → 562 мм).
-        worktopDepth: (m.family === 'kitchen' && !isWallHung(m)) ? Number(proj.worktopDepth || 0) : 0,
-        family: m.family,
-        blindPanel: !!m.blindPanel, blindStrip: m.blindStrip,
-        // Ширина заглушки = ГЛУБИНА СОСЕДНЕГО модуля: к ней он и стыкуется.
-        // Меняется глубина ряда — заглушка подстраивается сама.
-        blindWidth: nextDepthOf(m),
-        scheme: m.scheme, sections: m.sections,
-        jointType: proj.jointType, gap: proj.gap,
-        drawerUnitHeight: proj.drawerUnitHeight,
-        // Ручные правки конкретных деталей этого модуля (режим фокуса →
-        // «Редактировать»), см. applyPartOverrides. Живёт прямо в объекте
-        // модуля — переживает Undo/Redo и сохранение проекта бесплатно,
-        // т.к. snapshot()/serializeProject() сериализуют state.modules целиком.
-        partOverrides: m.partOverrides || {},
-        // Направление текстуры: настройки групп — общие на проект, правки
-        // отдельных деталей — в объекте модуля (как partOverrides).
-        grainGroups: proj.grainGroups || {},
-        grainOverrides: m.grainOverrides || {},
-      });
-
-      const manualRot = rotOf(m);
-      const e = extent(m);                       // габарит в системе прогона
-      const offU = cursor - e.x0;                // левый край встаёт на курсор
-      const offV = runDepth - e.z1;              // передние плоскости совпадают
-
-      for (const part of built.parts) {
-        const b = part.box;
-        // Присадка на боковинах/перегородках (viewer.js, row.frontIsPlus)
-        // знает, с какой стороны «лицо» (интерьер корпуса), по знаку
-        // ЛОКАЛЬНОГО x — ДО поворота модуля, который идёт ниже. Поворот на
-        // 90/270° меняет местами оси x/z; если не зафиксировать сторону
-        // ЗДЕСЬ, viewer.js смотрит на уже повёрнутый мировой box.x, который
-        // после поворота модуля не имеет отношения к тому, какая грань
-        // смотрит внутрь корпуса — присадка на всех боковинах разом уезжает
-        // не на ту сторону при повороте модуля в плане.
-        if (part.frontIsPlus == null && b.w === Math.min(b.w, b.h, b.d)) {
-          part.frontIsPlus = b.x < 0;
-        }
-        // 1) собственный поворот модуля — в системе прогона
-        if (manualRot === 90)       { const x = b.x, w = b.w; b.x = b.z; b.z = -x; b.w = b.d; b.d = w; }
-        else if (manualRot === 180) { b.x = -b.x; b.z = -b.z; }
-        else if (manualRot === 270) { const x = b.x, w = b.w; b.x = -b.z; b.z = x; b.w = b.d; b.d = w; }
-        const u = b.x + offU, v = b.z + offV;
-        // 2) разворот прогона: (u,v) → глобальные (x,z)
-        const gx = originX + U[0] * u + V[0] * v;
-        const gz = originZ + U[1] * u + V[1] * v;
-        if (dirRot === 90 || dirRot === 270) { const w = b.w; b.w = b.d; b.d = w; }
-        b.x = round1(gx);
-        b.z = round1(gz);
-        // Итоговый разворот детали: в 3D по нему разворачивается вся деталь
-        // целиком вместе с присадкой и ручкой, а не переставляются габариты.
-        part.rot = (dirRot + manualRot) % 360;
-        b.w = round1(b.w);
-        b.d = round1(b.d);
-        part.module = name;
-        allParts.push(part);
-      }
-      for (const w of built.warnings) warnings.push(`${name}: ${w}`);
-      built.hardwareContext.drawerHardware.forEach((d) => drawerHardware.push(d));
-      built.hardwareContext.doorHardware.forEach((d) => doorHardware.push(d));
-      (built.hardwareContext.handleHardware || []).forEach((d) => handleHardware.push(d));
-      (built.hardwareContext.liftHardware || []).forEach((d) => liftHardware.push(d));
-      (built.hardwareContext.jointRows || []).forEach((d) => jointRows.push(d));
-      jointCount += built.hardwareContext.jointCount;
-
-      const c = carcass(m);
-      // Модуль строится с центром в локальном нуле, поэтому его центр
-      // в системе прогона — это и есть смещение.
-      const centerU = offU;
-      const centerV = offV;
-      const gcx = originX + U[0] * centerU + V[0] * centerV;
-      const gcz = originZ + U[1] * centerU + V[1] * centerV;
-      const cw = (dirRot === 90 || dirRot === 270) ? c.d : c.w;
-      const cd = (dirRot === 90 || dirRot === 270) ? c.w : c.d;
-      placed.push({ x0: gcx - cw / 2, x1: gcx + cw / 2, z0: gcz - cd / 2, z1: gcz + cd / 2 });
-
-      modules.push({
-        name, offsetX: gcx, offsetZ: gcz, rotation: (dirRot + manualRot) % 360,
-        // dims.W/D — габарит корпуса НА МЕСТЕ (с учётом поворота и прогона);
-        // dimsOwn — его СОБСТВЕННЫЕ ширина и глубина, без поворота: по ним
-        // строится рабочий чертёж модуля.
-        dims: Object.assign({}, built.dims, { W: cw, D: cd }),
-        dimsOwn: Object.assign({}, built.dims, { W: c.w, D: c.d }),
-        sides: built.sides, sidesLabel: built.sidesLabel,
-        params: built.params,
-      });
-
-      cursor += (e.x1 - e.x0);
-      if (isCorner(m)) {
-        // УГЛОВОЙ СТЫК. Перпендикулярный ряд нельзя ставить вплотную: ящики
-        // не выедут, а фасады и ручки столкнутся с соседом. Между ними ставят
-        // ФАЛЬШ-ПЛАНКУ (доборную) из фасадного материала — она и держит зазор.
-        const sec0 = (m.sections && m.sections[0]) || {};
-        const ftc = facadeTypeOf(sec0, proj.decor, tBody, proj.facadeMat || proj.decor, proj.facadeThickness);
-        const mBaseH = m.base && m.base.type === 'plinth'
-          ? Number(m.base.plinthHeight || 0) : Number(m.base.legHeight || 0);
-        const frontH = Number(m.height || 0) - mBaseH;
-        const uC = cursor - ftc.thickness / 2;
-        const vC = runDepth + FILLER_W / 2;
-        const gx = originX + U[0] * uC + V[0] * vC;
-        const gz = originZ + U[1] * uC + V[1] * vC;
-        const swap = dirRot === 90 || dirRot === 270;
-        // У модуля со своей заглушкой стыковочную планку ставит он сам
-        // (фальш-планка добора) — вторую в том же месте не делаем.
-        if (!m.blindPanel) {
-          const cornerFiller = Object.assign(makePart({
-            name: 'Фальш-планка угловая', section: 'Угловой стык',
-            material: ftc.material, thickness: ftc.thickness,
-            length: frontH, width: FILLER_W, qty: 1, kind: 'filler', grain: true,
-            note: `Фасадный элемент для стыка в углу, ${FILLER_W} мм; `
-              + `корпус соседнего ряда отставлен ещё на ${FILLER_GAP} мм`,
-            edging: { long1: fillerEdgeType(ftc), long2: fillerEdgeType(ftc), short1: fillerEdgeType(ftc), short2: fillerEdgeType(ftc) },
-            x: round1(gx), y: mBaseH + frontH / 2, z: round1(gz),
-            dims: swap
-              ? { w: FILLER_W, h: frontH, d: ftc.thickness }
-              : { w: ftc.thickness, h: frontH, d: FILLER_W },
-          }), { module: name, rot: dirRot });
-          // Планка строится сразу в мировой системе (габариты уже повёрнуты
-          // прогоном) — для направления текстуры возвращаем их в систему модуля.
-          applyGrainDirection([cornerFiller], proj.grainGroups, m.grainOverrides,
-            swap ? (bb) => ({ w: bb.d, h: bb.h, d: bb.w }) : null);
-          allParts.push(cornerFiller);
-        }
-
-        // цоколь этого модуля дотягиваем до цоколя следующего прогона
-        cornerPlinths.push({ name, sign: U[0] !== 0 ? U[0] : 0 });
-
-        lastCornerU = cursor;
-        // Модуль со своей заглушкой уже несёт узел стыка: фальш-планку и
-        // планку крепёжную. Следующий прогон встаёт ВПЛОТНУЮ к ним, без
-        // дополнительного отступа — иначе в углу зияет щель.
-        // Прогон отсчитывается по ЗАНИМАЕМОМУ месту (в него входит вылет
-        // фасада на tBody), поэтому вычитаем эту толщину — иначе корпус
-        // соседа встаёт с зазором в одну плиту.
-        lastCornerV = m.blindPanel
-          ? runDepth + (Number(m.blindStrip) || 68) - tBody
-          : runDepth + FILLER_W + FILLER_GAP;
-      }
+  // Сборка деталей — в ИСХОДНОМ порядке модулей (от него зависят нумерация
+  // позиций деталировки и соответствие model.modules[i] ↔ state.modules[i]).
+  mods.forEach((m, idx) => {
+    const { U, V, dirRot, originX, originZ, offU, offV } = place[idx];
+    const name = m.name || `Модуль ${idx + 1}`;
+    // ВЫСОТА НАВЕСНОГО модуля: верх по умолчанию на отметке
+    // WALL_MOUNT_TOP_DEFAULT от пола, регулируется полем mountTop; низ = верх −
+    // высота модуля. Напольные стоят на полу (0).
+    const hung = isWallHung(m);
+    const mountTop = hung
+      ? (Number(m.mountTop) > 0 ? Number(m.mountTop) : WALL_MOUNT_TOP_DEFAULT) : null;
+    let mountBottom = hung ? mountTop - Number(m.height || 0) : 0;
+    if (mountBottom < 0) {
+      warnings.push(`${name}: верх навесного модуля на отметке ${Math.round(mountTop)} мм `
+        + `ниже его высоты ${Math.round(Number(m.height || 0))} мм — низ ушёл бы под пол, `
+        + `модуль поставлен на пол. Увеличьте «Верх модуля от пола».`);
+      mountBottom = 0;
+    }
+    const built = buildModuleParts({
+      width: m.width, height: m.height, depth: m.depth,
+      bodyThickness: proj.bodyThickness, backThickness: proj.backThickness,
+      decor: m.carcassDecor || proj.decor, facadeDecor: proj.facadeDecor,
+      facadeMat: proj.facadeMat || proj.decor,
+      facadeThickness: proj.facadeThickness,
+      backMaterial: proj.backMaterial,
+      drawerDecor: proj.drawerDecor, drawerThickness: proj.drawerThickness,
+      base: m.base, legType: m.legType, leftSide: m.leftSide, rightSide: m.rightSide,
+      topType: m.topType, railWidth: m.railWidth, noBack: !!m.noBack,
+      // Задняя стенка: накладная / в паз (см. resolveBackMount) и признак
+      // навесного модуля. Нет полей — 'auto' и правило по умолчанию.
+      backMount: m.backMount, backGroove: m.backGroove, wallHung: m.wallHung,
+      // Отметка низа модуля от пола — по ней ручки дверей считают высоту
+      // от пола (handleHoles/handleLevel).
+      mountBottom,
+      countertop: m.countertop,
+      // Навесному (верхнему) модулю столешница не положена: иначе его
+      // видимая боковина «дотягивается до стены» по глубине столешницы
+      // нижнего ряда (у верхнего 300 → 562 мм).
+      worktopDepth: (m.family === 'kitchen' && !hung) ? Number(proj.worktopDepth || 0) : 0,
+      family: m.family,
+      blindPanel: !!m.blindPanel, blindStrip: m.blindStrip,
+      // Ширина заглушки = ГЛУБИНА СОСЕДНЕГО модуля: к ней он и стыкуется.
+      // Меняется глубина ряда — заглушка подстраивается сама.
+      blindWidth: nextDepthOf(m),
+      scheme: m.scheme, sections: m.sections,
+      jointType: proj.jointType, gap: proj.gap,
+      drawerUnitHeight: proj.drawerUnitHeight,
+      // Ручные правки конкретных деталей этого модуля (режим фокуса →
+      // «Редактировать»), см. applyPartOverrides. Живёт прямо в объекте
+      // модуля — переживает Undo/Redo и сохранение проекта бесплатно,
+      // т.к. snapshot()/serializeProject() сериализуют state.modules целиком.
+      partOverrides: m.partOverrides || {},
+      // Направление текстуры: настройки групп — общие на проект, правки
+      // отдельных деталей — в объекте модуля (как partOverrides).
+      grainGroups: proj.grainGroups || {},
+      grainOverrides: m.grainOverrides || {},
     });
 
-    // Поворот на следующий прогон: новое начало — у наружной грани углового
-    // модуля, вплотную перед его фасадной плоскостью.
-    const nx = originX + U[0] * lastCornerU + V[0] * lastCornerV;
-    const nz = originZ + U[1] * lastCornerU + V[1] * lastCornerV;
-    originX = nx; originZ = nz;
-    dir = (dir + 1) % 4;
+    const manualRot = rotOf(m);
+
+    for (const part of built.parts) {
+      const b = part.box;
+      // Присадка на боковинах/перегородках (viewer.js, row.frontIsPlus)
+      // знает, с какой стороны «лицо» (интерьер корпуса), по знаку
+      // ЛОКАЛЬНОГО x — ДО поворота модуля, который идёт ниже. Поворот на
+      // 90/270° меняет местами оси x/z; если не зафиксировать сторону
+      // ЗДЕСЬ, viewer.js смотрит на уже повёрнутый мировой box.x, который
+      // после поворота модуля не имеет отношения к тому, какая грань
+      // смотрит внутрь корпуса — присадка на всех боковинах разом уезжает
+      // не на ту сторону при повороте модуля в плане.
+      if (part.frontIsPlus == null && b.w === Math.min(b.w, b.h, b.d)) {
+        part.frontIsPlus = b.x < 0;
+      }
+      // 1) собственный поворот модуля — в системе прогона
+      if (manualRot === 90)       { const x = b.x, w = b.w; b.x = b.z; b.z = -x; b.w = b.d; b.d = w; }
+      else if (manualRot === 180) { b.x = -b.x; b.z = -b.z; }
+      else if (manualRot === 270) { const x = b.x, w = b.w; b.x = -b.z; b.z = x; b.w = b.d; b.d = w; }
+      const u = b.x + offU, v = b.z + offV;
+      // 2) разворот прогона: (u,v) → глобальные (x,z)
+      const gx = originX + U[0] * u + V[0] * v;
+      const gz = originZ + U[1] * u + V[1] * v;
+      if (dirRot === 90 || dirRot === 270) { const w = b.w; b.w = b.d; b.d = w; }
+      b.x = round1(gx);
+      b.z = round1(gz);
+      // 3) подъём навесного модуля на его отметку
+      if (mountBottom) b.y = round1(b.y + mountBottom);
+      // Итоговый разворот детали: в 3D по нему разворачивается вся деталь
+      // целиком вместе с присадкой и ручкой, а не переставляются габариты.
+      part.rot = (dirRot + manualRot) % 360;
+      b.w = round1(b.w);
+      b.d = round1(b.d);
+      part.module = name;
+      allParts.push(part);
+    }
+    for (const w of built.warnings) warnings.push(`${name}: ${w}`);
+    built.hardwareContext.drawerHardware.forEach((d) => drawerHardware.push(d));
+    built.hardwareContext.doorHardware.forEach((d) => doorHardware.push(d));
+    (built.hardwareContext.handleHardware || []).forEach((d) => handleHardware.push(d));
+    (built.hardwareContext.liftHardware || []).forEach((d) => liftHardware.push(d));
+    (built.hardwareContext.jointRows || []).forEach((d) => jointRows.push(d));
+    jointCount += built.hardwareContext.jointCount;
+
+    const c = carcass(m);
+    // Модуль строится с центром в локальном нуле, поэтому его центр
+    // в системе прогона — это и есть смещение.
+    const centerU = offU;
+    const centerV = offV;
+    const gcx = originX + U[0] * centerU + V[0] * centerV;
+    const gcz = originZ + U[1] * centerU + V[1] * centerV;
+    const cw = (dirRot === 90 || dirRot === 270) ? c.d : c.w;
+    const cd = (dirRot === 90 || dirRot === 270) ? c.w : c.d;
+    placed.push({ x0: gcx - cw / 2, x1: gcx + cw / 2, z0: gcz - cd / 2, z1: gcz + cd / 2,
+      top: mountBottom + Number(m.height || 0) });
+
+    modules.push({
+      name, offsetX: gcx, offsetZ: gcz, rotation: (dirRot + manualRot) % 360,
+      // offsetY — отметка низа модуля от пола (у навесного = mountTop − H,
+      // у напольного 0); mountTop — отметка верха навесного (null у напольных).
+      offsetY: mountBottom, mountTop: hung ? mountTop : null, wallHung: hung,
+      // dims.W/D — габарит корпуса НА МЕСТЕ (с учётом поворота и прогона);
+      // dimsOwn — его СОБСТВЕННЫЕ ширина и глубина, без поворота: по ним
+      // строится рабочий чертёж модуля.
+      dims: Object.assign({}, built.dims, { W: cw, D: cd }),
+      dimsOwn: Object.assign({}, built.dims, { W: c.w, D: c.d }),
+      sides: built.sides, sidesLabel: built.sidesLabel,
+      params: built.params,
+    });
+
+    if (place[idx].corner) {
+      // УГЛОВОЙ СТЫК. Перпендикулярный ряд нельзя ставить вплотную: ящики
+      // не выедут, а фасады и ручки столкнутся с соседом. Между ними ставят
+      // ФАЛЬШ-ПЛАНКУ (доборную) из фасадного материала — она и держит зазор.
+      const { cursor, frontV } = place[idx].corner;
+      const sec0 = (m.sections && m.sections[0]) || {};
+      const ftc = facadeTypeOf(sec0, proj.decor, tBody, proj.facadeMat || proj.decor, proj.facadeThickness);
+      const mBaseH = m.base && m.base.type === 'plinth'
+        ? Number(m.base.plinthHeight || 0) : Number((m.base && m.base.legHeight) || 0);
+      const frontH = Number(m.height || 0) - mBaseH;
+      const uC = cursor - ftc.thickness / 2;
+      const vC = frontV + FILLER_W / 2;
+      const gx = originX + U[0] * uC + V[0] * vC;
+      const gz = originZ + U[1] * uC + V[1] * vC;
+      const swap = dirRot === 90 || dirRot === 270;
+      // У модуля со своей заглушкой стыковочную планку ставит он сам
+      // (фальш-планка добора) — вторую в том же месте не делаем.
+      if (!m.blindPanel) {
+        const cornerFiller = Object.assign(makePart({
+          name: 'Фальш-планка угловая', section: 'Угловой стык',
+          material: ftc.material, thickness: ftc.thickness,
+          length: frontH, width: FILLER_W, qty: 1, kind: 'filler', grain: true,
+          note: `Фасадный элемент для стыка в углу, ${FILLER_W} мм; `
+            + `корпус соседнего ряда отставлен ещё на ${FILLER_GAP} мм`,
+          edging: { long1: fillerEdgeType(ftc), long2: fillerEdgeType(ftc), short1: fillerEdgeType(ftc), short2: fillerEdgeType(ftc) },
+          x: round1(gx), y: mountBottom + mBaseH + frontH / 2, z: round1(gz),
+          dims: swap
+            ? { w: FILLER_W, h: frontH, d: ftc.thickness }
+            : { w: ftc.thickness, h: frontH, d: FILLER_W },
+        }), { module: name, rot: dirRot });
+        // Планка строится сразу в мировой системе (габариты уже повёрнуты
+        // прогоном) — для направления текстуры возвращаем их в систему модуля.
+        applyGrainDirection([cornerFiller], proj.grainGroups, m.grainOverrides,
+          swap ? (bb) => ({ w: bb.d, h: bb.h, d: bb.w }) : null);
+        allParts.push(cornerFiller);
+      }
+
+      // цоколь этого модуля дотягиваем до цоколя следующего прогона
+      cornerPlinths.push({ name, sign: U[0] !== 0 ? U[0] : 0 });
+    }
   });
 
   // Цоколь углового стыка. Цоколи двух прогонов идут перпендикулярно и
@@ -4812,7 +4910,11 @@ function buildModel(project) {
     boxes: [part.box],
   }));
 
-  const maxH = Math.max.apply(null, mods.map(m => Number(m.height || 0)));
+  // Высота проекта — до верха самого высокого модуля ОТ ПОЛА (навесные
+  // подняты на свою отметку, см. mountBottom).
+  const maxH = placed.length
+    ? round1(Math.max.apply(null, placed.map(p => p.top)))
+    : Math.max.apply(null, mods.map(m => Number(m.height || 0)));
   const spanW = placed.length
     ? Math.max.apply(null, placed.map(p => p.x1)) - Math.min.apply(null, placed.map(p => p.x0)) : 0;
   const maxD = placed.length
@@ -5157,6 +5259,7 @@ function toSingleModuleProject(p) {
       scheme: p.scheme, leftSide: p.leftSide, rightSide: p.rightSide,
       base: p.base, sections: p.sections,
       backMount: p.backMount, backGroove: p.backGroove, wallHung: p.wallHung,
+      mountTop: p.mountTop,
     }],
   };
 }
@@ -5819,6 +5922,8 @@ window.Modul3D.engine = {
   BACK_GROOVE_DEFAULTS,
   // Высота, выше которой некухонный модуль — «шкаф» (крыша без паза в авто).
   BACK_GROOVE_TALL_H,
+  // Навесной модуль: отметка верха по умолчанию (2400) и сам признак.
+  WALL_MOUNT_TOP_DEFAULT, isWallHung,
   // Алюминиевый рамочный фасад: нормализованные параметры секции (с
   // умолчаниями для старых сохранений) — одни и те же для UI/3D/сметы.
   aluFacadeOf, aluFillSize, ALU_HINGE_NOTE,
