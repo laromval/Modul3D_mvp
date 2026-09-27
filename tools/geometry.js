@@ -2371,18 +2371,31 @@ for (const glass of [false, true]) {
   // имени — в уже склеенном model.parts одинаковые боковины теперь могут
   // схлопнуться в одну строку «Боковины» (см. mergeEqualParts/mergeNameKey
   // в engine.js), и по регулярке искать там нечего.
-  const sideOf = (m, re) => m.partsRaw.filter((p) => re.test(p.name))[0] || {};
+  const sideOf = (m, re) => m.partsRaw.filter((p) => re.test(p.name) && (!p.module || p.module === 'М'))[0] || {};
   const sideMat = (m, re) => sideOf(m, re).material;
+  // Модуль «М» между двумя такими же соседями (боковины «до пола») — его
+  // боковины «на дно» закрыты соседями полностью, значит НЕвидимые (решение
+  // 2026-09-27: одиночный модуль — торцы ряда, его боковины видимые).
+  const mkHid = (side, facadeType, fdec) => {
+    const one = mk(side, facadeType, fdec).project.modules[0];
+    const nb = (nm) => Object.assign({}, one, { name: nm, leftSide: 'floor', rightSide: 'floor' });
+    return buildModel(Object.assign({}, base, {
+      decor: white, facadeDecor: fdec || oak, modules: [nb('Л'), one, nb('П')],
+    }));
+  };
   for (const side of ['floor', 'besideBottom']) {
     const m = mk(side, 'ldsp');
     if (sideMat(m, /Боковина левая/) !== oak.code) {
       problems.push(`видимая боковина «${side}»: не в материале «Видимая боковина»`);
     }
-    if (sideMat(m, /Боковина правая/) !== white.code) {
+    if (sideMat(mkHid(side, 'ldsp'), /Боковина правая/) !== white.code) {
       problems.push(`скрытая боковина при «${side}»: не в декоре корпуса`);
     }
+    if (sideMat(m, /Боковина правая/) !== oak.code) {
+      problems.push(`одиночный модуль «${side}»: боковина «на дно» с торца ряда не видимая`);
+    }
   }
-  const hidden = mk('onBottom', 'ldsp');
+  const hidden = mkHid('onBottom', 'ldsp');
   if (sideMat(hidden, /Боковина левая/) !== white.code) {
     problems.push('боковина «на дно» не видна снаружи, а режется из материала видимой боковины');
   }
@@ -2496,7 +2509,7 @@ for (const glass of [false, true]) {
     const mt = mk('floor', 'ldsp', thin);
     if (sideOf(mt, /Боковина левая/).material !== oak.code) problems.push('тонкий лист видимой боковины сброшен');
     if (!(mt.warnings || []).some((w) => /тоньше минимума/.test(w))) problems.push('тонкий лист видимой боковины: нет предупреждения');
-    if (sideMat(m, /Боковина правая/) !== white.code) problems.push('МДФ-панель: скрытая боковина не в декоре корпуса');
+    if (sideMat(mkHid('floor', 'glass4', mdfPanel), /Боковина правая/) !== white.code) problems.push('МДФ-панель: скрытая боковина не в декоре корпуса');
     const pl = mk('onBottom', 'ldsp', mdfPanel).parts.filter((q) => q.kind === 'plinth')[0];
     const plRef = mk('onBottom', 'ldsp').parts.filter((q) => q.kind === 'plinth')[0];
     if (!pl || pl.material !== mdfPanel.code || pl.thickness !== mdfPanel.thickness) {
@@ -2525,18 +2538,23 @@ for (const glass of [false, true]) {
 
 // --- крайний модуль: боковина до стены, задняя стенка в паз ----------------
 {
-  const mk = (side, worktop) => buildModel(Object.assign({}, base, {
-    worktopDepth: worktop,
-    modules: [{
-      name: 'М', family: 'kitchen', width: 600, height: 820, depth: 510, topType: 'rails',
-      leftSide: side, rightSide: 'onBottom', base: { type: 'legsPlinth', legHeight: 100 },
+  // Соседи (решение 2026-09-27): боковина «на дно» невидимая, только если её
+  // закрывает сосед. Правый сосед есть всегда (правая «на дно» — закрыта),
+  // левый — по флагу withLeft.
+  const mk = (side, worktop, withLeft) => {
+    const mod = (nm, l, r) => ({
+      name: nm, family: 'kitchen', width: 600, height: 820, depth: 510, topType: 'rails',
+      leftSide: l, rightSide: r, base: { type: 'legsPlinth', legHeight: 100 },
       sections: [{ shelves: 1, drawers: 0, facade: 'doorLeft', handle: 'bow160' }],
-    }],
-  }));
+    });
+    const mods = [mod('М', side, 'onBottom'), mod('П', 'onBottom', 'floor')];
+    if (withLeft) mods.unshift(mod('Л', 'floor', 'onBottom'));
+    return buildModel(Object.assign({}, base, { worktopDepth: worktop, modules: mods }));
+  };
   // partsRaw: конкретная левая/правая боковина по имени — в склеенном
   // model.parts одинаковые боковины могут схлопнуться в общую «Боковины»
-  // (см. mergeEqualParts/mergeNameKey в engine.js).
-  const get = (m, re) => m.partsRaw.filter((p) => re.test(p.name))[0];
+  // (см. mergeEqualParts/mergeNameKey в engine.js). Только модуль «М».
+  const get = (m, re) => m.partsRaw.filter((p) => re.test(p.name) && p.module === 'М')[0];
   for (const side of ['floor', 'besideBottom']) {
     const m = mk(side, 600);
     inspect(m, `крайний модуль «${side}»`);
@@ -2548,7 +2566,7 @@ for (const glass of [false, true]) {
     if (!hid || Math.abs(hid.width - 510) > 1) problems.push('скрытая боковина зачем-то удлинилась');
     if (!bk || !/ПАЗ/.test(bk.note || '')) problems.push('крайний модуль: задняя стенка не в паз');
     // Паз обязан быть на детали и попасть в файлы для ЧПУ
-    const vs = m.partsRaw.filter((q) => q.kind === 'side' && (q.grooves || []).length)[0];
+    const vs = m.partsRaw.filter((q) => q.kind === 'side' && q.module === 'М' && (q.grooves || []).length)[0];
     if (!vs) problems.push('паз под заднюю стенку не задан на видимой боковине');
     else {
       const g = vs.grooves[0];
@@ -2581,10 +2599,10 @@ for (const glass of [false, true]) {
       problems.push(`задняя стенка по высоте ${bk.width} вместо ${820 - 100 - 2}`);
     }
     // Полкодержатели стоят ПОД ПОЛКОЙ, а не за корпусом
-    const shelf = m.partsRaw.filter((q) => q.kind === 'shelf')[0];
+    const shelf = m.partsRaw.filter((q) => q.kind === 'shelf' && q.module === 'М')[0];
     if (shelf) {
       const sb = shelf.boxes[0];
-      for (const pin of m.partsRaw.filter((q) => q.kind === 'shelfPin')) {
+      for (const pin of m.partsRaw.filter((q) => q.kind === 'shelfPin' && q.module === 'М')) {
         const pz = pin.boxes[0].z;
         if (pz < sb.z - sb.d / 2 - 1 || pz > sb.z + sb.d / 2 + 1) {
           problems.push(`полкодержатель ушёл за пределы полки (z ${Math.round(pz)})`);
@@ -2593,7 +2611,7 @@ for (const glass of [false, true]) {
     }
   }
   // без видимой боковины всё по-старому
-  const plain = mk('onBottom', 600);
+  const plain = mk('onBottom', 600, true);
   const pb = get(plain, /Задняя стенка/);
   if (pb && /ПАЗ/.test(pb.note || '')) problems.push('обычный модуль: задняя стенка зря ушла в паз');
   // Накладная стенка меньше проёма на 2 мм по обеим сторонам
@@ -4305,14 +4323,16 @@ for (const glass of [false, true]) {
     sidesOf(mVis).forEach((sp) => {
       if (railOf(sp).length) problems.push(`выпил под шину: у видимой «${sp.name}» есть выпил`);
     });
-    // b) обе боковины «на дно» (невидимые), стенка в паз вручную — выпил
-    //    на обеих, паз обрезан у выпила, разметка навеса вне выпила
-    const hid = toModule(byId('upper600'), 0);
-    hid.leftSide = 'onBottom'; hid.rightSide = 'onBottom'; hid.backMount = 'groove';
-    const mHid = buildModel(Object.assign({}, base, { modules: [hid] }));
+    // b) средний из трёх одинаковых (обе боковины закрыты соседями —
+    //    невидимые, решение 2026-09-27), стенка в паз вручную — выпил на
+    //    обеих, паз обрезан у выпила, разметка навеса вне выпила
+    const row3 = (patch) => ['Л', 'М', 'П'].map((nm, i) => Object.assign(toModule(byId('upper600'), i), patch, { name: nm }));
+    const midSides = (m) => sidesOf(m).filter((q) => q.module === 'М');
+    const mHid = buildModel(Object.assign({}, base, {
+      modules: row3({ leftSide: 'onBottom', rightSide: 'onBottom', backMount: 'groove' }) }));
     inspect(mHid, 'выпил под шину: невидимые боковины');
     const viewerApi = window.Modul3D.viewer || {};
-    for (const sp of sidesOf(mHid)) {
+    for (const sp of midSides(mHid)) {
       const rn = railOf(sp);
       if (rn.length !== 1) { problems.push(`выпил под шину: у «${sp.name}» выпилов ${rn.length} вместо 1`); continue; }
       const n = rn[0], len = sp.length;
@@ -4327,7 +4347,7 @@ for (const glass of [false, true]) {
       if (!/выпил 45×20/.test(sp.note || '')) problems.push(`выпил под шину: нет пометки в note «${sp.name}»`);
       // 3D: вырез попал в описание пласти и не вышел за габарит
       if (viewerApi.slabCutsForPart) {
-        const row = mHid.parts.filter((q) => q.kind === 'side' && q.name === sp.name)[0] || sp;
+        const row = sp;
         const cuts = viewerApi.slabCutsForPart(row, row.box.w, row.box.d);
         const cn = cuts.notches || [];
         if (cn.length !== 1) problems.push(`выпил под шину: в 3D у «${sp.name}» вырезов ${cn.length}`);
@@ -4346,10 +4366,9 @@ for (const glass of [false, true]) {
       if ((cb.notches || []).length !== 2) problems.push(`выпил под шину: в 3D у задней стенки вырезов ${(cb.notches || []).length} вместо 2`);
     }
     // Смета: площадь листа по-прежнему по целому прямоугольнику
-    const areaOf = (m) => m.parts.filter((q) => q.kind === 'side').reduce((a, q) => a + q.length * q.width * q.qty, 0);
-    const plain = toModule(byId('upper600'), 0);
-    plain.leftSide = 'onBottom'; plain.rightSide = 'onBottom'; plain.backMount = 'groove'; plain.wallHung = false;
-    const mPlain = buildModel(Object.assign({}, base, { modules: [plain] }));
+    const areaOf = (m) => midSides(m).reduce((a, q) => a + q.length * q.width * (q.qty || 1), 0);
+    const mPlain = buildModel(Object.assign({}, base, {
+      modules: row3({ leftSide: 'onBottom', rightSide: 'onBottom', backMount: 'groove', wallHung: false }) }));
     if (sidesOf(mPlain).some((sp) => railOf(sp).length)) problems.push('выпил под шину: у ненавесного модуля есть выпил');
     if (Math.abs(areaOf(mPlain) - areaOf(mHid)) > 1) problems.push('выпил под шину: площадь боковин изменилась из-за выпила');
     // CSV/DXF: строка на каждый вырез, контур с вырезами полилинией
@@ -4369,20 +4388,122 @@ for (const glass of [false, true]) {
     //    по высоте линия саморезов (крыша 18 + 33 = 51 от верха) ниже выпила
     //    45 — в выпил не попадает (решение 2026-09-27); предупреждение только
     //    о ходе крюка (17 мм вне 31–45).
-    const ov = toModule(byId('upper600'), 0);
-    ov.leftSide = 'onBottom'; ov.rightSide = 'onBottom';
-    const mOv = buildModel(Object.assign({}, base, { modules: [ov] }));
-    if (!sidesOf(mOv).every((sp) => railOf(sp).length === 1)) problems.push('выпил под шину: при накладной стенке нет выпила');
+    const mOv = buildModel(Object.assign({}, base, { modules: row3({ leftSide: 'onBottom', rightSide: 'onBottom' }) }));
+    if (!midSides(mOv).every((sp) => railOf(sp).length === 1)) problems.push('выпил под шину: при накладной стенке нет выпила');
     if (mOv.warnings.some((w) => /попадает в выпил/.test(w))) problems.push('выпил под шину: ложное предупреждение о разметке в выпиле (линия саморезов len − 51 ниже выпила 45)');
     if (!mOv.warnings.some((w) => /крюк навеса не достанет/.test(w))) problems.push('выпил под шину: при накладной стенке нет предупреждения о ходе крюка');
-    // d) одна видимая (до пола), другая нет (на дно) — выпил только на второй
-    const mix = toModule(byId('upper600'), 0);
-    mix.leftSide = 'onBottom'; mix.rightSide = 'floor';
-    const mMix = buildModel(Object.assign({}, base, { modules: [mix] }));
-    const lS = sidesOf(mMix).filter((q) => /левая/.test(q.name))[0];
-    const rS = sidesOf(mMix).filter((q) => /правая/.test(q.name))[0];
+    // d) слева сосед (левая закрыта), справа торец ряда (правая видимая) —
+    //    выпил только на левой; тип боковины у навесного видимость не задаёт
+    const mMix = buildModel(Object.assign({}, base, {
+      modules: row3({ leftSide: 'onBottom', rightSide: 'floor' }).slice(0, 2) }));
+    const lS = midSides(mMix).filter((q) => /левая/.test(q.name))[0];
+    const rS = midSides(mMix).filter((q) => /правая/.test(q.name))[0];
     if (!lS || railOf(lS).length !== 1) problems.push('выпил под шину: у невидимой левой нет выпила');
     if (!rS || railOf(rS).length !== 0) problems.push('выпил под шину: у видимой правой есть выпил');
+    cases += 1;
+  }
+
+  // 6) Видимость боковин по соседям и крепёж дна навесного (этап 4, решение
+  //    пользователя 2026-09-27): у навесного видимая — только не закрытая
+  //    соседом полностью; дно к закрытой — конфирмат, к видимой — Rastex с
+  //    гнездом на ВЕРХНЕЙ (внутренней) пласти дна.
+  {
+    const vDecor = DECORS[1] || DECORS[0];
+    const P = Object.assign({}, base, { facadeDecor: vDecor });
+    const nm = (m, i, name) => Object.assign(toModule(m, i), { name });
+    const sidesOfM = (model, name) => model.partsRaw.filter((q) => q.kind === 'side' && q.module === name);
+    const sideKey = (q) => (/левая/.test(q.name) ? 'left' : 'right');
+    const railN = (q) => (q.notches || []).filter((n) => n.kind === 'railNotch').length;
+    const row = buildModel(Object.assign({}, P, { modules: [
+      nm(byId('upper600'), 0, 'Л'), nm(byId('upper800'), 1, 'М'), nm(byId('upper600'), 2, 'П')] }));
+    inspect(row, 'видимость по соседям: ряд 600/800/600');
+    const want = { Л: { left: true, right: false }, М: { left: false, right: false }, П: { left: false, right: true } };
+    for (const name of ['Л', 'М', 'П']) {
+      const ss = sidesOfM(row, name);
+      if (ss.length !== 2) { problems.push(`видимость по соседям: у «${name}» боковин ${ss.length}`); continue; }
+      for (const q of ss) {
+        const vis = want[name][sideKey(q)];
+        const isVis = /видимая/.test(q.name);
+        if (isVis !== vis) problems.push(`видимость по соседям: «${name}» ${q.name} — видимая ${isVis}, ожидалось ${vis}`);
+        if (vis && q.material !== vDecor.code) problems.push(`видимость по соседям: «${name}» ${q.name} не в материале «Видимая боковина»`);
+        if (!vis && q.material !== base.decor.code) problems.push(`видимость по соседям: «${name}» ${q.name} не в декоре корпуса`);
+        if (railN(q) !== (vis ? 0 : 1)) problems.push(`видимость по соседям: «${name}» ${q.name} выпилов ${railN(q)}`);
+      }
+    }
+    // Крепёж дна
+    const bottomOf = (name) => row.partsRaw.filter((q) => q.kind === 'bottom' && q.module === name)[0];
+    const bM = bottomOf('М');
+    if (!bM) problems.push('крепёж дна: нет дна у среднего');
+    else {
+      const k = (bM.holes || []).map((h) => h.kind);
+      if (k.some((x) => /^minifix/.test(x))) problems.push('крепёж дна: у среднего есть Rastex');
+      if (!k.some((x) => x === 'confirmatEdge')) problems.push('крепёж дна: у среднего нет конфирматов');
+      const L = bM.length;
+      const edgesAt = (x) => (bM.holes || []).filter((h) => h.kind === 'confirmatEdge' && Math.abs(h.x - x) < 0.05).length;
+      if (!edgesAt(0) || edgesAt(0) !== edgesAt(L)) problems.push(`крепёж дна: у среднего конфирматы не с обеих сторон (${edgesAt(0)}/${edgesAt(L)})`);
+    }
+    const bL = bottomOf('Л');
+    if (!bL) problems.push('крепёж дна: нет дна у крайнего');
+    else {
+      const cams = (bL.holes || []).filter((h) => h.kind === 'minifixCam');
+      const L = bL.length;
+      if (!cams.length || cams.some((h) => Math.abs(h.x - 34) > 0.05)) problems.push('крепёж дна: у крайнего Rastex не у наружной (левой) боковины');
+      if (cams.some((h) => h.side !== 'front')) problems.push('крепёж дна: гнездо эксцентрика не на верхней (внутренней) пласти дна');
+      if (!(bL.holes || []).some((h) => h.kind === 'confirmatEdge' && Math.abs(h.x - L) < 0.05)) {
+        problems.push('крепёж дна: у крайнего к закрытой боковине не конфирмат');
+      }
+      const sL = sidesOfM(row, 'Л').filter((q) => sideKey(q) === 'left')[0];
+      const dow = sL ? (sL.holes || []).filter((h) => h.kind === 'minifixDowel') : [];
+      if (!dow.length || dow.some((h) => h.through || h.side !== 'front')) problems.push('крепёж дна: дюбель Rastex не в видимой боковине изнутри');
+      if (sL && (sL.holes || []).some((h) => h.kind === 'confirmatThrough')) problems.push('крепёж дна: конфирмат насквозь через видимую боковину');
+    }
+    // Нижняя пласть дна у навесных — без гнёзд эксцентрика
+    if (row.partsRaw.some((q) => q.kind === 'bottom' && (q.holes || []).some((h) => h.kind === 'minifixCam' && h.side === 'back'))) {
+      problems.push('крепёж дна: у навесного эксцентрик на нижней (видимой) пласти дна');
+    }
+    // Смета: Rastex по числу гнёзд, конфирматы есть
+    const jr = row.hardwareContext.jointRows || [];
+    const mfx = jr.filter((r) => r.joint === 'minifix').reduce((a, r) => a + r.qty, 0);
+    const camN = row.partsRaw.reduce((a, q) => a + (q.holes || []).filter((h) => h.kind === 'minifixCam' && !h.forJoint).length, 0);
+    if (mfx !== camN) problems.push(`смета: Rastex ${mfx} шт., гнёзд ${camN}`);
+    if (!jr.some((r) => r.joint === 'confirmat')) problems.push('смета: нет конфирматов у дна навесных');
+
+    // Пенал 2140 рядом с верхним: верхний заканчивается у пенала, боковина
+    // верхнего закрыта пеналом по глубине, но не по высоте (1680…2400 против
+    // 0…2140) — видимая.
+    const withTall = buildModel(Object.assign({}, P, { modules: [
+      nm(byId('lower600'), 0, 'Н'), nm(byId('tall600'), 1, 'Пенал'), nm(byId('upper600'), 2, 'В')] }));
+    inspect(withTall, 'видимость по соседям: пенал и верхний');
+    const vR = sidesOfM(withTall, 'В').filter((q) => sideKey(q) === 'right')[0];
+    if (!vR || !/видимая/.test(vR.name)) problems.push('видимость по соседям: боковина верхнего у пенала не видимая');
+    const tL = sidesOfM(withTall, 'Пенал').filter((q) => sideKey(q) === 'left')[0];
+    if (!tL || !/видимая/.test(tL.name)) problems.push('видимость по соседям: боковина пенала выше тумбы не видимая');
+    const nR = sidesOfM(withTall, 'Н').filter((q) => sideKey(q) === 'right')[0];
+    if (!nR || /видимая/.test(nR.name)) problems.push('видимость по соседям: боковина тумбы у пенала видимая');
+
+    // Две одинаковые нижние с боковинами «до пола» — все видимые (как раньше)
+    const flr = (i, name) => Object.assign(nm(byId('lower600'), i, name), { leftSide: 'floor', rightSide: 'floor' });
+    const two = buildModel(Object.assign({}, P, { modules: [flr(0, 'А'), flr(1, 'Б')] }));
+    inspect(two, 'видимость по соседям: две тумбы до пола');
+    if (two.partsRaw.filter((q) => q.kind === 'side' && /видимая/.test(q.name)).length !== 4) {
+      problems.push('видимость по соседям: у двух тумб «до пола» не все боковины видимые');
+    }
+    // Одиночная тумба «на дно» — торцы ряда, обе видимые
+    const single = buildModel(Object.assign({}, P, { modules: [nm(byId('lower600'), 0, 'Т')] }));
+    inspect(single, 'видимость по соседям: одиночная тумба на дно');
+    if (single.partsRaw.filter((q) => q.kind === 'side' && /видимая/.test(q.name)).length !== 2) {
+      problems.push('видимость по соседям: у одиночной тумбы «на дно» не обе боковины видимые');
+    }
+    // Две тумбы «на дно» вплотную: стык закрыт, торцы видимые
+    const pair = buildModel(Object.assign({}, P, { modules: [nm(byId('lower600'), 0, 'А'), nm(byId('lower600'), 1, 'Б')] }));
+    const pv = pair.partsRaw.filter((q) => q.kind === 'side' && /видимая/.test(q.name)).map((q) => q.module + sideKey(q)).sort().join(',');
+    if (pv !== 'Аleft,Бright') problems.push(`видимость по соседям: две тумбы «на дно» — видимые ${pv}`);
+    // Поворот 180° (обе тумбы): боковины меняются местами — у левой тумбы
+    // с торца ряда её ПРАВАЯ, у правой — ЛЕВАЯ, стык закрыт
+    const rotM = (i, name) => Object.assign(nm(byId('lower600'), i, name), { rotation: 180 });
+    const pr = buildModel(Object.assign({}, P, { modules: [rotM(0, 'А'), rotM(1, 'Б')] }));
+    const prv = pr.partsRaw.filter((q) => q.kind === 'side' && /видимая/.test(q.name)).map((q) => q.module + sideKey(q)).sort().join(',');
+    if (prv !== 'Аright,Бleft') problems.push(`видимость по соседям: повёрнутые тумбы — видимые ${prv || 'нет'} вместо Аright,Бleft`);
     cases += 1;
   }
 }

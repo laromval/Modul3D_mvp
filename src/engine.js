@@ -2530,9 +2530,14 @@ function buildModuleParts(p) {
   // ВИДИМАЯ БОКОВИНА. Корпус кухни делают белым, а боковину, которую видно
   // в интерьере, — в отдельном материале. Видимой считается та, что доходит
   // ДО ПОЛА или стоит СБОКУ ДНА (дно вкладное): её пласть открыта целиком.
-  // p.sideCovered = { left, right } (необязательно): === false для стороны —
-  // боковина ничем не закрыта (торец ряда), тоже видимая. Не передано —
-  // прежнее поведение (только по варианту установки боковины).
+  // p.sideCovered = { left, right } (true — боковину ПОЛНОСТЬЮ закрывает
+  // боковина соседа, считает buildModel, решение пользователя 2026-09-27):
+  //   • НАВЕСНОЙ модуль — видимая ровно та, что не закрыта полностью
+  //     (торец ряда, сосед ниже/мельче); тип «до пола» видимость не задаёт;
+  //   • НАПОЛЬНЫЙ — «до пола»/«сбоку дна» видимая всегда (её видно под
+  //     фасадами в зоне цоколя), остальные — если не закрыты полностью.
+  // Не передано (прямой вызов ядра без раскладки) — прежнее правило: только
+  // по варианту установки боковины. p.visibleSides === false — невидимые обе.
   // Материал ВСЕГДА выбирает пользователь — проектный facadeDecor (поле
   // «Видимая боковина», решение 2026-09-26), независимо от вида фасада
   // секции (ldsp/mdf/wood/glass4/alu…): ЛДСП или фасадная МДФ-панель.
@@ -2540,11 +2545,17 @@ function buildModuleParts(p) {
   // планку (mergePlinths сверяет материал буквально).
   const visibleSideMat = () => visibleSideMaterialOf(p.facadeDecor, decor, t);
   const sideVisible = {};
+  const hungModule = isWallHung(p);
   for (const key of ['left', 'right']) {
     const v = sides[key];
-    sideVisible[key] = p.visibleSides !== false
-      && (v === 'floor' || v === 'besideBottom'
-        || !!(p.sideCovered && p.sideCovered[key] === false));
+    const byType = v === 'floor' || v === 'besideBottom';
+    const cov = p.sideCovered;
+    let vis;
+    if (p.visibleSides === false) vis = false;
+    else if (!cov) vis = byType;
+    else if (hungModule) vis = !cov[key];
+    else vis = byType || !cov[key];
+    sideVisible[key] = vis;
   }
   // ТОЛЩИНА БОКОВИНЫ по сторонам (решение пользователя 2026-09-26).
   // Приоритет: ручная правка толщины (partOverrides, тот же ключ, что у
@@ -3849,6 +3860,19 @@ function buildModuleParts(p) {
           : jointPoints(hp.box.d);
         // Кто кого перекрывает
         const bottomOverlays = (hp.kind === 'bottom') && (mode === 'onBottom');
+        // ДНО НАВЕСНОГО модуля (вкладное) — решение пользователя 2026-09-27:
+        // низ верхнего модуля виден, поэтому крепёж по стороне зависит от
+        // видимости боковины, а не от её типа:
+        //   • закрытая соседом — КОНФИРМАТ (через боковину в торец дна,
+        //     шляпку закрывает сосед);
+        //   • видимая — RASTEX, гнездо эксцентрика в дне С ВНУТРЕННЕЙ
+        //     (верхней) пласти, чтобы снизу эксцентриков не было видно;
+        //     дюбель — в боковине изнутри, как обычно.
+        // Крыша и полки — прежнее правило.
+        const hungBottom = hungModule && hp.kind === 'bottom' && !bottomOverlays;
+        const jointHere = hungBottom
+          ? (sideVisible[sgn < 0 ? 'left' : 'right'] ? 'minifix' : 'confirmat')
+          : joint;
 
         // У ОБЫЧНОЙ плашмя-лежащей детали (дно, крышка плашмя) сечение на
         // торце узкое (её высота = толщина плиты) — там присадку класть
@@ -3879,7 +3903,7 @@ function buildModuleParts(p) {
                             through: true, side: 'front', kind: 'confirmatThrough' });
             panel.holes.push({ x: 0, y: round1(yOnPanel), d: 5, depth: 50,
                                through: false, side: 'edge', kind: 'confirmatEdge' });
-          } else if (joint === 'confirmat') {
+          } else if (jointHere === 'confirmat') {
             // конфирмат снаружи через боковину в торец детали
             panel.holes.push({ x: round1(hp.box.y - pBottom), y: round1(yOnPanel), d: 7, depth: 0,
                                through: true, side: 'front', kind: 'confirmatThrough' });
@@ -3892,7 +3916,9 @@ function buildModuleParts(p) {
             // ГНЕЗДО СВЕРЛИТСЯ С НЕВИДИМОЙ СТОРОНЫ. У дна и полки рабочая
             // поверхность сверху — значит эксцентрик заходит СНИЗУ; у крыши
             // наоборот, изнутри смотрят снизу, поэтому гнездо сверху.
-            const camSide = (hp.kind === 'top') ? 'front' : 'back';
+            // Исключение — дно НАВЕСНОГО модуля (hungBottom): его низ виден,
+            // гнездо сверху, внутри корпуса (решение пользователя 2026-09-27).
+            const camSide = (hp.kind === 'top' || hungBottom) ? 'front' : 'back';
             hp.holes.push({ x: round1(camX), y: edgeY(py), d: RASTEX.camD,
                             depth: RASTEX.camDepthFor(hp.thickness),
                             through: false, side: camSide, kind: 'minifixCam' });
@@ -3945,7 +3971,7 @@ function buildModuleParts(p) {
             }
           }
         }
-        jointRows.push({ joint: bottomOverlays ? 'confirmat' : joint, qty: pts.length });
+        jointRows.push({ joint: bottomOverlays ? 'confirmat' : jointHere, qty: pts.length });
       }
     }
   }
@@ -4853,6 +4879,97 @@ function buildModel(project) {
   const floorFrames = layoutLayer(floorRuns, false, null);
   layoutLayer(wallRuns, true, floorFrames);
 
+  // --- ВИДИМОСТЬ БОКОВИН ПО СОСЕДЯМ (решение пользователя 2026-09-27) -------
+  // Боковина ЗАКРЫТА, если в её плоскости вплотную стоит боковина другого
+  // модуля (любого ряда — навесной может граничить с пеналом) и её
+  // прямоугольник целиком покрывает наш (допуск COVER_TOL). Прямоугольник
+  // боковины: по высоте — [низ боковины, верх модуля] в абсолютных отметках
+  // (с учётом подъёма навесного), по глубине — корпусная глубина D от
+  // переднего края. Считается в ГЛОБАЛЬНЫХ координатах после раскладки —
+  // поворот модуля (180° — боковины меняются местами) и прогоны учтены.
+  // Угловой стык: боковина углового модуля со стороны угла (там стена
+  // перпендикулярного ряда) и боковина первого модуля следующего прогона со
+  // стороны углового — закрытые (решение по умолчанию).
+  // Итог — sideCovered[idx] = { left, right } (true = закрыта полностью),
+  // по нему buildModuleParts решает, видимая ли боковина.
+  const COVER_TOL = 0.5;
+  const mountBottomOf = (m) => {
+    if (!isWallHung(m)) return 0;
+    const top = Number(m.mountTop) > 0 ? Number(m.mountTop) : WALL_MOUNT_TOP_DEFAULT;
+    return Math.max(0, top - Number(m.height || 0));
+  };
+  const sideFaces = mods.map((m, idx) => {
+    const pl = place[idx];
+    const W = Number(m.width || 0), D = Number(m.depth || 0), H = Number(m.height || 0);
+    const sd = normalizeSides({ leftSide: m.leftSide, rightSide: m.rightSide, scheme: m.scheme });
+    const b = m.base || {};
+    const baseH = b.type === 'plinth' ? Number(b.plinthHeight || 0) : Number(b.legHeight || 0);
+    const yb = mountBottomOf(m);
+    const rot = rotOf(m);
+    // Локальная точка модуля (x, z) → глобальная (как у деталей ниже).
+    const toG = (x, z) => {
+      let lx = x, lz = z;
+      if (rot === 90) { lx = z; lz = -x; }
+      else if (rot === 180) { lx = -x; lz = -z; }
+      else if (rot === 270) { lx = -z; lz = x; }
+      const u = lx + pl.offU, v = lz + pl.offV;
+      return [pl.originX + pl.U[0] * u + pl.V[0] * v, pl.originZ + pl.U[1] * u + pl.V[1] * v];
+    };
+    const face = (key) => {
+      const sx = key === 'left' ? -W / 2 : W / 2;
+      const a = toG(sx, -D / 2), c = toG(sx, D / 2), o = toG(0, 0);
+      const alongX = Math.abs(a[0] - c[0]) < 1e-6;   // плоскость x = const
+      const coord = alongX ? a[0] : a[1];
+      const v = sd[key];
+      const bottomY = v === 'floor' ? 0 : (v === 'besideBottom' ? baseH : baseH + tBody);
+      return {
+        axis: alongX ? 'x' : 'z', c: coord,
+        n: Math.sign(coord - (alongX ? o[0] : o[1])),   // наружу от центра модуля
+        s0: Math.min(alongX ? a[1] : a[0], alongX ? c[1] : c[0]),
+        s1: Math.max(alongX ? a[1] : a[0], alongX ? c[1] : c[0]),
+        y0: yb + bottomY, y1: yb + H,
+      };
+    };
+    return { left: face('left'), right: face('right') };
+  });
+  const coversFace = (B, A) => B.axis === A.axis && B.n === -A.n
+    && Math.abs(B.c - A.c) <= COVER_TOL
+    && B.s0 <= A.s0 + COVER_TOL && B.s1 >= A.s1 - COVER_TOL
+    && B.y0 <= A.y0 + COVER_TOL && B.y1 >= A.y1 - COVER_TOL;
+  const sideCovered = mods.map((m, idx) => {
+    const out = {};
+    for (const key of ['left', 'right']) {
+      const A = sideFaces[idx][key];
+      out[key] = sideFaces.some((f, j) => j !== idx
+        && (coversFace(f.left, A) || coversFace(f.right, A)));
+    }
+    return out;
+  });
+  // Сторона модуля, чья боковина смотрит вдоль направления прогона dirSign
+  // (+1 — к концу прогона, −1 — к началу).
+  const sideTowards = (idx, dirSign) => {
+    const U = place[idx].U;
+    for (const key of ['left', 'right']) {
+      const f = sideFaces[idx][key];
+      const comp = f.axis === 'x' ? U[0] : U[1];
+      if (comp !== 0 && f.n === dirSign * comp) return key;
+    }
+    return null;
+  };
+  for (const runs of [floorRuns, wallRuns]) {
+    runs.forEach((run, k) => {
+      const last = run[run.length - 1];
+      if (isCorner(mods[last])) {
+        const key = sideTowards(last, 1);
+        if (key) sideCovered[last][key] = true;
+      }
+      if (k > 0) {
+        const key = sideTowards(run[0], -1);
+        if (key) sideCovered[run[0]][key] = true;
+      }
+    });
+  }
+
   const placed = [];   // фактические габариты корпусов на месте — для dims
   const cornerPlinths = [];   // угловые модули: их цоколь тянем до соседнего ряда
 
@@ -4915,6 +5032,9 @@ function buildModel(project) {
       // Навеска верхнего модуля (applyWallHanger): объект системы из
       // catalog.HANGER_SYSTEMS и её код — для сметы.
       hangerSystem: hangerRes.sys, hangerSystemId: hangerRes.id,
+      // Какие боковины полностью закрыты соседями (см. «ВИДИМОСТЬ БОКОВИН
+      // ПО СОСЕДЯМ» выше) — от этого материал/толщина/крепёж боковины.
+      sideCovered: sideCovered[idx],
     });
 
     const manualRot = rotOf(m);

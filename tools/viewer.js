@@ -395,16 +395,18 @@ check('сквозные вырезы (выпил под шину, вырез п�
     decor: DECORS[1], facadeDecor: DECORS[0], backMaterial: BACK_MATERIALS[0],
     drawerDecor: DECORS[1], drawerThickness: 16, jointType: 'minifix', worktopDepth: 600,
     hangerSystem: 'blum48N0510',
-    modules: [{ name: 'Верх', family: 'kitchen', width: 600, height: 720, depth: 320,
+    // Два верхних вплотную (решение 2026-09-27): выпил только на
+    // закрытых соседом боковинах стыка, торцы ряда видимые — без выпила.
+    modules: ['Верх 1', 'Верх 2'].map((nm) => ({ name: nm, family: 'kitchen', width: 600, height: 720, depth: 320,
       topType: 'full', leftSide: 'onBottom', rightSide: 'onBottom', backMount: 'groove',
       base: { type: 'plinth', plinthHeight: 0 },
-      sections: [{ shelves: 1, drawers: 0, facade: 'doorLeft', handle: 'bow160' }] }],
+      sections: [{ shelves: 1, drawers: 0, facade: 'doorLeft', handle: 'bow160' }] })),
   });
   const bad = [];
   const notched = up.parts.filter((q) => (q.notches || []).length);
-  const sidesN = notched.filter((q) => q.kind === 'side').length;
-  const backN = notched.filter((q) => q.kind === 'back').reduce((a, q) => a + q.notches.length, 0);
-  if (sidesN !== 1 || backN !== 2) bad.push(`вырезов: боковин с выпилом ${sidesN} (строк), у стенки ${backN}`);
+  const sidesN = up.partsRaw.filter((q) => q.kind === 'side' && (q.notches || []).length).length;
+  const backN = up.partsRaw.filter((q) => q.kind === 'back').reduce((a, q) => a + (q.notches || []).length, 0);
+  if (sidesN !== 2 || backN !== 4) bad.push(`вырезов: боковин с выпилом ${sidesN}, у стенок ${backN}`);
   for (const row of notched) {
     const cuts = B.viewer.slabCutsForPart(row, row.box.w, row.box.d);
     const built = B.viewer.buildSlabGeometry({
@@ -432,7 +434,7 @@ check('сквозные вырезы (выпил под шину, вырез п�
   v2.render(up, { hideFacades: true, drillCheck: true });
   let marks = 0;
   v2.group.traverse((o) => { if (o.userData && (o.userData.drill === 'railNotch' || o.userData.drill === 'hangerBackCut')) marks += 1; });
-  if (marks !== 4) bad.push(`меток вырезов в режиме проверки ${marks} вместо 4 (2 выпила + 2 выреза)`);
+  if (marks !== 6) bad.push(`меток вырезов в режиме проверки ${marks} вместо 6 (2 выпила + 4 выреза)`);
   v2.render(up, { hideFacades: false, drillCheck: true, drillOnly: 'railNotch' });
   if (bad.length) { fails.push('вырезы: ' + bad.slice(0, 4).join('; ')); return false; }
   return true;
