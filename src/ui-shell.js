@@ -2088,17 +2088,39 @@ function initDocsResize() {
    app.js: renderDrawings → uiShell.setDrawingsContent), масштабируются они
    разом. 100% — вид, как чертежи нарисованы без масштаба (раскладка листа
    при любом масштабе одна и та же — как на 100%, меняется только размер).
-   Диапазон 25–400%. Способы:
-   · ползунок и кнопки −/+ в ряду над чертежами (#dwZoomBar; он вне
-     #tab-drawings, потому что тот пересобирается на каждую перерисовку);
+   Верхняя граница 400%, нижняя 25% (на телефоне — меньшее из 25% и «по
+   ширине», см. ниже). Отдельного ряда управления (ползунка, кнопок −/+) нет:
+   всё место отдано чертежам. Способы:
    · клавиши + и − (шаг 10 п.п., по кругу «круглых» значений: 90 → 100 → 110),
      только пока «Документы» открыты на вкладке «Чертежи» и фокус не в поле
      ввода (Ctrl/Alt/Meta+± остаётся зумом браузера);
+   · Ctrl + колесо мыши — плавно, вокруг курсора: один щелчок колеса
+     (deltaY ≈ 100) = ×1.1. Щипок по тачпаду ноутбука браузер шлёт как то же
+     wheel с ctrlKey и малыми deltaY — он работает тем же кодом. Колесо БЕЗ
+     Ctrl ничего не перехватывает и по-прежнему прокручивает вкладку;
    · щипок двумя пальцами на сенсорном экране — вокруг точки между пальцами
-     (эта же точка тянет лист за пальцами).
-   Колесо мыши по-прежнему прокручивает вкладку — ни колесо, ни Ctrl+колесо
-   не перехватываем. Двойной щелчок мышью / двойной тап — назад на 100% и в
-   начало листа. Мышью лист можно «взять» левой кнопкой и двигать.
+     (эта же точка тянет лист за пальцами);
+   · двойной щелчок мышью / двойной тап — стандартный вид и начало листа:
+     100% на компьютере, «по ширине» на телефоне. Мышью лист можно «взять»
+     левой кнопкой и двигать.
+
+   Телефон: чертёж вписывается по ширине. «Телефон» — окно ≤ 820px
+   (isMobileLayout, та же граница, что у нижнего листа). Раскладка листа от
+   масштаба не зависит: её ширина всегда W (ширина области без отступов),
+   блоки переносятся по ней, а SVG с фиксированными размерами выпирают за
+   правый край. Самый широкий из них и определяет «естественную» ширину листа —
+   это sheet.scrollWidth. Масштаб «по ширине» = W / scrollWidth (если та
+   больше W; иначе 1 — мелкие чертежи не увеличиваем), округлённый ВНИЗ до
+   0.001, чтобы правый край не вылез на долю пикселя. Пока пользователь не
+   менял масштаб сам (клавиши, Ctrl+колесо, щипок, setDrawingsZoom), включён
+   режим «авто»: масштаб = «по ширине» и пересчитывается при показе и каждой
+   перерисовке чертежей (setDrawingsContent), при смене ширины области
+   (ResizeObserver листа и resize окна — поворот экрана) и при переходе через
+   820px. Ручное изменение режим выключает — масштаб больше не «прыгает» при
+   перерисовке; двойной тап/щелчок включает его снова. Нижняя граница
+   на телефоне — min(25%, «по ширине»): очень широкий чертёж вписывается и в
+   масштаб меньше 25%, и вернуться к нему щипком можно без скачка к 25%.
+   На компьютере автоматически ничего не вписывается: 100% — как отрисовано.
 
    Как это устроено. .dw-zoom получает ширину scale·100% (реальный размер →
    реальные полосы прокрутки) и высоту = высота листа·scale; сам .dw-sheet —
@@ -2112,18 +2134,27 @@ function initDocsResize() {
 
    Состояние — только в переменной модуля: при перерисовке чертежей
    (recompute) масштаб и позиция прокрутки сохраняются, после перезагрузки
-   страницы — 100%. Печать чертежей (app.js) берёт «сырую» разметку без
-   обёртки и от масштаба не зависит.
+   страницы — стандартный вид. Печать чертежей (app.js) берёт «сырую» разметку
+   без обёртки и от масштаба не зависит.
 --------------------------------------------------------------------------- */
 var DW_ZOOM_MIN = 0.25;
 var DW_ZOOM_MAX = 4;
-var DW_ZOOM_STEP = 10;           // п.п. масштаба на одно нажатие +/− и на кнопку
+var DW_ZOOM_STEP = 10;           // п.п. масштаба на одно нажатие +/−
+var DW_WHEEL_NOTCH = 100;        // deltaY одного щелчка колеса мыши, px
+var DW_WHEEL_BASE = 1.1;         // во сколько раз меняет масштаб один щелчок
+var DW_WHEEL_MAX = 3;            // не больше стольких щелчков за одно событие (защита от скачка)
+var DW_FIT_MIN = 0.001;          // «по ширине» не ниже этого (защита от нуля при абсурдно широком чертеже)
+var DW_FIT_LOOP = 4;             // столько смен масштаба от смены раскладки за секунду — уже цикл, стоп
 var DW_PAN_SLOP = 4;             // мышь: сдвиг меньше этого — клик, лист не двигаем
 var DW_TAP_MOVE = 8;             // палец сдвинулся больше — это прокрутка, а не тап
 var DW_TAP_MS = 450;             // двойной тап: два касания не дольше этого друг от друга (как SHEET_TAP_MS — неспешный тап пальцем)
 var DW_TAP_DIST = 30;            // …и не дальше этого (px) друг от друга
 
 var dwScale = 1;                 // текущий масштаб (1 = 100%)
+var dwManual = false;            // масштаб менял пользователь — авто-вписывание по ширине выключено
+var dwFit = 1;                   // «по ширине»: последний замер на телефоне (на компьютере и когда вписывать нечего — 1)
+var dwWasMobile = false;         // раскладка при прошлой синхронизации (граница 820px)
+var dwFitStamps = [];            // моменты (мс) последних смен масштаба от смены раскладки — страховка от цикла
 var dwPan = null;                // мышиное перетаскивание листа: { id, x0, y0, sl0, st0, moved }
 var dwPtrs = {};                 // касания на области чертежей: pointerId → { x, y }
 var dwPinch = null;              // щипок: { ids: [id1, id2], d, mx, my } — прошлый кадр
@@ -2131,28 +2162,21 @@ var dwTap = null;                // касание, которое может о
 var dwLastTap = null;            // предыдущий тап: { t, x, y }
 var dwMouse = null;              // последняя позиция мыши над областью чертежей (для клавиш +/−)
 var dwRo = null;                 // ResizeObserver листа
-var dwSyncRaf = 0;               // отложенная пересинхронизация высоты .dw-zoom
+var dwSyncRaf = 0;               // отложенная пересинхронизация масштаба и высоты .dw-zoom
 
 function dwPane() { return document.getElementById('tab-drawings'); }
 function dwBox() { return document.getElementById('dwZoom'); }
 function dwSheet() { return document.getElementById('dwSheet'); }
 
-function clampDwScale(s) {
+// cur — текущий масштаб: если он уже ниже границы (после поворота экрана в
+// ручном режиме «по ширине» подросло), вверх его не подбрасываем.
+function clampDwScale(s, cur) {
   if (!(s > 0)) s = 1;
-  return Math.round(Math.min(DW_ZOOM_MAX, Math.max(DW_ZOOM_MIN, s)) * 1000) / 1000;
-}
-
-// Ряд «100% − ползунок +»: подпись, положение ползунка, доступность кнопок.
-function syncDwBar() {
-  var pct = Math.round(dwScale * 100);
-  var range = document.getElementById('dwZoomRange');
-  var label = document.getElementById('dwZoomPct');
-  var minus = document.getElementById('dwZoomOut');
-  var plus = document.getElementById('dwZoomIn');
-  if (range && String(range.value) !== String(pct)) range.value = String(pct);
-  if (label) label.textContent = pct + '%';
-  if (minus) minus.disabled = pct <= Math.round(DW_ZOOM_MIN * 100);
-  if (plus) plus.disabled = pct >= Math.round(DW_ZOOM_MAX * 100);
+  // Нижняя граница — меньшее из 25% и «по ширине»: широкий чертёж на узком
+  // экране вписывается и в масштаб ниже 25%, «застревать» выше него нельзя.
+  var lo = Math.min(DW_ZOOM_MIN, dwFit);
+  if (cur > 0 && cur < lo) lo = cur;
+  return Math.round(Math.min(DW_ZOOM_MAX, Math.max(lo, s)) * 10000) / 10000;
 }
 
 // Ставит текущий dwScale на разметку. При 100% inline-стили сняты — вкладка
@@ -2187,36 +2211,115 @@ function syncDwBox() {
   if (h) box.style.height = (h * dwScale) + 'px';
 }
 
+/* --- телефон: вписать чертёж по ширине ----------------------------------- */
+
+// Ширина области чертежей без горизонтальных отступов — ширина, в которой
+// раскладывается лист.
+function dwAvailWidth(pane) {
+  var w = pane.clientWidth || 0;
+  var cs = typeof window.getComputedStyle === 'function' ? window.getComputedStyle(pane) : null;
+  if (cs) w -= (parseFloat(cs.paddingLeft) || 0) + (parseFloat(cs.paddingRight) || 0);
+  return w;
+}
+
+// Масштаб «по ширине»: при нём самый широкий чертёж целиком помещается в
+// область. 1 — вписывать нечего; 0 — измерить нельзя (вкладка не показана).
+function measureDwFit() {
+  var pane = dwPane(), sheet = dwSheet();
+  if (!pane || !sheet) return 0;
+  var w = dwAvailWidth(pane);
+  var natural = sheet.scrollWidth || 0;       // ширина листа вместе с выпирающими чертежами
+  if (!(w > 0) || !(natural > 0)) return 0;
+  if (natural <= w + 1) return 1;             // +1px: округление scrollWidth, а не настоящий выход за край
+  return Math.max(DW_FIT_MIN, Math.floor(w / natural * 1000) / 1000);
+}
+
+// Ставит масштаб f (уже в границах) как «по ширине»: прокрутка по X — в ноль
+// (чертёж прижат влево), по Y — то же место листа остаётся сверху.
+function applyDwFit(f) {
+  var pane = dwPane();
+  var old = dwScale;
+  var st = pane ? (pane.scrollTop || 0) : 0;
+  dwScale = f;
+  applyDwScaleDom();
+  if (pane) {
+    pane.scrollLeft = 0;
+    pane.scrollTop = Math.round(st * f / old);
+  }
+}
+
+// Согласует масштаб с раскладкой: телефон ↔ компьютер, ширина области и
+// ширина содержимого. Зовётся при показе/перерисовке чертежей, смене ширины
+// области и повороте экрана. Режим «авто» (dwManual === false) на телефоне
+// ставит «по ширине»; в ручном режиме масштаб не трогаем, только обновляем
+// dwFit — от него зависит нижняя граница.
+function syncDwFit() {
+  var mobile = isMobileLayout();
+  if (mobile !== dwWasMobile) {
+    // Перешли через 820px: раскладка другая, прежний масштаб (и ручной тоже)
+    // к ней уже не относится — начинаем заново: телефон — «по ширине»,
+    // компьютер — 100%.
+    dwWasMobile = mobile;
+    dwManual = false;
+    if (!mobile) {
+      dwFit = 1;
+      if (dwScale !== 1) applyDwFit(1);
+      return;
+    }
+  }
+  if (!mobile) { dwFit = 1; return; }
+  var f = measureDwFit();
+  if (!f) return;
+  dwFit = f;
+  if (!dwManual && f !== dwScale) applyDwFit(f);
+}
+
+// Отложенная (в следующем кадре) синхронизация: зовут ResizeObserver листа и
+// resize окна. Разметку правим НЕ в самом колбэке ResizeObserver, а в кадре:
+// иначе смена ширины из-за полосы прокрутки давала бы «ResizeObserver loop»,
+// которое попадает в баннер ошибок.
+function scheduleDwSync() {
+  if (dwSyncRaf) return;
+  dwSyncRaf = window.requestAnimationFrame(function () {
+    dwSyncRaf = 0;
+    // Страховка: если вписывание по ширине само меняет ширину области (полоса
+    // прокрутки то появляется, то исчезает), оно могло бы дёргать масштаб
+    // каждый кадр. Несколько смен подряд за секунду — стоп до следующего
+    // настоящего изменения раскладки.
+    var now = Date.now();
+    while (dwFitStamps.length && now - dwFitStamps[0] > 1000) dwFitStamps.shift();
+    var before = dwScale;
+    if (dwFitStamps.length < DW_FIT_LOOP) syncDwFit();
+    if (dwScale !== before) dwFitStamps.push(now);
+    syncDwBox();
+  });
+}
+
 function observeDwSheet() {
   if (typeof ResizeObserver !== 'function') return;
-  if (!dwRo) {
-    dwRo = new ResizeObserver(function () {
-      // Разметку правим НЕ в самом колбэке, а в следующем кадре: иначе смена
-      // ширины из-за полосы прокрутки давала бы «ResizeObserver loop», которое
-      // попадает в баннер ошибок.
-      if (dwSyncRaf) return;
-      dwSyncRaf = window.requestAnimationFrame(function () { dwSyncRaf = 0; syncDwBox(); });
-    });
-  }
+  if (!dwRo) dwRo = new ResizeObserver(scheduleDwSync);
   dwRo.disconnect();
   var sheet = dwSheet();
   if (sheet) dwRo.observe(sheet);
 }
 
 // Центр видимой части области чертежей (координаты окна) — точка, вокруг
-// которой масштабируют ползунок и кнопки.
+// которой масштабируют клавиши +/−, когда мыши над чертежами нет.
 function dwPaneCenter(pane) {
   var r = pane.getBoundingClientRect();
   return { x: r.left + pane.clientWidth / 2, y: r.top + pane.clientHeight / 2 };
 }
 
-// Новый масштаб; anchor { x, y } — точка окна, которая должна остаться на
-// месте (без неё — центр области). Точка листа под anchor запоминается ДО
-// смены масштаба, после — прокруткой возвращается под anchor.
+// Новый масштаб РУКАМИ пользователя (клавиши, Ctrl+колесо, щипок,
+// setDrawingsZoom): выключает авто-вписывание. anchor { x, y } — точка окна,
+// которая должна остаться на месте (без неё — центр области). Точка листа под
+// anchor запоминается ДО смены масштаба, после — прокруткой возвращается под
+// anchor.
 function setDwScale(s, anchor) {
-  s = clampDwScale(s);
   var old = dwScale;
-  if (s === old) return;
+  s = clampDwScale(s, old);
+  if (s === old) return;                 // упёрлись в границу — ничего не изменилось, режим тоже
+  dwManual = true;
   var pane = dwPane(), sheet = dwSheet();
   var canAnchor = !!(pane && sheet && pane.offsetWidth);
   var a = null, u = 0, v = 0;
@@ -2228,7 +2331,6 @@ function setDwScale(s, anchor) {
   }
   dwScale = s;
   applyDwScaleDom();
-  syncDwBar();
   if (!canAnchor) return;
   var r1 = sheet.getBoundingClientRect();
   var dx = (r1.left + u * s) - a.x;
@@ -2247,17 +2349,23 @@ function stepDwZoom(dir, anchor) {
   setDwScale(next / 100, anchor);
 }
 
-// Стандартный вид: 100% и начало листа (двойной щелчок/тап).
+// Стандартный вид и начало листа (двойной щелчок/тап): компьютер — 100%,
+// телефон — «по ширине» (и режим «авто» включается снова).
 function resetDwZoom() {
-  dwScale = 1;
+  dwManual = false;
+  dwWasMobile = isMobileLayout();
+  var f = 1;
+  if (dwWasMobile) f = measureDwFit() || 1;
+  dwFit = f;
+  dwScale = f;
   applyDwScaleDom();
-  syncDwBar();
   var pane = dwPane();
   if (pane) { pane.scrollLeft = 0; pane.scrollTop = 0; }
 }
 
 // Записывает чертежи в #tab-drawings в обёртке масштаба (её зовёт app.js:
-// renderDrawings). Масштаб и позиция прокрутки при перерисовке сохраняются.
+// renderDrawings). Масштаб и позиция прокрутки при перерисовке сохраняются;
+// на телефоне в режиме «авто» масштаб заново вписывается по ширине.
 // false — нет области чертежей: вызывающий пишет разметку сам.
 function setDrawingsContent(html) {
   var pane = dwPane();
@@ -2268,6 +2376,7 @@ function setDrawingsContent(html) {
   applyDwScaleDom();
   observeDwSheet();
   if (sl || st) { pane.scrollLeft = sl; pane.scrollTop = st; }
+  syncDwFit();
   return true;
 }
 
@@ -2302,6 +2411,25 @@ function moveDwPan(e) {
   }
   pane.scrollLeft = d.sl0 - dx;
   pane.scrollTop = d.st0 - dy;
+}
+
+/* --- колесо: Ctrl + колесо = масштаб вокруг курсора ---------------------- */
+// Ctrl + колесо мыши (и щипок по тачпаду — браузер шлёт его как wheel с
+// ctrlKey) меняет масштаб плавно, вокруг курсора. Без Ctrl не трогаем ничего:
+// колесо прокручивает вкладку как обычно. Слушатель висит на самой области
+// чертежей, поэтому работает только пока курсор над ней.
+function onDwWheel(e) {
+  if (!e.ctrlKey) return;
+  e.preventDefault();                          // зум всей страницы браузером не нужен
+  var dy = Number(e.deltaY) || 0;
+  if (!dy) return;
+  // В «щелчки» колеса: пиксели — по 100 на щелчок; строки (Firefox) — по 3;
+  // страницы — страница на щелчок. Тачпад шлёт малые deltaY — доли щелчка.
+  var n = e.deltaMode === 1 ? dy / 3 : (e.deltaMode === 2 ? dy : dy / DW_WHEEL_NOTCH);
+  n = Math.max(-DW_WHEEL_MAX, Math.min(DW_WHEEL_MAX, n));
+  var anchor = (typeof e.clientX === 'number' && typeof e.clientY === 'number')
+    ? { x: e.clientX, y: e.clientY } : null;
+  setDwScale(dwScale * Math.pow(DW_WHEEL_BASE, -n), anchor);   // вниз (deltaY > 0) — уменьшить
 }
 
 /* --- касание: щипок двумя пальцами и двойной тап ------------------------- */
@@ -2441,16 +2569,14 @@ function dwZoomKeyDir(e) {
 }
 
 // Работают ли +/− сейчас: панель «Документы» открыта на вкладке «Чертежи» и
-// фокус не в поле ввода (кроме нашего же ползунка — после клика по нему фокус
-// остаётся на нём, а +/− ему без надобности).
+// фокус не в поле ввода.
 function dwHotkeysActive(target) {
   if (openPanel !== 'docs') return false;
   var pane = dwPane();
   if (!pane || !pane.classList.contains('active')) return false;
   if (target) {
     var tag = target.tagName || '';
-    if (tag === 'TEXTAREA' || tag === 'SELECT') return false;
-    if (tag === 'INPUT' && target.id !== 'dwZoomRange') return false;
+    if (tag === 'TEXTAREA' || tag === 'SELECT' || tag === 'INPUT') return false;
     if (target.isContentEditable) return false;
   }
   return true;
@@ -2467,15 +2593,7 @@ function dwKeyAnchor() {
 }
 
 function initDrawingsZoom() {
-  var range = document.getElementById('dwZoomRange');
-  var minus = document.getElementById('dwZoomOut');
-  var plus = document.getElementById('dwZoomIn');
-  if (range) range.addEventListener('input', function () {
-    setDwScale((parseFloat(range.value) || 100) / 100);
-  });
-  if (minus) minus.addEventListener('click', function () { stepDwZoom(-1); });
-  if (plus) plus.addEventListener('click', function () { stepDwZoom(1); });
-  syncDwBar();
+  dwWasMobile = isMobileLayout();
 
   // Область чертежей (#tab-drawings) живёт всегда — меняется только её
   // содержимое, поэтому слушатели вешаем на неё один раз.
@@ -2488,9 +2606,15 @@ function initDrawingsZoom() {
   pane.addEventListener('lostpointercapture', onDwPointerCancel);
   pane.addEventListener('pointerleave', function (e) { if (e.pointerType === 'mouse') dwMouse = null; });
   pane.addEventListener('dblclick', onDwDblClick);
+  // passive: false — иначе preventDefault() у Ctrl+колеса не сработает и
+  // браузер приблизит всю страницу
+  pane.addEventListener('wheel', onDwWheel, { passive: false });
   pane.addEventListener('touchmove', onDwTouchMove, { passive: false });
   pane.addEventListener('gesturestart', onDwGesture);
   pane.addEventListener('gesturechange', onDwGesture);
+  // Поворот экрана и смена размера окна (в том числе переход через 820px) —
+  // ResizeObserver листа подхватывает это же, но не везде он есть.
+  window.addEventListener('resize', scheduleDwSync);
 }
 
 /* ---------------------------------------------------------------------------
@@ -2499,9 +2623,9 @@ function initDrawingsZoom() {
 function initHotkeys() {
   document.addEventListener('keydown', function (e) {
     // «+» и «−» — масштаб чертежей (7в), но только пока «Документы» открыты на
-    // вкладке «Чертежи» и фокус не в поле ввода. Проверяем ДО общего выхода
-    // для полей ввода — нужен фокус на нашем ползунке. Во всех остальных
-    // случаях клавиши идут дальше как раньше (у них нет другого назначения).
+    // вкладке «Чертежи» и фокус не в поле ввода (это проверяет сама
+    // dwHotkeysActive). Во всех остальных случаях клавиши идут дальше как
+    // раньше (у них нет другого назначения).
     var zoomDir = dwZoomKeyDir(e);
     if (zoomDir && dwHotkeysActive(e.target)) {
       e.preventDefault();
@@ -2586,8 +2710,11 @@ window.Modul3D.uiShell = {
   getDrawerInset: sheetInsetBottom,
   // Высота панели «Документы» на компьютере, px (7б′)
   getDocsHeight: function () { return docsPx; },
-  // Масштаб чертежей (7в): проценты (100 — стандартный вид). setDrawingsContent —
-  // запись чертежей в #tab-drawings в обёртке масштаба (зовёт app.js).
+  // Масштаб чертежей (7в): проценты (100 — как отрисовано; на телефоне в режиме
+  // «авто» — «по ширине», см. 7в). setDrawingsZoom — «руками»: выключает авто.
+  // resetDrawingsZoom — стандартный вид (компьютер 100%, телефон «по ширине»).
+  // setDrawingsContent — запись чертежей в #tab-drawings в обёртке масштаба
+  // (зовёт app.js).
   getDrawingsZoom: function () { return Math.round(dwScale * 100); },
   setDrawingsZoom: function (pct) { setDwScale(pct / 100); },
   resetDrawingsZoom: resetDwZoom,

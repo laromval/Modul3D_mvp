@@ -14,7 +14,7 @@
 (function () {
 // Версия сборки — показывается во вкладке браузера и в шапке.
 // При выпуске новой версии меняется только эта строка.
-const APP_VERSION = 'v315';
+const APP_VERSION = 'v316';
 
 // Номер версии выводим ПЕРВЫМ делом: если дальше что-то упадёт, по нему сразу
 // видно, какая сборка открыта.
@@ -13230,10 +13230,6 @@ function setDocsTab(name, toggle) {
   if (btn) btn.classList.add('active');
   const panel = document.getElementById('tab-' + name);
   if (panel) panel.classList.add('active');
-  // Ряд масштаба чертежей (#dwZoomBar) виден только на вкладке «Чертежи»: он
-  // стоит ПЕРЕД панелями вкладок, а CSS не умеет выбрать элемент по состоянию
-  // следующих за ним — поэтому текущая вкладка пишется атрибутом на .results.
-  box.setAttribute('data-docs-tab', name);
   const open = (toggle && wasOpen && wasActive) ? false : true;
   box.classList.toggle('open', open);
   // Содержимое собираем ровно здесь, в момент показа: пока вкладка свёрнута,
@@ -13335,8 +13331,8 @@ document.getElementById('printDrawings').addEventListener('click', () => {
   // и потому устаревшей (см. docsTabsDirty) — собираем принудительно, иначе
   // в печать уйдёт пустая или старая страница.
   ensureTabBuilt('drawings');
-  // Сырая разметка чертежей (без обёртки масштаба и без ряда с ползунком) —
-  // печатается всегда в стандартном виде, что бы ни стояло на экране.
+  // Сырая разметка чертежей (без обёртки масштаба) — печатается всегда в
+  // стандартном виде, что бы ни стояло на экране.
   const html = drawingsRawHtml;
   const w = window.open('', '_blank');
   if (!w) { alert('Разрешите всплывающие окна, чтобы напечатать чертежи.'); return; }

@@ -1666,7 +1666,9 @@ h4.spec-title { margin: var(--sp-5) 0 var(--sp-2); font-size: var(--fs-md); font
    верхнего угла и обратную ширину; раскладка листа при этом та же, что на
    100% (блоки переносятся по ширине панели), меняется только размер, а
    прокрутка настоящая — полосы появляются сами. При 100% inline-стили сняты,
-   и вкладка выглядит ровно как до появления масштаба. */
+   и вкладка выглядит ровно как до появления масштаба. Отдельного ряда
+   управления (ползунка, кнопок −/+) нет — всё место занимают чертежи; масштаб
+   меняют клавиши +/−, Ctrl+колесо, щипок, двойной щелчок/тап (сброс). */
 /* Лист прижат влево (не по центру): чертежи шире раскладки листа выходят за
    его правый край, и при центрированной обёртке на масштабе <100% слева оставалась
    пустота, а правая часть чертежа была обрезана (замечено на телефоне 40%) */
@@ -1690,43 +1692,6 @@ h4.spec-title { margin: var(--sp-5) 0 var(--sp-2); font-size: var(--fs-md); font
 }
 #tab-drawings * { cursor: inherit; }
 #tab-drawings.dw-panning { cursor: grabbing; }
-
-/* Ряд «100% [−] ——о—— [+]» над областью чертежей: виден только на вкладке
-   «Чертежи» и не входит в прокрутку (лежит вне #tab-drawings). */
-.dw-zoombar {
-  flex: none;
-  display: none;
-  align-items: center; gap: var(--sp-2);
-  padding: 5px var(--sp-3);
-  border-bottom: 1px solid var(--border);
-}
-.results[data-docs-tab='drawings'] .dw-zoombar { display: flex; }
-.dw-zoom-pct {
-  flex: none; min-width: 42px;
-  font-size: var(--fs-sm); font-weight: 600; text-align: right;
-  font-variant-numeric: tabular-nums;
-  color: var(--text-2);
-}
-.dw-zoom-btn {
-  flex: none;
-  width: 26px; height: 26px; padding: 0;
-  display: flex; align-items: center; justify-content: center;
-  border: 1px solid var(--border-strong); border-radius: 50%;
-  background: var(--surface-solid); color: var(--text);
-  font: 600 16px/1 var(--ff);
-  cursor: pointer;
-  transition: background var(--dur) var(--ease), border-color var(--dur) var(--ease), color var(--dur) var(--ease);
-}
-.dw-zoom-btn:hover { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
-.dw-zoom-btn:active { transform: scale(.94); }
-.dw-zoom-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
-.dw-zoom-btn:disabled { opacity: .4; cursor: default; pointer-events: none; }
-.dw-zoom-range {
-  flex: 1 1 auto; min-width: 60px; max-width: 320px;
-  height: 22px; margin: 0;
-  accent-color: var(--accent);
-  cursor: pointer;
-}
 
 /* ---------- 10. HUD — меню прямо на модели -------------------------------- */
 
@@ -2698,11 +2663,12 @@ body.is-focus .scrim { opacity: 0 !important; }
   }
   #drawer-docs .tabs::-webkit-scrollbar { display: none; }
   #drawer-docs .tabs > * { flex: none; }
-  /* Ряд масштаба чертежей на телефоне: компактный (лист может быть низким),
-     но кнопки — не меньше 34px под палец, ползунок тянется на всю ширину */
-  .dw-zoombar { padding: 3px var(--sp-3); }
-  .dw-zoom-btn { width: 34px; height: 34px; font-size: 18px; }
-  .dw-zoom-range { max-width: none; height: 30px; }
+  /* Чертежи на телефоне сами вписываются по ширине (ui-shell.js, 7в). Место
+     под вертикальную полосу прокрутки резервируем всегда: иначе при узком
+     окне компьютера с обычными (не накладными) полосами вписывание меняло бы
+     высоту листа, полоса то появлялась бы, то исчезала — и ширина, по которой
+     вписываем, «прыгала» бы вместе с ней. На телефонах полосы накладные — 0px. */
+  #tab-drawings { scrollbar-gutter: stable; }
   /* пока лист тянут — курсор «изменение высоты» везде, текст не выделяется */
   body.sheet-resizing { cursor: ns-resize; -webkit-user-select: none; user-select: none; }
   /* предупреждения — у низа, слева от гизмы (по центру на узком экране им
@@ -2739,7 +2705,7 @@ body.is-focus .scrim { opacity: 0 !important; }
 }
 
 @media print {
-  .topbar, .rail, .view-toolbar, .view-gizmo, .drawer-head, .drawer-resize, .tabs, .dw-zoombar, .scrim, .mobile-sheet-bar, .hud, .part-editor-overlay, .confirm-modal-scrim { display: none !important; }
+  .topbar, .rail, .view-toolbar, .view-gizmo, .drawer-head, .drawer-resize, .tabs, .scrim, .mobile-sheet-bar, .hud, .part-editor-overlay, .confirm-modal-scrim { display: none !important; }
   .stage { overflow: visible; }
   body { overflow: visible; }
 }

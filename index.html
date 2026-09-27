@@ -7,7 +7,7 @@
 <title>Modul3D — параметрический конструктор корпусной мебели</title>
 
 <link rel="icon" type="image/svg+xml" href="favicon.svg" />
-<link rel="stylesheet" href="style.css?v315" />
+<link rel="stylesheet" href="style.css?v316" />
 
 <!-- Положение рейки панелей (data-rail-pos на <html>: left | header-start |
      header-end | top-right | bottom-left; по умолчанию header-end — в шапке
@@ -48,7 +48,7 @@
 })();
 </script>
 
-<script src="src/errorBanner.js?v315"></script>
+<script src="src/errorBanner.js?v316"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <!-- Paddle.js — оверлей оплаты подписки (см. app.js: requestCheckout/initPaddle).
      Обычный скрипт без defer, как остальные CDN-подключения выше. -->
@@ -265,7 +265,9 @@
               <div class="hotkeys-item"><span class="hotkeys-key">F</span><span class="hotkeys-desc">Студия</span></div>
               <div class="hotkeys-item"><span class="hotkeys-key">T</span><span class="hotkeys-desc">Тема</span></div>
               <div class="hotkeys-item"><span class="hotkeys-key">+ / −</span><span class="hotkeys-desc">Масштаб чертежей</span></div>
-              <div class="hotkeys-item"><span class="hotkeys-key">2× клик</span><span class="hotkeys-desc">Чертежи: 100%</span></div>
+              <div class="hotkeys-item"><span class="hotkeys-key">Ctrl+колесо</span><span class="hotkeys-desc">Масштаб чертежей (вокруг курсора)</span></div>
+              <div class="hotkeys-item"><span class="hotkeys-key">Щипок</span><span class="hotkeys-desc">Масштаб чертежей двумя пальцами (телефон)</span></div>
+              <div class="hotkeys-item"><span class="hotkeys-key">2× клик</span><span class="hotkeys-desc">Чертежи: стандартный вид (на телефоне — по ширине)</span></div>
             </div>
           </div>
         </div>
@@ -604,7 +606,7 @@
       </button>
     </div>
     <div class="drawer-body">
-      <div class="results" data-docs-tab="drawings">
+      <div class="results">
         <div class="tabs">
           <button class="tab-btn active" data-tab="drawings" type="button">Чертежи</button>
           <button class="tab-btn" data-tab="detailing" type="button">Деталировка</button>
@@ -616,19 +618,9 @@
           <button id="exportDrillCsv" class="btn" type="button">Присадка .csv</button>
           <button id="exportDrillDxf" class="btn btn-primary" type="button">Присадка .dxf (ЧПУ)</button>
         </div>
-        <!-- Масштаб чертежей — видна только на вкладке «Чертежи» (CSS по
-             data-docs-tab на .results, ставит setDocsTab в app.js). Стоит
-             ВНЕ #tab-drawings: его содержимое пересобирается на каждую
-             перерисовку чертежей. Логика — ui-shell.js, раздел 7в. -->
-        <div class="dw-zoombar" id="dwZoomBar">
-          <span class="dw-zoom-pct" id="dwZoomPct">100%</span>
-          <button class="dw-zoom-btn" id="dwZoomOut" type="button"
-                  aria-label="Уменьшить масштаб чертежей" title="Уменьшить (клавиша −)">&minus;</button>
-          <input class="dw-zoom-range" id="dwZoomRange" type="range" min="25" max="400" step="1" value="100"
-                 aria-label="Масштаб чертежей, %" title="Масштаб чертежей (двойной щелчок по чертежам — 100%)" />
-          <button class="dw-zoom-btn" id="dwZoomIn" type="button"
-                  aria-label="Увеличить масштаб чертежей" title="Увеличить (клавиша +)">+</button>
-        </div>
+        <!-- Масштаб чертежей (клавиши +/−, Ctrl+колесо, щипок, 2× клик) —
+             ui-shell.js, раздел 7в; отдельного ряда управления нет, всё
+             место отдано чертежам. -->
         <div class="tab-panel" id="tab-drawings"></div>
         <div class="tab-panel" id="tab-detailing"></div>
         <div class="tab-panel" id="tab-spec"></div>
@@ -774,19 +766,19 @@
 
 </main>
 
-<script src="src/catalog.js?v315"></script>
-<script src="src/presets.js?v315"></script>
-<script src="src/engine.js?v315"></script>
-<script src="src/specification.js?v315"></script>
-<script src="src/legMeshes.js?v315"></script>
-<script src="src/csg.js?v315"></script>
-<script src="src/viewer.js?v315"></script>
-<script src="src/ui-shell.js?v315"></script>
-<script src="src/drawings.js?v315"></script>
-<script src="src/export.js?v315"></script>
-<script src="src/cnc.js?v315"></script>
-<script src="src/sketchAI.js?v315"></script>
-<script src="src/app.js?v315"></script>
+<script src="src/catalog.js?v316"></script>
+<script src="src/presets.js?v316"></script>
+<script src="src/engine.js?v316"></script>
+<script src="src/specification.js?v316"></script>
+<script src="src/legMeshes.js?v316"></script>
+<script src="src/csg.js?v316"></script>
+<script src="src/viewer.js?v316"></script>
+<script src="src/ui-shell.js?v316"></script>
+<script src="src/drawings.js?v316"></script>
+<script src="src/export.js?v316"></script>
+<script src="src/cnc.js?v316"></script>
+<script src="src/sketchAI.js?v316"></script>
+<script src="src/app.js?v316"></script>
 <script>if (window.Modul3D && window.Modul3D.uiShell) window.Modul3D.uiShell.start();</script>
 </body>
 </html>
