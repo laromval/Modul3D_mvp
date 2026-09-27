@@ -1221,6 +1221,11 @@ body.vt-moving .view-toolbar { transition: none !important; }
   justify-content: center;
 }
 .part-editor-canvas .hint { max-width: 420px; text-align: center; }
+/* Ручная разметка в редакторе (класс ставит app.js: syncMarkupUI) — мышь
+   становится инструментом разметки, как на вкладке «Чертежи». */
+.part-editor-canvas.markup-on { cursor: crosshair; }
+.part-editor-canvas.markup-on .mk-dim { cursor: pointer; }
+.part-editor-canvas.markup-on .mk-dim .mk-hit { cursor: move; }
 
 /* ---------- 7.2 МОДАЛЬНОЕ ОКНО «ИСПОЛЬЗУЕТСЯ В ПРОЕКТЕ» ------------------- */
 /* Блокирующее окно удаления материала/фурнитуры из «Библиотеки» (см.
@@ -1692,6 +1697,17 @@ h4.spec-title { margin: var(--sp-5) 0 var(--sp-2); font-size: var(--fs-md); font
 }
 #tab-drawings * { cursor: inherit; }
 #tab-drawings.dw-panning { cursor: grabbing; }
+
+/* Ручная разметка общего вида (src/markup.js, кнопка «Разметка» —
+   app.js: syncMarkupUI ставит класс markup-on). Пока режим включён, мышь —
+   инструмент разметки, а не «рука»: перекрестие для выбора точек, указатель
+   над готовым размером, «перемещение» над его линией. Правило
+   «#tab-drawings * { cursor: inherit }» выше перебивает курсоры из самого
+   markup.js, поэтому они продублированы здесь с тем же весом. */
+#tab-drawings.markup-on { cursor: crosshair; }
+#tab-drawings.markup-on .mk-dim { cursor: pointer; }
+#tab-drawings.markup-on .mk-dim .mk-hit { cursor: move; }
+.markup-tools { display: inline-flex; align-items: center; gap: var(--sp-1); }
 
 /* ---------- 10. HUD — меню прямо на модели -------------------------------- */
 
@@ -2333,6 +2349,12 @@ body.lib-dragging .drawer-body { touch-action: none; }
 }
 .settings-row { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-2); }
 .settings-row-label { font-size: var(--fs-sm); color: var(--text-2); font-weight: 500; }
+
+/* размер надписей ручной разметки чертежа (ui-shell.js: initMarkupFont) */
+.markup-font-block label.settings-row-label { display: block; margin-bottom: var(--sp-2); }
+.markup-font-row { display: flex; align-items: center; gap: var(--sp-2); }
+.markup-font-row input[type='range'] { flex: 1 1 auto; min-width: 0; margin: 0; accent-color: var(--accent); }
+.markup-font-value { flex: none; min-width: 42px; text-align: right; font-size: var(--fs-sm); font-family: var(--ff-mono); color: var(--text); }
 
 /* заголовок «Валюта проекта» — свёрнут по умолчанию, разворачивается по клику */
 .currency-collapse-toggle {

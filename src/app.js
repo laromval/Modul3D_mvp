@@ -14,7 +14,7 @@
 (function () {
 // Версия сборки — показывается во вкладке браузера и в шапке.
 // При выпуске новой версии меняется только эта строка.
-const APP_VERSION = 'v316';
+const APP_VERSION = 'v317';
 
 // Номер версии выводим ПЕРВЫМ делом: если дальше что-то упадёт, по нему сразу
 // видно, какая сборка открыта.
@@ -68,6 +68,9 @@ const { PRESETS } = window.Modul3D.presets;
 const { recognizeSketch } = window.Modul3D.sketchAI;
 const { buildDrawings, buildViewSVG, DRAWINGS_CSS } = window.Modul3D.drawings;
 const { exportDrillCsv, exportDrillDxf } = window.Modul3D.cnc;
+// Ручная разметка чертежа общего вида (src/markup.js). Необязательна: нет
+// файла — приложение работает как раньше, просто без кнопки «Разметка».
+const markupApi = window.Modul3D.markup || null;
 
 function newSection() {
   return {
@@ -85,8 +88,29 @@ function newSection() {
     widthMode: 'auto', width: 400,
   };
 }
+// ПОСТОЯННЫЙ uid МОДУЛЯ — строка, живёт в state.modules (значит, сама
+// попадает в историю отмены, файл проекта и автосохранение). Нужен ручной
+// разметке чертежа (src/markup.js): её точки ссылаются на «модуль + ключ
+// детали» (engine.js: part.moduleUid/part.anchorKey), а не на part.id,
+// который engine.js перенумеровывает заново для каждого модуля. Имя модуля
+// тоже не годится — модули перенумеровываются при вставке/удалении.
+function newModuleUid() {
+  return 'm' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+}
+// Старые проекты/автосохранения/снимки истории без uid — дописываем лениво;
+// повтор uid (модуль скопирован целиком вместе с uid) — второй экземпляр
+// получает новый, чтобы разметка одного не «переезжала» на другой.
+function ensureModuleUids() {
+  const seen = new Set();
+  (state.modules || []).forEach((m) => {
+    if (!m || typeof m !== 'object') return;
+    if (typeof m.uid !== 'string' || !m.uid || seen.has(m.uid)) m.uid = newModuleUid();
+    seen.add(m.uid);
+  });
+}
 function newModule(name) {
   return {
+    uid: newModuleUid(),
     name: name || 'Модуль', width: 800, height: 2100, depth: 560,
     leftSide: 'floor', rightSide: 'floor',
     baseType: 'legsPlinth', plinthHeight: 100, legHeight: 100, legType: 'kitchen',
@@ -1067,6 +1091,11 @@ function snapshot() {
     jointType: state.jointType, worktopDepth: state.worktopDepth,
     countertopCornerJoint: state.countertopCornerJoint,
     grainGroups: state.grainGroups,
+    // Ручная разметка чертежа (src/markup.js) — в истории отмены вместе с
+    // модулями: Ctrl+Z после удаления модуля возвращает и его размеры, а
+    // добавление/удаление размера отменяется как любая правка. В state она
+    // НЕ живёт (applySnapshot/restoreProjectData отдают её в markup.js).
+    markup: markupApi ? markupApi.getData() : [],
   });
 }
 
@@ -1081,15 +1110,27 @@ function pushHistory() {
 
 function applySnapshot(snap) {
   const o = JSON.parse(snap);
+  const mk = o.markup;
+  delete o.markup;                         // не поле state — см. snapshot()
+  // Шаг отмены, в котором менялась ТОЛЬКО ручная разметка (модули и прочее
+  // состояние те же), не должен закрывать редактор детали и снимать
+  // изоляцию — иначе Ctrl+Z по размеру в редакторе выкидывал бы из окна.
+  const cur = JSON.parse(snapshot());
+  delete cur.markup;
+  const markupOnly = JSON.stringify(cur) === JSON.stringify(o);
   Object.keys(o).forEach((k) => { state[k] = o[k]; });
+  if (markupApi) markupApi.setData(Array.isArray(mk) ? mk : []);
   // Снимок без этого поля (старый) не должен оставлять группы от другого проекта.
   if (!o.grainGroups) state.grainGroups = {};
   // state.modules целиком заменён — режим изоляции (по имени модуля) и
-  // выбор детали внутри него могли устареть, снимаем безусловно.
-  exitIsolation();
+  // выбор детали внутри него могли устареть, снимаем (кроме шага, где
+  // менялась только разметка, см. markupOnly выше).
+  if (!markupOnly) exitIsolation();
   history.lock = true;
   try { renderParamsPanel(); recompute(); } finally { history.lock = false; }
   updateHistoryButtons();
+  if (markupOnly) refreshPartEditorOverlay();
+  syncMarkupUI();
 }
 
 function undo() {
@@ -1126,13 +1167,31 @@ function updateHistoryButtons() {
 const PROJECT_FILE_VERSION = 1;
 const AUTOSAVE_KEY = 'basisAutosaveProject';
 
+// Разметка для файла/автосохранения: без «сирот» — размеров, чей модуль
+// (moduleUid любой из двух точек) уже удалён из проекта. Чистим ТОЛЬКО здесь,
+// а не при пересчёте: в памяти и в истории отмены они нужны, чтобы Ctrl+Z
+// после удаления модуля вернул и его размеры.
+function markupForFile() {
+  if (!markupApi) return [];
+  const uids = new Set(state.modules.map((m) => m && m.uid).filter(Boolean));
+  return markupApi.getData().filter((d) => d && d.a && d.b
+    && uids.has(d.a.moduleUid) && uids.has(d.b.moduleUid));
+}
+
 function serializeProject() {
+  const st = JSON.parse(snapshot());
+  delete st.markup;                        // в файле разметка лежит отдельным полем
   return {
     app: 'basis-mvp',
     fileVersion: PROJECT_FILE_VERSION,
     appVersion: APP_VERSION,
     savedAt: new Date().toISOString(),
-    state: JSON.parse(snapshot()),
+    state: st,
+    // Ручная разметка чертежа (src/markup.js) — рядом со state, а не внутри:
+    // это не параметр изделия, а пометки пользователя на чертеже. Точки
+    // ссылаются на «uid модуля + ключ детали» (engine.js: part.moduleUid/
+    // part.anchorKey); размер, чьей детали больше нет, просто не рисуется.
+    markup: markupForFile(),
   };
 }
 
@@ -1187,11 +1246,26 @@ function restoreProjectData(data) {
   if (!data || typeof data !== 'object' || !data.state || !Array.isArray(data.state.modules)) {
     throw new Error('Файл не похож на проект «Modul3D» — нет списка модулей.');
   }
-  Object.keys(data.state).forEach((k) => { state[k] = data.state[k]; });
+  Object.keys(data.state).forEach((k) => { if (k !== 'markup') state[k] = data.state[k]; });
   // Проект из файла до появления «Направления текстуры» — все группы «Авто»,
   // а не то, что было выставлено в предыдущем открытом проекте.
   if (!data.state.grainGroups) state.grainGroups = {};
   migrateDrawerFieldsToSections(data);
+  // Ручная разметка чертежа — до recompute(), чтобы чертёж сразу собрался с
+  // ней. Старый файл без поля markup — просто пустая разметка (а не размеры,
+  // оставшиеся от предыдущего открытого проекта). Битые данные разметки не
+  // должны мешать открыть сам проект — setData терпим к мусору, но на всякий
+  // случай и здесь не даём ей уронить загрузку. Режим разметки выключаем:
+  // открыт другой проект.
+  if (markupApi) {
+    try {
+      markupApi.setActive(false);
+      markupApi.setData(Array.isArray(data.markup) ? data.markup : []);
+    } catch (err) {
+      console.warn('Markup restore failed:', err);
+      try { markupApi.setData([]); } catch (e2) { /* ok */ }
+    }
+  }
   // Открыт другой проект (или восстановлено автосохранение) — модули заменены
   // целиком, старая изоляция/выбор детали больше не имеют смысла.
   exitIsolation();
@@ -1201,6 +1275,7 @@ function restoreProjectData(data) {
   history.past = [snapshot()];
   history.future = [];
   updateHistoryButtons();
+  syncMarkupUI();
 }
 
 function openProjectFromFile(file) {
@@ -1337,6 +1412,9 @@ function insertModule(m) {
       overhangRight: 0,
     };
   }
+  // Вставленный модуль — всегда НОВЫЙ: клон из пресета/библиотеки/комплекта
+  // мог принести uid эталона (или другого модуля проекта), см. newModuleUid.
+  m.uid = newModuleUid();
   const at = Math.min(state.activeModule + 1, state.modules.length);
   state.modules.splice(at, 0, m);
   renumberModules();
@@ -1379,6 +1457,7 @@ function insertModulesBatch(mods) {
       };
     }
   });
+  mods.forEach((m) => { m.uid = newModuleUid(); });   // см. insertModule
   const at = Math.min(state.activeModule + 1, state.modules.length);
   state.modules.splice(at, 0, ...mods);
   renumberModules();
@@ -10313,9 +10392,20 @@ function renderPartEditorOverlay(part) {
   if (title) title.textContent = `Редактор выреза — ${part.name || PART_KIND_TITLES[part.kind] || 'Деталь'}`;
 
   const drawings = window.Modul3D.drawings || {};
+  // Лист ручной разметки редактора — привязан к самой детали (drawings.js:
+  // buildPartEditorView → 'editor:<uid>|<ключ>'); запоминаем, чтобы снять его
+  // с учёта при закрытии окна.
+  const newSheet = (part.moduleUid && part.anchorKey) ? `editor:${part.moduleUid}|${part.anchorKey}` : null;
+  // Другая деталь — прежний лист редактора снимаем с учёта (иначе он висел
+  // бы в реестре разметки с устаревшими контекстами видов).
+  if (state.partEditorSheet && state.partEditorSheet !== newSheet && markupApi && markupApi.dropSheet) {
+    markupApi.dropSheet(state.partEditorSheet);
+  }
+  state.partEditorSheet = newSheet;
   if (typeof drawings.buildPartEditorView === 'function') {
     try {
-      canvas.innerHTML = drawings.buildPartEditorView(part, {});
+      // model — для ручной разметки (markup.js считает по ней «живые» размеры)
+      canvas.innerHTML = drawings.buildPartEditorView(part, { model: currentModel });
     } catch (err) {
       console.error('Part editor view failed:', err);
       canvas.innerHTML = `<div class="hint">Не удалось построить вид детали: ${esc(err.message)}</div>`;
@@ -10340,6 +10430,17 @@ function openPartVisualEditor() {
     overlay.classList.add('open');
     overlay.setAttribute('aria-hidden', 'false');
   }
+  syncMarkupUI();
+}
+
+// Перерисовать открытый редактор (та же деталь по state.selectedPart) —
+// после правки ручной разметки: рамка листа (svgFit) считается при сборке,
+// и новый размер за её краем обрезался бы. Вырезы/присадка не меняются.
+function refreshPartEditorOverlay() {
+  if (!state.partEditorOpen) return;
+  const mod = state.modules.find((m) => m.name === (state.selectedPart || {}).module);
+  const resolved = resolveSelectedPart(mod);
+  if (resolved.chosen) renderPartEditorOverlay(resolved.chosen.part);
 }
 
 // Закрывает оверлей и возвращает в режим фокуса на модуле (экран «Деталь») —
@@ -10348,11 +10449,21 @@ function openPartVisualEditor() {
 // контекстного меню, не красный крестик здесь).
 function closePartVisualEditor() {
   state.partEditorOpen = false;
+  // Режим разметки в редакторе при закрытии окна выключается, лист снимается
+  // с учёта (данные размеров остаются — откроют редактор, они на месте).
+  // Выключаем только «режим редактора»: если под окном видна вкладка
+  // «Чертежи», разметка на ней остаётся включённой.
+  if (markupApi) {
+    if (!isDocsTabVisible('drawings')) markupApi.setActive(false);
+    if (state.partEditorSheet && markupApi.dropSheet) markupApi.dropSheet(state.partEditorSheet);
+  }
+  state.partEditorSheet = null;
   const overlay = document.getElementById('partEditorOverlay');
   if (overlay) {
     overlay.classList.remove('open');
     overlay.setAttribute('aria-hidden', 'true');
   }
+  syncMarkupUI();
 }
 
 // Оверлей статичный (разметка index.html), не пересоздаётся при каждом
@@ -10361,6 +10472,15 @@ function closePartVisualEditor() {
 function initPartEditorOverlay() {
   const closeBtn = document.getElementById('partEditorClose');
   if (closeBtn) closeBtn.addEventListener('click', closePartVisualEditor);
+  // Переключатель ручной разметки в самом окне. Своих инструментов у
+  // редактора пока нет (Этап 1 — статичный вид), так что перехватывать нечего;
+  // будущие инструменты вырезов обязаны проверять markupApi.isActive() и
+  // молчать, пока режим включён (как это делает панорама чертежей ui-shell.js).
+  const mkBtn = document.getElementById('partEditorMarkupToggle');
+  if (mkBtn) {
+    if (!markupApi) mkBtn.style.display = 'none';
+    else mkBtn.addEventListener('click', () => { markupApi.setActive(!markupApi.isActive()); syncMarkupUI(); });
+  }
 }
 
 // Экран «Материалы»: общие на весь проект декор/толщины/фурнитура —
@@ -12233,6 +12353,8 @@ function bindPanelEvents() {
 // Единая точка пересчёта
 // ---------------------------------------------------------------------------
 function recompute(isRetry) {
+  // uid модулей — до снимка истории, чтобы он попал и в историю, и в файл.
+  ensureModuleUids();
   // Любое изменение проходит через пересчёт — здесь и снимаем состояние
   // для истории. Повтор (undo/redo) историю не пишет: стоит замок.
   if (!isRetry) pushHistory();
@@ -12258,6 +12380,8 @@ function recompute(isRetry) {
     // на экране параметров) — читает applyGrainDirection() в engine.js.
     grainGroups: state.grainGroups,
     modules: state.modules.map(m => ({
+      // uid — только для якорей ручной разметки (engine.js: part.moduleUid)
+      uid: m.uid,
       name: m.name, width: m.width, height: m.height, depth: m.depth,
       rotation: m.rotation || 0, corner: !!m.corner, family: m.family || 'custom',
       topType: m.topType, railWidth: m.railWidth, noBack: !!m.noBack,
@@ -12302,6 +12426,8 @@ function recompute(isRetry) {
   }
 
   currentSpec = buildSpecification(currentModel);
+  // Ручной разметке — модель этого пересчёта (живые размеры для count()).
+  if (markupApi && markupApi.setModel) markupApi.setModel(currentModel);
 
   // Чертежи, деталировка и спецификация — лениво: строится только та
   // вкладка, что сейчас на виду, остальные помечаются устаревшими и
@@ -12323,6 +12449,9 @@ function recompute(isRetry) {
     catch (err) { console.error('3D render failed:', err); }
   }
   renderViewOverlay();
+  // Открытый редактор детали перерисовывается по новой модели (геометрия,
+  // присадка и его лист разметки — от актуальной детали).
+  if (state.partEditorOpen) refreshPartEditorOverlay();
   autosaveProject();
 }
 
@@ -13180,6 +13309,9 @@ function ensureTabBuilt(name) {
   } else if (name === 'drawings') {
     if (!currentModel) return;
     renderDrawings(currentModel);
+    // Общий вид пересобран — видимых ручных размеров могло стать меньше/
+    // больше (модуль удалён или возвращён Ctrl+Z): обновить «Очистить всё».
+    syncMarkupUI();
   } else if (name === 'detailing') {
     if (!currentModel) return;
     renderDetailingTable(currentModel);
@@ -13242,6 +13374,99 @@ function setDocsTab(name, toggle) {
     if (panel.scrollIntoView) panel.scrollIntoView({ block: 'nearest' });
   }
   if (viewer && viewer.resize) viewer.resize();  // 3D перестроить под новую высоту
+  syncMarkupUI();
+}
+
+// ---------------------------------------------------------------------------
+// Ручная разметка чертежа общего вида (src/markup.js)
+// ---------------------------------------------------------------------------
+// Кнопки — в полосе вкладок «Документы» (index.html #markupTools). Режим
+// имеет смысл только пока на виду вкладка «Чертежи»: при переходе на другую
+// вкладку или закрытии панели «Документы» он выключается сам, чтобы
+// разметка не перехватывала клики и клавиши (Delete/Esc) в остальном
+// приложении. Размеры не пересчитывают модель — recompute() не нужен.
+function syncMarkupUI() {
+  if (!markupApi) return;
+  const drawingsOn = isDocsTabVisible('drawings');
+  const editorOn = !!state.partEditorOpen;
+  // Режим имеет смысл, пока на виду вкладка «Чертежи» ИЛИ окно редактора детали.
+  if (!drawingsOn && !editorOn && markupApi.isActive()) markupApi.setActive(false);
+  const tools = document.getElementById('markupTools');
+  if (tools && tools.style) tools.style.display = drawingsOn ? '' : 'none';
+  const on = markupApi.isActive();
+  const btn = document.getElementById('markupToggle');
+  if (btn) {
+    btn.classList.toggle('active', on);
+    if (btn.setAttribute) btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+  }
+  const pane = document.getElementById('tab-drawings');
+  if (pane) pane.classList.toggle('markup-on', on && drawingsOn);
+  const edBtn = document.getElementById('partEditorMarkupToggle');
+  if (edBtn) {
+    edBtn.classList.toggle('active', on);
+    if (edBtn.setAttribute) edBtn.setAttribute('aria-pressed', on ? 'true' : 'false');
+  }
+  const edCanvas = document.getElementById('partEditorCanvas');
+  if (edCanvas) edCanvas.classList.toggle('markup-on', on && editorOn);
+  const clr = document.getElementById('markupClear');
+  if (clr) {
+    if (clr.style) clr.style.display = on ? '' : 'none';
+    clr.disabled = !(markupApi.count && markupApi.count());
+  }
+}
+
+function initMarkupUI() {
+  const tools = document.getElementById('markupTools');
+  if (!markupApi) { if (tools && tools.style) tools.style.display = 'none'; return; }
+  const btn = document.getElementById('markupToggle');
+  if (btn) btn.addEventListener('click', () => {
+    const on = !markupApi.isActive();
+    // Включать разметку без открытого чертежа бессмысленно — сначала
+    // показываем вкладку «Чертежи» (она же соберёт общий вид).
+    if (on && !isDocsTabVisible('drawings')) setDocsTab('drawings', false);
+    markupApi.setActive(on);
+    syncMarkupUI();
+  });
+  const clr = document.getElementById('markupClear');
+  if (clr) clr.addEventListener('click', () => {
+    const n = markupApi.count ? markupApi.count() : 0;
+    if (!n) return;
+    // confirm в некоторых встроенных превью подавлен (возвращает false или
+    // его нет вовсе) — не падаем; там просто ничего не удаляется.
+    let ok = false;
+    try { ok = typeof window.confirm === 'function' && !!window.confirm(`Удалить все свои размеры со всех чертежей (${n} шт.)?`); }
+    catch (err) { ok = false; }
+    if (!ok) return;
+    markupApi.clearAll();
+    syncMarkupUI();
+  });
+  // Размер добавлен/удалён/передвинут — это правка проекта, но НЕ параметр
+  // изделия: recompute() не нужен (модель не меняется). Пишем шаг истории
+  // отмены, автосохраняем и пересобираем ТОЛЬКО чертежи — рамка листа
+  // (drawings.js: svgFit) считается при сборке, и новый размер за краем
+  // прежней рамки иначе обрезался бы.
+  // Техническая миграция старых записей разметки при сборке чертежа (форма
+  // записи, не смысл) — не шаг отмены: переписываем верхний снимок истории
+  // на месте, иначе следующий pushHistory() добавил бы «пустой» шаг.
+  if (markupApi.onMigrate) markupApi.onMigrate(() => {
+    if (history.past.length) history.past[history.past.length - 1] = snapshot();
+  });
+  if (markupApi.onChange) markupApi.onChange(() => {
+    pushHistory();
+    updateHistoryButtons();
+    autosaveProject();
+    invalidateDocsTabs(['drawings']);
+    refreshPartEditorOverlay();
+    syncMarkupUI();
+  });
+  // Панель «Документы» закрывают и мимо setDocsTab (крестик, Esc, клавиша D,
+  // открытие другой панели — ui-shell.js ставит/снимает класс open на
+  // .results) — ловим смену класса, чтобы режим разметки выключился и там.
+  const box = document.querySelector('.results');
+  if (box && window.MutationObserver) {
+    new MutationObserver(syncMarkupUI).observe(box, { attributes: true, attributeFilter: ['class'] });
+  }
+  syncMarkupUI();
 }
 
 document.querySelectorAll('.tab-btn').forEach((btn) => {
@@ -13251,6 +13476,7 @@ document.querySelectorAll('.tab-btn').forEach((btn) => {
 setDocsTab('drawings', false);
 const docsBox = document.querySelector('.results');
 if (docsBox) docsBox.classList.remove('open');
+initMarkupUI();
 
 // ---------------------------------------------------------------------------
 // Экспорт и печать
@@ -13329,7 +13555,10 @@ onClick('exportDrillDxf', async () => {
 document.getElementById('printDrawings').addEventListener('click', () => {
   // Печать читает готовую разметку вкладки, а вкладка может быть свёрнутой
   // и потому устаревшей (см. docsTabsDirty) — собираем принудительно, иначе
-  // в печать уйдёт пустая или старая страница.
+  // в печать уйдёт пустая или старая страница. Пересобираем ВСЕГДА: ручная
+  // разметка (src/markup.js) и размер её шрифта меняются без recompute(),
+  // прямо в DOM, а drawingsRawHtml — снимок с прошлой сборки.
+  docsTabsDirty.drawings = true;
   ensureTabBuilt('drawings');
   // Сырая разметка чертежей (без обёртки масштаба) — печатается всегда в
   // стандартном виде, что бы ни стояло на экране.
@@ -14647,6 +14876,9 @@ window.Modul3D.app = {
   // (dev-прогон tools/smoke.js).
   ensureTabBuilt: ensureTabBuilt,
   ensureVisibleDocsTabBuilt: ensureVisibleDocsTabBuilt,
+  // Пересобрать чертежи без пересчёта модели — ui-shell.js зовёт после смены
+  // размера шрифта ручной разметки (рамка листа должна вместить подписи).
+  refreshDrawings: () => invalidateDocsTabs(['drawings']),
 };
 
 // ---------------------------------------------------------------------------
@@ -14692,12 +14924,25 @@ try {
 
   // Delete — удалить выделенный модуль. В поле ввода клавиша работает
   // штатно (удаляет символ), поэтому там её не перехватываем.
+  // ВАЖНО (см. src/markup.js): у ручной разметки чертежей (markup.js) есть
+  // СВОЙ document-обработчик keydown на Delete — он удаляет выделенный
+  // ручной размер и останавливает событие через stopImmediatePropagation(),
+  // чтобы оно НЕ доходило досюда и заодно не удаляло активный модуль.
+  // Это работает только потому, что markup.js подключён в index.html РАНЬШЕ
+  // app.js (порядок addEventListener на одном target = порядок регистрации).
+  // Не переставляй порядок этих <script> тегов и не переноси этот обработчик
+  // в другой файл, не сверившись с markup.js — иначе Delete по ручному
+  // размеру снова начнёт заодно удалять весь модуль.
   document.addEventListener('keydown', (e) => {
     const tg = (e.target && e.target.tagName) || '';
     if (tg === 'INPUT' || tg === 'TEXTAREA' || tg === 'SELECT') return;
     if (e.key !== 'Delete' && e.key !== 'Del') return;
     if (e.ctrlKey || e.metaKey || e.altKey) return;
     if (!state.modules.length) return;
+    // В режиме разметки чертежа Delete — клавиша разметки: выделенный размер
+    // удаляет markup.js (и сюда событие не доходит), а если ничего не
+    // выделено — не удаляем молча весь модуль, пользователь явно целился в размер.
+    if (markupApi && markupApi.isActive()) return;
     e.preventDefault();
     deleteModule(state.activeModule);
   });

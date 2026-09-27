@@ -7,7 +7,7 @@
 <title>Modul3D — параметрический конструктор корпусной мебели</title>
 
 <link rel="icon" type="image/svg+xml" href="favicon.svg" />
-<link rel="stylesheet" href="style.css?v316" />
+<link rel="stylesheet" href="style.css?v317" />
 
 <!-- Положение рейки панелей (data-rail-pos на <html>: left | header-start |
      header-end | top-right | bottom-left; по умолчанию header-end — в шапке
@@ -48,7 +48,7 @@
 })();
 </script>
 
-<script src="src/errorBanner.js?v316"></script>
+<script src="src/errorBanner.js?v317"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <!-- Paddle.js — оверлей оплаты подписки (см. app.js: requestCheckout/initPaddle).
      Обычный скрипт без defer, как остальные CDN-подключения выше. -->
@@ -241,6 +241,18 @@
               </svg>
               <span>Внизу справа</span>
             </button>
+          </div>
+        </div>
+
+        <!-- Размер надписей ручной разметки чертежа (src/markup.js:
+             setFontScale). Запоминается в браузере — ui-shell.js:
+             initMarkupFont (ключ modul3d.markupFont). -->
+        <div class="settings-block markup-font-block">
+          <label class="settings-row-label" for="markupFontRange">Размер надписей своих размеров на чертеже</label>
+          <div class="markup-font-row">
+            <input id="markupFontRange" type="range" min="6" max="24" step="1" value="10"
+                   aria-describedby="markupFontValue" />
+            <span id="markupFontValue" class="markup-font-value">10 px</span>
           </div>
         </div>
 
@@ -612,6 +624,15 @@
           <button class="tab-btn" data-tab="detailing" type="button">Деталировка</button>
           <button class="tab-btn" data-tab="spec" type="button">Спецификация</button>
           <div class="spacer"></div>
+          <!-- Ручная разметка общего вида (src/markup.js). Видна только на
+               вкладке «Чертежи»; «Очистить всё» — только пока режим включён.
+               Логика — app.js: initMarkupUI / syncMarkupUI. -->
+          <span id="markupTools" class="markup-tools">
+            <button id="markupToggle" class="btn" type="button" aria-pressed="false"
+                    title="Свои размеры на любом чертеже (у каждого чертежа — свои): щёлкните первую точку (угол, край детали, центр отверстия), затем вторую — любую, затем уведите размер в сторону и щёлкните, чтобы закрепить (увели вверх/вниз — горизонтальный размер, вбок — вертикальный). С зажатым Shift вторая точка ищется строго перпендикулярно краю детали. Щелчок по готовому размеру — выделить, Delete — удалить, выделенный размер можно перетащить мышью. Esc — отменить начатый размер.">Разметка</button>
+            <button id="markupClear" class="btn" type="button" style="display:none"
+                    title="Удалить все свои размеры со всех чертежей">Очистить всё</button>
+          </span>
           <button id="printDrawings" class="btn" type="button">Печать чертежей</button>
           <button id="exportDetailing" class="btn" type="button">Деталировка .xlsx</button>
           <button id="exportSpec" class="btn" type="button">Спецификация .xlsx</button>
@@ -696,6 +717,12 @@
   <div class="part-editor-overlay" id="partEditorOverlay" aria-hidden="true">
     <div class="part-editor-head">
       <h2 class="part-editor-title" id="partEditorTitle">Редактор выреза</h2>
+      <!-- Ручная разметка в редакторе детали (src/markup.js, лист
+           'editor:<uid>|<ключ>'): свой переключатель, «Очистить всё» — только
+           на вкладке «Чертежи» (чистит и размеры редактора). Логика —
+           app.js: initPartEditorOverlay / syncMarkupUI. -->
+      <button id="partEditorMarkupToggle" class="btn" type="button" aria-pressed="false"
+              title="Свои размеры на любом чертеже (у каждого чертежа — свои): щёлкните первую точку (угол, край детали, центр отверстия), затем вторую — любую, затем уведите размер в сторону и щёлкните, чтобы закрепить (увели вверх/вниз — горизонтальный размер, вбок — вертикальный). С зажатым Shift вторая точка ищется строго перпендикулярно краю детали. Щелчок по готовому размеру — выделить, Delete — удалить, выделенный размер можно перетащить мышью. Esc — отменить начатый размер.">Разметка</button>
       <button class="icon-btn danger part-editor-close" type="button" id="partEditorClose" aria-label="Закрыть редактор">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
       </button>
@@ -766,19 +793,30 @@
 
 </main>
 
-<script src="src/catalog.js?v316"></script>
-<script src="src/presets.js?v316"></script>
-<script src="src/engine.js?v316"></script>
-<script src="src/specification.js?v316"></script>
-<script src="src/legMeshes.js?v316"></script>
-<script src="src/csg.js?v316"></script>
-<script src="src/viewer.js?v316"></script>
-<script src="src/ui-shell.js?v316"></script>
-<script src="src/drawings.js?v316"></script>
-<script src="src/export.js?v316"></script>
-<script src="src/cnc.js?v316"></script>
-<script src="src/sketchAI.js?v316"></script>
-<script src="src/app.js?v316"></script>
+<script src="src/catalog.js?v317"></script>
+<script src="src/presets.js?v317"></script>
+<script src="src/engine.js?v317"></script>
+<script src="src/specification.js?v317"></script>
+<script src="src/legMeshes.js?v317"></script>
+<script src="src/csg.js?v317"></script>
+<script src="src/viewer.js?v317"></script>
+<script src="src/ui-shell.js?v317"></script>
+<!-- markup.js ДОЛЖЕН грузиться раньше app.js: он вешает свой document
+     keydown-обработчик (Delete/Escape по ручной разметке) СРАЗУ при загрузке
+     файла, и stopImmediatePropagation() там останавливает только слушатели,
+     зарегистрированные ПОЗЖЕ него — порядок регистрации = порядок <script>
+     тегов. Переставишь эту строку после app.js — Delete по выделенному
+     ручному размеру снова начнёт заодно удалять активный 3D-модуль
+     (см. app.js: обработчик Delete рядом с deleteModule). -->
+<script src="src/markup.js?v317"></script>
+<script src="src/drawings.js?v317"></script>
+<script src="src/export.js?v317"></script>
+<script src="src/cnc.js?v317"></script>
+<script src="src/sketchAI.js?v317"></script>
+<!-- app.js — ПОСЛЕ markup.js (см. пометку у markup.js выше): его глобальный
+     keydown на Delete (удаление активного модуля) не должен получить событие
+     раньше markup.js — иначе перехват Delete ручной разметкой не работает. -->
+<script src="src/app.js?v317"></script>
 <script>if (window.Modul3D && window.Modul3D.uiShell) window.Modul3D.uiShell.start();</script>
 </body>
 </html>

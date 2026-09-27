@@ -20,6 +20,9 @@
 var THEME_KEY = 'modul3d.theme';
 var STATE_KEY = 'modul3d.ui';
 var CURRENCY_KEY = 'modul3d.currency';
+// Размер надписей ручной разметки чертежа (src/markup.js), px — см. initMarkupFont.
+var MARKUP_FONT_KEY = 'modul3d.markupFont';
+var MARKUP_FONT_MIN = 6, MARKUP_FONT_MAX = 24, MARKUP_FONT_DEFAULT = 10;
 // Положение рейки панелей. Тот же ключ и те же значения читает короткий
 // скрипт в <head> index.html (раннее чтение, чтобы не мигало) — менять вместе.
 var RAIL_POS_KEY = 'modul3d.railPos';
@@ -265,6 +268,46 @@ function setTheme(theme) {
     moon.style.display = theme === 'dark' ? '' : 'none';
   }
   applyTheme3D(theme);
+}
+
+/* Размер надписей ручной разметки чертежа (src/markup.js: setFontScale).
+   Настройка интерфейса, а не проекта — хранится в браузере, как тема.
+   markup.js грузится ПОСЛЕ этого файла, но start() зовётся уже после всех
+   скриптов, так что к моменту initMarkupFont() он на месте. */
+function clampMarkupFont(v) {
+  v = Math.round(Number(v));
+  if (!isFinite(v)) return MARKUP_FONT_DEFAULT;
+  return Math.max(MARKUP_FONT_MIN, Math.min(MARKUP_FONT_MAX, v));
+}
+
+var markupFontRebuildTimer = null;
+function applyMarkupFont(px, save) {
+  px = clampMarkupFont(px);
+  var mk = window.Modul3D && window.Modul3D.markup;
+  if (mk && mk.setFontScale) mk.setFontScale(px);
+  var range = document.getElementById('markupFontRange');
+  if (range && String(range.value) !== String(px)) range.value = px;
+  var out = document.getElementById('markupFontValue');
+  if (out) out.textContent = px + ' px';
+  if (save) {
+    try { localStorage.setItem(MARKUP_FONT_KEY, String(px)); } catch (e) { /* приватный режим */ }
+    // Рамка листа (drawings.js: svgFit) считается при сборке чертежа —
+    // крупные подписи иначе обрезались бы краем. Модель не пересчитывается.
+    // Ползунок шлёт input на каждый шаг — пересобираем с короткой задержкой.
+    clearTimeout(markupFontRebuildTimer);
+    markupFontRebuildTimer = setTimeout(function () {
+      var app = window.Modul3D.app;
+      if (app && typeof app.refreshDrawings === 'function') app.refreshDrawings();
+    }, 120);
+  }
+}
+
+function initMarkupFont() {
+  var saved = null;
+  try { saved = localStorage.getItem(MARKUP_FONT_KEY); } catch (e) { /* нет доступа */ }
+  applyMarkupFont(saved == null || saved === '' ? MARKUP_FONT_DEFAULT : saved, false);
+  var range = document.getElementById('markupFontRange');
+  if (range) range.addEventListener('input', function () { applyMarkupFont(range.value, true); });
 }
 
 function initTheme() {
@@ -2391,6 +2434,12 @@ function endDwPan() {
   var d = dwPan;
   if (!d) return;
   dwPan = null;
+  // ПКМ в режиме разметки: запоминаем, тащили ли лист, — от этого зависит,
+  // считать ли отпускание кнопки «простым щелчком ПКМ» (см. onDwContextMenu).
+  if (d.mask === 2) {
+    dwRmbLastMoved = d.moved;
+    if (d.ctxPending && !d.moved) markupCancelDraft();   // macOS: contextmenu пришёл раньше, на нажатии
+  }
   var pane = dwPane();
   if (!pane) return;
   pane.classList.remove('dw-panning');
@@ -2401,7 +2450,7 @@ function moveDwPan(e) {
   var d = dwPan;
   var pane = dwPane();
   if (!pane) { endDwPan(); return; }
-  if ((e.buttons & 1) === 0) { endDwPan(); return; }   // кнопку отпустили мимо окна — pointerup не пришёл
+  if ((e.buttons & (d.mask || 1)) === 0) { endDwPan(); return; }   // кнопку отпустили мимо окна — pointerup не пришёл
   var dx = e.clientX - d.x0, dy = e.clientY - d.y0;
   if (!d.moved) {
     if (Math.max(Math.abs(dx), Math.abs(dy)) < DW_PAN_SLOP) return;   // клик, а не перетаскивание
@@ -2466,13 +2515,51 @@ function dropDwPointer(id) {
   if (dwTap && dwTap.id === id) dwTap = null;
 }
 
+// Включён ли режим ручной разметки чертежа (src/markup.js). Пока он включён,
+// левая кнопка мыши на чертеже — инструмент разметки (точки, перетаскивание
+// готового размера), поэтому лист мышью не тащим и двойным щелчком масштаб не
+// сбрасываем: два быстрых щелчка по точкам размера иначе сбрасывали бы вид.
+// Колесо с Ctrl, клавиши +/− и полосы прокрутки работают как обычно.
+function markupModeOn() {
+  var mk = window.Modul3D && window.Modul3D.markup;
+  return !!(mk && mk.isActive && mk.isActive());
+}
+
+// ПРАВАЯ кнопка в режиме разметки — панорама листа (ЛКМ занята разметкой).
+// Простой щелчок ПКМ без движения — отмена начатой постановки размера (как
+// Esc). Контекстное меню браузера над областью чертежей в этом режиме
+// подавляется. Вне режима разметки всё как раньше (ПКМ — меню браузера).
+var dwRmbLastMoved = false;
+function markupCancelDraft() {
+  var mk = window.Modul3D && window.Modul3D.markup;
+  if (mk && typeof mk.cancelDraft === 'function') mk.cancelDraft();
+}
+// macOS: Ctrl+клик тоже вызывает contextmenu (кнопка 0 с ctrlKey) — в режиме
+// разметки меню так же подавится, а «щелчок без движения» отменит начатую
+// постановку. Специально не обрабатываем: Ctrl+клик как инструмент разметки
+// не предусмотрен, поведение согласовано с координатором.
+function onDwContextMenu(e) {
+  if (!markupModeOn()) return;
+  e.preventDefault();
+  // Windows/Linux: contextmenu приходит ПОСЛЕ отпускания кнопки (pan уже
+  // завершён, dwRmbLastMoved известен); macOS — на нажатии, решаем в endDwPan.
+  if (dwPan && dwPan.mask === 2) { dwPan.ctxPending = true; return; }
+  if (!dwRmbLastMoved) markupCancelDraft();
+  dwRmbLastMoved = false;
+}
+
 function onDwPointerDown(e) {
   var pane = dwPane();
   if (!pane) return;
   if (e.pointerType === 'mouse') {
-    if (e.button !== 0 || !dwInsideClient(pane, e)) return;   // левая кнопка, не полоса прокрутки
+    if (!dwInsideClient(pane, e)) return;                     // не полоса прокрутки
+    // Обычно лист тащат левой кнопкой; в режиме разметки ЛКМ — инструмент
+    // разметки, поэтому лист тащится ПРАВОЙ (см. onDwContextMenu).
+    var panBtn = markupModeOn() ? 2 : 0;
+    if (e.button !== panBtn) return;
     if (dwPan) endDwPan();                                    // «залипший» жест — сброс
-    dwPan = { id: e.pointerId, x0: e.clientX, y0: e.clientY, sl0: pane.scrollLeft, st0: pane.scrollTop, moved: false };
+    dwPan = { id: e.pointerId, x0: e.clientX, y0: e.clientY, sl0: pane.scrollLeft, st0: pane.scrollTop,
+      moved: false, mask: panBtn === 2 ? 2 : 1 };
     return;
   }
   // Касание/перо. Первый палец новой серии — прежние касания протухли
@@ -2553,6 +2640,7 @@ function onDwGesture(e) {
 }
 
 function onDwDblClick(e) {
+  if (markupModeOn()) return;   // см. markupModeOn: два щелчка — это точки размера
   var pane = dwPane();
   if (pane && dwInsideClient(pane, e)) resetDwZoom();
 }
@@ -2592,6 +2680,46 @@ function dwKeyAnchor() {
   return inside ? dwMouse : null;
 }
 
+// Окно редактора детали (app.js: openPartVisualEditor) — та же ПКМ-панорама в
+// режиме разметки: область .part-editor-body прокручивается (overflow:auto).
+function initEditorRmbPan() {
+  var body = document.querySelector('#partEditorOverlay .part-editor-body');
+  if (!body) return;
+  var pan = null, lastMoved = false;
+  body.addEventListener('pointerdown', function (e) {
+    if (e.pointerType !== 'mouse' || e.button !== 2 || !markupModeOn()) return;
+    pan = { id: e.pointerId, x0: e.clientX, y0: e.clientY, sl0: body.scrollLeft, st0: body.scrollTop, moved: false, ctx: false };
+  });
+  body.addEventListener('pointermove', function (e) {
+    if (!pan || e.pointerId !== pan.id) return;
+    if ((e.buttons & 2) === 0) { pan = null; return; }
+    var dx = e.clientX - pan.x0, dy = e.clientY - pan.y0;
+    if (!pan.moved) {
+      if (Math.max(Math.abs(dx), Math.abs(dy)) < DW_PAN_SLOP) return;
+      pan.moved = true;
+      try { body.setPointerCapture(e.pointerId); } catch (err) { /* не критично */ }
+    }
+    body.scrollLeft = pan.sl0 - dx;
+    body.scrollTop = pan.st0 - dy;
+  });
+  function end(e) {
+    if (!pan || (e && e.pointerId !== pan.id)) return;
+    lastMoved = pan.moved;
+    if (pan.ctx && !pan.moved) markupCancelDraft();
+    try { body.releasePointerCapture(pan.id); } catch (err) { /* уже отпущен */ }
+    pan = null;
+  }
+  body.addEventListener('pointerup', end);
+  body.addEventListener('pointercancel', end);
+  body.addEventListener('contextmenu', function (e) {
+    if (!markupModeOn()) return;
+    e.preventDefault();
+    if (pan) { pan.ctx = true; return; }
+    if (!lastMoved) markupCancelDraft();
+    lastMoved = false;
+  });
+}
+
 function initDrawingsZoom() {
   dwWasMobile = isMobileLayout();
 
@@ -2606,6 +2734,7 @@ function initDrawingsZoom() {
   pane.addEventListener('lostpointercapture', onDwPointerCancel);
   pane.addEventListener('pointerleave', function (e) { if (e.pointerType === 'mouse') dwMouse = null; });
   pane.addEventListener('dblclick', onDwDblClick);
+  pane.addEventListener('contextmenu', onDwContextMenu);
   // passive: false — иначе preventDefault() у Ctrl+колеса не сработает и
   // браузер приблизит всю страницу
   pane.addEventListener('wheel', onDwWheel, { passive: false });
@@ -2676,6 +2805,7 @@ function escapeHtml(s) {
 function start() {
   initTheme();
   initCurrency();
+  initMarkupFont();
   initDrawers();
   initRailPosition();
   initViewToolbarPosition();
@@ -2686,6 +2816,7 @@ function start() {
   initSheet();
   initSheetResize();   // до restoreUI: первой открытой панели нужна высота листа
   initDrawingsZoom();
+  initEditorRmbPan();
   initHotkeys();
   restoreUI();
   window.addEventListener('resize', function () { if (hudModule) placeHud(); });

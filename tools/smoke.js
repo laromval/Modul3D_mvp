@@ -1756,6 +1756,70 @@ for (const el of document.querySelectorAll('.tab-btn')) {
     }
     check('после блока телефона: стандартный вид 100%', () => shell.getDrawingsZoom() === 100);
   }
+
+  // --- ручная разметка чертежа общего вида (src/markup.js, v317) ---
+  {
+    const mk = sandbox.Modul3D.markup;
+    const mkTools = document.getElementById('markupTools');
+    const mkBtn = document.getElementById('markupToggle');
+    const mkClr = document.getElementById('markupClear');
+    const mkRange = document.getElementById('markupFontRange');
+    const resBox = document.querySelector('.results');
+    // Клик по уже активной раскрытой вкладке её сворачивает — открываем наверняка.
+    const showTab = (n) => { tabBtn(n).click(); if (!resBox.classList.contains('open')) tabBtn(n).click(); };
+    check('разметка чертежа: кнопки «Разметка», «Очистить всё» и ползунок шрифта есть',
+      () => !!(mk && mkTools && mkBtn && mkClr && mkRange));
+    if (mk && mkTools && mkBtn && mkClr) {
+      showTab('detailing');
+      check('разметка чертежа: кнопки скрыты не на вкладке «Чертежи»', () => mkTools.style.display === 'none');
+      showTab('drawings');
+      check('разметка чертежа: кнопки видны на вкладке «Чертежи»', () => mkTools.style.display !== 'none');
+      check('разметка чертежа: «Очистить всё» скрыта, пока режим выключен', () => mkClr.style.display === 'none');
+      mkBtn.click();
+      check('разметка чертежа: кнопка включает режим и подсвечивается',
+        () => mk.isActive() && mkBtn.classList.contains('active') && mkClr.style.display !== 'none');
+      mkBtn.click();
+      check('разметка чертежа: повторный клик выключает режим', () => !mk.isActive() && !mkBtn.classList.contains('active'));
+      mkBtn.click();
+      showTab('detailing');
+      check('разметка чертежа: переход на другую вкладку выключает режим',
+        () => !mk.isActive() && !mkBtn.classList.contains('active'));
+    }
+    if (mk && mkRange) {
+      mkRange.value = '30';
+      mkRange.dispatch('input', { target: mkRange });
+      check('разметка чертежа: шрифт ограничен 24 px и запоминается',
+        () => mk.getFontScale() === 24 && stored['modul3d.markupFont'] === '24');
+      mkRange.value = '10';
+      mkRange.dispatch('input', { target: mkRange });
+      check('разметка чертежа: шрифт возвращается к 10 px', () => mk.getFontScale() === 10);
+    }
+    if (mk) {
+      mk.setFontScale(99);
+      check('разметка чертежа: setFontScale ограничен сверху 24 px', () => mk.getFontScale() === 24);
+      mk.setFontScale(10);
+      const anc = (key) => ({ moduleUid: 'mA', key, kind: 'corner', local: { h: -1, v: 1 } });
+      let threw = null;
+      try {
+        mk.setData([null, 5, 'x', { view: 'front' }, { id: 1, view: 'front', a: { partId: 3, kind: 'corner', local: {} }, b: anc('b') },
+          { id: 2, view: 'front', a: anc('a'), b: anc('b'), dir: 1, level: 1 },
+          { id: 2, view: 'front', a: anc('a'), b: anc('c'), dir: -1, level: 2 },
+          { view: 'side', a: anc('a'), b: anc('d'), level: 'мусор' }]);
+      } catch (e) { threw = e; }
+      const got = threw ? [] : mk.getData();
+      const ids = got.map((d) => d.id);
+      check('разметка чертежа: setData терпит мусор и перенумеровывает дубли id',
+        () => !threw && got.length === 3 && new Set(ids).size === 3 && ids.every((i) => i > 0));
+      check('разметка чертежа: запись без листа относится к общему виду, свой лист сохраняется',
+        () => !threw && got.every((d) => d.sheet === 'overview')
+          && (mk.setData([{ id: 1, sheet: 'module:mA', view: 'side', a: anc('a'), b: anc('b'), orient: 'v', offset: 12 }]),
+            mk.getData()[0].sheet === 'module:mA' && mk.getData()[0].offset === 12));
+      check('разметка чертежа: API листов для drawings.js есть',
+        () => typeof mk.beginSheets === 'function' && typeof mk.attachSheet === 'function');
+      mk.setData([]);
+    }
+  }
+
   tabBtn('detailing').click();
   shell.closeDrawer('docs');
 
