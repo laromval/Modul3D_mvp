@@ -228,12 +228,15 @@ function anchorOf(row, kind, local) {
 }
 
 // Размеры бокса вдоль осей вида — ТЕМИ ЖЕ формулами, что drawParts() в
-// drawings.js (hit-test должен видеть ровно нарисованное).
+// drawings.js (hit-test должен видеть ровно нарисованное): ось 'x' → ширина,
+// 'y' → высота, 'z' → глубина. Любая ось вида может быть любой мировой — у
+// повёрнутого на 90/270° модуля вид сверху идёт по осям z и x.
 function rowFrame(view, row) {
   const b = row.boxes && row.boxes[0];
   if (!b) return null;
-  const hs = view.hAxis === 'x' ? b.w : b.d;
-  const vs = view.vAxis === 'y' ? b.h : b.d;
+  const size = (ax) => (ax === 'x' ? b.w : ax === 'y' ? b.h : b.d);
+  const hs = size(view.hAxis);
+  const vs = size(view.vAxis);
   return {
     b, hs, vs,
     worldH: (h) => b[view.hAxis] + h * hs / 2,

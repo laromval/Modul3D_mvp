@@ -258,6 +258,12 @@ function visibleParts(parts, view) {
   return Array.from(byRow.values());
 }
 
+// Размер бокса детали вдоль мировой оси: 'x' → ширина, 'y' → высота,
+// 'z' → глубина.
+function axisSize(b, ax) {
+  return ax === 'x' ? b.w : ax === 'y' ? b.h : b.d;
+}
+
 // Рисует детали в проекции; labels — куда собрать позиции для выносок
 function drawParts(parts, sx, sy, hAxis, vAxis, labels, wire, noHoles) {
   let body = '';
@@ -267,16 +273,24 @@ function drawParts(parts, sx, sy, hAxis, vAxis, labels, wire, noHoles) {
     // и полкодержатели не изображаются (они есть в спецификации и в 3D).
     if (row.hardware) continue;
     for (const b of row.boxes) {
-      const hs = hAxis === 'x' ? b.w : b.d;
-      const vs = vAxis === 'y' ? b.h : b.d;
+      // Размер бокса вдоль оси вида: 'x' → ширина, 'y' → высота, 'z' → глубина.
+      // Любая ось вида может быть любой мировой: у модуля, повёрнутого на
+      // 90/270°, вид сверху идёт по осям z (гориз.) и x (верт.).
+      // ТА ЖЕ формула стоит в markup.js → rowFrame() (привязка разметки должна
+      // совпадать с нарисованным) — менять только вместе.
+      const hs = axisSize(b, hAxis);
+      const vs = axisSize(b, vAxis);
       const x0 = sx(b[hAxis] - hs / 2), x1 = sx(b[hAxis] + hs / 2);
       const yA = sy(b[vAxis] - vs / 2), yB = sy(b[vAxis] + vs / 2);
       const y0 = Math.min(yA, yB), y1 = Math.max(yA, yB);
       // Круглые детали (опоры) на виде СВЕРХУ показываем окружностью, а не
       // квадратом — иначе чертёж вводит в заблуждение при разметке присадки.
-      // Круглое сечение: опора — сверху, штанга — спереди и сбоку
-      const isRound = (row.shape === 'cylinder' && vAxis === 'z')
-        || (row.shape === 'cylinderX' && hAxis === 'z');
+      // Круглое сечение видно, когда смотрим ВДОЛЬ оси цилиндра, т.е. ни одна
+      // из осей вида не совпадает с его осью: опора (ось Y) — на виде сверху,
+      // штанга (ось X) — на виде сбоку. Так верно и для вида сверху
+      // повёрнутого модуля, где оси вида — z и x.
+      const isRound = (row.shape === 'cylinder' && hAxis !== 'y' && vAxis !== 'y')
+        || (row.shape === 'cylinderX' && hAxis !== 'x' && vAxis !== 'x');
       body += isRound
         ? `<ellipse cx="${r((x0 + x1) / 2)}" cy="${r((y0 + y1) / 2)}" rx="${r((x1 - x0) / 2)}" `
           + `ry="${r((y1 - y0) / 2)}" class="${partClass(row, wire)}"/>`
