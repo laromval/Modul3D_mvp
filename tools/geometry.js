@@ -506,6 +506,23 @@ for (const bt of ['plinth', 'legsPlinth', 'legs']) {
       if (pl && Math.abs(pl.length - (600 - 2 * 18)) > 0.6) {
         problems.push(`${bt}: цоколь ${pl.length} мм не встал между боковинами до пола`);
       }
+    } else if (bt === 'legs' || bt === 'legsPlinth') {
+      // Основания с опорой (решение пользователя 2026-09-28, уточнено после
+      // визуальной проверки — «опоры с цоколем» тоже): этот модуль стоит
+      // одиноко в ряду, соседей нет — боковина «сбоку дна»/«на дно» не
+      // закрыта ничем и становится ВИДИМОЙ (см. sideVisible), а видимая
+      // боковина физически идёт до пола (кроме чистых опор с металлическим
+      // типом — декоративное исключение, проверяется отдельным тестом ниже),
+      // иначе снизу видны кромка дна/торец цокольной планки и голые опоры.
+      // У «цоколь» (без опор — там нет ножки, которая могла бы остаться на
+      // виду) этого не происходит, см. ветку ниже. Подпись в панели (label)
+      // сознательно НЕ меняется — она отражает выбор пользователя в поле
+      // «Боковина» (тот же принцип, что у независимости материала «Видимая
+      // боковина» от конструктива, решение 2026-09-26), физическая геометрия
+      // переопределяется отдельно, только для рендера/присадки.
+      if (bottomY > 0.6) problems.push(`${bt}: видимая боковина «${sd}» стоит на ${bottomY} мм, а не на полу`);
+      const wantLabel = sd === 'besideBottom' ? 'сбоку дна' : 'на дно';
+      if (!label.includes(wantLabel)) problems.push(`${bt}: подпись «${label}» должна остаться про «${wantLabel}» (панель не меняет выбор пользователя)`);
     } else if (sd === 'besideBottom') {
       if (Math.abs(bottomY - 100) > 0.6) problems.push(`${bt}: «сбоку дна» низ ${bottomY} вместо 100`);
       if (!/сбоку дна/.test(label)) problems.push(`${bt}: подпись «${label}» не про «сбоку дна»`);
@@ -517,11 +534,33 @@ for (const bt of ['plinth', 'legsPlinth', 'legs']) {
   }
 }
 
+// --- опоры «металлические» декоративные: видимая боковина «сбоку дна», ----
+// --- НЕ до пола (решение пользователя 2026-09-28) --------------------------
+for (const sd of ['besideBottom', 'onBottom']) {
+  const model = buildModel(Object.assign({}, base, {
+    modules: [{ name: 'М', width: 600, height: 820, depth: 560, topType: 'rails',
+      leftSide: sd, rightSide: sd, legType: 'metal',
+      base: { type: 'legs', legHeight: 100 },
+      sections: [{ shelves: 1, drawers: 0, facade: 'doorLeft', drawerSystem: 'ballBearing' }] }],
+  }));
+  inspect(model, `металлические опоры, боковина ${sd}`);
+  const side = model.parts.filter((p) => p.kind === 'side')[0];
+  const bottomY = side.boxes[0].y - side.boxes[0].h / 2;
+  if (Math.abs(bottomY - 100) > 0.6) {
+    problems.push(`металлические опоры: видимая боковина «${sd}» стоит на ${bottomY} мм вместо 100 (опоры декоративные, закрывать не нужно)`);
+  }
+  cases += 1;
+}
+
 // --- основание «опоры с цоколем»: и планка, и пластиковые опоры ------------
 {
   const model = buildModel(Object.assign({}, base, {
     modules: [{ name: 'К', width: 800, height: 820, depth: 560, topType: 'rails',
-      // на опорах боковины не спускаются в зону цоколя — «сбоку дна»
+      // Одиночный модуль в ряду — соседей нет, обе боковины не закрыты и
+      // становятся ВИДИМЫМИ; на «опорах с цоколем» видимая боковина уходит
+      // до пола (решение пользователя 2026-09-28, после visible-side фикса) —
+      // закрывает и опору, и торец цокольной планки, поэтому сама планка
+      // теперь встаёт МЕЖДУ боковинами (короче габарита), а не сквозной.
       leftSide: 'besideBottom', rightSide: 'besideBottom',
       base: { type: 'legsPlinth', legHeight: 100 },
       sections: [{ shelves: 1, drawers: 0, facade: 'doors2', drawerSystem: 'ballBearing' }] }],
@@ -532,13 +571,13 @@ for (const bt of ['plinth', 'legsPlinth', 'legs']) {
   if (!plinth.length) problems.push('опоры с цоколем: нет цокольной планки');
   if (!legs.length) problems.push('опоры с цоколем: нет опор');
   if (legs.some((l) => !l.plastic)) problems.push('опоры с цоколем: опоры не пластиковые');
-  if (plinth.length && plinth[0].length !== 800) {
-    problems.push(`опоры с цоколем: планка ${plinth[0].length} мм вместо 800 — боковины не должны её резать`);
+  if (plinth.length && Math.abs(plinth[0].length - (800 - 2 * 18)) > 0.6) {
+    problems.push(`опоры с цоколем: планка ${plinth[0].length} мм вместо ${800 - 2 * 18} — должна встать между боковинами, ушедшими до пола`);
   }
-  // боковина стоит НА опоре, а не на полу
+  // видимая боковина на «опорах с цоколем» доходит до пола, закрывает опору
   const side = model.parts.filter((p) => p.kind === 'side')[0];
   const bottomY = side.boxes[0].y - side.boxes[0].h / 2;
-  if (Math.abs(bottomY - 100) > 0.6) problems.push(`опоры с цоколем: низ боковины на ${bottomY} мм вместо 100`);
+  if (bottomY > 0.6) problems.push(`опоры с цоколем: низ видимой боковины на ${bottomY} мм, а не на полу`);
   const sp = buildSpecification(model);
   const hw = (sp.hardware || []).map((r) => r.name).join(' | ');
   if (!/пластиков/i.test(hw)) problems.push('опоры с цоколем: в смете нет пластиковых опор');
@@ -1174,10 +1213,15 @@ for (const sys of ['ballBearing', 'quadro', 'tandembox', 'legrabox', 'innotech']
 }
 
 // --- ПРАВИЛО: крепёж корпуса выбирается по конструктиву боковины ----------
+// Основание «цоколь» (не «опоры с цоколем»!) намеренно: у него нет ножки,
+// которая может остаться на виду, поэтому видимая боковина НЕ переопределяется
+// на «до пола» (см. effSideFor в engine.js, решение 2026-09-28) — тест здесь
+// проверяет ЧИСТО связку «декларированный тип боковины → крепёж», без второй
+// переменной (эффективный тип у legs/legsPlinth зависит ещё и от видимости).
 for (const sd of ['floor', 'besideBottom', 'onBottom']) {
   const model = buildModel(Object.assign({}, base, {
     modules: [{ name: 'М', width: 600, height: 820, depth: 560, topType: 'rails',
-      leftSide: sd, rightSide: sd, base: { type: 'legsPlinth', legHeight: 100 },
+      leftSide: sd, rightSide: sd, base: { type: 'plinth', plinthHeight: 100 },
       sections: [{ shelves: 1, drawers: 0, facade: 'doorLeft', drawerSystem: 'ballBearing' }] }],
   }));
   inspect(model, `крепёж при боковине ${sd}`);
@@ -1219,6 +1263,77 @@ for (const sd of ['floor', 'besideBottom', 'onBottom']) {
       }
     }
   }
+  cases += 1;
+}
+
+// --- усиление узла боковина-дно шкантами у floor/besideBottom (2026-09-28) -
+// topType НЕ 'rails' нарочно (в отличие от соседнего теста «крепёж корпуса»):
+// планки-царги узкие (одна точка крепежа) и сами получают шканты «против
+// проворота» (engine.js) — при topType:'rails' они попадали бы в тот же
+// dowelFace на боковине и путали счётчик. Здесь нужна ИМЕННО крышка на
+// нескольких точках, чтобы считать только шканты узла дно-боковина.
+for (const sd of ['floor', 'besideBottom', 'onBottom']) {
+  const model = buildModel(Object.assign({}, base, {
+    modules: [{ name: 'М', width: 600, height: 820, depth: 560,
+      leftSide: sd, rightSide: sd, base: { type: 'plinth', plinthHeight: 100 },
+      sections: [{ shelves: 1, drawers: 0, facade: 'doorLeft', drawerSystem: 'ballBearing' }] }],
+  }));
+  inspect(model, `усиление шкантами дно-боковина при ${sd}`);
+  const bottom = model.parts.filter((p) => p.kind === 'bottom')[0];
+  const side = model.parts.filter((p) => p.kind === 'side')[0];
+  const bottomDowels = (bottom.holes || []).filter((h) => h.kind === 'dowelEdge').length;
+  const sideDowels = (side.holes || []).filter((h) => h.kind === 'dowelFace').length;
+  if (sd === 'onBottom') {
+    // конфирмат снизу через дно — здесь не должно быть шкантов-усиления
+    // (это только для floor/besideBottom, см. engine.js, блок «УСИЛЕНИЕ УЗЛА
+    // БОКОВИНА-ДНО ШКАНТАМИ»); дно узкое (topType:'rails' не про дно), но
+    // на всякий случай сравниваем именно дно/боковину, а не весь model.
+    if (bottomDowels !== 0) problems.push(`${sd}: на дне ${bottomDowels} доп. шкантов, а должно быть 0 (только floor/besideBottom)`);
+  } else {
+    // обе боковины одного типа sd — дно получает усиление С ОБЕИХ сторон,
+    // 2 шканта на каждую = 4 на дне; у ОДНОЙ боковины — свои 2.
+    if (bottomDowels !== 4) problems.push(`${sd}: на дне ${bottomDowels} доп. шкантов вместо 4 (по 2 с каждой стороны)`);
+    if (sideDowels !== 2) problems.push(`${sd}: на боковине ${sideDowels} доп. шкантов (dowelFace) вместо 2`);
+    // штатные точки минификса на этом же дне — шкант-усиление не должен
+    // засверливаться в то же место, что гнездо Ø15/шток Ø8
+    const minifixYs = (bottom.holes || [])
+      .filter((h) => h.kind === 'minifixCam' || h.kind === 'minifixBolt')
+      .map((h) => h.y);
+    for (const h of (bottom.holes || [])) {
+      if (h.kind !== 'dowelEdge') continue;
+      if (h.d !== 8) problems.push(`${sd}: шкант-усиление Ø${h.d} вместо Ø8`);
+      if (Math.abs(h.depth - 20) > 0.1) problems.push(`${sd}: шкант-усиление в торце дна глубиной ${h.depth} вместо 20`);
+      if (minifixYs.some((v) => Math.abs(v - h.y) < 3)) {
+        problems.push(`${sd}: шкант-усиление на y=${h.y} слишком близко к штатной точке минификса`);
+      }
+    }
+    for (const h of (side.holes || [])) {
+      if (h.kind !== 'dowelFace') continue;
+      if (h.d !== 8) problems.push(`${sd}: шкант-усиление (боковина) Ø${h.d} вместо Ø8`);
+      if (Math.abs(h.depth - 13) > 0.1) problems.push(`${sd}: шкант-усиление в пласти боковины глубиной ${h.depth} вместо 13`);
+    }
+  }
+  cases += 1;
+}
+
+// --- усиление шкантами — НЕ для навесных модулей (только нижние, 2026-09-28) -
+// «сбоку дна»/«до пола» у навесного модуля — обычный выбор конструктива
+// (не про упор в пол, нагрузка идёт через шину навески), effSideFor его не
+// трогает (hungModule исключён), поэтому шкантов-усиления там быть не должно
+// вообще, даже если пользователь выбрал floor/besideBottom.
+for (const sd of ['floor', 'besideBottom']) {
+  const model = buildModel(Object.assign({}, base, {
+    modules: [{ name: 'В', width: 600, height: 400, depth: 320, wallHung: true, mountTop: 2400,
+      leftSide: sd, rightSide: sd, base: { type: 'plinth', plinthHeight: 0 },
+      sections: [{ shelves: 1, drawers: 0, facade: 'doorLeft', drawerSystem: 'ballBearing' }] }],
+  }));
+  inspect(model, `навесной модуль, боковина ${sd} — без усиления шкантами`);
+  const bottom = model.parts.filter((p) => p.kind === 'bottom')[0];
+  const side = model.parts.filter((p) => p.kind === 'side')[0];
+  const bottomDowels = (bottom.holes || []).filter((h) => h.kind === 'dowelEdge').length;
+  const sideDowels = (side.holes || []).filter((h) => h.kind === 'dowelFace').length;
+  if (bottomDowels !== 0) problems.push(`навесной ${sd}: на дне ${bottomDowels} доп. шкантов, а должно быть 0 — усиление только для нижних модулей`);
+  if (sideDowels !== 0) problems.push(`навесной ${sd}: на боковине ${sideDowels} доп. шкантов, а должно быть 0 — усиление только для нижних модулей`);
   cases += 1;
 }
 
@@ -2143,9 +2258,19 @@ for (const glass of [false, true]) {
     }
   }
 
-  // Минификсы: гнездо Ø15 только с ВНУТРЕННЕЙ стороны, на каждое гнездо — шток
+  // Минификсы узла фронта (заглушка ↔ планка крепёжная): гнездо Ø15 только
+  // с ВНУТРЕННЕЙ стороны, на каждое гнездо — свой шток РЯДОМ (эта пара сидит
+  // в торце детали без стандартного отступа Rastex 15). Проверка нарочно
+  // ограничена деталями УЗЛА ФРОНТА (тот же фильтр, что у проверки выше) —
+  // корпусный минификс дно/боковина (с камSetback=34 мм между гнездом и
+  // штоком, см. RASTEX.camSetback) здесь не нужен, для него отдельный тест
+  // «ПРАВИЛО: крепёж корпуса» ниже (после решения 2026-09-28 о видимой
+  // боковине «опоры с цоколем» этот корпусный минификс стал появляться и на
+  // «Дно»/«Планка верхняя …» этого же углового модуля — но это другая пара
+  // с другой геометрией, ей тут делать нечего).
   let cams = 0, bolts = 0;
   for (const q of model.partsRaw) {
+    if (!/Заглушка|Фальш-планка|крепёжная/.test(q.name)) continue;
     for (const h of (q.holes || [])) {
       if (h.kind === 'minifixCam') {
         cams += 1;

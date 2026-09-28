@@ -2525,38 +2525,6 @@ function buildModuleParts(p) {
   // корпуса левая боковина до пола, а правая уже стоит на дне; у среднего обе
   // на дне; у крайнего правого — правая до пола, левая на дне.
   const sides = normalizeSides(p);
-  // Режим задней стенки (накладная / в паз) — см. resolveBackMount(). Детали
-  // с пазом (bm.parts) удлиняются НАЗАД на bm.E: передний край на месте,
-  // задний уходит на -D/2 - E. Внутренние размеры корпуса не меняются —
-  // полки, стойки, ящики, опоры считаются от прежней глубины D.
-  const bm = resolveBackMount(p, sides, tb);
-  const inGroove = (key) => bm.mode === 'groove' && !!bm.parts[key];
-  // Глубина детали с пазом: не меньше D + E (уже более глубокую видимую
-  // боковину кухни не трогаем — паз встаёт по той же абсолютной позиции).
-  const grooveDepth = (key, d0) => (inGroove(key) ? Math.max(d0, round1(D + bm.E)) : d0);
-  // Центр удлинённой детали — БЕЗ округления: makePart округляет box.z до
-  // 0,1 мм, а у глубины D + 18,5 центр лежит на 0,05 мм (-9,25 → -9,2), и
-  // вся присадка, считаемая от box.z (полкодержатели, крепёж корпуса),
-  // съезжала бы на 0,1 мм от переднего края. Передний край ровно на +D/2.
-  const exactFrontZ = (part) => { part.box.z = D / 2 - part.box.d / 2; };
-  // Дно ВКЛАДНОЕ с той стороны, где боковина не стоит на нём:
-  // и «до пола», и «сбоку дна» упираются торцом дна в свою внутреннюю грань.
-  const leftInset = sides.left !== 'onBottom';
-  const rightInset = sides.right !== 'onBottom';
-  const sections = p.sections;
-  const n = sections.length;
-  const dividers = n - 1;
-
-  // Высота основания: у цоколя своя, у опор своя. У варианта «опоры с цоколем»
-  // это одно и то же число — планка ровно закрывает опоры.
-  const baseH = p.base.type === 'plinth'
-    ? Number(p.base.plinthHeight || 0)
-    : Number(p.base.legHeight || 0);
-
-  // Внутренняя высота — от верхней плоскости дна до нижней плоскости крыши.
-  // Одинакова в обеих схемах: дно лежит на высоте цоколя, крыша — под верхом.
-  const innerH = H - baseH - 2 * t;
-  const innerBottomY = baseH + t;   // верхняя плоскость дна
 
   // ВИДИМАЯ БОКОВИНА. Корпус кухни делают белым, а боковину, которую видно
   // в интерьере, — в отдельном материале. Видимой считается та, что доходит
@@ -2588,6 +2556,71 @@ function buildModuleParts(p) {
     else vis = byType || !cov[key];
     sideVisible[key] = vis;
   }
+  // ЭФФЕКТИВНЫЙ ТИП БОКОВИНЫ (решение пользователя 2026-09-28, уточнено
+  // 2026-09-28 после визуальной проверки — «опоры с цоколем» тоже до пола).
+  // У оснований «опоры» и «опоры с цоколем» видимая боковина обязана
+  // физически закрывать то, что у неё внизу — опору/ножку, иначе она видна
+  // сбоку или торчит из-под цокольной планки. Декларированный sides.left/
+  // right по-прежнему управляет НЕвидимой боковиной; для видимой:
+  //   • чистые «опоры» с металлическим типом (legType==='metal') —
+  //     декоративные, специально остаются на виду — 'besideBottom';
+  //   • «опоры» с кухонными пластиковыми (legType!=='metal') и «опоры с
+  //     цоколем» (там опора всегда пластиковая, см. kitchen ниже по файлу,
+  //     legType не читается) — 'floor', закрыть полностью.
+  // «Цоколь» (plinth, БЕЗ опор) не трогаем — там нет ножки, которая могла бы
+  // торчать, цокольная планка и так закрывает весь низ сама по себе.
+  // Навесные модули не трогаем — там видимость вообще не про пол.
+  const effSideFor = (key) => {
+    if (hungModule || !sideVisible[key]) return sides[key];
+    if (p.base.type === 'legs') return p.legType === 'metal' ? 'besideBottom' : 'floor';
+    if (p.base.type === 'legsPlinth') return 'floor';
+    return sides[key];
+  };
+  const effLeft = effSideFor('left');
+  const effRight = effSideFor('right');
+
+  // Режим задней стенки (накладная / в паз) — см. resolveBackMount(). Детали
+  // с пазом (bm.parts) удлиняются НАЗАД на bm.E: передний край на месте,
+  // задний уходит на -D/2 - E. Внутренние размеры корпуса не меняются —
+  // полки, стойки, ящики, опоры считаются от прежней глубины D. Резолвер
+  // получает ДЕКЛАРИРОВАННЫЙ (не эффективный) тип боковины — это решение
+  // пользователя о конструктиве, а не о видимости; паз/накладная стенка не
+  // были частью текущего запроса (только позиция видимой боковины у опор/
+  // опор с цоколем), поэтому не переопределяются вместе с ней — так они не
+  // задевают некухонную мебель (family !== 'kitchen'), где эта развилка
+  // реально работает (для кухни resolveBackMount и так всегда 'overlay',
+  // см. её начало).
+  const bm = resolveBackMount(p, sides, tb);
+  const inGroove = (key) => bm.mode === 'groove' && !!bm.parts[key];
+  // Глубина детали с пазом: не меньше D + E (уже более глубокую видимую
+  // боковину кухни не трогаем — паз встаёт по той же абсолютной позиции).
+  const grooveDepth = (key, d0) => (inGroove(key) ? Math.max(d0, round1(D + bm.E)) : d0);
+  // Центр удлинённой детали — БЕЗ округления: makePart округляет box.z до
+  // 0,1 мм, а у глубины D + 18,5 центр лежит на 0,05 мм (-9,25 → -9,2), и
+  // вся присадка, считаемая от box.z (полкодержатели, крепёж корпуса),
+  // съезжала бы на 0,1 мм от переднего края. Передний край ровно на +D/2.
+  const exactFrontZ = (part) => { part.box.z = D / 2 - part.box.d / 2; };
+  // Дно ВКЛАДНОЕ с той стороны, где боковина не стоит на нём:
+  // и «до пола», и «сбоку дна» упираются торцом дна в свою внутреннюю грань.
+  // Считаем по ЭФФЕКТИВНОМУ типу — видимая боковина, принудительно ставшая
+  // «до пола»/«сбоку дна», тоже делает дно вкладным с этой стороны.
+  const leftInset = effLeft !== 'onBottom';
+  const rightInset = effRight !== 'onBottom';
+  const sections = p.sections;
+  const n = sections.length;
+  const dividers = n - 1;
+
+  // Высота основания: у цоколя своя, у опор своя. У варианта «опоры с цоколем»
+  // это одно и то же число — планка ровно закрывает опоры.
+  const baseH = p.base.type === 'plinth'
+    ? Number(p.base.plinthHeight || 0)
+    : Number(p.base.legHeight || 0);
+
+  // Внутренняя высота — от верхней плоскости дна до нижней плоскости крыши.
+  // Одинакова в обеих схемах: дно лежит на высоте цоколя, крыша — под верхом.
+  const innerH = H - baseH - 2 * t;
+  const innerBottomY = baseH + t;   // верхняя плоскость дна
+
   // ТОЛЩИНА БОКОВИНЫ по сторонам (решение пользователя 2026-09-26).
   // Приоритет: ручная правка толщины (partOverrides, тот же ключ, что у
   // applyPartOverrides) → толщина листа ручной правки материала из каталога →
@@ -2696,8 +2729,8 @@ function buildModuleParts(p) {
   const sideDepth = Math.max(D, round1(D / 2 - Math.min(wallZ, -D / 2)));
 
   for (const s of [
-    { nm: 'Боковина левая', key: 'left', x: sideXL, th: tL, v: sides.left, sec: sections[0] },
-    { nm: 'Боковина правая', key: 'right', x: sideXR, th: tR, v: sides.right, sec: sections[n - 1] },
+    { nm: 'Боковина левая', key: 'left', x: sideXL, th: tL, v: effLeft, sec: sections[0] },
+    { nm: 'Боковина правая', key: 'right', x: sideXR, th: tR, v: effRight, sec: sections[n - 1] },
   ]) {
     const bottomY = sideBottomY(s.v);
     const h = sideTop - bottomY;
@@ -3122,8 +3155,8 @@ function buildModuleParts(p) {
     // Планку ограничивает только та боковина, которая реально спускается в
     // зону цоколя, то есть «до пола». При «на дно» и «сбоку дна» низ свободен,
     // планка идёт до габарита и в ряду сливается в сквозную.
-    const pLeft  = (sides.left === 'floor')  ? (-W / 2 + tL) : (-W / 2);
-    const pRight = (sides.right === 'floor') ? ( W / 2 - tR) : ( W / 2);
+    const pLeft  = (effLeft === 'floor')  ? (-W / 2 + tL) : (-W / 2);
+    const pRight = (effRight === 'floor') ? ( W / 2 - tR) : ( W / 2);
     const plinthLen = pRight - pLeft;
     const plinthX = (pLeft + pRight) / 2;
     // ЦОКОЛЬ — ВИДИМАЯ ДЕТАЛЬ. Он идёт по всему фронту на уровне пола, его
@@ -3208,8 +3241,8 @@ function buildModuleParts(p) {
 
     // Если боковина идёт до пола, опора не может стоять под ней — сдвигаем
     // крайние опоры внутрь на толщину такой боковины.
-    const padL = LEG_INSET + (sides.left === 'floor' ? tL : 0);
-    const padR = LEG_INSET + (sides.right === 'floor' ? tR : 0);
+    const padL = LEG_INSET + (effLeft === 'floor' ? tL : 0);
+    const padR = LEG_INSET + (effRight === 'floor' ? tR : 0);
     const xFrom = -W / 2 + padL, xTo = W / 2 - padR;
     const cols = Math.max(2, Math.ceil((xTo - xFrom) / LEG_SPAN) + 1);
     // Передний ряд опор: стандартный отступ от края — как у обычных опор
@@ -3828,7 +3861,7 @@ function buildModuleParts(p) {
       || (p.kind === 'shelf' && p.fixed));
 
     for (const sgn of [-1, 1]) {
-      const mode = sgn < 0 ? sides.left : sides.right;
+      const mode = sgn < 0 ? effLeft : effRight;
       const panel = sidePart(sgn < 0 ? sideXL : sideXR);
       if (!panel) continue;
       // Видимая (декоративная — с цветом/текстурой, шпон, МДФ) боковина
@@ -3979,6 +4012,40 @@ function buildModuleParts(p) {
             panel.holes.push({ x: round1(hp.box.y - pBottom), y: round1(yOnPanel),
                                d: RASTEX.dowelD, depth: RASTEX.dowelDepth,
                                through: false, side: 'front', kind: 'minifixDowel' });
+          }
+        }
+        // УСИЛЕНИЕ УЗЛА БОКОВИНА-ДНО ШКАНТАМИ (решение пользователя,
+        // 2026-09-28): у НИЖНЕГО (напольного) модуля, когда боковина «сбоку
+        // дна» или «до пола» (несущая или видимая — именно поэтому её
+        // крепление важнее обычного), штатного минификса Rastex 15 в точках
+        // pts недостаточно — добавляем ещё 2 шканта 8×30 (см. ПРАВИЛА-
+        // КОНСТРУИРОВАНИЯ.md, «Шкант (нагель) 8×30» — Ø8 в торец глубиной 20
+        // + Ø8 в пласть глубиной 13 = 33 мм на шкант 30, те же числа, что и у
+        // dowelEdge/dowelFace ниже). Только узел ДНО (не крыша — так попросил
+        // пользователь), только для floor/besideBottom (на onBottom дно
+        // крепится конфирматом, это уже другой узел). НЕ для навесных
+        // модулей (!hungModule) — просьба была именно про нижний модуль, и
+        // у навесного нагрузка идёт через шину навески, а не через этот узел
+        // (там же mode='besideBottom'/'floor' — обычный, не экзотический
+        // выбор в панели, а не про упор в пол). Ставим МЕЖДУ существующими
+        // точками jointPoints, где присадки минификса ещё нет — при n>=2
+        // середины крайних пар точек гарантированно не совпадают ни с одной
+        // из них (jointPoints кладёт точки равномерно от JOINT_SETBACK до
+        // depth-JOINT_SETBACK).
+        if (!hungModule && hp.kind === 'bottom' && (mode === 'floor' || mode === 'besideBottom') && pts.length >= 2) {
+          const n = pts.length;
+          const reinforceYs = n >= 3
+            ? [round1((pts[0] + pts[1]) / 2), round1((pts[n - 2] + pts[n - 1]) / 2)]
+            : [round1(pts[0] + (pts[1] - pts[0]) / 3),
+               round1(pts[0] + 2 * (pts[1] - pts[0]) / 3)];
+          const atLeftR = panel.box.x < hp.box.x;
+          for (const pyR of reinforceYs) {
+            const zAbsR = (hp.box.z - hp.box.d / 2) + pyR;
+            const yOnPanelR = round1(zAbsR - pBackZ);
+            hp.holes.push({ x: atLeftR ? 0 : hp.length, y: round1(pyR), d: 8, depth: 20,
+                            through: false, side: 'edge', kind: 'dowelEdge' });
+            panel.holes.push({ x: round1(hp.box.y - pBottom), y: yOnPanelR,
+                               d: 8, depth: 13, through: false, side: 'front', kind: 'dowelFace' });
           }
         }
         // НАГЕЛЬ ПРОТИВ ПРОВОРОТА. Узкая деталь (верхняя планка-царга) держится
