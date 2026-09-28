@@ -14,7 +14,7 @@
 (function () {
 // Версия сборки — показывается во вкладке браузера и в шапке.
 // При выпуске новой версии меняется только эта строка.
-const APP_VERSION = 'v321';
+const APP_VERSION = 'v322';
 
 // Номер версии выводим ПЕРВЫМ делом: если дальше что-то упадёт, по нему сразу
 // видно, какая сборка открыта.
@@ -620,6 +620,13 @@ const state = {
   // presetId), несёт на себе state.modules[i].libOrigin = id этой карточки
   // (кроме элементов комплекта — см. комментарий у addLibModCardToProject) —
   // по нему «Сохранить» находит, какую карточку перезаписать.
+  // С 2026-09-28 такая карточка (одиночная и kit) несёт ещё materialSnapshot
+  // — { decorCode, facadeDecorCode, facadeMatCode, backCode }, замороженные
+  // на момент нажатия «Сохранить» (см. libModMaterialSnapshotOf) — превью
+  // карточки рисует материалы ИЗ снимка, а не из текущего проекта (иначе
+  // своя карточка «плавает» так же, как раньше плавали заводские, см.
+  // libModCustomThumbDataUrl). У карточек, сохранённых раньше, поля нет —
+  // превью для них по-прежнему берёт материалы из текущего проекта.
   libModPlacements: [
   {
     "id": "modplace-1790022541237-489qo9",
@@ -1805,9 +1812,19 @@ function libModThumbBase() {
 // могут переименовать/убрать в каталоге (см. thumbBase.decor выше).
 function libModThumbDataUrl(groupId, it) {
   const thumbBase = libModThumbBase();
+  // Фасад/видимая боковина/цоколь/корпус на карточках Библиотеки — ВСЕГДА в
+  // дереве (декор проекта по умолчанию, H1145 ST10 Дуб Бардолино натуральный),
+  // а не из thumbBase.decor/facadeDecor/facadeMat (state.decorCode/
+  // facadeDecorCode/facadeMatCode ТЕКУЩЕГО открытого проекта) — иначе карточки
+  // «плавают» цветом от проекта к проекту (владелец, 2026-09-28). Цоколь берёт
+  // материал из того же facadeDecor (см. engine.js visibleSideMat()), поэтому
+  // одной замены хватает и на него. Кухня поверх этого корпуса красится в
+  // белый через carcassDecor модуля ниже (kitchenThumbDecor побеждает
+  // proj.decor в engine.js) — эта ветка её не касается.
+  const thumbWoodDecor = defaultDecorObj();
   const thumbKeyBase = [
     thumbBase.bodyThickness, thumbBase.backThickness, thumbBase.facadeThickness,
-    thumbBase.decor.code, thumbBase.facadeDecor.code, thumbBase.facadeMat.code, thumbBase.backMaterial.code,
+    thumbWoodDecor.code, thumbWoodDecor.code, thumbWoodDecor.code, thumbBase.backMaterial.code,
     thumbBase.worktopDepth, thumbBase.jointType,
   ].join('|');
   const cacheKey = `${libModPresetId(groupId, it.id)}|${thumbKeyBase}`;
@@ -1824,6 +1841,13 @@ function libModThumbDataUrl(groupId, it) {
     const kitchenThumbCountertopCode = isKitchen && window.Modul3D.catalog.findCountertopMaterialByCode('CTOP-LDSP38-1063SQ')
       ? 'CTOP-LDSP38-1063SQ' : null;
     const project = Object.assign({}, thumbBase, {
+      // Корпус + «видимая боковина» (и цоколь, который берёт материал отсюда
+      // же) + «Материал фасада» — фиксированное дерево на превью, см.
+      // thumbWoodDecor выше. Для ВСЕХ категорий, не только кухни (кухню поверх
+      // перекрашивает carcassDecor модуля ниже).
+      decor: thumbWoodDecor,
+      facadeDecor: thumbWoodDecor,
+      facadeMat: thumbWoodDecor,
       modules: [{
         name: m.name, width: m.width, height: m.height, depth: m.depth,
         rotation: m.rotation || 0, corner: !!m.corner, family: m.family || 'custom',
@@ -1907,9 +1931,24 @@ function libModProjectModuleOf(m) {
 // бы от предыдущей версии.
 function libModCustomThumbDataUrl(p) {
   const thumbBase = libModThumbBase();
+  // Замороженный на момент «Сохранить» набор материалов (см. большой
+  // комментарий у state.libModPlacements/libModMaterialSnapshotOf) — та же
+  // логика поиска по коду с откатом, что и в libModThumbBase (коды каталога
+  // могут быть переименованы/удалены между сохранением и открытием
+  // Библиотеки). У карточек без снимка (сохранены до 2026-09-28) thumbMats —
+  // это просто thumbBase, поведение не меняется.
+  const snap = p.materialSnapshot;
+  const thumbMats = snap ? {
+    decor: DECORS.find((d) => d.code === snap.decorCode) || defaultDecorObj(),
+    facadeDecor: findAnyMaterialByCode(snap.facadeDecorCode)
+      || DECORS.find((d) => d.code === snap.decorCode) || defaultDecorObj(),
+    facadeMat: findAnyMaterialByCode(snap.facadeMatCode)
+      || DECORS.find((d) => d.code === snap.decorCode) || defaultDecorObj(),
+    backMaterial: BACK_MATERIALS.find((d) => d.code === snap.backCode) || BACK_MATERIALS[0],
+  } : thumbBase;
   const thumbKeyBase = [
     thumbBase.bodyThickness, thumbBase.backThickness, thumbBase.facadeThickness,
-    thumbBase.decor.code, thumbBase.facadeDecor.code, thumbBase.facadeMat.code, thumbBase.backMaterial.code,
+    thumbMats.decor.code, thumbMats.facadeDecor.code, thumbMats.facadeMat.code, thumbMats.backMaterial.code,
     thumbBase.worktopDepth, thumbBase.jointType,
   ].join('|');
   const dataKey = JSON.stringify((p.kit && p.kit.map((k) => k.params)) || p.params || null);
@@ -1920,7 +1959,7 @@ function libModCustomThumbDataUrl(p) {
     const srcMods = Array.isArray(p.kit) && p.kit.length
       ? p.kit.map((k) => k.params)
       : (p.params ? [p.params] : []);
-    const project = Object.assign({}, thumbBase, {
+    const project = Object.assign({}, thumbBase, thumbMats, {
       // Способ соединения столешниц на угловом стыке — тот же проектный
       // параметр, что и в recompute()/libModSaveProjectAsKit (не влияет на
       // геометрию joinCountertopSeams, только на подбор крепежа, но для
@@ -2138,6 +2177,11 @@ function libModCopyCard(id, target) {
   if (p.presetId) copy.presetId = p.presetId;
   else if (Array.isArray(p.kit)) copy.kit = JSON.parse(JSON.stringify(p.kit));
   else if (p.params) copy.params = JSON.parse(JSON.stringify(p.params));
+  // Замороженный снимок материалов (см. libModMaterialSnapshotOf) — копия
+  // своей карточки должна выглядеть так же, как оригинал, а не «уехать» в
+  // live-проектное поведение из-за отсутствия снимка (владелец, 2026-09-28).
+  // У presetId-карточки снимка не бывает — копия и так свежая заводская.
+  if (p.materialSnapshot) copy.materialSnapshot = Object.assign({}, p.materialSnapshot);
   state.libModPlacements.push(copy);
   scheduleCatalogSave();
   renderLibraryPanel();
@@ -2172,6 +2216,24 @@ function libModDeleteCard(id) {
 // того, что в нём лежит (ссылка на пресет, params одного модуля или kit).
 function libModNewPlacementId() {
   return 'modplace-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8);
+}
+
+// Снимок материалов проекта НА МОМЕНТ сохранения карточки — только 4 кода
+// декора (корпус/видимая боковина/материал фасада/задняя стенка), НЕ толщины
+// и НЕ worktopDepth/jointType/countertopCornerJoint: те по-прежнему берутся
+// из ТЕКУЩЕГО проекта при каждом рендере превью, замораживается именно вид
+// «из чего сделан модуль», а не его геометрические настройки (владелец,
+// 2026-09-28). Пишется рядом с params/kit на объект плейсмента
+// (state.libModPlacements) — читает libModCustomThumbDataUrl; у карточек,
+// сохранённых ДО этого изменения, поля нет, и превью по-прежнему берёт
+// материалы из текущего проекта (thumbBase), без миграции задним числом.
+function libModMaterialSnapshotOf() {
+  return {
+    decorCode: state.decorCode,
+    facadeDecorCode: state.facadeDecorCode,
+    facadeMatCode: state.facadeMatCode,
+    backCode: state.backCode,
+  };
 }
 
 // Параметры модуля для сохранения в карточку — снимает служебные UI-поля,
@@ -2269,7 +2331,7 @@ function libModSaveModule(mod) {
     const newId = libModNewPlacementId();
     state.libModPlacements.push({
       id: newId, group: p.group, categoryPath: (p.categoryPath || []).slice(),
-      name: resolvedName, params,
+      name: resolvedName, params, materialSnapshot: libModMaterialSnapshotOf(),
     });
     mod.libOrigin = newId;
   } else {
@@ -2279,6 +2341,7 @@ function libModSaveModule(mod) {
     delete real.kit;
     real.name = resolvedName;
     real.params = params;
+    real.materialSnapshot = libModMaterialSnapshotOf();
   }
   scheduleCatalogSave();
   renderLibraryPanel();
@@ -2302,7 +2365,7 @@ function libModSaveModuleAs(mod) {
   const newId = libModNewPlacementId();
   state.libModPlacements.push({
     id: newId, group: target.group, categoryPath: target.categoryPath.slice(),
-    name, params: libModCloneModuleParams(mod),
+    name, params: libModCloneModuleParams(mod), materialSnapshot: libModMaterialSnapshotOf(),
   });
   mod.libOrigin = newId;
   scheduleCatalogSave();
@@ -2347,7 +2410,7 @@ function libModSaveProjectAsKit() {
   });
   state.libModPlacements.push({
     id: libModNewPlacementId(), group: target.group, categoryPath: target.categoryPath.slice(),
-    name, kit,
+    name, kit, materialSnapshot: libModMaterialSnapshotOf(),
   });
   scheduleCatalogSave();
   renderLibraryPanel();
