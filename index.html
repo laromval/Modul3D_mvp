@@ -7,7 +7,7 @@
 <title>Modul3D — параметрический конструктор корпусной мебели</title>
 
 <link rel="icon" type="image/svg+xml" href="favicon.svg" />
-<link rel="stylesheet" href="style.css?v319" />
+<link rel="stylesheet" href="style.css?v320" />
 
 <!-- Положение рейки панелей (data-rail-pos на <html>: left | header-start |
      header-end | top-right | bottom-left; по умолчанию header-end — в шапке
@@ -48,7 +48,7 @@
 })();
 </script>
 
-<script src="src/errorBanner.js?v319"></script>
+<script src="src/errorBanner.js?v320"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <!-- Paddle.js — оверлей оплаты подписки (см. app.js: requestCheckout/initPaddle).
      Обычный скрипт без defer, как остальные CDN-подключения выше. -->
@@ -695,6 +695,19 @@
         <path d="M16.6 5.3l1.7 1.7 3.4-3.6"/>
       </svg>
     </button>
+    <!-- Ручная разметка прямо в 3D (src/markup.js) — только в плоских видах
+         («спереди», «сверху»…), в перспективе кнопка недоступна. Режим общий
+         с кнопкой «Разметка» на вкладке «Чертежи»; логика — app.js:
+         initMarkupUI / syncMarkupUI. -->
+    <span class="vt-sep" aria-hidden="true"></span>
+    <button type="button" class="vt-btn" id="vtMarkupBtn" disabled
+            title="Разметка (только в плоских видах)" aria-label="Разметка (только в плоских видах)" aria-pressed="false">
+      <!-- размерная линия со стрелками и выносными линиями -->
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M4 5v14M20 5v14"/>
+        <path d="M4 12h16"/><path d="M7 9.5L4 12l3 2.5M17 9.5l3 2.5-3 2.5"/>
+      </svg>
+    </button>
   </div>
   <!-- «В шапке» — переносим сразу, до первой отрисовки (как рейку выше). -->
   <script>
@@ -793,14 +806,14 @@
 
 </main>
 
-<script src="src/catalog.js?v319"></script>
-<script src="src/presets.js?v319"></script>
-<script src="src/engine.js?v319"></script>
-<script src="src/specification.js?v319"></script>
-<script src="src/legMeshes.js?v319"></script>
-<script src="src/csg.js?v319"></script>
-<script src="src/viewer.js?v319"></script>
-<script src="src/ui-shell.js?v319"></script>
+<script src="src/catalog.js?v320"></script>
+<script src="src/presets.js?v320"></script>
+<script src="src/engine.js?v320"></script>
+<script src="src/specification.js?v320"></script>
+<script src="src/legMeshes.js?v320"></script>
+<script src="src/csg.js?v320"></script>
+<script src="src/viewer.js?v320"></script>
+<script src="src/ui-shell.js?v320"></script>
 <!-- markup.js ДОЛЖЕН грузиться раньше app.js: он вешает свой document
      keydown-обработчик (Delete/Escape по ручной разметке) СРАЗУ при загрузке
      файла, и stopImmediatePropagation() там останавливает только слушатели,
@@ -808,15 +821,15 @@
      тегов. Переставишь эту строку после app.js — Delete по выделенному
      ручному размеру снова начнёт заодно удалять активный 3D-модуль
      (см. app.js: обработчик Delete рядом с deleteModule). -->
-<script src="src/markup.js?v319"></script>
-<script src="src/drawings.js?v319"></script>
-<script src="src/export.js?v319"></script>
-<script src="src/cnc.js?v319"></script>
-<script src="src/sketchAI.js?v319"></script>
+<script src="src/markup.js?v320"></script>
+<script src="src/drawings.js?v320"></script>
+<script src="src/export.js?v320"></script>
+<script src="src/cnc.js?v320"></script>
+<script src="src/sketchAI.js?v320"></script>
 <!-- app.js — ПОСЛЕ markup.js (см. пометку у markup.js выше): его глобальный
      keydown на Delete (удаление активного модуля) не должен получить событие
      раньше markup.js — иначе перехват Delete ручной разметкой не работает. -->
-<script src="src/app.js?v319"></script>
+<script src="src/app.js?v320"></script>
 <script>if (window.Modul3D && window.Modul3D.uiShell) window.Modul3D.uiShell.start();</script>
 </body>
 </html>

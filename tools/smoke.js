@@ -2280,6 +2280,43 @@ for (const el of document.querySelectorAll('.tab-btn')) {
       check('разметка чертежа: переход на другую вкладку выключает режим',
         () => !mk.isActive() && !mkBtn.classList.contains('active'));
     }
+    // Разметка в 3D: кнопка на панели режимов вида, только в плоских видах.
+    const vtMk = document.getElementById('vtMarkupBtn');
+    const app3 = sandbox.Modul3D.app;
+    check('разметка в 3D: кнопка #vtMarkupBtn есть', () => !!vtMk);
+    if (mk && vtMk && app3 && typeof app3.setView === 'function') {
+      app3.setView('iso');
+      check('разметка в 3D: в перспективе кнопка недоступна', () => vtMk.disabled === true);
+      app3.setView('front');
+      check('разметка в 3D: в плоском виде кнопка доступна', () => vtMk.disabled === false);
+      showTab('detailing');
+      vtMk.click();
+      check('разметка в 3D: кнопка включает режим без вкладки «Чертежи»',
+        () => mk.isActive() && vtMk.classList.contains('active'));
+      app3.setView('top');
+      check('разметка в 3D: смена плоского вида режим не гасит', () => mk.isActive());
+      // Источник включения: режим живёт по контексту СВОЕЙ кнопки.
+      showTab('drawings');
+      mkBtn.click();
+      check('разметка: кнопка чертежей при режиме из 3D не гасит его, а привязывает к чертежам',
+        () => mk.isActive() && mkBtn.classList.contains('active') && !vtMk.classList.contains('active'));
+      tabBtn('drawings').click();   // клик по активной раскрытой вкладке — свернуть «Документы»
+      check('разметка: режим с чертежей гаснет при закрытии «Документов» даже в плоском 3D-виде',
+        () => !resBox.classList.contains('open') && !mk.isActive() && !vtMk.classList.contains('active'));
+      showTab('drawings');
+      mkBtn.click();
+      vtMk.click();
+      check('разметка: #vtMarkupBtn при режиме с чертежей переключает источник на 3D',
+        () => mk.isActive() && vtMk.classList.contains('active'));
+      tabBtn('drawings').click();
+      check('разметка: режим из 3D переживает закрытие «Документов»',
+        () => !resBox.classList.contains('open') && mk.isActive() && vtMk.classList.contains('active'));
+      app3.setView('iso');
+      check('разметка в 3D: переход в перспективу гасит режим',
+        () => !mk.isActive() && vtMk.disabled === true && !vtMk.classList.contains('active'));
+      check('разметка в 3D: у ядра есть refreshSheet для внешнего листа',
+        () => typeof mk.refreshSheet === 'function');
+    }
     if (mk && mkRange) {
       mkRange.value = '30';
       mkRange.dispatch('input', { target: mkRange });

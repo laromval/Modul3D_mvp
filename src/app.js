@@ -14,7 +14,7 @@
 (function () {
 // Версия сборки — показывается во вкладке браузера и в шапке.
 // При выпуске новой версии меняется только эта строка.
-const APP_VERSION = 'v319';
+const APP_VERSION = 'v320';
 
 // Номер версии выводим ПЕРВЫМ делом: если дальше что-то упадёт, по нему сразу
 // видно, какая сборка открыта.
@@ -11027,7 +11027,9 @@ function closePartVisualEditor() {
   // Выключаем только «режим редактора»: если под окном видна вкладка
   // «Чертежи», разметка на ней остаётся включённой.
   if (markupApi) {
-    if (!isDocsTabVisible('drawings')) markupApi.setActive(false);
+    // Выключаем только режим, включённый В РЕДАКТОРЕ: включённый с вкладки
+    // «Чертежи» или в 3D живёт по своему контексту (syncMarkupUI).
+    if (markupOrigin === 'editor') { markupApi.setActive(false); markupOrigin = null; }
     if (state.partEditorSheet && markupApi.dropSheet) markupApi.dropSheet(state.partEditorSheet);
   }
   state.partEditorSheet = null;
@@ -11052,7 +11054,12 @@ function initPartEditorOverlay() {
   const mkBtn = document.getElementById('partEditorMarkupToggle');
   if (mkBtn) {
     if (!markupApi) mkBtn.style.display = 'none';
-    else mkBtn.addEventListener('click', () => { markupApi.setActive(!markupApi.isActive()); syncMarkupUI(); });
+    else mkBtn.addEventListener('click', () => {
+      const on = !markupApi.isActive();
+      markupApi.setActive(on);
+      markupOrigin = on ? 'editor' : null;
+      syncMarkupUI();
+    });
   }
 }
 
@@ -15238,12 +15245,39 @@ function setDocsTab(name, toggle) {
 // вкладку или закрытии панели «Документы» он выключается сам, чтобы
 // разметка не перехватывала клики и клавиши (Delete/Esc) в остальном
 // приложении. Размеры не пересчитывают модель — recompute() не нужен.
+// Третий законный контекст разметки — 3D-вьювер в плоском виде (спереди,
+// справа, слева, сзади, сверху, снизу): размеры ставятся прямо поверх сцены
+// (оверлей рисует viewer.js по API markup.js). В перспективе ('iso') — нет.
+// Список видов — локальный: syncMarkupUI зовётся раньше, чем объявлен
+// VIEW_NAMES ниже (initMarkupUI на загрузке).
+function isFlat3DView() {
+  if (!viewer) return false;
+  return ['front', 'side', 'left', 'back', 'top', 'bottom'].indexOf(state.view) >= 0;
+}
+
+// Откуда включён режим разметки: 'drawings' (кнопка вкладки «Чертежи»),
+// 'editor' (кнопка в окне редактора детали), '3d' (кнопка на панели видов
+// 3D) или null (выключен). Режим живёт, пока на виду контекст СВОЕГО
+// источника, и не «переезжает» молча в другой: иначе, например, режим с
+// чертежей после закрытия «Документов» в плоском 3D-виде продолжал бы
+// перехватывать ЛКМ, и модуль переставал бы выбираться.
+var markupOrigin = null;   // var: syncMarkupUI зовётся и до этой строки (загрузка)
+function markupOriginVisible(origin) {
+  if (origin === 'drawings') return isDocsTabVisible('drawings');
+  if (origin === 'editor') return !!state.partEditorOpen;
+  if (origin === '3d') return isFlat3DView();
+  return false;
+}
+
 function syncMarkupUI() {
   if (!markupApi) return;
   const drawingsOn = isDocsTabVisible('drawings');
   const editorOn = !!state.partEditorOpen;
-  // Режим имеет смысл, пока на виду вкладка «Чертежи» ИЛИ окно редактора детали.
-  if (!drawingsOn && !editorOn && markupApi.isActive()) markupApi.setActive(false);
+  const view3dOn = isFlat3DView();
+  // Пропал контекст источника включения — режим гаснет.
+  if (markupApi.isActive() && !markupOriginVisible(markupOrigin)) markupApi.setActive(false);
+  // Выключен кем угодно (загрузка проекта, Esc, …) — источник забываем.
+  if (!markupApi.isActive()) markupOrigin = null;
   const tools = document.getElementById('markupTools');
   if (tools && tools.style) tools.style.display = drawingsOn ? '' : 'none';
   const on = markupApi.isActive();
@@ -15261,6 +15295,20 @@ function syncMarkupUI() {
   }
   const edCanvas = document.getElementById('partEditorCanvas');
   if (edCanvas) edCanvas.classList.toggle('markup-on', on && editorOn);
+  // Кнопка на панели режимов 3D-вида: доступна только в плоском виде.
+  const vtBtn = document.getElementById('vtMarkupBtn');
+  const on3d = on && markupOrigin === '3d' && view3dOn;
+  if (vtBtn) {
+    vtBtn.disabled = !view3dOn;
+    vtBtn.classList.toggle('active', on3d);
+    if (vtBtn.setAttribute) vtBtn.setAttribute('aria-pressed', on3d ? 'true' : 'false');
+  }
+  // Вьювер сам рисует оверлей разметки и снимает выбор модуля ЛКМ, пока
+  // разметка в 3D включена — только когда режим включён именно в 3D.
+  // (Готовые размеры в плоском 3D-виде вьювер показывает всегда сам.)
+  if (viewer && typeof viewer.setMarkupMode === 'function') {
+    try { viewer.setMarkupMode(on3d); } catch (err) { console.error('viewer.setMarkupMode failed:', err); }
+  }
   const clr = document.getElementById('markupClear');
   if (clr) {
     if (clr.style) clr.style.display = on ? '' : 'none';
@@ -15270,14 +15318,34 @@ function syncMarkupUI() {
 
 function initMarkupUI() {
   const tools = document.getElementById('markupTools');
-  if (!markupApi) { if (tools && tools.style) tools.style.display = 'none'; return; }
+  if (!markupApi) {
+    if (tools && tools.style) tools.style.display = 'none';
+    const vt = document.getElementById('vtMarkupBtn');
+    if (vt && vt.style) vt.style.display = 'none';
+    return;
+  }
   const btn = document.getElementById('markupToggle');
   if (btn) btn.addEventListener('click', () => {
-    const on = !markupApi.isActive();
+    // Режим уже включён, но из другого источника (3D) — не выключаем, а
+    // «привязываем» к чертежам: теперь он живёт, пока видна вкладка.
+    const on = !(markupApi.isActive() && markupOrigin === 'drawings');
     // Включать разметку без открытого чертежа бессмысленно — сначала
     // показываем вкладку «Чертежи» (она же соберёт общий вид).
     if (on && !isDocsTabVisible('drawings')) setDocsTab('drawings', false);
     markupApi.setActive(on);
+    markupOrigin = on ? 'drawings' : null;
+    syncMarkupUI();
+  });
+  // Та же разметка, но прямо в 3D (плоские виды). Данные отдельные от
+  // чертежей (лист 'view3d', решение пользователя 2026-09-28),
+  // источник включения — свой ('3d'); в перспективе кнопка недоступна.
+  const vtBtn = document.getElementById('vtMarkupBtn');
+  if (vtBtn) vtBtn.addEventListener('click', () => {
+    if (!isFlat3DView()) { syncMarkupUI(); return; }
+    // Включён с чертежей/редактора — переключаем источник на 3D, не гасим.
+    const on = !(markupApi.isActive() && markupOrigin === '3d');
+    markupApi.setActive(on);
+    markupOrigin = on ? '3d' : null;
     syncMarkupUI();
   });
   const clr = document.getElementById('markupClear');
@@ -15443,6 +15511,7 @@ function applyView(name) {
   state.view = name;
   if (viewer) viewer.setView(name);
   renderViewOverlay();
+  syncMarkupUI();   // разметка в 3D — только в плоских видах
 }
 
 // ---------------------------------------------------------------------------
@@ -15471,6 +15540,9 @@ function initHeaderControls() {
     viewer.onViewChange = (name) => {
       state.view = name;
       renderViewOverlay();
+      // Гизма/вращение из плоского вида в перспективу — разметка в 3D
+      // недоступна (и режим гаснет, если нет чертежей/редактора на виду).
+      syncMarkupUI();
     };
     // Подгонка кадра под нижний лист на телефоне (viewer.setBottomInset) двигает
     // камеру без жеста пользователя — плоским видам нужно пересчитать оверлей размеров.

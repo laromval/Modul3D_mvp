@@ -2713,6 +2713,91 @@ class SimpleOrbitControl {
 // Плоские (ортографические) виды. Всё, чего нет в списке, — 3D ('iso').
 const FLAT_VIEWS = ['front', 'side', 'left', 'back', 'top', 'bottom'];
 
+// ---------------------------------------------------------------------------
+// РУЧНАЯ РАЗМЕТКА ПОВЕРХ 3D (плоские виды) — ядро в markup.js (см. его шапку,
+// раздел «3D-ОВЕРЛЕЙ»). Здесь — только «лист» для ядра: прозрачный SVG
+// поверх холста (1 единица = 1 CSS px), проекция мм модели → px экрана и
+// правила, какие точки можно ловить мышью.
+// ---------------------------------------------------------------------------
+const MK_SHEET = 'viewer3d';        // id листа отображения в markup.js
+const MK_EPS = 0.5;                 // мм: допуск «общее ребро»/«та же плоскость»
+// Вынос ручного размера в 3D ЗА габаритом изделия — в ПОСТОЯННЫХ экранных
+// px на 1 мм (offset в записи хранится в мм от точки A, как на чертеже).
+// Внутри габарита линия привязана к геометрии и масштабируется с зумом, а
+// снаружи её зазор от края изделия при зуме не меняется — как у авто-
+// размеров вьювера (app.js, .ov-dim). См. offsetOutside в _markupCtx и
+// шапку markup.js. Значение — масштаб листа «Общий вид» для типового шкафа
+// 800×2100×600 (drawings.js: 820 / (2100 + 62 + 600 + 130) ≈ 0.28 ед. листа
+// на мм, а 1 ед. листа ≈ 1 CSS px): вынос в 3D выглядит так же, как на
+// чертеже (сами размеры 3D и чертежей раздельны, см. MK_VIEWS).
+const MK_OFFSET_PX_PER_MM = 0.28;
+// Вид камеры → (лист данных, имя вида в данных, оси экрана, глубина ближней
+// грани бокса детали вдоль взгляда: МЕНЬШЕ = ближе к зрителю; d — мировая ось
+// взгляда: дальняя грань бокса = near + размер бокса вдоль d).
+// Разметка 3D и чертежей ПОЛНОСТЬЮ РАЗДЕЛЬНА (решение пользователя
+// 2026-09-28): все 6 видов пишут в свой лист данных 'view3d' (только 3D);
+// размеры «Общего вида» ('overview') в 3D не показываются, а поставленные в
+// 3D — не появляются на чертеже. Имена видов 'front'/'side'/'top' ('side' —
+// камера СЛЕВА) совпадают с уже записанными раньше размерами от отверстий.
+const MK_VIEWS = {
+  front:  { data: 'view3d', name: 'front',  h: 'x', v: 'y', d: 'z', near: (b) => -(b.z + b.d / 2) },  // камера на +Z
+  left:   { data: 'view3d', name: 'side',   h: 'z', v: 'y', d: 'x', near: (b) => b.x - b.w / 2 },     // камера на −X
+  top:    { data: 'view3d', name: 'top',    h: 'x', v: 'z', d: 'y', near: (b) => -(b.y + b.h / 2) },  // камера на +Y
+  side:   { data: 'view3d', name: 'right',  h: 'z', v: 'y', d: 'x', near: (b) => -(b.x + b.w / 2) },  // камера на +X
+  back:   { data: 'view3d', name: 'back',   h: 'x', v: 'y', d: 'z', near: (b) => b.z - b.d / 2 },     // камера на −Z
+  bottom: { data: 'view3d', name: 'bottom', h: 'x', v: 'z', d: 'y', near: (b) => b.y - b.h / 2 },     // камера на −Y
+};
+// Размер бокса детали (мм) вдоль мировой оси — как rowFrame() в markup.js.
+function mkSize(b, ax) { return ax === 'x' ? b.w : (ax === 'y' ? b.h : b.d); }
+function mkApi() { return (window.Modul3D && window.Modul3D.markup) || null; }
+
+// Стили оверлея: на холсте 1 единица = 1 CSS px (на чертеже линии тоньше, т.к.
+// лист масштабируется), поэтому линии чуть толще. Цвета — через переменные,
+// зависящие от темы приложения (ui-shell.js ставит <html data-theme=
+// "light"|"dark"> и красит фон сцены: светлая #eef2f7, тёмная #14171c):
+//   --mk-ink   линии/стрелки готовых размеров;  --mk-text  цифры;
+//   --mk-halo  обводка цифр — цвет фона сцены, чтобы цифра читалась поверх
+//              деталей и линий;
+//   --mk-edit  «рисуется/наведено» (синий), --mk-sel  «выбран» (оранжевый),
+//   --mk-bad   «точка не годится» (красный).
+// Готовые размеры — голубые, как все остальные размеры приложения (авто-
+// размеры вьювера .ov-dim и чертежей .dw-dim в style.css): var(--accent) с
+// обводкой цифр var(--bg-2), в обеих темах (решение пользователя).
+// Синий/оранжевый/красный в тёмной теме светлее — тёмно-синий #1a73e8 на
+// #14171c почти не виден.
+const MK_OVERLAY_CSS = `
+.mk-3d-overlay{position:absolute;left:0;top:0;pointer-events:none;overflow:visible;
+  --mk-ink:var(--accent);--mk-text:var(--accent);--mk-halo:var(--bg-2);--mk-edit:#1a73e8;--mk-sel:#d6820a;--mk-bad:#d63333}
+[data-theme='dark'] .mk-3d-overlay{
+  --mk-edit:#5cb0ff;--mk-sel:#ffb547;--mk-bad:#ff6b6b}
+.mk-3d-overlay.mk-3d-on{pointer-events:auto;cursor:crosshair}
+.mk-3d-overlay .mk-3d-bg{fill:transparent;stroke:none}
+.mk-3d-overlay .dw-dim{stroke:var(--mk-ink);stroke-width:1}
+.mk-3d-overlay .dw-ext{stroke:var(--mk-ink);stroke-width:.8}
+.mk-3d-overlay .dw-arrow{fill:var(--mk-ink)}
+.mk-3d-overlay .dw-dt{fill:var(--mk-text);paint-order:stroke;stroke:var(--mk-halo);stroke-width:3px;stroke-linejoin:round}
+.mk-3d-overlay .mk-draft .dw-dim,.mk-3d-overlay .mk-draft .dw-ext{stroke:var(--mk-edit)}
+.mk-3d-overlay .mk-draft .dw-arrow,.mk-3d-overlay .mk-draft .dw-dt{fill:var(--mk-edit)}
+.mk-3d-overlay .mk-dim-sel .dw-dim,.mk-3d-overlay .mk-dim-sel .dw-ext{stroke:var(--mk-sel)}
+.mk-3d-overlay .mk-dim-sel .dw-arrow,.mk-3d-overlay .mk-dim-sel .dw-dt{fill:var(--mk-sel)}
+.mk-3d-overlay .mk-hl-mark{stroke-width:1.6}
+.mk-3d-overlay .mk-hl-ok .mk-hl-mark,.mk-3d-overlay .mk-anchor .mk-hl-mark{stroke:var(--mk-edit)}
+.mk-3d-overlay .mk-hl-bad .mk-hl-mark{stroke:var(--mk-bad)}
+.mk-3d-overlay .mk-draft-line{stroke:var(--mk-edit)}
+.mk-3d-overlay.mk-3d-on .mk-dim{cursor:pointer}
+.mk-3d-overlay.mk-3d-on .mk-dim .mk-hit{cursor:move}
+`;
+let mkStyleInjected = false;
+function ensureMkOverlayStyle() {
+  if (mkStyleInjected || typeof document === 'undefined' || !document.head
+    || typeof document.createElement !== 'function') return;
+  mkStyleInjected = true;
+  const st = document.createElement('style');
+  st.id = 'mk3d-style';
+  st.textContent = MK_OVERLAY_CSS;
+  document.head.appendChild(st);
+}
+
 class Viewer3D {
   constructor(container) {
     if (!THREE) {
@@ -2981,6 +3066,9 @@ class Viewer3D {
       const shell = window.Modul3D && window.Modul3D.uiShell;
       if (shell && typeof shell.getDrawerInset === 'function') this.setBottomInset(shell.getDrawerInset());
     } catch (err) { /* не критично: кадр останется на весь холст */ }
+
+    // Оверлей ручной разметки (плоские виды) — см. блок MK_* выше.
+    this._initMarkupOverlay();
 
     this._animate();
   }
@@ -3540,6 +3628,9 @@ class Viewer3D {
     requestAnimationFrame(() => this._animate());
     if (this._camTween) this._stepCamTween();
     this._updateFloorVisibility();
+    // Разметка поверх плоского вида — пересчёт только если камера/холст/сцена
+    // изменились с прошлого кадра (сравнение матриц камеры, см. _markupTick).
+    this._markupTick();
     this.renderer.render(this.scene, this.camera);
     // Гизма перерисовывается только если что-то изменилось (поворот камеры,
     // наведение, текущий вид, тема) — проверка внутри update().
@@ -3604,6 +3695,303 @@ class Viewer3D {
     const v = new THREE.Vector3(xmm * MM, ymm * MM, zmm * MM).project(this.camera);
     const el = this.renderer.domElement;
     return { x: (v.x + 1) / 2 * el.clientWidth, y: (-v.y + 1) / 2 * el.clientHeight };
+  }
+
+  // ---------------------------------------------------------------------------
+  // РУЧНАЯ РАЗМЕТКА ПОВЕРХ ПЛОСКИХ ВИДОВ (ядро — markup.js)
+  // ---------------------------------------------------------------------------
+  // Как это устроено:
+  //   • поверх холста лежит прозрачный <svg class="mk-root" data-mk-sheet=
+  //     "viewer3d">, 1 единица = 1 CSS px; в нём ядро рисует размеры;
+  //   • в плоском виде готовые размеры видны ВСЕГДА, но пока режим разметки
+  //     выключен, svg «прозрачен» для мыши (pointer-events:none) — выбор
+  //     модуля, панорама и вращение работают как раньше;
+  //   • режим включён (setMarkupMode(true) из app.js): svg получает мышь.
+  //     ЛКМ — ядру разметки (оно слушает document и находит svg по
+  //     evt.target), колесо — зум, протяжка ПКМ (и средней кнопкой) —
+  //     панорама, простой щелчок ПКМ — отмена начатого размера. До холста
+  //     события не доходят, поэтому ни выбора модуля, ни вращения нет;
+  //   • в перспективе ('iso') лист снимается (dropSheet), svg пустой.
+  _initMarkupOverlay() {
+    this._mkSvg = null;         // сам svg (null — среда без DOM, например tools/)
+    this._mkMode = false;       // режим разметки в 3D включён
+    this._mkModel = null;       // модель последнего render()
+    this._mkRows = [];          // детали, реально нарисованные в сцене
+    // Детали, нарисованные в render() ПОЛУПРОЗРАЧНЫМИ (см. _markupSetScene):
+    // сквозь них видно, что за ними, поэтому они точки не заслоняют.
+    this._mkClearRows = new Set();
+    this._mkSeeThrough = false; // прозрачный режим (xray или проверка присадки)
+    this._mkDrill = false;      // проверка присадки: ловятся центры отверстий
+    this._mkDirty = true;       // сцена/режим изменились — пересобрать оверлей
+    this._mkShown = false;      // лист сейчас зарегистрирован в markup.js
+    this._mkSig = null;         // «отпечаток» камеры прошлого кадра
+    this._mkPan = null;         // идущая панорама ПКМ в режиме разметки
+    if (typeof document === 'undefined' || typeof document.createElementNS !== 'function') return;
+    let svg = null;
+    try { svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg'); } catch (e) { svg = null; }
+    if (!svg || typeof svg.setAttribute !== 'function' || typeof svg.addEventListener !== 'function') return;
+    svg.setAttribute('class', 'mk-root mk-3d-overlay');
+    svg.setAttribute('data-mk-sheet', MK_SHEET);
+    if (svg.style) svg.style.display = 'none';
+    this.container.appendChild(svg);
+    // Клик фазы «вынос» засчитывается где угодно внутри контейнера с mk-pane.
+    if (this.container.classList) this.container.classList.add('mk-pane');
+    ensureMkOverlayStyle();
+    this._mkSvg = svg;
+
+    // Контекстное меню браузера по ПКМ над оверлеем не нужно.
+    svg.addEventListener('contextmenu', (e) => e.preventDefault());
+
+    // ЛКМ в режиме разметки (постановка/перетаскивание размера) — не жест
+    // камеры: не пускаем pointerdown дальше, иначе ui-shell.js (Focus Mode,
+    // слушает pointerdown на #viewer3d) принял бы протяжку размера за
+    // вращение сцены и растворил интерфейс. Ядро markup.js слушает
+    // mousedown/mousemove/click на document — это ДРУГИЕ события, их
+    // stopPropagation у pointerdown не останавливает (preventDefault не
+    // зовём — он бы как раз отменил mousedown).
+    // Тач: пинч-зум и двухпальцевая панорама в режиме разметки недоступны
+    // (оверлей забирает касания себе, а ядро разметки работает с мышью) —
+    // на телефоне для зума режим нужно выключить.
+    svg.addEventListener('pointerdown', (e) => {
+      if (this._mkMode && e.button === 0) e.stopPropagation();
+    });
+
+    // Колесо — тот же зум, что у SimpleOrbitControl (с фокусом под курсором).
+    svg.addEventListener('wheel', (e) => {
+      e.preventDefault();
+      this._finishCamTween();
+      const c = this.controls;
+      const k = 1 + e.deltaY * 0.001;
+      const pt = c.zoomPointProvider ? c.zoomPointProvider(e) : null;
+      c._zoomBy(k, pt);
+      c.update();
+    }, { passive: false });
+
+    // ПКМ (и средняя кнопка) — панорама; ЛКМ не трогаем — она у ядра разметки.
+    svg.addEventListener('pointerdown', (e) => {
+      if (e.button !== 2 && e.button !== 1) return;
+      e.preventDefault();
+      this._finishCamTween();
+      try { svg.setPointerCapture(e.pointerId); } catch (err) { /* не критично */ }
+      this._mkPan = { id: e.pointerId, x: e.clientX, y: e.clientY, moved: 0, button: e.button };
+    });
+    svg.addEventListener('pointermove', (e) => {
+      const p = this._mkPan;
+      if (!p || e.pointerId !== p.id) return;
+      const dx = e.clientX - p.x, dy = e.clientY - p.y;
+      p.x = e.clientX; p.y = e.clientY;
+      p.moved += Math.abs(dx) + Math.abs(dy);
+      if (!dx && !dy) return;
+      this.controls.pan(dx, dy);
+      this.controls.update();
+    });
+    const endPan = (e, cancelled) => {
+      const p = this._mkPan;
+      if (!p || e.pointerId !== p.id) return;
+      this._mkPan = null;
+      try { svg.releasePointerCapture(e.pointerId); } catch (err) { /* не критично */ }
+      // Простой щелчок ПКМ (без протяжки) — отменить начатый размер.
+      if (!cancelled && p.button === 2 && p.moved <= SCENE_DRAG_PX) {
+        const mk = mkApi();
+        if (mk && mk.cancelDraft) mk.cancelDraft();
+      }
+    };
+    svg.addEventListener('pointerup', (e) => endPan(e, false));
+    svg.addEventListener('pointercancel', (e) => endPan(e, true));
+  }
+
+  /**
+   * Режим ручной разметки в 3D (зовёт app.js: syncMarkupUI; true — только в
+   * плоском виде). Включён — мышь над сценой принадлежит разметке (см.
+   * _initMarkupOverlay), выключен — всё как обычно, размеры просто видны.
+   */
+  setMarkupMode(on) {
+    this._mkMode = !!on;
+    if (this._mkSvg) {
+      this._mkSvg.setAttribute('class', 'mk-root mk-3d-overlay' + (this._mkMode ? ' mk-3d-on' : ''));
+    }
+    if (!this._mkMode) this._mkPan = null;
+    // Отложенный выбор модуля от щелчка перед включением режима — не нужен.
+    if (this._mkMode && this._clickTimer) { clearTimeout(this._clickTimer); this._clickTimer = null; }
+    this._mkDirty = true;
+  }
+
+  // Из render(): что сейчас нарисовано и в каком режиме.
+  // clearRows — Set деталей, которые render() нарисовал полупрозрачными
+  // (выбранный модуль, подсветка секции/детали, «Скрыть фасады», стекло):
+  // сквозь них видно начинку, поэтому они точки не заслоняют. Весь режим
+  // xray/проверки присадки — seeThrough (прозрачно всё).
+  _markupSetScene(model, source, hideFacades, isolateModule, seeThrough, drillCheck, clearRows) {
+    this._mkModel = model || null;
+    this._mkRows = (source || []).filter((row) => row && row.boxes && row.boxes[0]
+      && !(isolateModule && row.module !== isolateModule)
+      && !(hideFacades && row.kind === 'handle'));
+    this._mkClearRows = clearRows || new Set();
+    this._mkSeeThrough = !!seeThrough;
+    this._mkDrill = !!drillCheck;
+    this._mkDirty = true;
+  }
+
+  // Раз в кадр (из _animate): пересобрать оверлей, только если что-то
+  // изменилось — матрицы камеры (зум, панорама, смена вида, подгонка под
+  // лист), размер холста или сцена/режим (_mkDirty).
+  _markupTick() {
+    if (!this._mkSvg) return;
+    const spec = this.isOrtho ? MK_VIEWS[this.viewName] : null;
+    if (!spec || !this._mkModel || !mkApi()) {
+      if (this._mkShown) this._markupHide();
+      return;
+    }
+    const el = this.renderer.domElement;
+    const w = el.clientWidth || 0, h = el.clientHeight || 0;
+    if (!w || !h) return;   // холст скрыт — нечего рисовать
+    const cam = this.camera;
+    cam.updateMatrixWorld();
+    if (!this._mkSig) this._mkSig = new Float64Array(35);
+    const sig = this._mkSig;
+    let changed = this._mkDirty || !this._mkShown;
+    const put = (i, v) => { if (sig[i] !== v) { sig[i] = v; changed = true; } };
+    put(0, w); put(1, h); put(2, FLAT_VIEWS.indexOf(this.viewName));
+    const pe = cam.projectionMatrix.elements, me = cam.matrixWorld.elements;
+    for (let i = 0; i < 16; i++) { put(3 + i, pe[i]); put(19 + i, me[i]); }
+    if (!changed) return;
+    this._mkDirty = false;
+    this._markupRebuild(spec, w, h);
+  }
+
+  // Снять лист: перспектива, пустая сцена.
+  _markupHide() {
+    const mk = mkApi();
+    if (mk && mk.dropSheet) mk.dropSheet(MK_SHEET);
+    if (this._mkSvg) {
+      this._mkSvg.innerHTML = '';
+      if (this._mkSvg.style) this._mkSvg.style.display = 'none';
+    }
+    this._mkShown = false;
+    this._mkPan = null;
+  }
+
+  // Заново зарегистрировать лист в markup.js с текущей проекцией и
+  // положить результат в svg.
+  _markupRebuild(spec, w, h) {
+    const mk = mkApi();
+    const ctx = mk && mk.attachSheet ? this._markupCtx(spec) : null;
+    if (!ctx) { if (this._mkShown) this._markupHide(); return; }
+    let body = '';
+    try {
+      // Все размеры 3D — в своём листе данных 'view3d' (см. MK_VIEWS и шапку
+      // markup.js, «Лист отображения и лист данных»).
+      body = mk.attachSheet(MK_SHEET, this._mkModel, [ctx], null,
+        { dataSheet: spec.data, external: true });
+    } catch (err) {
+      console.error('Разметка в 3D: attachSheet не сработал', err);
+      this._markupHide();
+      return;
+    }
+    const svg = this._mkSvg;
+    svg.setAttribute('width', String(w));
+    svg.setAttribute('height', String(h));
+    svg.setAttribute('viewBox', `0 0 ${w} ${h}`);
+    // Прозрачная подложка — чтобы щелчок по пустому месту тоже попадал в svg.
+    svg.innerHTML = `<rect class="mk-3d-bg" x="0" y="0" width="${w}" height="${h}" fill="transparent"/>` + body;
+    if (svg.style) svg.style.display = '';
+    this._mkShown = true;
+    // Готовые размеры уже в body (их нарисовал attachSheet) — второй раз не
+    // рисуем; refreshSheet нужен только «живому» слою (наведение/вынос по
+    // последней позиции курсора) и скрытию перетаскиваемого размера.
+    if (mk.refreshSheet) mk.refreshSheet(MK_SHEET, { skipFinished: true });
+  }
+
+  // Контекст вида для markup.js (формат — шапка markup.js, «3D-ОВЕРЛЕЙ»).
+  // Координаты — мм модели, те же, что у model.partsRaw[].boxes и чертежей.
+  _markupCtx(spec) {
+    const H = spec.h, V = spec.v;
+    // Ортокамера смотрит строго вдоль мировой оси: экранный X зависит только
+    // от координаты по оси H, экранный Y — только по оси V, и линейно.
+    // Берём проекцию начала координат и точки в 1000 мм по каждой оси.
+    const at = (ax) => this.project(ax === 'x' ? 1000 : 0, ax === 'y' ? 1000 : 0, ax === 'z' ? 1000 : 0);
+    const o = this.project(0, 0, 0);
+    const kx = (at(H).x - o.x) / 1000;
+    const ky = (at(V).y - o.y) / 1000;
+    if (![o.x, o.y, kx, ky].every(Number.isFinite) || !kx || !ky) return null;
+    const sx = (mm) => o.x + kx * mm;
+    const sy = (mm) => o.y + ky * mm;
+
+    // Прямоугольник каждой детали на экране (в мм вдоль осей вида), глубина
+    // её ближней к зрителю грани (near) и дальней, противоположной (far —
+    // near + толщина бокса вдоль взгляда; нужна только прозрачному режиму).
+    // Заслоняет только то, что на экране
+    // НЕПРОЗРАЧНОЕ: не детали из _mkClearRows (render() нарисовал их
+    // полупрозрачными — стекло, фасады при «Скрыть фасады», выбранный модуль,
+    // бирюзовая подсветка секции/детали/отсека) и не фурнитура (опоры/ручки
+    // — их бокс сильно больше самой детали).
+    const info = new Map();
+    const byAnchor = new Map();
+    const occluders = [];
+    const clear = this._mkClearRows;
+    for (const row of this._mkRows) {
+      const b = row.boxes[0];
+      const hs = mkSize(b, H), vs = mkSize(b, V);
+      const it = {
+        row, near: spec.near(b), far: spec.near(b) + mkSize(b, spec.d),
+        h0: b[H] - hs / 2, h1: b[H] + hs / 2, v0: b[V] - vs / 2, v1: b[V] + vs / 2,
+      };
+      if (![it.near, it.far, it.h0, it.h1, it.v0, it.v1].every(Number.isFinite)) continue;
+      info.set(row, it);
+      if (row.moduleUid != null && row.anchorKey != null) byAnchor.set(row.moduleUid + '|' + row.anchorKey, it);
+      const seeThrough = row.glass || row.hardware || (row.shape && row.shape !== 'box')
+        || clear.has(row);
+      if (!seeThrough) occluders.push(it);
+    }
+    occluders.sort((a, b) => a.near - b.near);   // от ближних к дальним
+
+    // Габарит нарисованных деталей вдоль осей вида (мм) — для offsetOutside.
+    const ext = { ok: false, h: { min: Infinity, max: -Infinity }, v: { min: Infinity, max: -Infinity } };
+    for (const it of info.values()) {
+      if (it.row.hardware) continue;
+      ext.h.min = Math.min(ext.h.min, it.h0); ext.h.max = Math.max(ext.h.max, it.h1);
+      ext.v.min = Math.min(ext.v.min, it.v0); ext.v.max = Math.max(ext.v.max, it.v1);
+      ext.ok = true;
+    }
+
+    const xray = this._mkSeeThrough;
+    const depthOf = (row) => { const it = info.get(row); return it ? it.near : 0; };
+    const pickFilter = (row, wh, wv, kind, draftAnchor) => {
+      const it = info.get(row);
+      if (!it) return false;
+      if (xray) {
+        // Прозрачный режим: ловится всё; вторая точка — только на детали,
+        // у которой с деталью первой точки общая плоскость: совпадают
+        // ближние грани ИЛИ дальние. Дальние нужны для утопленных деталей:
+        // у полок с разным отступом от фасада передние кромки в разных
+        // плоскостях, а задние (упор в заднюю стенку) — в одной.
+        if (!draftAnchor) return true;
+        const a = byAnchor.get(draftAnchor.moduleUid + '|' + draftAnchor.key);
+        return !a || Math.abs(a.near - it.near) <= MK_EPS || Math.abs(a.far - it.far) <= MK_EPS;
+      }
+      // Обычный режим: точку не должна заслонять более близкая деталь,
+      // чья проекция содержит её строго внутри (общие рёбра — не перекрытие).
+      for (const oc of occluders) {
+        if (oc.near >= it.near - MK_EPS) break;   // дальше уже не ближе нашей грани
+        if (oc.row === row) continue;
+        if (wh > oc.h0 + MK_EPS && wh < oc.h1 - MK_EPS && wv > oc.v0 + MK_EPS && wv < oc.v1 - MK_EPS) return false;
+      }
+      return true;
+    };
+
+    return {
+      name: spec.name, hAxis: H, vAxis: V, sx, sy,
+      rows: this._mkRows,
+      // Центры отверстий — только при «Проверке присадки»; экранные
+      // координаты считает drawings.resolveHoleScreen (ядро само его зовёт).
+      noHoles: !this._mkDrill,
+      pickFilter, depthOf,
+      // Вынос размерной линии за габаритом деталей вида — в постоянных
+      // экранных px от края габарита (зазор от края изделия не зависит от
+      // зума); внутри габарита — обычная проекция. Габарит — без фурнитуры
+      // (её бокс больше самой детали, см. выше).
+      offsetOutside: ext.ok ? { K: MK_OFFSET_PX_PER_MM, h: ext.h, v: ext.v } : null,
+    };
   }
 
   /**
@@ -3821,6 +4209,7 @@ class Viewer3D {
           : (Number.isFinite(row.zoneIndex) && row.zoneIndex === targetZoneIndex)));
       if (!hasFacade) sectionHiBounds = this._computeSectionHiBounds(source, sectionHi, targetZoneIndex);
     }
+    const mkClearRows = new Set();   // полупрозрачные детали — для _markupSetScene
     for (const row of source) {
       // «Скрыть фасады»: сам фасад остаётся, но становится полупрозрачным —
       // видно и наполнение корпуса, и присадку на фасаде. Ручки при этом
@@ -3891,6 +4280,11 @@ class Viewer3D {
       // логическое ИЛИ подсветки фасада секции, подсветки отдельной детали
       // (экран «Деталь») и подсветки наполнения отсека без фасада.
       const hiCyan = isSectionHi || isPartHi || isSectionContentHi;
+      // Для разметки поверх плоских видов: деталь рисуется полупрозрачной
+      // (те же условия, что transparent у материалов ниже, кроме общих
+      // режимов drillCheck/xray — они передаются отдельно) — точки за ней
+      // она не заслоняет (см. _markupCtx).
+      if (hiCyan || ghostLike || glass || isActive) mkClearRows.add(row);
       // Доборные детали (фальш-планки, заглушки) красим по МАТЕРИАЛУ:
       // сделана из фасадного — выглядит как фасад, из корпусного ЛДСП —
       // как корпус. Раньше они уходили в серую заглушку по умолчанию.
@@ -4394,6 +4788,10 @@ class Viewer3D {
     // зум пользователя сбрасывался бы при каждой правке параметра.
     this._lastDims = { W, H, D };
     this._fitOrtho();
+    // Детали, реально нарисованные в сцене, — для разметки поверх плоских
+    // видов (те же правила пропуска, что в цикле выше: изоляция, ручки при
+    // «Скрыть фасады»). Оверлей перестроится на ближайшем кадре.
+    this._markupSetScene(model, source, hideFacades, isolateModule, xray || drillCheck, drillCheck, mkClearRows);
     const key = `${W}|${H}|${D}`;
     if (key !== this._fitKey) {
       this._fitKey = key;

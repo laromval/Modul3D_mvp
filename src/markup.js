@@ -59,7 +59,8 @@
 //   sheet — id листа (см. выше); запись без sheet (старая) — 'overview'.
 //     Лист исчез (модуль/деталь удалены) — размер не рисуется; данные
 //     остаются (Ctrl+Z вернёт), при записи в файл app.js их отбрасывает.
-//   view — вид на этом листе ('front'|'side'|'top').
+//   view — вид на этом листе ('front'|'side'|'top'; у 3D-листа 'view3d' —
+//     'front'|'side'|'top'|'right'|'back'|'bottom', см. «3D-ОВЕРЛЕЙ»).
 //   orient — что измеряет размер: 'h' — разницу вдоль горизонтальной оси
 //     вида (view.hAxis), размерная линия горизонтальна; 'v' — вдоль
 //     вертикальной (view.vAxis). Длина = проекция AB на эту ось.
@@ -67,6 +68,11 @@
 //     перпендикулярной размеру), со знаком, ОТ ТОЧКИ A. Не пиксели и не
 //     «уровни» — при другом масштабе листа/печати размер стоит там же
 //     относительно детали. Выносные линии от A и от B разной длины, как в ЕСКД.
+//     Исключение — вид с полем view.offsetOutside (3D-оверлей): за габаритом
+//     деталей вида линия стоит на постоянном экранном расстоянии от края
+//     изделия, не завися от зума (как авто-размеры вьювера); в записи вынос
+//     всё равно хранится в мм от A.
+//     См. lineFromOffset/offsetFromLine.
 //   Старый формат (dir/level) — мигрирует при регистрации своего листа
 //   (attachSheet), без лишнего шага истории отмены (onMigrate → app.js).
 //
@@ -94,8 +100,61 @@
 //     drawings.resolveHoleScreen для проекций). Где отверстия не нарисованы
 //     (view.noHoles — общий вид), они не ловятся.
 //
+// ЛИСТ ОТОБРАЖЕНИЯ И ЛИСТ ДАННЫХ. Обычно это одно и то же (id листа = поле
+// sheet записи). Внешний лист может хранить записи под ДРУГИМ id: attachSheet(id,
+// model, views, rect, { dataSheet, external }) — лист id показывает и создаёт
+// записи с sheet = dataSheet, но геометрию считает по СВОИМ контекстам видов.
+// Так 3D-вьювер (лист отображения 'viewer3d') хранит свои размеры в листе
+// данных 'view3d'. Разметка 3D и чертежей ПОЛНОСТЬЮ РАЗДЕЛЬНА (решение
+// пользователя 2026-09-28): поставленное в 3D не появляется на «Общем виде»,
+// а размеры «Общего вида» ('overview') не показываются в 3D. Внутри ядра:
+//   dataKey(листОтображения) — лист данных; sheetOf(запись) — лист данных
+//   записи; запись видна на листе S, если sheetOf(d) === dataKey(S) (и у S
+//   есть вид с именем d.view); geom(d, S) — геометрия записи по видам листа S.
+//
+// 3D-ОВЕРЛЕЙ (viewer.js; ядро о Three.js ничего не знает):
+//   • <svg class="mk-root" data-mk-sheet="viewer3d"> поверх canvas, 1 единица
+//     = 1 CSS px. Внутрь — строка, которую вернул attachSheet (группы
+//     g.mk-finished и g.mk-live). Пока режим разметки включён, svg должен
+//     получать события мыши (evt.target — внутри svg), иначе наведение/клики
+//     не дойдут до ядра (ядро слушает document и ищет closest('svg.mk-root')).
+//   • Контейнер, внутри которого клик фазы выноса засчитывается (как
+//     .tab-panel у чертежей), помечается классом 'mk-pane'.
+//   • Регистрируется ОДИН вид — текущий: attachSheet('viewer3d', model,
+//     [view], null, { dataSheet: 'view3d', external: true }).
+//     rect = null — вынос без ограничения рамкой. Все 6 видов 3D пишут в
+//     лист данных 'view3d'; вид камеры → имя вида в данных:
+//       3D 'front' → 'front'   3D 'side' (камера справа) → 'right'
+//       3D 'left'  → 'side'    3D 'back'                 → 'back'
+//       3D 'top'   → 'top'     3D 'bottom'               → 'bottom'
+//     Записи 'view3d' видны только в 3D,
+//     сохраняются в проект/историю как все остальные.
+//   • Камера сдвинулась (зум/панорама) — вьювер заново вызывает attachSheet с
+//     новыми sx/sy и кладёт результат в свой svg, затем refreshSheet(id,
+//     { skipFinished: true }) (дорисовать «живой» слой; готовые размеры уже
+//     нарисованы attachSheet — второй раз их не рисуем). Смена имени вида/листа данных отменяет
+//     начатую на этом листе постановку. Уход в перспективу — dropSheet(id).
+//     beginSheets() (пересборка чертежей) внешние листы не трогает.
+//   • Необязательные хуки контекста вида (у чертежей их нет, кроме
+//     depthOf у видов общего вида — drawings.js buildOverview):
+//       view.pickFilter(row, wh, wv, kind, draftAnchor) → boolean — можно ли
+//         ловить точку (kind: 'corner'|'edgePoint'|'holeCenter'; wh/wv — мм
+//         вдоль hAxis/vAxis; draftAnchor — точка A при выборе B, иначе null);
+//       view.depthOf(row) → number — глубина детали (меньше = ближе к
+//         зрителю): при почти равном экранном расстоянии (< DEPTH_TIE единиц
+//         листа) побеждает более близкая деталь.
+//     view.holeScreen(row, i) → {x, y, wh, wv} | null — как у листа детали.
+//     view.offsetOutside = { K, h:{min,max}, v:{min,max} } — кусочная
+//       проекция размерной линии (мм → экран). min/max — габарит нарисованных
+//       деталей вида вдоль hAxis/vAxis (мм), K — px на 1 мм выноса ЗА ним.
+//       Линия W = A + offset: внутри [min,max] — view.sx/sy(W) (с зумом),
+//       снаружи — экран(края) ± dir × расстояние_до_края × K (зазор от края
+//       изделия постоянен при зуме). Постановка/перетаскивание/магнит —
+//       обратным преобразованием (axisFromScreen), offset = W − A в мм.
+//
 // UI: кнопка «Разметка» / «Очистить всё» в полосе вкладок «Документы»
-// (index.html #markupTools, app.js: initMarkupUI), размер шрифта — в окне
+// (index.html #markupTools, app.js: initMarkupUI), кнопка «Разметка» на
+// панели режимов 3D-вида (#vtMarkupBtn, только в плоских видах), размер шрифта — в окне
 // настроек (index.html #markupFontRange, ui-shell.js: initMarkupFont),
 // сохранение — поле markup в файле проекта и в истории отмены (app.js:
 // serializeProject/snapshot).
@@ -117,7 +176,12 @@ const DRAG_PX = 3;         // экранные px: меньший сдвиг —
 const DEFAULT_FONT = 10;   // px — размер подписи как у обычных размеров чертежа
 const MAX_OFFSET_MM = 100000;   // защита от мусора в файле проекта
 const OVERVIEW = 'overview';
+const VIEW3D = 'view3d';   // лист данных всех размеров 3D-вьювера (см. шапку)
 const HOLE_EPS = 0.5;      // мм: допуск совпадения центра отверстия (hx/hy) и диаметра
+const DEPTH_TIE = 0.5;     // единицы листа: кандидаты «на одном месте» — решает view.depthOf
+// Имена видов в данных: чертежи ('front'|'side'|'top') и 3D-лист 'view3d'.
+const VIEW_NAMES = { front: 1, side: 1, top: 1, right: 1, back: 1, bottom: 1 };
+const VIEW_ORDER = ['front', 'side', 'top', 'right', 'back', 'bottom'];
 
 // --- Состояние модуля (единственный источник истины для сохранения в проект) ---
 let active = false;
@@ -126,15 +190,20 @@ let dims = [];            // [{id, sheet, view, a, b, orient, offset}] (+ ста
 let nextId = 1;
 
 let lastModel = null;     // модель последней сборки чертежей
-// Реестр листов текущей сборки: { [sheetId]: { views:{front,side,top}, rect } }
-// rect — рамка листа БЕЗ ручных размеров {x,y,w,h} (предел выноса).
+// Реестр листов текущей сборки:
+//   { [sheetId]: { views:{<имя вида>: ctx}, rect, dataSheet, external } }
+// rect — рамка листа БЕЗ ручных размеров {x,y,w,h} (предел выноса) или null.
+// dataSheet — лист данных (null — сам sheetId); external — лист живёт вне
+// вкладки «Чертежи» (beginSheets его не сбрасывает).
 let sheets = {};
 // 'uid|anchorKey' детали → id группового листа детали, где она сейчас
 // нарисована (заполняется attachSheet по view.members).
 let partMemberSheet = {};
 let unitPx = 1;           // экранных px на единицу листа (масштаб ui-shell учтён)
 
-// draft: { sheet, view, a, phase:'pickB'|'pickOffset', b?, lock?, orient?, offset? }
+// draft: { sheet, data, view, a, phase:'pickB'|'pickOffset', b?, lock?, orient?, offset? }
+// sheet — лист ОТОБРАЖЕНИЯ (где идёт постановка), data — лист данных новой записи.
+// dragState.sheet, hoverCandidate.sheet, hoverSheet — тоже листы отображения.
 let draft = null;
 let hoverCandidate = null; // {sheet, view, anchor, sx, sy, dist}
 let hoverSheet = null;     // лист под курсором (для «живой» группы)
@@ -180,6 +249,15 @@ function sheetOf(d) {
   }
   return s;
 }
+// Лист данных для листа отображения (см. шапку). Для обычных листов — сам id.
+function dataKey(sheetId) {
+  const sh = sheets[sheetId];
+  return (sh && sh.dataSheet) || sheetId;
+}
+// Показывается ли запись на листе отображения sheetId.
+function shownOn(d, sheetId) {
+  return sheetOf(d) === dataKey(sheetId);
+}
 function viewOf(sheetId, viewName) {
   const sh = sheets[sheetId];
   return (sh && sh.views[viewName]) || null;
@@ -193,9 +271,54 @@ function linOf(f) {
   const f0 = f(0), f1 = f(1000);
   return { k: (f1 - f0) / 1000, b: f0 };
 }
+function linAxis(view, axis) {
+  return axis === 'h' ? (view._lh || (view._lh = linOf(view.sx))) : (view._lv || (view._lv = linOf(view.sy)));
+}
 function worldFromScreen(view, axis, s) {
-  const L = axis === 'h' ? (view._lh || (view._lh = linOf(view.sx))) : (view._lv || (view._lv = linOf(view.sy)));
+  const L = linAxis(view, axis);
   return L.k ? (s - L.b) / L.k : 0;
+}
+
+// Вынос размерной линии: offset (мм от точки A) ↔ экранная координата линии.
+// Мировая координата линии (мм вдоль оси, перпендикулярной размеру) —
+// W = A + offset. Обычно (чертежи, лист детали) линия просто там, где на
+// листе лежит W, и вместе с листом масштабируется.
+// Если у вида задан view.offsetOutside = { K, h:{min,max}, v:{min,max} }
+// (3D-оверлей, см. шапку) — проекция КУСОЧНАЯ: внутри габарита [min, max]
+// нарисованных деталей по этой оси — обычная (линия движется с геометрией),
+// а за габаритом — от края габарита в ПОСТОЯННЫХ экранных единицах:
+// экран(max) + dir × (W − max) × K (и зеркально ниже min), dir — куда на
+// экране растёт ось. Так зазор от края изделия не меняется при зуме, как у
+// авто-размеров вьювера. Сами A/B и длина размера — по геометрии.
+function axisToScreen(view, axis, W) {
+  const L = linAxis(view, axis);
+  const oo = view.offsetOutside, r = oo && oo[axis];
+  const K = oo ? Number(oo.K) : 0;
+  if (r && isFinite(K) && K > 0 && isFinite(r.min) && isFinite(r.max)) {
+    const dir = L.k < 0 ? -1 : 1;
+    if (W > r.max) return L.k * r.max + L.b + dir * (W - r.max) * K;
+    if (W < r.min) return L.k * r.min + L.b - dir * (r.min - W) * K;
+  }
+  return axis === 'h' ? view.sx(W) : view.sy(W);   // как было — точная проекция вида
+}
+function axisFromScreen(view, axis, s) {
+  const L = linAxis(view, axis);
+  const oo = view.offsetOutside, r = oo && oo[axis];
+  const K = oo ? Number(oo.K) : 0;
+  if (r && isFinite(K) && K > 0 && isFinite(r.min) && isFinite(r.max)) {
+    const dir = L.k < 0 ? -1 : 1;
+    const beyondMax = (s - (L.k * r.max + L.b)) * dir;   // px за краем max
+    if (beyondMax > 0) return r.max + beyondMax / K;
+    const beyondMin = ((L.k * r.min + L.b) - s) * dir;   // px за краем min
+    if (beyondMin > 0) return r.min - beyondMin / K;
+  }
+  return L.k ? (s - L.b) / L.k : 0;
+}
+function lineFromOffset(view, orient, pa, off) {
+  return orient === 'h' ? axisToScreen(view, 'v', pa.wv + off) : axisToScreen(view, 'h', pa.wh + off);
+}
+function offsetFromLine(view, orient, pa, line) {
+  return orient === 'h' ? axisFromScreen(view, 'v', line) - pa.wv : axisFromScreen(view, 'h', line) - pa.wh;
 }
 
 // ---------------------------------------------------------------------------
@@ -315,9 +438,7 @@ function migratedValues(d, view, pa, pb) {
   if (typeof d.level === 'number') {
     const DF = dw().DIM_FIRST || 13, DS = dw().DIM_STEP || 14;
     const off = (d.dir === -1 ? -1 : 1) * (DF + d.level * DS);
-    offset = orient === 'h'
-      ? worldFromScreen(view, 'v', pa.sy + off) - pa.wv
-      : worldFromScreen(view, 'h', pa.sx + off) - pa.wh;
+    offset = offsetFromLine(view, orient, pa, (orient === 'h' ? pa.sy : pa.sx) + off);
   }
   return { orient, offset: Math.round(offset * 10) / 10 };
 }
@@ -327,9 +448,12 @@ function migratedValues(d, view, pa, pb) {
 // переписывает верхний снимок истории, чтобы миграция не порождала
 // лишний шаг отмены).
 function migrateSheet(sheetId) {
+  // Старый формат бывает только у чертежей; вынос считался в единицах
+  // чертежа — по чужому (3D) масштабу мигрировать нельзя.
+  if (sheets[sheetId] && sheets[sheetId].dataSheet) return false;
   let changed = false;
   for (const d of dims) {
-    if (sheetOf(d) !== sheetId || d.orient === 'h' || d.orient === 'v') continue;
+    if (!shownOn(d, sheetId) || d.orient === 'h' || d.orient === 'v') continue;
     const view = viewOf(sheetId, d.view);
     const pa = resolveAnchor(view, d.a), pb = resolveAnchor(view, d.b);
     if (!pa || !pb) continue;   // детали сейчас нет — мигрирует, когда появится
@@ -341,9 +465,10 @@ function migrateSheet(sheetId) {
   return changed;
 }
 
-// Полная экранная геометрия размера или null (не рисуется).
-function geom(d) {
-  const view = viewOf(sheetOf(d), d.view);
+// Полная экранная геометрия размера или null (не рисуется). dispSheet — лист
+// отображения, по видам которого считать (по умолчанию — лист данных записи).
+function geom(d, dispSheet) {
+  const view = viewOf(dispSheet || sheetOf(d), d.view);
   if (!view) return null;
   const pa = resolveAnchor(view, d.a);
   const pb = resolveAnchor(view, d.b);
@@ -353,7 +478,7 @@ function geom(d) {
   const lenMM = orient === 'h' ? Math.abs(pa.wh - pb.wh) : Math.abs(pa.wv - pb.wv);
   if (lenMM < ALIGN_EPS) return null;
   const off = legacy ? legacy.offset : (Number(d.offset) || 0);
-  const line = orient === 'h' ? view.sy(pa.wv + off) : view.sx(pa.wh + off);
+  const line = lineFromOffset(view, orient, pa, off);
   const span = orient === 'h'
     ? [Math.min(pa.sx, pb.sx), Math.max(pa.sx, pb.sx)]
     : [Math.min(pa.sy, pb.sy), Math.max(pa.sy, pb.sy)];
@@ -373,20 +498,50 @@ function holeCandidates(view, row, fn) {
     const local = { holeIndex: i, hx: Number(h0.x), hy: Number(h0.y) };
     // Диаметр кладём только если он есть: NaN в hd сломал бы поиск в holeIndexFor.
     if (isFinite(Number(h0.d))) local.hd = Number(h0.d);
-    fn(anchorOf(row, 'holeCenter', local), pos.x, pos.y);
+    fn(anchorOf(row, 'holeCenter', local), pos.x, pos.y, row, pos.wh, pos.wv);
   }
 }
 
-function nearestCandidate(view, mx, my) {
-  let bestOther = null, bestOtherD = Infinity;
-  const considerOther = (anchor, sx, sy) => {
+// Хуки вида (3D-оверлей, см. шапку). Без хуков — поведение чертежей.
+function pickOk(view, row, wh, wv, kind, draftAnchor) {
+  if (typeof view.pickFilter !== 'function') return true;
+  try { return !!view.pickFilter(row, wh, wv, kind, draftAnchor || null); }
+  catch (err) { console.error('markup pickFilter failed:', err); return false; }
+}
+function depthOfRow(view, row) {
+  if (typeof view.depthOf !== 'function') return 0;
+  const z = Number(view.depthOf(row));
+  return isFinite(z) ? z : 0;
+}
+// Лучше ли кандидат (расстояние d, деталь row) текущего лучшего. Без
+// view.depthOf — строго меньшее расстояние (как раньше); с ним при почти
+// равном расстоянии побеждает деталь ближе к зрителю («передний уголок»).
+function beats(view, d, row, bestD, bestZ) {
+  if (typeof view.depthOf !== 'function') return d < bestD;
+  if (d < bestD - DEPTH_TIE) return true;
+  if (d > bestD + DEPTH_TIE) return false;
+  const z = depthOfRow(view, row);
+  if (z !== bestZ) return z < bestZ;
+  return d < bestD;
+}
+
+// draftAnchor — точка A, если сейчас выбирается B (для view.pickFilter).
+function nearestCandidate(view, mx, my, draftAnchor) {
+  let bestOther = null, bestOtherD = Infinity, bestOtherZ = Infinity;
+  const considerOther = (anchor, sx, sy, row, wh, wv) => {
     const dx = sx - mx, dy = sy - my, d = Math.sqrt(dx * dx + dy * dy);
-    if (d < bestOtherD) { bestOtherD = d; bestOther = { anchor, sx, sy, dist: d }; }
+    if (!beats(view, d, row, bestOtherD, bestOtherZ)) return;
+    if (!pickOk(view, row, wh, wv, anchor.kind, draftAnchor)) return;
+    bestOtherD = d; bestOtherZ = depthOfRow(view, row);
+    bestOther = { anchor, sx, sy, dist: d };
   };
-  let bestCorner = null, bestCornerD = Infinity;
-  const considerCorner = (anchor, sx, sy) => {
+  let bestCorner = null, bestCornerD = Infinity, bestCornerZ = Infinity;
+  const considerCorner = (anchor, sx, sy, row, wh, wv) => {
     const dx = sx - mx, dy = sy - my, d = Math.sqrt(dx * dx + dy * dy);
-    if (d < bestCornerD) { bestCornerD = d; bestCorner = { anchor, sx, sy, dist: d }; }
+    if (!beats(view, d, row, bestCornerD, bestCornerZ)) return;
+    if (!pickOk(view, row, wh, wv, 'corner', draftAnchor)) return;
+    bestCornerD = d; bestCornerZ = depthOfRow(view, row);
+    bestCorner = { anchor, sx, sy, dist: d };
   };
 
   for (const row of view.rows) {
@@ -396,9 +551,10 @@ function nearestCandidate(view, mx, my) {
     const corners = [];
     for (const h of [-1, 1]) {
       for (const v of [-1, 1]) {
-        const sx = view.sx(fr.worldH(h)), sy = view.sy(fr.worldV(v));
+        const wh = fr.worldH(h), wv = fr.worldV(v);
+        const sx = view.sx(wh), sy = view.sy(wv);
         corners.push({ h, v, sx, sy });
-        considerCorner(anchorOf(row, 'corner', { h, v }), sx, sy);
+        considerCorner(anchorOf(row, 'corner', { h, v }), sx, sy, row, wh, wv);
       }
     }
     const edges = [
@@ -414,7 +570,7 @@ function nearestCandidate(view, mx, my) {
       const sx = p0.sx + dx * t, sy = p0.sy + dy * t;
       const h = p0.h === p1.h ? p0.h : p0.h + (p1.h - p0.h) * t;
       const v = p0.v === p1.v ? p0.v : p0.v + (p1.v - p0.v) * t;
-      considerOther(anchorOf(row, 'edgePoint', { h, v }), sx, sy);
+      considerOther(anchorOf(row, 'edgePoint', { h, v }), sx, sy, row, fr.worldH(h), fr.worldV(v));
     }
     holeCandidates(view, row, considerOther);
   }
@@ -443,15 +599,18 @@ function shiftAxis(anchor, pa, mx, my) {
 function shiftCandidate(view, aAnchor, pa, axis, mx, my) {
   const px = axis === 'h' ? mx : pa.sx;
   const py = axis === 'h' ? pa.sy : my;
-  let best = null, bestScore = Infinity;
-  const consider = (anchor, sx, sy, radius, bias) => {
+  let best = null, bestScore = Infinity, bestZ = Infinity;
+  const consider = (anchor, sx, sy, radius, bias, row, wh, wv) => {
     const along = axis === 'h' ? Math.abs(sx - px) : Math.abs(sy - py);
     const perp = axis === 'h' ? Math.abs(sy - py) : Math.abs(sx - px);
     if (perp > HIT_RADIUS || along > radius) return;
     const len = axis === 'h' ? Math.abs(sx - pa.sx) : Math.abs(sy - pa.sy);
     if (len < 0.5 || sameAnchor(anchor, aAnchor)) return;
     const score = along - bias;
-    if (score < bestScore) { bestScore = score; best = { anchor, sx, sy, dist: along }; }
+    if (!beats(view, score, row, bestScore, bestZ)) return;
+    if (!pickOk(view, row, wh, wv, anchor.kind, aAnchor)) return;
+    bestScore = score; bestZ = depthOfRow(view, row);
+    best = { anchor, sx, sy, dist: along };
   };
   for (const row of view.rows) {
     if (!anchorable(row)) continue;
@@ -459,24 +618,31 @@ function shiftCandidate(view, aAnchor, pa, axis, mx, my) {
     if (!fr) continue;
     for (const h of [-1, 1]) {
       for (const v of [-1, 1]) {
-        consider(anchorOf(row, 'corner', { h, v }), view.sx(fr.worldH(h)), view.sy(fr.worldV(v)),
-          CORNER_RADIUS, CORNER_MARGIN);
+        const wh = fr.worldH(h), wv = fr.worldV(v);
+        consider(anchorOf(row, 'corner', { h, v }), view.sx(wh), view.sy(wv),
+          CORNER_RADIUS, CORNER_MARGIN, row, wh, wv);
       }
     }
     if (axis === 'h') {
       const ya = view.sy(fr.worldV(-1)), yb = view.sy(fr.worldV(1));
       if (py >= Math.min(ya, yb) - 0.01 && py <= Math.max(ya, yb) + 0.01) {
         const v = fr.localV(worldFromScreen(view, 'v', py));
-        for (const h of [-1, 1]) consider(anchorOf(row, 'edgePoint', { h, v }), view.sx(fr.worldH(h)), py, HIT_RADIUS, 0);
+        for (const h of [-1, 1]) {
+          consider(anchorOf(row, 'edgePoint', { h, v }), view.sx(fr.worldH(h)), py, HIT_RADIUS, 0,
+            row, fr.worldH(h), fr.worldV(v));
+        }
       }
     } else {
       const xa = view.sx(fr.worldH(-1)), xb = view.sx(fr.worldH(1));
       if (px >= Math.min(xa, xb) - 0.01 && px <= Math.max(xa, xb) + 0.01) {
         const h = fr.localH(worldFromScreen(view, 'h', px));
-        for (const v of [-1, 1]) consider(anchorOf(row, 'edgePoint', { h, v }), px, view.sy(fr.worldV(v)), HIT_RADIUS, 0);
+        for (const v of [-1, 1]) {
+          consider(anchorOf(row, 'edgePoint', { h, v }), px, view.sy(fr.worldV(v)), HIT_RADIUS, 0,
+            row, fr.worldH(h), fr.worldV(v));
+        }
       }
     }
-    holeCandidates(view, row, (anchor, sx, sy) => consider(anchor, sx, sy, HIT_RADIUS, 0));
+    holeCandidates(view, row, (anchor, sx, sy, r, wh, wv) => consider(anchor, sx, sy, HIT_RADIUS, 0, r, wh, wv));
   }
   return best;
 }
@@ -488,10 +654,11 @@ const VIEW_MARGIN = CORNER_RADIUS;
 function viewAt(sheetId, mx, my) {
   const sh = sheets[sheetId];
   if (!sh) return null;
-  for (const name of ['front', 'side', 'top']) {
+  for (const name of VIEW_ORDER) {
     const v = sh.views[name];
     if (!v) continue;
     const rg = v.region;
+    if (!rg) return v;   // вид без региона (3D-оверлей) — весь лист
     if (mx >= rg.x0 - VIEW_MARGIN && mx <= rg.x1 + VIEW_MARGIN
       && my >= rg.y0 - VIEW_MARGIN && my <= rg.y1 + VIEW_MARGIN) return v;
   }
@@ -522,9 +689,10 @@ function chooseOrient(pa, pb, mx, my, prev, lock) {
 }
 
 // Вынос (мм модели от точки A) по положению курсора: плавно, в пределах
-// рамки СВОЕГО листа, с «магнитом» к линии соседнего ручного размера того же
-// вида этого листа и той же ориентации (в пределах SNAP_PX экранных px,
-// если отрезки не перекрываются).
+// рамки СВОЕГО листа (rect = null — без ограничения), с «магнитом» к линии
+// соседнего ручного размера того же вида и того же листа данных и той же
+// ориентации (в пределах SNAP_PX экранных px, если отрезки не перекрываются).
+// sheetId — лист ОТОБРАЖЕНИЯ: геометрия соседей считается по его видам.
 function offsetFromCursor(sheetId, viewName, pa, pb, orient, mx, my, excludeId) {
   const view = viewOf(sheetId, viewName);
   const rect = sheets[sheetId] && sheets[sheetId].rect;
@@ -541,8 +709,8 @@ function offsetFromCursor(sheetId, viewName, pa, pb, orient, mx, my, excludeId) 
   let snapTo = null, bestD = tol;
   for (const d of dims) {
     // магнит — только к размерам ТОГО ЖЕ вида того же листа
-    if (d.id === excludeId || sheetOf(d) !== sheetId || d.view !== viewName) continue;
-    const g = geom(d);
+    if (d.id === excludeId || !shownOn(d, sheetId) || d.view !== viewName) continue;
+    const g = geom(d, sheetId);
     if (!g || g.orientation !== orient) continue;
     const dd = Math.abs(g.line - L);
     if (dd > bestD) continue;
@@ -551,9 +719,7 @@ function offsetFromCursor(sheetId, viewName, pa, pb, orient, mx, my, excludeId) 
     snapTo = g.line; bestD = dd;
   }
   if (snapTo != null) L = snapTo;
-  const off = orient === 'h'
-    ? worldFromScreen(view, 'v', L) - pa.wv
-    : worldFromScreen(view, 'h', L) - pa.wh;
+  const off = offsetFromLine(view, orient, pa, L);
   return Math.round(off * 10) / 10;
 }
 
@@ -645,8 +811,8 @@ function markerSVG(cls, x, y) {
 function renderFinishedGroup(sheetId) {
   let out = '';
   for (const d of dims) {
-    if (sheetOf(d) !== sheetId) continue;
-    const g = geom(d);
+    if (!shownOn(d, sheetId)) continue;
+    const g = geom(d, sheetId);
     if (!g) continue;
     const cls = 'mk-dim' + (d.id === selectedId ? ' mk-dim-sel' : '');
     out += `<g class="${cls}" data-mk-id="${d.id}">${dimSVG(g)}${hitLineSVG(g)}${extentRectSVG(g)}</g>`;
@@ -670,7 +836,7 @@ function renderLiveSVG(sheetId) {
   if (dragState) {
     if (dragState.sheet !== sheetId) return '';
     const d = dims.filter((x) => x.id === dragState.id)[0];
-    const g = d && dragState.moved ? geom(d) : null;
+    const g = d && dragState.moved ? geom(d, dragState.sheet) : null;
     if (g) out += `<g class="mk-draft">${dimSVG(g)}</g>`;
     return out;
   }
@@ -706,8 +872,8 @@ function renderLiveSVG(sheetId) {
       const pb = resolveAnchor(view, draft.b);
       if (pb) out += markerSVG('mk-anchor', pb.sx, pb.sy);
       if (draft.orient) {
-        const g = geom({ sheet: draft.sheet, view: draft.view, a: draft.a, b: draft.b,
-          orient: draft.orient, offset: draft.offset || 0 });
+        const g = geom({ sheet: draft.data, view: draft.view, a: draft.a, b: draft.b,
+          orient: draft.orient, offset: draft.offset || 0 }, draft.sheet);
         if (g) out += `<g class="mk-draft">${dimSVG(g)}</g>`;
       }
       return out;
@@ -757,12 +923,18 @@ function svgPoint(svg, evt) {
   return { x: p.x, y: p.y };
 }
 
-// Перерисовать готовые размеры всех листов (или одного).
+// Перерисовать готовые размеры всех листов (или тех, что показывают те же
+// данные, что лист onlySheet).
 function refreshFinished(onlySheet) {
-  if (!lastModel) return;
+  // Судим по реестру листов, а не только по lastModel: 3D-оверлей может быть
+  // единственным листом (вкладка «Чертежи» ни разу не открывалась), и
+  // поставленный/удалённый в 3D размер обязан перерисоваться сразу.
+  if (!lastModel && !latestModel && !Object.keys(sheets).length) return;
+  const key = onlySheet ? dataKey(onlySheet) : null;
+  const shares = (id) => dataKey(id) === key;
   for (const svg of allSheetSvgs()) {
     const id = sheetIdOf(svg);
-    if (!id || (onlySheet && id !== onlySheet)) continue;
+    if (!id || (onlySheet && id !== onlySheet && !shares(id))) continue;
     const el = groupIn(svg, 'mk-finished');
     if (el) el.innerHTML = renderFinishedGroup(id);
   }
@@ -808,10 +980,10 @@ function updateDrag(mx, my) {
     setFinishedHidden(d.id, dragState.sheet, true);
   }
   if (!dragState.moved) return;   // щелчок (выделение), не drag — вынос не трогаем
-  const g = geom(d);
+  const g = geom(d, dragState.sheet);
   if (!g) return;
   // Ориентация готового размера при перетаскивании не меняется — только вынос.
-  d.offset = offsetFromCursor(sheetOf(d), d.view, g.pa, g.pb, d.orient, mx, my, d.id);
+  d.offset = offsetFromCursor(dragState.sheet, d.view, g.pa, g.pb, d.orient, mx, my, d.id);
 }
 
 function updateHover(sheetId, mx, my) {
@@ -827,7 +999,7 @@ function updateHover(sheetId, mx, my) {
       hoverCandidate = cand ? Object.assign({ sheet: draft.sheet, view: view.name }, cand) : null;
       return;
     }
-    const cand = nearestCandidate(view, mx, my);
+    const cand = nearestCandidate(view, mx, my, draft.a);
     hoverCandidate = cand ? Object.assign({ sheet: draft.sheet, view: view.name }, cand) : null;
     return;
   }
@@ -889,6 +1061,11 @@ function onDown(evt) {
   if (!hit) return;
   const id = Number(hit.getAttribute('data-mk-id'));
   if (!id) return;
+  // Запись старого формата (dir/level без orient) ещё не мигрирована — так
+  // бывает на внешнем листе (3D: по чужому масштабу не мигрируем). Тянуть её
+  // нельзя: updateDrag записал бы в offset мусор и лишний шаг истории.
+  const rec = dims.filter((x) => x.id === id)[0];
+  if (!rec || (rec.orient !== 'h' && rec.orient !== 'v')) return;
   const p = svgPoint(svg, evt);
   if (!p) return;
   dragState = { id, sheet: sheetId, startX: p.x, startY: p.y, moved: false };
@@ -939,15 +1116,17 @@ function onClick(evt) {
   if (draft && draft.phase === 'pickOffset') {
     const svg = sheetSvg(draft.sheet);
     if (!svg) { draft = null; refreshLive(); return; }
-    const pane = svg.closest && svg.closest('.tab-panel, .part-editor-body');
+    // Область листа: вкладка чертежей, окно редактора детали или любой
+    // контейнер с классом mk-pane (3D-вьювер).
+    const pane = svg.closest && svg.closest('.tab-panel, .part-editor-body, .mk-pane');
     if (!svg.contains(evt.target) && !(pane && pane.contains(evt.target))) return;
     const p = svgPoint(svg, evt);
     if (!p) return;
     updateOffsetDraft(p.x, p.y);
     if (!draft.orient) return;
-    const rec = { id: nextId++, sheet: draft.sheet, view: draft.view, a: draft.a, b: draft.b,
-      orient: draft.orient, offset: draft.offset || 0 };
-    if (!geom(rec)) { nextId--; return; }   // нулевой размер не создаём
+    const rec = { id: nextId++, sheet: dataKey(draft.sheet), view: draft.view,
+      a: draft.a, b: draft.b, orient: draft.orient, offset: draft.offset || 0 };
+    if (!geom(rec, draft.sheet)) { nextId--; return; }   // нулевой размер не создаём
     const sheetId = draft.sheet;
     dims.push(rec);
     draft = null;
@@ -977,7 +1156,7 @@ function onClick(evt) {
     const view = viewAt(sheetId, p.x, p.y);
     const cand = view ? nearestCandidate(view, p.x, p.y) : null;
     if (cand) {
-      draft = { sheet: sheetId, view: view.name, a: cand.anchor, phase: 'pickB' };
+      draft = { sheet: sheetId, data: dataKey(sheetId), view: view.name, a: cand.anchor, phase: 'pickB' };
       selectedId = null;
       refreshFinished();
     } else if (selectedId != null) {
@@ -998,7 +1177,7 @@ function onClick(evt) {
       lock = shiftAxis(draft.a, pa, p.x, p.y);
       cand = shiftCandidate(view, draft.a, pa, lock, p.x, p.y);
     } else {
-      cand = nearestCandidate(view, p.x, p.y);
+      cand = nearestCandidate(view, p.x, p.y, draft.a);
     }
     if (!cand) return;
     if (sameAnchor(draft.a, cand.anchor)) return;
@@ -1147,7 +1326,7 @@ function setData(list) {
   const src = Array.isArray(list) ? list : [];
   for (const d of src) {
     if (!d || typeof d !== 'object') continue;
-    if (d.view !== 'front' && d.view !== 'side' && d.view !== 'top') continue;
+    if (!VIEW_NAMES[d.view]) continue;
     const a = cleanAnchor(d.a), b = cleanAnchor(d.b);
     if (!a || !b) continue;
     let id = Number(d.id);
@@ -1186,18 +1365,46 @@ function clearAll() {
 
 // Сколько размеров сейчас ВИДНО на всех листах (для «Очистить всё»).
 // Размеры исчезнувших листов/деталей хранятся (для Ctrl+Z), но не считаются.
-// Пока чертежи ни разу не собирались — судить не по чему, считаем все.
+// Пока ни один лист не регистрировался — судить не по чему, считаем все.
+// Правило для записи:
+//   1) видна хотя бы на одном зарегистрированном листе отображения (включая
+//      3D-оверлей 'viewer3d') — считается;
+//   2) иначе, если какой-то зарегистрированный лист ПОКАЗЫВАЕТ её (лист
+//      данных и вид совпадают) и мог бы нарисовать, но не нарисовал —
+//      деталь пропала/размер вырожден — не считается;
+//   3) иначе (её пару «лист данных + вид» сейчас не показывает никто:
+//      вкладка «Чертежи» не собиралась, 3D в другом виде, окно редактора
+//      закрыто, или размер от отверстия при выключенной проверке присадки)
+//      — считается, пока в последней модели живы детали обеих точек.
+// Так результат не зависит от того, открывали ли «Чертежи».
 function count() {
-  if (!lastModel || !Object.keys(sheets).length) return dims.length;
+  if (!(latestModel || lastModel) || !Object.keys(sheets).length) return dims.length;
+  const ids = Object.keys(sheets);
   let n = 0;
   for (const d of dims) {
+    let covered = false, seen = false;
+    for (const id of ids) {
+      if (!shownOn(d, id)) continue;
+      const view = viewOf(id, d.view);
+      if (!view) continue;
+      // Отверстия на этом виде сейчас не рисуются — судить по нему нельзя.
+      if (view.noHoles && (d.a.kind === 'holeCenter' || d.b.kind === 'holeCenter')) continue;
+      covered = true;
+      if (geom(d, id)) { seen = true; break; }
+    }
+    if (seen) { n++; continue; }
+    if (covered) continue;
     const sh = sheetOf(d);
-    if (sheets[sh]) { if (geom(d)) n++; continue; }
     // Лист редактора детали, когда окно закрыто, не зарегистрирован — но его
     // размеры живые, пока жива сама деталь (их тоже чистит «Очистить всё»).
-    if (sh.indexOf('editor:') === 0 && editorPartExists(sh)) n++;
+    if (sh.indexOf('editor:') === 0) { if (editorPartExists(sh)) n++; continue; }
+    if (partExists(d.a) && partExists(d.b)) n++;
   }
   return n;
+}
+function partExists(anchor) {
+  const m = latestModel || lastModel;
+  return !!anchor && ((m && m.partsRaw) || []).some((r) => r.moduleUid === anchor.moduleUid && r.anchorKey === anchor.key);
 }
 // Модель последнего пересчёта (app.js: recompute → setModel) — актуальнее
 // lastModel, который обновляется только при сборке листов (вкладка
@@ -1231,14 +1438,20 @@ function getFontScale() { return fontScale; }
 // beginSheets() — в начале каждой сборки чертежей (buildDrawings): реестр
 // листов собирается заново, листы удалённых модулей/деталей исчезают.
 function beginSheets() {
-  // Лист редактора детали строится вне buildDrawings (своё окно) — его не
-  // трогаем, иначе пересборка чертежей «отключала» бы открытый редактор.
+  // Лист редактора детали и внешние листы (attachSheet с opts.external —
+  // 3D-оверлей) строятся вне buildDrawings — их не трогаем, иначе пересборка
+  // чертежей «отключала» бы открытый редактор/разметку в 3D.
   const keep = {};
-  for (const id of Object.keys(sheets)) if (id.indexOf('editor:') === 0) keep[id] = sheets[id];
+  for (const id of Object.keys(sheets)) {
+    if (id.indexOf('editor:') === 0 || sheets[id].external) keep[id] = sheets[id];
+  }
   sheets = keep;
   partMemberSheet = {};
   if (liveShownSheet && !sheets[liveShownSheet]) liveShownSheet = null;
-  hoverSheet = null; hoverCandidate = null;
+  // Наведение на внешнем листе (курсор над 3D) пересборка чертежей не сбивает.
+  const isExt = (id) => !!(id && sheets[id] && sheets[id].external);
+  if (!isExt(hoverSheet)) hoverSheet = null;
+  if (hoverCandidate && !isExt(hoverCandidate.sheet)) hoverCandidate = null;
   // Начатая постановка/перетаскивание на листе, которого после пересборки
   // не стало, сбрасываются в onMove/onClick (sheetSvg() вернёт null).
 }
@@ -1246,14 +1459,40 @@ function beginSheets() {
 // attachSheet(sheetId, model, views, rect) — вызывается ВНУТРИ построения
 // каждого листа. views — контексты видов листа (name/hAxis/vAxis/sx/sy/rows/
 // region/noHoles[/holeScreen]); rect — рамка листа {x,y,w,h} ДО ручных
-// размеров (предел выноса). Возвращает SVG-фрагмент: группа готовых
-// размеров листа + пустая «живая» группа для интерактива.
-function attachSheet(sheetId, model, views, rect) {
+// размеров (предел выноса) или null — без ограничения. Возвращает
+// SVG-фрагмент: группа готовых размеров листа + пустая «живая» группа для
+// интерактива.
+// opts (необязательно): { dataSheet: 'view3d'|…, external: true } —
+//   dataSheet: лист данных (см. шапку «Лист отображения и лист данных»);
+//   external: лист вне вкладки «Чертежи», beginSheets() его не сбрасывает.
+// Повторный вызов с тем же sheetId заменяет регистрацию (так 3D-оверлей
+// обновляет проекцию после движения камеры). Если у листа сменился лист
+// данных или пропал вид начатой постановки/перетаскивания — они отменяются.
+function attachSheet(sheetId, model, views, rect, opts) {
   if (!sheetId) return '';
   if (model) lastModel = model;
+  const o = opts || {};
   const map = {};
   for (const v of views || []) map[v.name] = v;
-  sheets[sheetId] = { views: map, rect: (rect && isFinite(rect.x) && isFinite(rect.w)) ? rect : null };
+  const dataSheet = (typeof o.dataSheet === 'string' && o.dataSheet) ? o.dataSheet : null;
+  const prevData = sheets[sheetId] ? dataKey(sheetId) : null;
+  sheets[sheetId] = {
+    views: map,
+    rect: (rect && isFinite(rect.x) && isFinite(rect.w)) ? rect : null,
+    dataSheet,
+    external: !!o.external,
+  };
+  const dataChanged = prevData != null && prevData !== dataKey(sheetId);
+  if (draft && draft.sheet === sheetId && (dataChanged || !map[draft.view])) {
+    draft = null; shiftGuide = null;
+  }
+  if (dragState && dragState.sheet === sheetId) {
+    const dd = dims.filter((x) => x.id === dragState.id)[0];
+    if (dataChanged || !dd || !map[dd.view]) dragState = null;
+  }
+  if (hoverCandidate && hoverCandidate.sheet === sheetId && (dataChanged || !map[hoverCandidate.view])) {
+    hoverCandidate = null;
+  }
   for (const v of views || []) {
     for (const m of v.members || []) partMemberSheet[m] = sheetId;
   }
@@ -1288,6 +1527,31 @@ function dropSheet(sheetId) {
   if (liveShownSheet === sheetId) liveShownSheet = null;
 }
 
+// Лист заново нарисован снаружи (3D-вьювер после движения камеры положил в
+// свой svg свежий результат attachSheet) — перерисовать готовые размеры и
+// «живой» слой этого листа. Наведение/вынос пересчитываются по последней
+// позиции курсора: мышь стоит, а картинка под ней уехала (зум колесом).
+// opts.skipFinished — готовые размеры в svg уже свежие (их только что
+// вернул attachSheet): не рисовать их второй раз за кадр.
+function refreshSheet(sheetId, opts) {
+  if (!sheetId || !sheets[sheetId]) return;
+  const svg = sheetSvg(sheetId);
+  const el = (opts && opts.skipFinished) ? null : groupIn(svg, 'mk-finished');
+  if (el) el.innerHTML = renderFinishedGroup(sheetId);
+  if (dragState && dragState.sheet === sheetId && dragState.moved) setFinishedHidden(dragState.id, sheetId, true);
+  if (active && lastMouse && !dragState) {
+    if (draft && draft.sheet === sheetId) {
+      if (draft.phase === 'pickOffset') updateOffsetDraft(lastMouse.sx, lastMouse.sy);
+      else updateHover(sheetId, lastMouse.sx, lastMouse.sy);
+    } else if (!draft && hoverSheet === sheetId) {
+      updateHover(sheetId, lastMouse.sx, lastMouse.sy);
+    }
+  }
+  // Живую группу листа только что заменили пустой — рисуем заново.
+  if (liveShownSheet === sheetId) liveShownSheet = null;
+  refreshLive();
+}
+
 // Совместимость: общий вид как один из листов.
 function attachOverview(model, views, rect) {
   return attachSheet(OVERVIEW, model, views, rect);
@@ -1306,5 +1570,8 @@ window.Modul3D.markup = {
   count, onChange, onMigrate, cancelDraft, setModel,
   // используется только drawings.js — не часть UI API
   beginSheets, attachSheet, attachOverview, dropSheet,
+  // внешние листы (3D-оверлей viewer.js, см. шапку)
+  refreshSheet,
+  SHEET_OVERVIEW: OVERVIEW, SHEET_VIEW3D: VIEW3D,
 };
 })();

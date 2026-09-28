@@ -240,22 +240,41 @@ function visibleParts(parts, view) {
       for (let j = 0; j < N && covered; j++) {
         const px = lerpInset(it.x0, it.x1, i, N, INSET);
         const py = lerpInset(it.y0, it.y1, j, N, INSET);
-        if (!shown.some(s => px >= s.x0 && px <= s.x1 && py >= s.y0 && py <= s.y1)) {
+        if (!shown.some(s => px >= s.x0 - s.pad && px <= s.x1 + s.pad
+          && py >= s.y0 - s.pad && py <= s.y1 + s.pad)) {
           covered = false;
         }
       }
     }
     if (covered && shown.length) continue;
+    // Фурнитура на чертеже не рисуется (см. drawParts) — значит, и заслонять
+    // ничего не должна, иначе под ручкой осталась бы «дыра».
+    if (it.row.hardware) { kept.push(it); continue; }
+    // Фасад заслоняет с запасом INSET на сторону: щель между соседними
+    // фасадами — технологический зазор (в engine.js gap = 1,5 мм на сторону,
+    // между двумя фасадами 3 мм). Сквозь такую щель дно, крыша и полки
+    // «видны» лишь полоской в 3 мм — на виде это не деталь, а шум. Раньше
+    // проба посередине дна попадала ровно в щель между створками, и дно с
+    // крышей рисовались целиком поверх дверей.
+    it.pad = FACADE_KINDS[it.row.kind] ? INSET : 0;
     shown.push(it);
     kept.push(it);
   }
+  // ПОРЯДОК РИСОВАНИЯ — ОТ ДАЛЬНИХ К БЛИЖНИМ. Детали рисуются с белой
+  // заливкой, поэтому ближняя деталь, нарисованная позже, закрывает ту часть
+  // дальней, которая за ней. Раньше порядок был обратный (ближние первыми):
+  // боковина, у которой видна только полоска под дверью (на опорах/цоколе),
+  // рисовалась целиком ПОВЕРХ двери — торцы боковин просвечивали сквозь фасад.
+  // Разворачиваем порядок СТРОК, а не боксов: внутри детали боксы остаются
+  // от ближних к дальним, как раньше (boxes[0] — по нему ручная разметка
+  // markup.js строит углы и грани детали).
   // возвращаем в формате «строка + только видимые боксы»
   const byRow = new Map();
   for (const it of kept) {
     if (!byRow.has(it.row)) byRow.set(it.row, Object.assign({}, it.row, { boxes: [] }));
     byRow.get(it.row).boxes.push(it.b);
   }
-  return Array.from(byRow.values());
+  return Array.from(byRow.values()).reverse();
 }
 
 // Размер бокса детали вдоль мировой оси: 'x' → ширина, 'y' → высота,
@@ -570,8 +589,14 @@ function unifyBlocks(html) {
 
 function buildOverview(model, scale) {
   const d = model.dims;
-  // Снаружи видно только корпус и фасады
-  const outer = model.partsRaw.filter(p => !INTERIOR_KINDS[p.kind]);
+  // Снаружи видно корпус и фасады. Полки и стойки тоже берём: закрыты ли они
+  // фасадом, решает visibleParts() по геометрии — у открытого модуля (без
+  // двери) полки видны спереди и должны быть на общем виде, а за дверью
+  // отсекаются сами. Заднюю стенку и детали ящиков на общем виде не
+  // показываем, как и раньше (контур задней стенки спереди всё равно за
+  // корпусом, ящики закрыты своими фасадами).
+  const OVERVIEW_OPEN = { shelf: 1, divider: 1 };
+  const outer = model.partsRaw.filter(p => !INTERIOR_KINDS[p.kind] || OVERVIEW_OPEN[p.kind]);
   const mods = model.modules;
 
   // РАМКА СЧИТАЕТСЯ ПО ФАКТИЧЕСКОМУ СОДЕРЖИМОМУ, а не по габариту изделия.
@@ -600,6 +625,21 @@ function buildOverview(model, scale) {
   // и тот же список видимых деталей, что использует drawParts() ниже — так
   // hit-testing курсора видит РОВНО то, что нарисовано, не больше и не меньше.
   const mkViews = [];
+  // Глубина детали для разметки (view.depthOf в markup.js): меньше = ближе к
+  // зрителю. Нужна потому, что visibleParts() отдаёт детали от дальних к
+  // ближним (для правильной заливки), а ядро разметки при совпадающих углах
+  // без подсказки выбрало бы первую — т.е. ДАЛЬНЮЮ деталь (боковину под
+  // столешницей вместо самой столешницы). Берём БЛИЖНЮЮ к зрителю грань
+  // бокса (как near в viewer.js MK_VIEWS). Бокс — первый (boxes[0]): именно
+  // по нему markup.js (rowFrame) строит углы и грани детали.
+  const mkDepth = (near) => (row) => {
+    const b = row.boxes && row.boxes[0];
+    const z = b ? near(b) : 0;
+    return Number.isFinite(z) ? z : 0;
+  };
+  const depthFront = mkDepth((b) => -(b.z + b.d / 2));   // смотрим спереди (с +Z)
+  const depthSide  = mkDepth((b) => b.x - b.w / 2);      // смотрим слева (с −X)
+  const depthTop   = mkDepth((b) => -(b.y + b.h / 2));   // смотрим сверху (с +Y)
 
   // ПРАВИЛО: общий вид — только габариты. Присадку на нём не показываем,
   // она есть на чертежах каркаса, фасадов и в файлах для ЧПУ.
@@ -608,20 +648,20 @@ function buildOverview(model, scale) {
   body += text(fx0 + fw / 2, fy0 - 10, 'ВИД СПЕРЕДИ', 'dw-vname', 'middle');
   for (const m of mods) body += moduleLabel(m, F);
   body += overallDims(model, F, fy0 + fh, fx0);
-  mkViews.push({ name: 'front', noHoles: true, hAxis: 'x', vAxis: 'y', sx: F.x, sy: F.y, rows: frontVisible,
+  mkViews.push({ name: 'front', noHoles: true, hAxis: 'x', vAxis: 'y', sx: F.x, sy: F.y, rows: frontVisible, depthOf: depthFront,
     region: { x0: fx0, y0: fy0, x1: fx0 + fw, y1: fy0 + fh } });
 
   const sideVisible = visibleParts(outer, 'side');
   body += drawParts(sideVisible, S.x, S.y, 'z', 'y', null, false, true);
   body += text(sx0 + dd / 2, fy0 - 10, 'ВИД СБОКУ', 'dw-vname', 'middle');
   body += sideDims(model, S, fy0 + fh, zMin, zMax);
-  mkViews.push({ name: 'side', noHoles: true, hAxis: 'z', vAxis: 'y', sx: S.x, sy: S.y, rows: sideVisible,
+  mkViews.push({ name: 'side', noHoles: true, hAxis: 'z', vAxis: 'y', sx: S.x, sy: S.y, rows: sideVisible, depthOf: depthSide,
     region: { x0: sx0, y0: fy0, x1: sx0 + dd, y1: fy0 + fh } });
 
   const topVisible = visibleParts(outer, 'top');
   body += drawParts(topVisible, T.x, topSy, 'x', 'z', null, false, true);
   body += text(fx0 + fw / 2, ty0 - 8, 'ВИД СВЕРХУ', 'dw-vname', 'middle');
-  mkViews.push({ name: 'top', noHoles: true, hAxis: 'x', vAxis: 'z', sx: T.x, sy: topSy, rows: topVisible,
+  mkViews.push({ name: 'top', noHoles: true, hAxis: 'x', vAxis: 'z', sx: T.x, sy: topSy, rows: topVisible, depthOf: depthTop,
     region: { x0: fx0, y0: ty0, x1: fx0 + fw, y1: ty0 + dd } });
   // На виде сверху общий габарит по глубине не дублируем — он уже стоит на
   // виде сбоку. Здесь нужна только глубина корпусов.
