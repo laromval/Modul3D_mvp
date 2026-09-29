@@ -14,7 +14,7 @@
 (function () {
 // Версия сборки — показывается во вкладке браузера и в шапке.
 // При выпуске новой версии меняется только эта строка.
-const APP_VERSION = 'v322';
+const APP_VERSION = 'v323';
 
 // Номер версии выводим ПЕРВЫМ делом: если дальше что-то упадёт, по нему сразу
 // видно, какая сборка открыта.
@@ -11686,7 +11686,7 @@ function drawersPanelBlock(mod, secIndex) {
       <h3>Материал ящиков</h3>
       <div class="field">
         <label>Толщина ЛДСП ящиков</label>
-        <input id="drawersThickness" type="number" step="1" value="${Number(sec.drawerThickness) || 16}">
+        <input id="drawersThickness" type="number" step="1" value="${window.Modul3D.engine.effectiveDrawerThickness(sec, null)}">
       </div>
       <div class="field">
         <label>Материал ящиков</label>

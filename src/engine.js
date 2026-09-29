@@ -1450,6 +1450,16 @@ function facadeMaterialOf(sec, proj) {
   return { code: ft.material, name: (m && m.name) || ft.material || '', thickness: ft.thickness, facadeType: ft.id };
 }
 
+// Для UI и ядра: эффективная толщина ЛДСП ящика секции — независимая от
+// толщины корпуса величина (короб ящика режут отдельно, см.
+// ПРАВИЛА-КОНСТРУИРОВАНИЯ.md, «Материал короба»): sec.drawerThickness →
+// проектная p.drawerThickness → 16 мм. НЕ падает на bodyThickness корпуса —
+// раньше падал (баг, толщина ящика молча становилась равной толщине
+// корпуса, например 18 мм вместо 16), см. исправление 2026-09-29.
+function effectiveDrawerThickness(sec, proj) {
+  return Number(sec && sec.drawerThickness) || Number(proj && proj.drawerThickness) || 16;
+}
+
 // Эффективные настройки фасада отсека (дверной зоны) = поля зоны поверх
 // полей секции, только ключи фасада (ZONE_FACADE_KEYS). Зоны действуют лишь
 // при doorZoneCount > 1 (как и сама раскладка зон в buildModuleParts); зона
@@ -2511,10 +2521,8 @@ function buildModuleParts(p) {
   // вызовы ядра) — декор корпуса. Свой материал секции (sec.facadeMaterial)
   // по-прежнему приоритетнее (см. facadeTypeOf/facadeMaterialPick).
   const facadeMat = p.facadeMat || decor;
-  // Материал ящиков задаётся отдельно от корпуса: корпус обычно 18 мм,
-  // ящики режут из 16 мм и часто другим декором (внутренний).
+  // Материал и толщина ящиков не зависят от корпуса — см. effectiveDrawerThickness.
   const drawerDecor = p.drawerDecor || decor;
-  const drawerT = Number(p.drawerThickness) || Number(p.bodyThickness) || 16;
   // gap — видимый просвет фасада НА СТОРОНУ. Фасад вписывается в свой «слот»
   // с отступом gap со всех четырёх сторон: от боковины, от крышки, от дна.
   // Между двумя соседними фасадами просвет получается 2*gap.
@@ -3567,7 +3575,7 @@ function buildModuleParts(p) {
       const secDrawerDecor = (sec.drawerDecorCode
         && window.Modul3D.catalog.DECORS.find((d) => d.code === sec.drawerDecorCode))
         || drawerDecor;
-      const secDrawerT = Number(sec.drawerThickness) || drawerT;
+      const secDrawerT = effectiveDrawerThickness(sec, p);
       buildDrawerBoxes({
         parts, warnings, sec, secName, secCenterX, drawerHeights,
         sectionOpening: secW, innerDepth: D - tb, t, decor, back, backT: tb,
@@ -6409,6 +6417,10 @@ window.Modul3D.engine = {
   //     → { code, name, thickness, facadeType }
   //   zoneFacadeSettings(sec, zoneIdx) → копия sec с полями фасада зоны поверх
   facadeMaterialOptions, facadeMaterialOf, zoneFacadeSettings, ZONE_FACADE_KEYS,
+  // Эффективная толщина ЛДСП ящика секции (sec.drawerThickness → проектная
+  // → 16 мм, НЕ толщина корпуса) — единая формула для ядра и UI, чтобы
+  // поле «Толщина ЛДСП ящиков» не расходилось с реальным расчётом.
+  effectiveDrawerThickness,
   // Правило умолчания ЛДСП-фасада (миграция старых проектов в app.js).
   facadeMaterialKind, ldspFacadeDefault,
   // «Видимая боковина» (проектный facadeDecor): ЛДСП/ДСП + фасадные МДФ-панели.
