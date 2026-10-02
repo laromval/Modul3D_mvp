@@ -1620,7 +1620,7 @@ function makeFramedFacade(box, row, isActive, ghost, sectionHi, drillCheck, dril
   // Текстура одна на все вставки (aluInsetWoodTexture) — чтобы не плодить
   // новую GPU-текстуру на каждом пересчёте. Размер вставки учитываем не в
   // текстуре, а в UV самой геометрии (см. ниже, после создания вставки).
-  const insTex = (sheetLook && sheetLook.wood && !isActive && !sectionHi)
+  const insTex = (sheetLook && sheetLook.wood && !isActive && !sectionHi && !ghost)
     ? aluInsetWoodTexture() : null;
   const matIns = new THREE.MeshStandardMaterial({
     color: sectionHi ? SECTION_HI_COLOR : insColor,
@@ -4499,7 +4499,9 @@ class Viewer3D {
       // drillCheck: если эта деталь — фасад выбранной секции ИЛИ конкретная
       // деталь, открытая на экране «Деталь», красим её бирюзовым и никакую
       // текстуру/другой оттенок сверху не кладём.
-      const tex = ((ldspLike || (look && look.tile && !glass)) && !isActive && !hiCyan)
+      // В прозрачном режиме (xray) текстуры не нужны — только контуры: так
+      // процессор/видеокарта не тянут плитки и их клоны.
+      const tex = ((ldspLike || (look && look.tile && !glass)) && !isActive && !hiCyan && !xray)
         ? (look && look.tile ? tileTexture(look.tile) : woodTexture()) : null;
       // Размер плитки в метрах детали: у woodTexture() — WOOD_TILE_M, у настоящей
       // плитки листа — её реальный размер (1300 мм), чтобы масштаб рисунка был 1:1.
@@ -4511,11 +4513,11 @@ class Viewer3D {
       const grainV = !!tex && grainRunsAlongV(row.grainAxis, planeIsX, planeIsY);
       const mat = new THREE.MeshStandardMaterial({
         color: hiCyan ? SECTION_HI_COLOR
-          : (glassFacade ? GLASS4_COLOR : (glass ? 0xbfe3ea : ((look && look.tile && tex) ? tileColor(look.tile.k) : (isMdf ? (isActive ? 0x7fb0d8 : 0xf2efe9) : color)))),
+          : (glassFacade ? GLASS4_COLOR : (glass ? 0xbfe3ea : (xray ? 0x7fb0d8 : ((look && look.tile && tex) ? tileColor(look.tile.k) : (isMdf ? (isActive ? 0x7fb0d8 : 0xf2efe9) : color))))),
         map: tex || null,
         roughness: glass ? 0.1 : (isMdf ? 0.12 : 0.75),
         metalness: isMdf ? 0.05 : 0.02,
-        emissive: hiCyan ? SECTION_HI_EMISSIVE : (isActive ? 0x14314a : 0x000000),
+        emissive: hiCyan ? SECTION_HI_EMISSIVE : ((isActive || xray) ? 0x14314a : 0x000000),
         // xray — та же прозрачность, что и в drillCheck (стекло остаётся
         // со своей, оно и так прозрачное; подсветка — со своей).
         transparent: hiCyan || ghostLike || glass || drillCheck || xray || isActive,
@@ -4870,7 +4872,7 @@ class Viewer3D {
         // деталь (cutEdgeGeos сейчас всегда пуст — оставлен только чтобы
         // не менять форму кэша this._partGeoCache лишний раз).
         {
-          const lineMat = new THREE.LineBasicMaterial({ color: isActive ? 0x1d5c8f : 0x8a7a5a });
+          const lineMat = new THREE.LineBasicMaterial({ color: xray ? 0x38bdf8 : (isActive ? 0x1d5c8f : 0x8a7a5a) });
           if (outlineEdges) mesh.add(new THREE.LineSegments(outlineEdges, lineMat));
           for (const ce of cutEdgeGeos) mesh.add(new THREE.LineSegments(ce, lineMat));
         }
