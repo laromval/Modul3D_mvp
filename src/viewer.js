@@ -24,23 +24,8 @@ const MM = 0.001; // мм -> м
 // декоративное и его можно потом подправить визуально по вкусу.
 const WOOD_TILE_M = 0.6;
 
-// Текстура на ВСЮ деталь (столешницу): рисуется под её реальные длину и глубину,
-// без повтора и стыков (см. proceduralDecor.renderPiece). Кэш — по размеру.
-const _pieceTexCache = {};
-function procPieceTexture(spec, uMM, vMM) {
-  const pd = window.Modul3D && window.Modul3D.procDecor;
-  if (!pd || !pd.renderPiece) return null;
-  const key = spec.code + '|' + Math.round(uMM) + '|' + Math.round(vMM);
-  if (_pieceTexCache[key]) return _pieceTexCache[key];
-  const t = new THREE.CanvasTexture(pd.renderPiece(spec, uMM, vMM));
-  t.wrapS = t.wrapT = THREE.ClampToEdgeWrapping;
-  t.anisotropy = 8;
-  _pieceTexCache[key] = t;
-  return t;
-}
-
 // Растровая плитка декора (src/decorTiles.js): настоящий бесшовный фрагмент листа
-// производителя (дуб Бардолино H1145). Волокно в ней идёт вдоль оси x текстуры — как
+// производителя (дуб Бардолино H1145, Пьетра Гриджиа F206). Волокно в ней идёт вдоль оси x текстуры — как
 // у woodTexture(), поэтому направление волокна (grainAxis), сдвиг фазы между деталями
 // и uvSwap работают ровно так же. Картинка грузится асинхронно (data:-URI), текстура
 // обновляется по готовности — сцена перерисовывается сама (_animate).
@@ -337,11 +322,6 @@ function applyGrainBoxUv(geo, grainAxis) {
 // «древесным» по типу детали. Ищем материал в каталоге и смотрим на название.
 function decorLook(code) {
   const base = decorLookBase(code);
-  const pd = (typeof window !== 'undefined' && window.Modul3D && window.Modul3D.procDecor) || null;
-  const spec = pd && pd.get(code);
-  // Процедурный декор (src/decorData.js): жилки рисуются из векторных данных,
-  // а не из JPEG — см. procPieceTexture выше.
-  if (spec) return Object.assign({ color: 0x35332f, wood: false }, base || {}, { proc: spec });
   const tile = decorTileSpec(code);
   return tile ? Object.assign({}, base || { color: 0xc9a76a }, { wood: true, tile }) : base;
 }
@@ -4507,10 +4487,7 @@ class Viewer3D {
       // drillCheck: если эта деталь — фасад выбранной секции ИЛИ конкретная
       // деталь, открытая на экране «Деталь», красим её бирюзовым и никакую
       // текстуру/другой оттенок сверху не кладём.
-      const procSpec = (look && look.proc && !glass && !isMdf && !isActive && !hiCyan) ? look.proc : null;
-      const procPiece = !!procSpec;   // одна процедурная текстура на всю деталь, без плитки
-      const tex = procSpec ? procPieceTexture(procSpec, uSize, vSize)
-        : ((ldspLike && !isActive && !hiCyan) ? (look && look.tile ? tileTexture(look.tile) : woodTexture()) : null);
+      const tex = (ldspLike && !isActive && !hiCyan) ? (look && look.tile ? tileTexture(look.tile) : woodTexture()) : null;
       // Размер плитки в метрах детали: у woodTexture() — WOOD_TILE_M, у настоящей
       // плитки листа — её реальный размер (1300 мм), чтобы масштаб рисунка был 1:1.
       const tileM = (look && look.tile && tex) ? look.tile.tileMM * MM : WOOD_TILE_M;
@@ -4518,12 +4495,12 @@ class Viewer3D {
       // UV геометрии переставляются (uvSwap ниже), а offset в цикле по boxes
       // получает ту же перестановку. Без grainAxis (белый/МДФ/стекло и т.п.)
       // остаётся false — всё как раньше.
-      const grainV = !!tex && !procPiece && grainRunsAlongV(row.grainAxis, planeIsX, planeIsY);
+      const grainV = !!tex && grainRunsAlongV(row.grainAxis, planeIsX, planeIsY);
       const mat = new THREE.MeshStandardMaterial({
         color: hiCyan ? SECTION_HI_COLOR
-          : (glassFacade ? GLASS4_COLOR : (glass ? 0xbfe3ea : (isMdf ? (isActive ? 0x7fb0d8 : 0xf2efe9) : (procSpec ? 0xffffff : ((look && look.tile && tex) ? 0xe2e2e2 : color))))),
+          : (glassFacade ? GLASS4_COLOR : (glass ? 0xbfe3ea : (isMdf ? (isActive ? 0x7fb0d8 : 0xf2efe9) : ((look && look.tile && tex) ? 0xe2e2e2 : color)))),
         map: tex || null,
-        roughness: glass ? 0.1 : (isMdf ? 0.12 : (procSpec ? procSpec.rough : 0.75)),
+        roughness: glass ? 0.1 : (isMdf ? 0.12 : 0.75),
         metalness: isMdf ? 0.05 : 0.02,
         emissive: hiCyan ? SECTION_HI_EMISSIVE : (isActive ? 0x14314a : 0x000000),
         // xray — та же прозрачность, что и в drillCheck (стекло остаётся
@@ -4549,13 +4526,7 @@ class Viewer3D {
         // offset (фаза узора относительно корпуса) выставляется ниже, в
         // цикле по row.boxes — woodUvOrigin(), — там известно положение
         // конкретной детали в корпусе.
-        if (procPiece) {
-          // UV — «сырые» метры от центра пласти: одна текстура ровно на всю пласть.
-          mat.map.repeat.set(1 / (uSize * MM), 1 / (vSize * MM));
-          mat.map.offset.set(0.5, 0.5);
-        } else {
-          mat.map.repeat.set(1 / tileM, 1 / tileM);
-        }
+        mat.map.repeat.set(1 / tileM, 1 / tileM);
       }
       // Кэш геометрии детали (см. this._partGeoCache в конструкторе):
       // одинаковые по размеру пласти и присадке детали (несколько ящиков/
@@ -4671,7 +4642,7 @@ class Viewer3D {
             boxMat.map = mat.map.clone();
             boxMat.map.needsUpdate = true;
           }
-          if (!procPiece) boxMat.map.offset.set(origin.u / tileM, origin.v / tileM);
+          boxMat.map.offset.set(origin.u / tileM, origin.v / tileM);
         }
         for (const g of partGeos) {
           const piece = new THREE.Mesh(g, boxMat);
