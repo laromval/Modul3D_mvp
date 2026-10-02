@@ -449,9 +449,14 @@ check('кнопка «Материалы модуля» открывает эк�
   b.click();
   return !!document.getElementById('p-decor');
 });
-check('корпус по умолчанию 18 мм', () => {
-  const el = document.getElementById('p-bodyThickness');
-  return !!el && Number(el.attrs.value) === 18;
+// Поле «Толщина ЛДСП» убрано (2026-09-28, v323) — толщина корпуса больше не
+// отдельный ввод, а берётся из самого выбранного материала (см. app.js:
+// libPickMaterial, ветка role==='decor'). Проверяем тот же факт (декор по
+// умолчанию — 18 мм) через сам каталог, а не через удалённый #p-bodyThickness.
+check('корпус по умолчанию 18 мм (толщина декора по умолчанию)', () => {
+  const cat = sandbox.Modul3D.catalog;
+  const def = (cat.DECORS || []).filter((x) => x.code === cat.DEFAULT_DECOR_CODE)[0];
+  return !!def && Number(def.thickness) === 18;
 });
 // Материал нового проекта по умолчанию (2026-09-26) — H1145 ST10
 // (catalog.DEFAULT_DECOR_CODE): корпус, видимая боковина и материал фасада.
@@ -667,16 +672,22 @@ check('тип опоры при цоколе с ножками — только 
 });
 check('в секции есть выбор ручек', () => /data-field="handle"/.test($('sectionsList').innerHTML));
 check('в списке фасадов есть открывание вверх', () => /value="liftUp"/.test($('sectionsList').innerHTML));
-// Алюминиевый рамочный фасад (2026-09-26): в секции «Вид фасада» = alu даёт
-// одну плашку-итог (data-alu-open), а профиль/схема/цвет/заполнение/цена —
-// в конструкторе фасада Библиотеки (Двери → Алюминиевые фасады, app.js
-// libAluConstructorHtml): черновик state.aluDraft, «Выбрать» пишет его в
-// секцию. В конце возвращаем ЛДСП, чтобы не влиять на остальные проверки.
+// Алюминиевый рамочный фасад (2026-09-26; вход переехал на экран «Материалы»
+// 2026-09-29 вместе с «Вид фасада»/«Материал фасада» секции, см.
+// matFacadeFieldHtml — дубль этих же полей в «Конструктиве модуля» убран):
+// «Вид фасада» = alu даёт одну плашку-итог (data-mat-pick="facade", класс
+// alu-summary), а профиль/схема/цвет/заполнение/цена — в конструкторе фасада
+// Библиотеки (Двери → Алюминиевые фасады, app.js libAluConstructorHtml):
+// черновик state.aluDraft, «Выбрать» пишет его в секцию. В конце возвращаем
+// ЛДСП и экран «Конструктив модуля» (кнопка «Назад»), чтобы не влиять на
+// остальные проверки — они ждут #sectionsList/#m-leftSide и т.п.
 {
-  const aluFld = (name) => document.getElementById('sectionsList')
-    .querySelectorAll('[data-field]').filter((e) => e.attrs['data-field'] === name)[0];
-  const aluSet = (name, v) => { const el = aluFld(name); if (!el) return false; el.value = v; el.dispatch('change', { target: el }); return true; };
-  const secHtml = () => String($('sectionsList').innerHTML || '');
+  const mb = document.getElementById('materialsLinkBtn');
+  if (mb) mb.click();
+  const panelHtml = () => String($('paramsPanel').innerHTML || '');
+  const facadeTypeSel = () => document.getElementById('p-secFacadeType');
+  const aluSet = (v) => { const el = facadeTypeSel(); if (!el) return false; el.value = v; el.dispatch('change', { target: el }); return true; };
+  const matPick = () => document.getElementById('paramsPanel').querySelectorAll('[data-mat-pick="facade"]')[0];
   const libHtml = () => String(libPanelEl().innerHTML || '');
   const ctorEl = (sel, val) => libPanelEl().querySelectorAll(sel).filter((x) => val === undefined || Object.values(x.attrs).indexOf(val) !== -1)[0];
   const ctorSet = (field, v) => {
@@ -686,18 +697,18 @@ check('в списке фасадов есть открывание вверх',
     libPanelEl().dispatch('change', { target: el });
     return true;
   };
-  // «Материал фасада» секции в «Конструктиве» (2026-09-26): вид фасада
-  // выбирается в секции, плашка открывает Библиотеку в разделе материалов
-  // ЭТОГО вида — «Выбрать» только у engine.facadeMaterialOptions(вид),
-  // выбор пишется в sec.facadeMaterial и виден на плашке.
+  // «Материал фасада» секции на экране «Материалы» (2026-09-29): вид фасада
+  // выбирается в select «Вид фасада» (p-secFacadeType), плашка материала
+  // (data-mat-pick="facade") открывает Библиотеку в разделе материалов ЭТОГО
+  // вида — «Выбрать» только у engine.facadeMaterialOptions(вид), выбор
+  // пишется в sec.facadeMaterial и виден на плашке.
   {
-    const secPick = () => document.getElementById('sectionsList').querySelectorAll('[data-sec-facade-pick]')[0];
     const pickBtns = () => libPanelEl().querySelectorAll('.lib-pick-btn');
     for (const ft of ['mdf', 'glass4', 'ldsp']) {
       check(`материал фасада секции (${ft}): «Выбрать» только у материалов вида`, () => {
-        if (!aluSet('facadeType', ft)) return false;
-        const b = secPick();
-        if (!b || !/<label class="mt6">Материал фасада<\/label>/.test(secHtml())) return false;
+        if (!aluSet(ft)) return false;
+        const b = matPick();
+        if (!b || !/<label class="mt6">Материал фасада<\/label>/.test(panelHtml())) return false;
         b.click();
         const allowed = sandbox.Modul3D.engine.facadeMaterialOptions(ft).map((o) => o.code);
         const btns = pickBtns();
@@ -705,17 +716,18 @@ check('в списке фасадов есть открывание вверх',
         const pb = btns[btns.length - 1];
         const code = pb.attrs['data-pick-code'];
         libPanelEl().dispatch('click', { target: pb });
-        return new RegExp(`data-code="${code}" data-sec-facade-pick="0"`).test(secHtml()) && !/lib-pick-btn/.test(libHtml());
+        return new RegExp(`data-mat-pick="facade" data-code="${code}"`).test(panelHtml()) && !/lib-pick-btn/.test(libHtml());
       });
     }
     check('материал фасада секции: у фрезерованного МДФ плашки нет', () =>
-      aluSet('facadeType', 'mdfMilled') && !/data-sec-facade-pick/.test(secHtml()) && aluSet('facadeType', 'ldsp'));
+      aluSet('mdfMilled') && !/data-mat-pick="facade"/.test(panelHtml()) && aluSet('ldsp'));
   }
-  check('алюм. фасад: выбирается в «Вид фасада»', () => /<label>Вид фасада<\/label>/.test(secHtml()) && aluSet('facadeType', 'alu'));
+  check('алюм. фасад: выбирается в «Вид фасада»', () =>
+    /<label class="mt6" for="p-secFacadeType">Вид фасада<\/label>/.test(panelHtml()) && aluSet('alu'));
   check('алюм. фасад: в секции одна плашка-итог, без полей профиля', () =>
-    /data-alu-open="\d+"/.test(secHtml()) && !/data-field="alu/.test(secHtml()) && /LXD3080/.test(secHtml()));
+    /class="alu-fill-pick alu-summary" data-mat-pick="facade"/.test(panelHtml()) && !/data-field="alu/.test(panelHtml()) && /LXD3080/.test(panelHtml()));
   check('алюм. фасад: плашка открывает конструктор в Библиотеке', () => {
-    const b = document.getElementById('sectionsList').querySelectorAll('[data-alu-open]')[0];
+    const b = matPick();
     if (!b) return false;
     b.click();
     return /id="libAluCtor"/.test(libHtml())
@@ -753,7 +765,7 @@ check('в списке фасадов есть открывание вверх',
     const b = ctorEl('[data-alu-draft-apply]');
     if (!b) return false;
     libPanelEl().dispatch('click', { target: b });
-    return /data-alu-open="\d+"[\s\S]*LXD-1204 открытый · [^<]+ · Стекло сатин бронз 4 мм/.test(secHtml()) && !/lib-pick-btn/.test(libHtml());
+    return /class="alu-fill-pick alu-summary" data-mat-pick="facade"[\s\S]*LXD-1204 открытый · [^<]+ · Стекло сатин бронз 4 мм/.test(panelHtml()) && !/lib-pick-btn/.test(libHtml());
   });
   check('алюм. фасад: в спецификации свой блок, итог помечен неполным', () => {
     const html = String(docsTab('spec').innerHTML || '');
@@ -772,7 +784,7 @@ check('в списке фасадов есть открывание вверх',
     return true;
   };
   check('алюм. фасад: без цели «Выбрать» активна, цель — активная секция', () =>
-    aluSet('facadeType', 'ldsp') && !/data-alu-open/.test(secHtml()) && openFacTab()
+    aluSet('ldsp') && !/alu-summary/.test(panelHtml()) && openFacTab()
     && /id="libAluCtor"/.test(libHtml()) && !/data-alu-draft-apply="1" disabled/.test(libHtml())
     && /Для: <b>[^<]*Секция 1<\/b>/.test(libHtml()) && /Вид фасада станет/.test(libHtml()));
   check('алюм. фасад: «Выбрать» у профиля в таблице — профиль в конструкторе', () => {
@@ -785,7 +797,7 @@ check('в списке фасадов есть открывание вверх',
     const b = ctorEl('[data-alu-draft-apply]');
     if (!b) return false;
     libPanelEl().dispatch('click', { target: b });
-    return /data-alu-open="0"/.test(secHtml()) && /LXD3080/.test(secHtml());
+    return /class="alu-fill-pick alu-summary" data-mat-pick="facade"/.test(panelHtml()) && /LXD3080/.test(panelHtml());
   });
   check('алюм. фасад: лист FAC-ALU в «Видах фасадов» открывает конструктор', () => {
     if (!openFacTab()) return false;
@@ -811,7 +823,10 @@ check('в списке фасадов есть открывание вверх',
     // Заголовка «База модулей» с v314 нет — о вкладке говорит кнопка «Сохранить в базу».
     return /data-lib-save-project/.test(libHtml());
   });
-  check('алюм. фасад: вернуть ЛДСП', () => aluSet('facadeType', 'ldsp') && !/data-alu-open/.test(secHtml()));
+  check('алюм. фасад: вернуть ЛДСП', () => aluSet('ldsp') && !/alu-summary/.test(panelHtml()));
+  // Назад на «Конструктив модуля» для следующих проверок (#sectionsList и т.п.).
+  const backBtn = document.getElementById('panelBack');
+  if (backBtn) backBtn.click();
 }
 check('есть кнопки выгрузки присадки', () =>
   !!document.getElementById('exportDrillCsv') && !!document.getElementById('exportDrillDxf'));
@@ -1644,7 +1659,7 @@ for (const el of document.querySelectorAll('.tab-btn')) {
   }
 }
 
-// Кухонный пресет должен ставить белый корпус, ящики 8681 SM, а декор
+// Кухонный пресет должен ставить белый корпус, ящики 0110 SM, а декор
 // пользователя переносить на фасад.
 {
   const kitchen = modGroupRow('kitchen');
@@ -1684,16 +1699,16 @@ for (const el of document.querySelectorAll('.tab-btn')) {
       const openBtn = document.getElementById('sectionsList').querySelectorAll('[data-drawers-open]')[0];
       if (openBtn) {
         openBtn.click();
-        // Материал ящиков кухни (2026-09-26) — по умолчанию «8681 SM Белый
-        // бриллиант» (catalog.DEFAULT_KITCHEN_DRAWER_DECOR_CODE): в панели
-        // выбран пункт «По умолчанию», в модели ящики именно из 8681 SM.
+        // Материал ящиков кухни (2026-09-29) — по умолчанию «0110 SM Белый»
+        // (catalog.DEFAULT_KITCHEN_DRAWER_DECOR_CODE): в панели
+        // выбран пункт «По умолчанию», в модели ящики именно из 0110 SM.
         const drawer = document.getElementById('drawersDecor');
         if (!drawer || drawer.value) fails.push('кухня: материал ящиков не «По умолчанию»');
         const kd = sandbox.Modul3D.catalog.defaultKitchenDrawerDecor();
-        if (!kd || !/8681 SM/.test(kd.name)) fails.push('кухня: в каталоге нет 8681 SM для ящиков');
+        if (!kd || !/0110 SM/.test(kd.name)) fails.push('кухня: в каталоге нет 0110 SM для ящиков');
         const lm = sandbox.__lastModel;
         const dm = ((lm && (lm.partsRaw || lm.parts)) || []).filter((q) => /ящика/.test(q.name || '') && /Боковина|Задняя/.test(q.name || ''));
-        if (!dm.length || !kd || !dm.every((q) => q.material === kd.code)) fails.push('кухня: ящики не из 8681 SM');
+        if (!dm.length || !kd || !dm.every((q) => q.material === kd.code)) fails.push('кухня: ящики не из 0110 SM');
       }
     }
     toggleModGroup(kitchen);

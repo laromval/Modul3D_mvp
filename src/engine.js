@@ -2191,6 +2191,21 @@ function countertopMatOf(ct) {
     isDouble: false, thickness: th, depth: null, maxLength: dec.sheetW || null };
 }
 
+// Целевая глубина столешницы модуля (от задней стены до фасада) — либо
+// ручное переопределение p.countertop.depth (одно на связку стыкующихся
+// тумб, см. resolveCountertopChainDepths в buildModel — при смене там пишется
+// сразу во все модули связки, как и decorCode), либо фиксированная глубина
+// готовой позиции каталога (ctMat.depth). null — нет фиксированной цели: свой
+// материал/сдвоенная без переопределения, свес по-прежнему только вручную
+// через overhangBack, как и раньше. ЕДИНЫЙ источник для autoOverhangBack ниже
+// И для resolveCountertopChainDepths — иначе глубина «крайнего модуля» и
+// реальная деталь «Столешница» могут разойтись.
+function countertopTargetDepthOf(ct, ctMat) {
+  const override = Number(ct && ct.depth) || 0;
+  if (override > 0) return override;
+  return (ctMat && ctMat.depth) || null;
+}
+
 // Эффективная толщина резолвнутой столешницы: «сдвоенная» — два листа.
 function countertopThicknessOf(r) {
   return (r && r.found)
@@ -2983,12 +2998,16 @@ function buildModuleParts(p) {
       //    отход при раскрое, как обычно бывает с плитными материалами.
       // В обоих случаях — свободно переопределяется вручную.
       const hasManualBack = ct.overhangBack !== undefined && ct.overhangBack !== null && ct.overhangBack !== '';
-      // !ctMat.depth — не только doubleLdsp, но и «свой материал» (custom):
-      // оба клеятся/пилятся из обычного листа декора, а не берутся готовой
-      // позицией каталога фиксированной глубины — совпадать с глубиной
-      // листа тут нечему, «доращивать» свес не нужно (см. warning ниже).
-      const autoOverhangBack = (ctMat.isDouble || !ctMat.depth || p.family !== 'kitchen') ? 0
-        : round1(ctMat.depth - D - facadeThicknessResolved - oF);
+      // targetDepth — ctMat.depth (готовая позиция каталога) ИЛИ ручное
+      // переопределение глубины связки (ct.depth, см. countertopTargetDepthOf)
+      // — например остров 900/1200 мм из обычного листа декора, для которого
+      // в каталоге нет готовой позиции нужной глубины. null — ни того ни
+      // другого (свой материал/сдвоенная без переопределения): совпадать с
+      // глубиной листа тут нечему, «доращивать» свес не нужно (см. warning
+      // ниже), свес остаётся только ручным (overhangBack).
+      const targetDepth = countertopTargetDepthOf(ct, ctMat);
+      const autoOverhangBack = (!targetDepth || p.family !== 'kitchen') ? 0
+        : round1(targetDepth - D - facadeThicknessResolved - oF);
       const oB = hasManualBack ? (Number(ct.overhangBack) || 0) : autoOverhangBack;
       // Свес слева/справа НЕ прибавляется к длине детали здесь — если эта
       // тумба потом сольётся с соседями (mergeCountertops), только КРАЙНИЕ
@@ -5099,6 +5118,12 @@ function buildModel(project) {
     });
   }
 
+  // Глубина столешницы КАЖДОЙ связки стыкующихся напольных кухонных тумб —
+  // нужна ДО buildModuleParts (см. resolveCountertopChainDepths ниже по
+  // файлу), от неё зависит, насколько видимая боковина крайнего модуля
+  // дотягивается до стены.
+  const worktopDepthByIdx = resolveCountertopChainDepths(mods, floorIdx);
+
   const placed = [];   // фактические габариты корпусов на месте — для dims
   const cornerPlinths = [];   // угловые модули: их цоколь тянем до соседнего ряда
 
@@ -5140,7 +5165,7 @@ function buildModel(project) {
       // Навесному (верхнему) модулю столешница не положена: иначе его
       // видимая боковина «дотягивается до стены» по глубине столешницы
       // нижнего ряда (у верхнего 300 → 562 мм).
-      worktopDepth: (m.family === 'kitchen' && !hung) ? Number(proj.worktopDepth || 0) : 0,
+      worktopDepth: (m.family === 'kitchen' && !hung) ? Number(worktopDepthByIdx[idx] || 0) : 0,
       family: m.family,
       blindPanel: !!m.blindPanel, blindStrip: m.blindStrip,
       // Ширина заглушки = ГЛУБИНА СОСЕДНЕГО модуля: к ней он и стыкуется.
@@ -6333,6 +6358,77 @@ function getCountertopChainModules(model, moduleName) {
   return [moduleName];
 }
 
+// Глубина столешницы для КАЖДОГО напольного модуля (по исходному индексу в
+// mods) — одно значение на связку физически стыкующихся кухонных тумб, а не
+// одно на весь проект (решение пользователя 2026-09-28: в одном проекте
+// обычный ряд на 600 мм и остров посередине на 900/1200 мм — разные связки).
+// Вызывается ИЗ buildModel ДО buildModuleParts — реальные built-сегменты
+// столешниц (как в computeCountertopChains выше) ещё не существуют, но они
+// и не нужны: floorIdx уже отфильтрован по напольным/навесным (см. выше,
+// `mods.forEach((m, i) => (isWallHung(m) ? wallIdx : floorIdx).push(i))`) и
+// сохраняет исходный порядок mods — а раскладка (layoutLayer выше) кладёт
+// напольные модули строго ВПРИТЫК друг к другу в этом же порядке (никаких
+// зазоров между ними), в том числе через угол (следующий прогон начинается
+// от внешней грани углового модуля). Значит соседние элементы floorIdx —
+// ВСЕГДА физические соседи, реальная геометрия для этого не нужна.
+// Резолюция на модуль:
+//  1) кухонный напольный (не навесной) со включённой столешницей — сосед по
+//     цепочке подряд идущих таких же модулей; глубина связки = целевая
+//     глубина (countertopTargetDepthOf — ручное p.countertop.depth или
+//     ctMat.depth) первого члена связки, у кого она определена;
+//  2) кухонный напольный без своей столешницы (пенал и т.п.) — глубина
+//     ближайшего соседа по floorIdx, у которого столешница есть (сначала
+//     предыдущий, потом следующий — если подряд несколько пеналов, каждый
+//     следующий наследует уже вычисленную глубину предыдущего, то есть по
+//     факту берётся глубина ближайшей связки СЛЕВА по всей цепочке пеналов);
+//  3) ни своей, ни соседской столешницы нет (в проекте вообще нет ни одной
+//     столешницы) — 0, без удлинения: дотягивать боковину до стены имеет
+//     смысл только рядом с реальной столешницей (как и было раньше, когда
+//     проектное значение по умолчанию просто не влияло на некухонные/
+//     безстолешничные сборки).
+// Навесные и некухонные модули явно не резолвятся (undefined) — вызывающий
+// код (buildModel) и так домножает результат на `m.family==='kitchen' && !hung`.
+function resolveCountertopChainDepths(mods, floorIdx) {
+  const FALLBACK_DEPTH = 600;
+  const isFloorStandingKitchen = (m) => m.family === 'kitchen' && !isWallHung(m);
+  const hasOwnCountertop = (m) => !!(m.countertop && m.countertop.enabled);
+  const result = [];
+  // 1) связки подряд идущих модулей со своей столешницей.
+  let i = 0;
+  while (i < floorIdx.length) {
+    const gi = floorIdx[i];
+    if (!(isFloorStandingKitchen(mods[gi]) && hasOwnCountertop(mods[gi]))) { i += 1; continue; }
+    let j = i;
+    let depth = null;
+    while (j < floorIdx.length) {
+      const gj = floorIdx[j];
+      if (!(isFloorStandingKitchen(mods[gj]) && hasOwnCountertop(mods[gj]))) break;
+      if (depth == null) {
+        depth = countertopTargetDepthOf(mods[gj].countertop, countertopMatOf(mods[gj].countertop));
+      }
+      j += 1;
+    }
+    const finalDepth = depth || FALLBACK_DEPTH;
+    for (let k = i; k < j; k++) result[floorIdx[k]] = finalDepth;
+    i = j;
+  }
+  // 2) кухонные напольные без своей столешницы — глубина ближайшего соседа.
+  // Если соседа со столешницей нет вовсе (в проекте нигде нет ни одной
+  // столешницы — обычная некухонная-по-факту мебель с family:'kitchen', или
+  // тестовая сборка без countertop) — 0, БЕЗ запасных 600: нечего дотягивать
+  // до стены, когда столешницы в принципе нет ни у одного модуля рядом.
+  // FALLBACK_DEPTH здесь НЕ используется — она только для пункта 1 (своя
+  // столешница ЕСТЬ, но у её материала нет чёткой глубины).
+  for (let idx = 0; idx < floorIdx.length; idx++) {
+    const gi = floorIdx[idx];
+    if (result[gi] !== undefined || !isFloorStandingKitchen(mods[gi])) continue;
+    const prev = idx > 0 ? result[floorIdx[idx - 1]] : undefined;
+    const next = idx < floorIdx.length - 1 ? result[floorIdx[idx + 1]] : undefined;
+    result[gi] = prev !== undefined ? prev : (next !== undefined ? next : 0);
+  }
+  return result;
+}
+
 // Список модулей-источников для колонки «Модуль» в деталировке — заголовок
 // колонки уже говорит, что там модуль, поэтому «Модуль 1 + Модуль 2» —
 // лишнее повторение слова и на десятке модулей займёт всю ширину колонки.
@@ -6436,5 +6532,11 @@ window.Modul3D.engine = {
   // computeCountertopChains/model.countertopChains в buildModel) — для
   // автосмены материала столешницы по всей цепочке в UI.
   getCountertopChainModules,
+  // Режим задней стенки (накладная/в паз) — UI решению пользователя 2026-09-28
+  // не показывает отдельный вариант «Авто»: вместо него в select всегда
+  // выбран РЕЗУЛЬТАТ этой функции (пока пользователь не переопределит вручную,
+  // см. app.js backMountBlock/autoBackMountMode). normalizeSides — её
+  // обязательный второй аргумент (sides), тоже нужен UI отдельно.
+  resolveBackMount, normalizeSides,
 };
 })();

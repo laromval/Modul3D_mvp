@@ -158,6 +158,27 @@
     "categoryPathEdited": true
   },
   {
+    "code": "LINK-1790623797766",
+    "name": "0110 SM Белый",
+    "unit": "м²",
+    "image": "https://mobilier.md/image/cache/catalog/products/24921/26476d5b2d8bf3739df02fd5e80d4b0c-1200x1800.png",
+    "sheetH": 2070,
+    "sheetW": 2800,
+    "article": "",
+    "sourceUrl": "https://mobilier.md/ru/plitnye-materialy/dsp/kronospan/dsp-laminirovannyy-0110-sm-belyy-16-2800x2070-ku.html",
+    "thickness": 16,
+    "sheetPrice": 168,
+    "sourceName": "Дсп ламинированный 0110 SM Белый (16) 2800x2070 (KU)",
+    "verifiedAt": "2026-09-28T19:29:57.766Z",
+    "categoryPath": [
+      "ДСП",
+      "Kronospan"
+    ],
+    "sourceSiteId": "mobilierMd",
+    "sourceArticle": "",
+    "categoryPathEdited": true
+  },
+  {
     "code": "LINK-1790249477980",
     "name": "F206 ST9 Пьетра Гриджиа черный",
     "unit": "м²",
@@ -1909,16 +1930,22 @@
   function defaultDecor() {
     return DECORS.find((d) => d.code === DEFAULT_DECOR_CODE) || DECORS[0];
   }
-  // Материал ящиков КУХОННЫХ модулей по умолчанию — ЛДСП «8681 SM Белый
-  // бриллиант» (решение владельца 2026-09-26). У шкафов/тумб отдельного
-  // дефолта нет: ящики «как корпус» (см. app.js effectiveDrawerDecorCode).
-  // Действует, только пока пользователь не выбрал материал ящиков вручную
-  // (sec.drawerDecorCode пуст). Если позицию удалили из каталога — ищем
-  // тот же декор по названию, затем — декор по умолчанию.
-  const DEFAULT_KITCHEN_DRAWER_DECOR_CODE = 'LINK-1790200284959';
+  // Материал ящиков КУХОННЫХ модулей по умолчанию — ЛДСП «0110 SM Белый»
+  // (решение владельца 2026-09-29, заменяет прежний дефолт «8681 SM Белый
+  // бриллиант» — тот остался в каталоге обычной выбираемой позицией). Тот же
+  // декор используется как дефолт ящиков на направляющих Hettich Quadro V6
+  // (насадной и надвижной монтаж) у ЛЮБОГО модуля, не только кухонного —
+  // короб этой направляющей по документации Hettich держит боковину ≤16мм,
+  // см. app.js isQuadroDrawerSystem/quadroDrawerDecorObj. У шкафов/тумб на
+  // остальных системах направляющих отдельного дефолта нет: ящики «как
+  // корпус» (см. app.js effectiveDrawerDecorCode). Действует, только пока
+  // пользователь не выбрал материал ящиков вручную (sec.drawerDecorCode
+  // пуст). Если позицию удалили из каталога — ищем тот же декор по названию,
+  // затем — декор по умолчанию.
+  const DEFAULT_KITCHEN_DRAWER_DECOR_CODE = 'LINK-1790623797766';
   function defaultKitchenDrawerDecor() {
     return DECORS.find((d) => d.code === DEFAULT_KITCHEN_DRAWER_DECOR_CODE)
-      || DECORS.find((d) => /8681/.test(d.name || ''))
+      || DECORS.find((d) => /0110/.test(d.name || ''))
       || defaultDecor();
   }
 

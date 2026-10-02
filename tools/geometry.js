@@ -2666,15 +2666,23 @@ for (const glass of [false, true]) {
   // Соседи (решение 2026-09-27): боковина «на дно» невидимая, только если её
   // закрывает сосед. Правый сосед есть всегда (правая «на дно» — закрыта),
   // левый — по флагу withLeft.
+  // worktop — глубина столешницы РЯДА (2026-09-28: движок больше не читает
+  // плоский proj.worktopDepth, «крайний модуль» дотягивается до стены по
+  // глубине РЕАЛЬНОЙ связки столешниц соседних модулей, см. engine.js:
+  // resolveCountertopChainDepths). CTOP-LDSP38-600 — готовая позиция каталога
+  // глубиной ровно 600, тем же числом, что тут раньше эмулировал сырой
+  // параметр worktopDepth. worktop=0 — считаем, что ни у одного модуля ряда
+  // столешницы вообще нет (countertop не задаём).
   const mk = (side, worktop, withLeft) => {
     const mod = (nm, l, r) => ({
       name: nm, family: 'kitchen', width: 600, height: 820, depth: 510, topType: 'rails',
       leftSide: l, rightSide: r, base: { type: 'legsPlinth', legHeight: 100 },
       sections: [{ shelves: 1, drawers: 0, facade: 'doorLeft', handle: 'bow160' }],
+      countertop: worktop > 0 ? { enabled: true, decorCode: 'CTOP-LDSP38-600' } : undefined,
     });
     const mods = [mod('М', side, 'onBottom'), mod('П', 'onBottom', 'floor')];
     if (withLeft) mods.unshift(mod('Л', 'floor', 'onBottom'));
-    return buildModel(Object.assign({}, base, { worktopDepth: worktop, modules: mods }));
+    return buildModel(Object.assign({}, base, { modules: mods }));
   };
   // partsRaw: конкретная левая/правая боковина по имени — в склеенном
   // model.parts одинаковые боковины могут схлопнуться в общую «Боковины»

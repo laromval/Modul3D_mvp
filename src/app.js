@@ -14,7 +14,7 @@
 (function () {
 // Версия сборки — показывается во вкладке браузера и в шапке.
 // При выпуске новой версии меняется только эта строка.
-const APP_VERSION = 'v323';
+const APP_VERSION = 'v324';
 
 // Номер версии выводим ПЕРВЫМ делом: если дальше что-то упадёт, по нему сразу
 // видно, какая сборка открыта.
@@ -73,35 +73,68 @@ function defaultDecorObj() {
 }
 function defaultDecorCode() { return defaultDecorObj().code; }
 
-// Материал ящиков секции (решение владельца 2026-09-26). sec.drawerDecorCode
-// хранит ТОЛЬКО ручной выбор из панели «Ящики»; пусто (null/undefined) —
-// «авто»: у кухонного модуля это ЛДСП «8681 SM Белый бриллиант»
-// (catalog.defaultKitchenDrawerDecor), у шкафов/тумб — материал корпуса
-// модуля, и ящики следуют за ним при смене корпуса. Сохранённый в старых
-// проектах код считается ручным выбором и не трогается.
+// Материал ящиков секции (решение владельца 2026-09-26, дополнено 2026-09-29
+// для Hettich Quadro V6). sec.drawerDecorCode хранит ТОЛЬКО ручной выбор из
+// панели «Ящики»; пусто (null/undefined) — «авто»:
+//   1) ящики на Hettich Quadro V6 (насадной/надвижной) — ВСЕГДА ЛДСП
+//      «0110 SM Белый» (16 мм), независимо от семейства модуля и материала
+//      корпуса: боковина короба этой направляющей по документации Hettich
+//      (MTA_9) ограничена ≤16 мм — это требование направляющей, а не
+//      предпочтение по декору;
+//   2) кухонный модуль (ящики не на Quadro) — тот же декор «0110 SM Белый»
+//      (catalog.defaultKitchenDrawerDecor);
+//   3) всё остальное (шкафы/тумбы, ящики не на Quadro) — материал корпуса
+//      модуля, и ящики следуют за ним при смене корпуса.
+// Сохранённый в старых проектах код считается ручным выбором и не трогается.
 function isKitchenModule(mod) { return !!mod && mod.family === 'kitchen'; }
+function isQuadroDrawerSystem(sec) {
+  return !!sec && (sec.drawerSystem === 'quadro' || sec.drawerSystem === 'quadroSlide');
+}
 function kitchenDrawerDecorObj() {
   const cat = window.Modul3D.catalog;
   return (typeof cat.defaultKitchenDrawerDecor === 'function' && cat.defaultKitchenDrawerDecor()) || defaultDecorObj();
 }
+// Тот же декор, что и kitchenDrawerDecorObj() (сейчас оба — «0110 SM
+// Белый») — отдельная функция, а не переиспользование «кухонной» напрямую,
+// чтобы не путать причину дефолта (кухня — по семейству модуля, Quadro V6 —
+// по факту требования направляющей), если значения когда-нибудь разойдутся.
+function quadroDrawerDecorObj() { return kitchenDrawerDecorObj(); }
 function carcassDecorCodeOf(mod) {
   const code = (mod && mod.carcassDecor) || state.decorCode;
   return (DECORS.find((d) => d.code === code) || defaultDecorObj()).code;
 }
 function effectiveDrawerDecorCode(mod, sec) {
   if (sec && sec.drawerDecorCode) return sec.drawerDecorCode;
+  if (isQuadroDrawerSystem(sec)) return quadroDrawerDecorObj().code;
   return isKitchenModule(mod) ? kitchenDrawerDecorObj().code : carcassDecorCodeOf(mod);
 }
-// Секции модуля для buildModel(): у кухонных секций без ручного выбора
-// подставляем код ящиков по умолчанию (копией, state не мутируем). У
-// некухонных пустой код ядро само заменяет декором корпуса модуля
-// (engine.js: sec.drawerDecorCode || drawerDecor, drawerDecor = decor) —
-// так ящики гарантированно совпадают с тем корпусом, который реально строится.
+// Подпись причины автовыбора материала ящиков — для панели «Ящики» и для
+// списка «где используется материал» в Библиотеке.
+function drawerDecorAutoLabel(mod, sec) {
+  if (isQuadroDrawerSystem(sec)) return 'по умолчанию для Quadro V6';
+  return isKitchenModule(mod) ? 'по умолчанию для кухни' : 'как корпус';
+}
+// Секции модуля для buildModel(): у кухонных секций и у секций на Quadro V6
+// без ручного выбора подставляем код ящиков по умолчанию (копией, state не
+// мутируем) — ядро должно получить его явно, раз для Quadro это требование
+// направляющей, а не совпадение с корпусом. У остальных пустой код ядро само
+// заменяет декором корпуса модуля (engine.js: sec.drawerDecorCode ||
+// drawerDecor, drawerDecor = decor) — так ящики гарантированно совпадают с
+// тем корпусом, который реально строится.
 function engineSectionsOf(mod) {
   const secs = (mod && mod.sections) || [];
-  if (!isKitchenModule(mod)) return secs;
-  const code = kitchenDrawerDecorObj().code;
-  return secs.map((sec) => (sec && !sec.drawerDecorCode) ? Object.assign({}, sec, { drawerDecorCode: code }) : sec);
+  const kitchen = isKitchenModule(mod);
+  return secs.map((sec) => {
+    if (!sec || sec.drawerDecorCode) return sec;
+    // Порядок проверки СОВПАДАЕТ с effectiveDrawerDecorCode (Quadro раньше
+    // кухни): сейчас quadroDrawerDecorObj()/kitchenDrawerDecorObj() дают
+    // одно и то же значение, но если они когда-нибудь разойдутся, здесь и в
+    // UI (лейбл секции, список «где используется материал») должен
+    // получиться один и тот же декор — держите порядок веток одинаковым.
+    if (isQuadroDrawerSystem(sec)) return Object.assign({}, sec, { drawerDecorCode: quadroDrawerDecorObj().code });
+    if (kitchen) return Object.assign({}, sec, { drawerDecorCode: kitchenDrawerDecorObj().code });
+    return sec;
+  });
 }
 const { PRESETS } = window.Modul3D.presets;
 const { recognizeSketch } = window.Modul3D.sketchAI;
@@ -123,8 +156,9 @@ function newSection() {
     // см. drawersPanelBlock ниже), а не общая на проект: у секции могут стоять
     // ящики другого декора/толщины, чем у соседней. Дефолты те же, что раньше
     // были общепроектными в state.
-    // drawerDecorCode: null — «авто» (кухня — 8681 SM, иначе как корпус), см.
-    // effectiveDrawerDecorCode; код пишется только ручным выбором в «Ящиках».
+    // drawerDecorCode: null — «авто» (кухня и Quadro V6 — 0110 SM, иначе как
+    // корпус), см. effectiveDrawerDecorCode; код пишется только ручным
+    // выбором в «Ящиках».
     drawerDecorCode: null, drawerThickness: 16, drawerSystem: 'ballBearing',
     widthMode: 'auto', width: 400,
   };
@@ -1362,7 +1396,7 @@ function saveProjectToFile() {
 function migrateDrawerFieldsToSections(data) {
   const legacy = (data && data.state) || {};
   // Нет проектного кода в файле — оставляем «авто» (null), а не DECORS[0]:
-  // см. effectiveDrawerDecorCode (кухня — 8681 SM, иначе как корпус).
+  // см. effectiveDrawerDecorCode (кухня и Quadro V6 — 0110 SM, иначе как корпус).
   const fallbackDecor = legacy.drawerDecorCode || null;
   const fallbackThickness = Number(legacy.drawerThickness) || 16;
   const fallbackSystem = legacy.drawerSystem || 'ballBearing';
@@ -5002,6 +5036,13 @@ function libHardwareLeafTableHtml(topCode, path, entries, opts) {
   // state.libCharsCollapsed (та вообще про таблицу материалов) — миниатюра
   // чертежа присадки конкретной позиции (it.drawing, см. libDrawingSwatchHtml).
   const hwCharsVisible = !!state.libHwCharsVisible;
+  // Колонка «Выбрать» — режим подбора Библиотеки (state.libPickTarget), тот
+  // же приём, что и у листовых материалов (см. libLeafTableHtml/
+  // libPickRowAllowed): видна, если хоть одна строка листа годится текущей
+  // цели подбора (сейчас — только роль 'hangerSystem', «Навес для верхних
+  // модулей» на экране «Материалы»).
+  const pickTarget = state.libPickTarget;
+  const pickMode = !!pickTarget && entries.some((e) => libPickRowAllowed(topCode, e));
   // Выделение строки кликом (см. state.libSelectedRow/libApplyRowSelection) —
   // тот же приём, что и у материалов (см. libRowHtml/libLeafTableHtml), нужен
   // здесь ради кнопки «− Удалить позицию» ниже.
@@ -5022,9 +5063,12 @@ function libHardwareLeafTableHtml(topCode, path, entries, opts) {
     // applyColumnFilterAndSort может держать фильтр/сортировку по колонке 3,
     // пока сама колонка спрятана тумблером «Поставщики».
     const supplierDisplay = libSourceSiteLabel(it);
-    // vals — по одному значению на КАЖДУЮ колонку строки, в том же порядке,
-    // что и <td> ниже (0 — Наименование, 1 — Образец, 2 — Цена, 3 —
-    // Поставщик, 4 — Чертёж): поповер фильтра адресуется номером колонки (см.
+    // vals — по одному значению на КАЖДУЮ колонку строки, ФИКСИРОВАННЫЙ
+    // логический порядок (0 — Наименование, 1 — Образец, 2 — Цена, 3 —
+    // Поставщик, 4 — Чертёж), НЕ обязанный совпадать с визуальным порядком
+    // <td> ниже (Чертёж отрисован сразу после Образца, но здесь остаётся
+    // индексом 4 — filterBtn(0)/filterBtn(2) ссылаются на эти номера, а не на
+    // позицию в разметке): поповер фильтра адресуется номером колонки (см.
     // data-col у .dth-filter-btn), поэтому пустая строка для нефильтруемых
     // «Образца»/«Чертежа» — не мусор, а обязательная заглушка, держащая
     // нумерацию (у «Чертежа» тоже нет кнопки-фильтра, см. filterBtn ниже).
@@ -5040,21 +5084,28 @@ function libHardwareLeafTableHtml(topCode, path, entries, opts) {
     // data-row-group/data-row-key — тот же атрибут, что и у материалов (см.
     // libRowHtml), клик по строке выделяет её для кнопки «− Удалить позицию».
     const isSelected = !!(sel && sel.group === group && sel.key === key);
+    const pickAllowed = pickMode && libPickRowAllowed(topCode, e);
+    const pickCell = pickMode
+      ? (pickAllowed
+        ? `<td><button type="button" class="link-btn lib-pick-btn" data-pick-group="${esc(group)}" data-pick-code="${esc(key)}">Выбрать</button></td>`
+        : '<td></td>')
+      : '';
     return `
       <tr data-search="${esc(searchText)}" data-row-group="${esc(group)}" data-row-key="${esc(key)}"
           data-row-idx="${i}" class="${isSelected ? 'lib-row-selected' : ''}">
         ${libEditCell(group, key, 'name', 'text', it.name, { afterHtml: moveIc, extraClass: 'lib-name-cell' })}
         <td>${libSwatchHtml(group, key, it.image, it.sourceUrl)}</td>
+        ${hwCharsVisible ? `<td>${libDrawingSwatchHtml(group, key, it.drawing)}</td>` : ''}
         ${libHwPriceCellHtml(group, key, it, unit)}
         ${suppliersVisible ? `<td class="lib-supplier-col" title="${esc(supplierDisplay)}">${esc(supplierDisplay)}</td>` : ''}
-        ${hwCharsVisible ? `<td>${libDrawingSwatchHtml(group, key, it.drawing)}</td>` : ''}
+        ${pickCell}
       </tr>`;
   }).join('');
-  // colCount — 3 базовых (Наименование/Образец/Цена) + Поставщик + Чертёж,
-  // каждый только если его тумблер сейчас включён (см. suppliersVisible/
-  // hwCharsVisible выше) — тот же приём, что и colCount у материалов (см.
-  // libLeafTableHtml).
-  const colCount = 3 + (suppliersVisible ? 1 : 0) + (hwCharsVisible ? 1 : 0);
+  // colCount — 3 базовых (Наименование/Образец/Цена) + Поставщик + Чертёж +
+  // Выбрать, каждый только если его тумблер/режим сейчас включён (см.
+  // suppliersVisible/hwCharsVisible/pickMode выше) — тот же приём, что и
+  // colCount у материалов (см. libLeafTableHtml).
+  const colCount = 3 + (suppliersVisible ? 1 : 0) + (hwCharsVisible ? 1 : 0) + (pickMode ? 1 : 0);
   const emptyRow = entries.length ? '' : `<tr><td colspan="${colCount}" class="hint">Пока нет позиций</td></tr>`;
   // data-add-path — тот же путь листа/ветки, что и у материалов (см.
   // libLeafTableHtml/libAddRow): позволяет новой позиции сразу попасть в ту
@@ -5104,6 +5155,10 @@ function libHardwareLeafTableHtml(topCode, path, entries, opts) {
   // «Образцом», фильтровать по картинке нечего.
   const drawingColHtml = hwCharsVisible ? '<col style="width:72px">' : '';
   const drawingHeadHtml = hwCharsVisible ? '<th>Чертёж</th>' : '';
+  // Колонка «Выбрать» (см. pickMode выше) — без заголовка и без фильтра, как
+  // и «Образец», просто пустая шапка над кнопками строк.
+  const pickColHtml = pickMode ? '<col style="width:76px">' : '';
+  const pickHeadHtml = pickMode ? '<th></th>' : '';
   // Кнопка «Поставщики» — та же общая (state.libSuppliersVisible), что и у
   // таблиц материалов (см. libLeafTableHtml).
   const suppliersToggleHtml = `<button type="button" class="lib-chars-btn lib-suppliers-toggle${suppliersVisible ? ' active' : ''}" data-suppliers-toggle="1" title="Показать/скрыть, с какого сайта добавлена цена">Поставщики</button>`;
@@ -5119,13 +5174,14 @@ function libHardwareLeafTableHtml(topCode, path, entries, opts) {
       ${suppliersToggleHtml}
       ${libPriceNoteHtml(items)}
       <table class="lib-table" style="table-layout:fixed" data-chars-key="${esc(tableKey)}">
-        <colgroup><col><col style="width:72px"><col style="width:82px">${supplierColHtml}${drawingColHtml}</colgroup>
+        <colgroup><col><col style="width:72px">${drawingColHtml}<col style="width:82px">${supplierColHtml}${pickColHtml}</colgroup>
         <thead><tr>
           <th class="lib-th-filter"><span class="dth-label">Наименование</span>${filterBtn(0)}</th>
           <th>Образец</th>
+          ${drawingHeadHtml}
           <th class="lib-th-filter"><span class="dth-label">${libHwPriceUnitHeaderHtml(items, topCode)}</span>${filterBtn(2)}</th>
           ${supplierHeadHtml}
-          ${drawingHeadHtml}
+          ${pickHeadHtml}
         </tr></thead>
         <tbody>${rowsHtml}${emptyRow}</tbody>
       </table>
@@ -7607,8 +7663,12 @@ function libPickMaterial(rowGroup, code) {
   if (target.role === 'facadeMat') {
     // «Материал фасада» проекта — код НАПРЯМУЮ в state.facadeMatCode, без
     // копии в DECORS (как у facadeDecor ниже). Только ЛДСП (вид 'ldsp').
-    if (!facadeMatOptionsOf().some((o) => o.code === code)) return;
+    const facadeOpt = facadeMatOptionsOf().find((o) => o.code === code);
+    if (!facadeOpt) return;
     state.facadeMatCode = code;
+    // Поле «Толщина фасада» убрано (2026-09-28) — толщина всегда берётся из
+    // самого выбранного материала, как и у толщины задней стенки ниже.
+    if (facadeOpt.thickness) state.facadeThickness = facadeOpt.thickness;
     libPickReturnToParams(target, null);
     return;
   }
@@ -7618,6 +7678,19 @@ function libPickMaterial(rowGroup, code) {
     // 2026-09-06).
     if (!visibleSideOptionsOf().some((o) => o.code === code)) return;
     state.facadeDecorCode = code;
+    libPickReturnToParams(target, null);
+    return;
+  }
+  if (target.role === 'hangerSystem') {
+    // «Навес для верхних модулей» — code это item.key одной из 4 позиций
+    // навеса (см. HANGER_SYSTEM_PICK_KEYS/libPickRowAllowed), а не code
+    // материала. Система навеса — та, чей items[].key содержит выбранный
+    // ключ (у GTV Forza — 2 ключа Л/П на одну систему).
+    const cat = window.Modul3D.catalog;
+    const found = (cat.HANGER_SYSTEM_ORDER || []).find((id) =>
+      ((cat.HANGER_SYSTEMS[id] || {}).items || []).some((it) => it.key === code));
+    if (!found) return;
+    state.hangerSystem = found;
     libPickReturnToParams(target, null);
     return;
   }
@@ -7717,8 +7790,14 @@ function libPickMaterial(rowGroup, code) {
     // каталога наравне с libSaveEdit/libAddRow, сохраняем и её.
     scheduleCatalogSave();
   }
-  if (target.role === 'decor') state.decorCode = finalCode;
-  else if (target.role === 'back') {
+  if (target.role === 'decor') {
+    state.decorCode = finalCode;
+    // Поле «Толщина ЛДСП» убрано (2026-09-28) — толщина корпуса всегда
+    // берётся из самого выбранного материала, как и у толщины задней
+    // стенки ниже.
+    const decorItem = findAnyMaterialByCode(finalCode);
+    if (decorItem && decorItem.thickness) state.bodyThickness = decorItem.thickness;
+  } else if (target.role === 'back') {
     state.backCode = finalCode;
     const back = BACK_MATERIALS.find((m) => m.code === finalCode);
     if (back) state.backThickness = back.thickness;
@@ -7994,14 +8073,14 @@ function libFindMaterialUsages(group, code) {
       usages.push({ moduleName: name, part: 'материал корпуса (индивидуальный для модуля)' });
     }
     // Материал ящиков секции: ручной выбор (sec.drawerDecorCode) — всегда;
-    // «авто» (кухня — 8681 SM, иначе как корпус, см. effectiveDrawerDecorCode)
-    // — только у секций, где ящики реально есть.
+    // «авто» (кухня и Quadro V6 — 0110 SM, иначе как корпус, см.
+    // effectiveDrawerDecorCode) — только у секций, где ящики реально есть.
     if (group === 'decors') {
       (mod.sections || []).forEach((sec, si) => {
         const manual = !!sec.drawerDecorCode;
         if (!manual && !(Number(sec.drawers) > 0)) return;
         if (effectiveDrawerDecorCode(mod, sec) === code) {
-          usages.push({ moduleName: name, part: `материал ящиков — секция ${si + 1}${manual ? '' : (isKitchenModule(mod) ? ' (по умолчанию для кухни)' : ' (как корпус)')}` });
+          usages.push({ moduleName: name, part: `материал ящиков — секция ${si + 1}${manual ? '' : ' (' + drawerDecorAutoLabel(mod, sec) + ')'}` });
         }
       });
     }
@@ -10077,6 +10156,11 @@ function countertopFieldsOf(mod) {
     // (engine.js: глубина материала минус корпус минус фасад минус свес
     // спереди), см. countertopModuleRow/поле ctopOverhangBack ниже.
     overhangBack: src.overhangBack,
+    // depth — ручное переопределение целевой глубины столешницы ЭТОГО модуля
+    // (и, через синхронизацию по связке в bindCountertopEvents, всей стыкующейся
+    // связки тумб). БЕЗ дефолта: undefined означает «взять из материала
+    // автоматически» (engine.js: resolveCountertopChainDepths).
+    depth: src.depth,
   };
 }
 
@@ -10159,6 +10243,15 @@ function countertopPanelBlock() {
         ${decorItem && decorItem.thickness !== undefined
           ? `<div class="ctop-decor-thickness">Толщина листа: ${decorItem.thickness} мм${decorItem.depth !== undefined ? `, глубина ${decorItem.depth} мм` : ''}</div>` : ''}
         ${chainNotice ? `<div class="sketch-status ok">${esc(chainNotice)}</div>` : ''}
+      </div>
+      <div class="field">
+        <label>Глубина столешницы, мм</label>
+        <input id="ctopWorktopDepth" type="number" step="1" placeholder="авто"
+          value="${s.depth !== undefined && s.depth !== null ? s.depth : ''}">
+        <div class="hint">Одно значение на всю стыкующуюся связку тумб — по нему видимая боковина крайнего
+          модуля дотягивается до стены. Пусто — берётся глубина выбранного материала столешницы (если это
+          готовая позиция каталога). Задайте вручную, если материал «свой» (без фиксированной глубины) —
+          например, столешница острова 900/1200 мм.</div>
       </div>
       ${isPlainDecor ? `
       <div class="field">
@@ -10329,6 +10422,37 @@ function bindCountertopEvents() {
     });
   });
 
+  // «Глубина столешницы» — ручное переопределение целевой глубины ЭТОГО
+  // модуля (engine.js: resolveCountertopChainDepths), пустое поле = «взять
+  // из материала автоматически». Применяется, как и смена материала
+  // столешницы выше (role: 'countertopDecor'), ко всей физически
+  // стыкующейся цепочке тумб — не только к активной — чтобы связка держала
+  // одно общее число, а не «первое попавшееся» (engine иначе просто возьмёт
+  // значение первого члена цепочки).
+  const worktopDepthEl = document.getElementById('ctopWorktopDepth');
+  if (worktopDepthEl) worktopDepthEl.addEventListener('change', (e) => {
+    const raw = e.target.value.trim();
+    const value = raw === '' ? undefined : (Number(e.target.value) || 0);
+    const engineApi = window.Modul3D.engine;
+    let chainNames = [activeMod.name];
+    if (currentModel && engineApi && typeof engineApi.getCountertopChainModules === 'function') {
+      try {
+        const chain = engineApi.getCountertopChainModules(currentModel, activeMod.name);
+        if (Array.isArray(chain) && chain.length) chainNames = chain;
+      } catch (err) {
+        // Геометрия могла ещё не пересчитаться — тихо откатываемся на одну тумбу.
+      }
+    }
+    const chainSet = new Set(chainNames);
+    state.modules.forEach((m) => {
+      if (chainSet.has(m.name) && m.countertop) {
+        if (value === undefined) delete m.countertop.depth;
+        else m.countertop.depth = value;
+      }
+    });
+    recompute();
+  });
+
   const cornerEl = document.getElementById('ctopCornerJoint');
   if (cornerEl) cornerEl.addEventListener('change', (e) => {
     state.countertopCornerJoint = e.target.value;
@@ -10473,7 +10597,7 @@ function moduleFieldsBlock(mod) {
       </div>
     </div>` : ''}
     ${mountTopBlock(mod)}
-    ${backMountBlock(mod)}
+    ${moduleIsWallHung(mod) ? hangerSystemBlock() : ''}
 
     <div id="sectionsList"></div>`;
 }
@@ -10522,15 +10646,6 @@ function backGrooveOf(mod) {
   };
 }
 
-// Порог высоты «шкаф / тумба» для режима «Авто» (некухонный модуль выше
-// порога — шкаф: паз только в боковинах, крыша без паза). Число — только из
-// engine.js, своего здесь нет; пока экспорта нет — null, и подсказка
-// остаётся как у тумбы. Используется только для текста подсказки.
-function backGrooveTallCabinetMinHeight() {
-  const v = Number(window.Modul3D.engine.BACK_GROOVE_TALL_H);
-  return Number.isFinite(v) && v > 0 ? v : null;
-}
-
 // Навесной модуль — тот же признак, что isWallHung() в engine.js: явное
 // поле wallHung главнее, без него — кухонный на «цоколе» нулевой высоты.
 // Здесь только для UI (текст подсказки, поле «Верх модуля от пола»), в
@@ -10559,44 +10674,60 @@ function backGrooveHasAnyPart(parts, topBlocked) {
   return !!(parts.left || parts.right || (parts.top && !topBlocked) || parts.bottom);
 }
 
-// Подсказка к «Авто» — что именно выберет движок для этого модуля
-// (правило — resolveBackMount в engine.js). Зависит от высоты, поэтому
-// обработчик m-height обновляет её текст без перерисовки панели.
-function backMountAutoHintText(mod) {
-  const hung = moduleIsWallHung(mod);
-  if (mod.family === 'kitchen' && !hung) return 'Накладная, как у кухонных тумб.';
-  if (hung) return 'Паз в боковинах до пола/сбоку дна и в дне.';
-  const tallMin = backGrooveTallCabinetMinHeight();
-  if (tallMin !== null && Number(mod.height) > tallMin) {
-    return 'Паз в боковинах до пола/сбоку дна, крыша упирается в стенку.';
+// Режим задней стенки, который выберет движок сам, пока пользователь не
+// переопределил его вручную (mod.backMount не 'overlay'/'groove') — решение
+// пользователя 2026-09-28: в select «Задняя стенка» больше нет отдельного
+// варианта «Авто», вместо него всегда выбран РЕЗУЛЬТАТ этой автоматики (как
+// и раньше), только явно виден как «Накладная»/«В паз», а не спрятан за
+// третьим пунктом. Считаем ЧЕРЕЗ движок (engine.resolveBackMount), а не
+// повторяем его условия здесь — тут легко разойтись с реальной логикой (сама
+// resolveBackMount учитывает больше нюансов, например обе боковины «на дно»
+// у обычной мебели, чем прежний текстовый хинт ниже).
+function autoBackMountMode(mod) {
+  const engine = window.Modul3D.engine;
+  if (!engine || typeof engine.resolveBackMount !== 'function') return 'overlay';
+  try {
+    const sides = engine.normalizeSides(mod);
+    return engine.resolveBackMount(Object.assign({ backMount: undefined }, mod), sides, state.backThickness).mode;
+  } catch (err) {
+    return 'overlay';
   }
-  return 'Паз в боковинах до пола/сбоку дна и в крыше.';
 }
 
-// Блок «Задняя стенка» экрана «Конструктив модуля»: режим крепления
-// (m.backMount: 'auto' | 'overlay' | 'groove') и, при «В паз», параметры
-// паза (m.backGroove). Сам режим решает engine.js → resolveBackMount().
-// У модуля без задней стенки (noBack — мойка) блок не показывается.
+// Блок «Задняя стенка» (режим крепления m.backMount: 'overlay' | 'groove' —
+// пусто/что угодно ещё читается как «ещё не выбрано вручную», см.
+// autoBackMountMode выше — и, при «В паз», параметры паза m.backGroove) — с
+// 2026-09-28 на экране «Материалы», сразу под плашкой материала задней
+// стенки (перенесён с «Конструктива модуля», где был раньше — обработчики
+// полей ниже в bindPanelEvents() привязываются по id независимо от текущего
+// panelView, поэтому переезд экрана их не затрагивает). У модуля без задней
+// стенки (noBack — мойка) блок не показывается.
 function backMountBlock(mod) {
   if (mod.noBack) return '';
-  const mode = (mod.backMount === 'overlay' || mod.backMount === 'groove') ? mod.backMount : 'auto';
+  // mode — что показывает сам select (авторезолв, пока пользователь не
+  // выбрал вручную). manualGroove — показывать ли подробности паза (отступ/
+  // глубина/чек-боксы деталей): ТОЛЬКО когда пользователь САМ явно выбрал «В
+  // паз» (mod.backMount === 'groove'), а не когда до этого просто дошла
+  // автоматика — иначе чек-боксы (backGrooveOf по умолчанию — все 4 «true»,
+  // см. её комментарий) показали бы не те детали, что реально уйдут в паз по
+  // авто-правилу (оно смотрит на боковины/высоту/навес, а не «все подряд»),
+  // вводя в заблуждение ещё до того как пользователь вообще что-то выбрал.
+  const mode = (mod.backMount === 'overlay' || mod.backMount === 'groove') ? mod.backMount : autoBackMountMode(mod);
+  const manualGroove = mod.backMount === 'groove';
   const g = backGrooveOf(mod);
   const topBlocked = backGrooveTopBlockedReason(mod);
   const chk = (key, label, blocked) => `<label class="checkbox-inline"><input type="checkbox" data-back-groove-part="${key}" ${g.parts[key] && !blocked ? 'checked' : ''} ${blocked ? 'disabled' : ''}> ${label}${blocked ? ` <span class="dim">(${blocked})</span>` : ''}</label>`;
-  // Подсказка к «Авто» — что именно выберет движок для этого модуля.
   return `
     <div class="field-row">
       <div class="field">
         <label>Задняя стенка</label>
         <select id="m-backMount">
-          <option value="auto" ${mode === 'auto' ? 'selected' : ''}>Авто</option>
           <option value="overlay" ${mode === 'overlay' ? 'selected' : ''}>Накладная</option>
           <option value="groove" ${mode === 'groove' ? 'selected' : ''}>В паз</option>
         </select>
       </div>
     </div>
-    ${mode === 'auto' ? `<div class="hint" id="backMountAutoHint">${backMountAutoHintText(mod)}</div>` : ''}
-    ${mode === 'groove' ? `
+    ${manualGroove ? `
     <div class="field-row3 back-groove-row">
       <div class="field"><label>Отступ от края, мм</label><input id="m-grooveOffset" type="number" min="0" step="1" value="${g.offset}"></div>
       <div class="field"><label>Глубина паза, мм</label><input id="m-grooveDepth" type="number" min="1" step="1" value="${g.depth}"></div>
@@ -10937,7 +11068,7 @@ function doorZoneEditorScreen(mod, sectionIndex, zoneIndex) {
       <h3>Фасад · Секция ${sectionIndex + 1}</h3>
       <div id="doorZoneEditorRoot">
         <div class="field">
-          <label>Фасад</label>
+          <label>Открывание фасадов</label>
           <select data-singlefacade="${sectionIndex}">
             <option value="doorLeft" ${(sec.facade === 'doorLeft' || sec.facade === 'doors1') ? 'selected' : ''}>Дверь левая</option>
             <option value="doorRight" ${sec.facade === 'doorRight' ? 'selected' : ''}>Дверь правая</option>
@@ -11149,7 +11280,7 @@ function matPickPlashkaHtml(role, id, code, fallbackName, extraAttrs) {
         </button>`;
 }
 
-function materialsBlock() {
+function materialsBlock(mod) {
   return `
     <h3>Материалы (общие на проект)</h3>
     <div class="field">
@@ -11159,27 +11290,16 @@ function materialsBlock() {
     <div class="field">
       <label>Видимая боковина</label>
       ${matPickPlashkaHtml('facadeDecor', 'p-facadeDecor', state.facadeDecorCode)}
-      <div class="hint">Из этого материала режется видимая боковина (до пола или сбоку дна) и цоколь — при любом виде фасада. Фасады от этого поля не зависят. Можно выбрать ЛДСП или фасадную МДФ-панель</div>
     </div>
     <div class="field">
       <label>Материал фасада (ЛДСП, по умолчанию)</label>
       ${matPickPlashkaHtml('facadeMat', 'p-facadeMat', state.facadeMatCode)}
-      <div class="hint">Из этого ЛДСП режутся ЛДСП-фасады всех секций, где свой материал фасада не выбран. Материал фасада конкретной секции (для любого вида — ЛДСП, МДФ, стекло…) выбирается ниже, в поле «Фасад»</div>
-    </div>
-    <div class="field-row">
-      <div class="field"><label>Толщина ЛДСП</label><input id="p-bodyThickness" type="number" value="${state.bodyThickness}"></div>
-      <div class="field"><label>Толщина фасада, мм</label><input id="p-facadeThickness" type="number" value="${state.facadeThickness}"></div>
-    </div>
-    <div class="field">
-      <label>Глубина столешницы, мм</label>
-      <input id="p-worktop" type="number" value="${state.worktopDepth}">
-      <div class="hint">Видимая боковина крайнего модуля дотягивается до стены по этому размеру</div>
     </div>
     <div class="field">
       <label>Задняя стенка</label>
       ${matPickPlashkaHtml('back', 'p-back', state.backCode)}
     </div>
-    ${matFacadeFieldHtml()}`;
+    ${backMountBlock(mod)}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -11413,30 +11533,64 @@ function applyFacadeToWholeProject() {
 // берётся из engine.GRAIN_GROUPS, чтобы не расходиться с правилами движка.
 // Обработчики — on('p-grain-<id>') в bindPanelEvents. Настройка отдельной
 // детали — на экране «Деталь» (partGrainField) и приоритетнее группы.
-// Блок «Навес для верхних модулей» экрана «Материалы» — общий на проект
-// (state.hangerSystem → proj.hangerSystem в движке). Список — из
-// catalog.HANGER_SYSTEM_ORDER, только системы, чьи позиции ещё есть в
-// каталоге (hangerSystemAvailable; удалённую ядро заменит с предупреждением).
-// У систем без чертежа производителя (drawingVerified:false) — пометка
-// «присадка по чертежу Blum». Обработчик — on('p-hangerSystem') в bindPanelEvents.
+// Блок «Навес для верхних модулей» — фурнитура, поэтому с 2026-09-28 живёт
+// на экране «Конструктив модуля» (moduleFieldsBlock), а не «Материалы» — и
+// показывается только у навесного модуля (moduleIsWallHung), как и
+// mountTopBlock рядом. Само значение по-прежнему общее на проект
+// (state.hangerSystem → proj.hangerSystem в движке), а не по модулям — сменить
+// его можно с экрана ЛЮБОГО навесного модуля. С 2026-09-28 — плашка (как у
+// материалов, см. matPickPlashkaHtml), а не <select>: клик открывает
+// Библиотеку на вкладке «Фурнитура» → «Крепёж и метизы» → «Навесы» (см.
+// openHangerSystemPicker/hangerPickPlashkaHtml ниже). Предупреждение о
+// присадке по чужому чертежу (drawingVerified:false) больше не дублируется
+// текстом здесь — его показывает общая панель предупреждений (см.
+// engine.js: warnings.push при !sys.drawingVerified).
+// Ключи HARDWARE_PRICES четырёх позиций навеса (3 системы, GTV Forza — Л+П,
+// см. catalog.HANGER_SYSTEMS) — только у них в Библиотеке есть «Выбрать»
+// (см. libPickRowAllowed).
+const HANGER_SYSTEM_PICK_KEYS = new Set(['hangerBlum48N0510', 'hangerGtvR1', 'hangerGtvForzaL', 'hangerGtvForzaR']);
+function hangerPickPlashkaHtml() {
+  const cat = window.Modul3D.catalog;
+  const id = state.hangerSystem || cat.DEFAULT_HANGER_SYSTEM;
+  const sys = cat.HANGER_SYSTEMS[id];
+  const name = (sys && sys.name) || 'Не выбрано';
+  return `<button type="button" class="alu-fill-pick mat-pick" id="p-hangerSystem" data-mat-pick="hangerSystem"
+          title="Выбрать в Библиотеке" aria-label="${esc(`${name}. Выбрать в Библиотеке`)}">
+          <span class="alu-fill-sw alu-fill-sw-sheet"></span>
+          <span class="alu-fill-txt"><span class="alu-fill-name">${esc(name)}</span><span class="alu-fill-sub">Выбрать в Библиотеке →</span></span>
+        </button>`;
+}
 function hangerSystemBlock() {
   const cat = window.Modul3D.catalog;
   const ids = (cat.HANGER_SYSTEM_ORDER || []).filter((id) => cat.hangerSystemAvailable(id));
   if (!ids.length) return '';
-  const cur = state.hangerSystem || cat.DEFAULT_HANGER_SYSTEM;
-  const opts = ids.map((id) => {
-    const sys = cat.HANGER_SYSTEMS[id];
-    const label = sys.name + (sys.drawingVerified ? '' : ' — присадка по чертежу Blum');
-    return `<option value="${esc(id)}" ${id === cur ? 'selected' : ''}>${esc(label)}</option>`;
-  }).join('');
   return `
     <h3>Навес для верхних модулей</h3>
     <div class="field">
       <label>Навес</label>
-      <select id="p-hangerSystem">${opts}</select>
-    </div>
-    <div class="hint">Для навесных модулей: разметка саморезов навеса на боковинах,
-    вырезы под крюк в задней стенке, навесы и монтажная шина в смете.</div>`;
+      ${hangerPickPlashkaHtml()}
+    </div>`;
+}
+// Клик по плашке «Навес» → Библиотека, вкладка «Фурнитура», категория
+// «Крепёж и метизы» (fastener) → узел «Навесы» (обе фирмы — Blum/GTV — его
+// подкатегории). «Навесы» сам по себе — ветка, а не лист (лежит на нём же
+// уровне 2 фирмы), поэтому, как и у остальных плашек материалов (см.
+// openMaterialPicker: сразу на листе ТЕКУЩЕГО материала), открываем сразу
+// на подкатегории (фирме) ТЕКУЩЕЙ выбранной системы навеса — «Выбрать»
+// виден без лишнего клика по дереву. Путь фирмы берём из самого товара
+// (item.categoryPath/subcategory), а не хардкодим строку «Blum»/«GTV»:
+// пользователь мог переименовать подкатегорию в своей Библиотеке
+// (libSetEntryPath). Завершение подбора — libPickMaterial (роль 'hangerSystem').
+function openHangerSystemPicker() {
+  const cat = window.Modul3D.catalog;
+  state.libPickTarget = { role: 'hangerSystem', returnTo: 'module' };
+  const id = state.hangerSystem || cat.DEFAULT_HANGER_SYSTEM;
+  const firstKey = (((cat.HANGER_SYSTEMS[id] || {}).items || [])[0] || {}).key;
+  const it = firstKey && cat.HARDWARE_PRICES[firstKey];
+  const sub = it && (it.subcategory || it.brand);
+  const path = it && Array.isArray(it.categoryPath) && it.categoryPath.length ? it.categoryPath
+    : (sub ? ['Навесы', sub] : ['Навесы']);
+  libOpenPickLocation('hw:fastener', path);
 }
 
 function grainGroupsBlock() {
@@ -11446,7 +11600,7 @@ function grainGroupsBlock() {
       <div class="field">
         <label>${esc(g.label)}</label>
         <select id="p-grain-${esc(g.id)}">
-          <option value="auto" ${cur[g.id] === 'across' ? '' : 'selected'}>Авто</option>
+          <option value="auto" ${cur[g.id] === 'across' ? '' : 'selected'}>Вдоль</option>
           <option value="across" ${cur[g.id] === 'across' ? 'selected' : ''}>Поперёк</option>
         </select>
       </div>`;
@@ -11457,7 +11611,7 @@ function grainGroupsBlock() {
   return `
     <h3>Направление текстуры</h3>
     ${rows}
-    <div class="hint">Только для декоров с рисунком. «Авто»: вертикальные детали
+    <div class="hint">Только для декоров с рисунком. «Вдоль»: вертикальные детали
     (боковины, стойки, двери) — вдоль высоты, горизонтальные (дно, крыша, полки) —
     вдоль ширины шкафа, ящики и цоколь — вдоль большей стороны. «Поперёк» поворачивает
     текстуру на 90° у всех деталей группы. Отдельную деталь можно переопределить:
@@ -11570,7 +11724,8 @@ function libLocateMaterial(code) {
 // была видна. Прокрутка — к строке узла (или к разделу). Тот же приём, что
 // и у подбора заполнения алюм. рамки раньше (openAluFillPicker).
 function libOpenPickLocation(topCode, path) {
-  const tabKey = topCode === 'facade' || String(topCode).indexOf('faccustom-') === 0 ? 'facades' : 'materials';
+  const tabKey = topCode === 'facade' || String(topCode).indexOf('faccustom-') === 0 ? 'facades'
+    : String(topCode).indexOf('hw:') === 0 ? 'hardware' : 'materials';
   state.libraryTab = tabKey;
   state.libSelectedRow = null;
   state.libLinkForm = null;
@@ -11616,6 +11771,13 @@ function libPickRowAllowed(topCode, entry) {
   const sheetLike = topCode === 'sheet' || String(topCode).indexOf('matcustom-') === 0;
   if (t.role === 'aluFill') return topCode !== 'countertop' && aluFillPickAllowed(code);
   if (t.role === 'partMaterial') return topCode !== 'countertop' && partMaterialOptionsOf(t.kind).some((o) => o.code === code);
+  if (t.role === 'hangerSystem') {
+    // Фурнитура (HARDWARE_PRICES) хранит позиции по ключу объекта (it.key,
+    // см. libHardwareTopEntries), а не it.code — libRowKeyOf выше для этой
+    // категории кода не даёт, поэтому здесь сверяем именно it.key. «Выбрать»
+    // только у 4 конкретных позиций навеса (3 системы, GTV Forza — Л+П).
+    return HANGER_SYSTEM_PICK_KEYS.has(it.key);
+  }
   if (t.role === 'countertopDecor') return topCode === 'countertop' || sheetLike;
   if (topCode === 'countertop') return false;
   if (t.role === 'decor') return sheetLike && entry.group !== 'back';
@@ -11691,14 +11853,18 @@ function drawersPanelBlock(mod, secIndex) {
       <div class="field">
         <label>Материал ящиков</label>
         <select id="drawersDecor">
-          <option value="" ${!sec.drawerDecorCode ? 'selected' : ''}>${isKitchenModule(mod)
-            ? `По умолчанию (${esc(kitchenDrawerDecorObj().name)})`
-            : `Как корпус (${esc((DECORS.find((d) => d.code === carcassDecorCodeOf(mod)) || {}).name || '')})`}</option>
+          <option value="" ${!sec.drawerDecorCode ? 'selected' : ''}>${isQuadroDrawerSystem(sec)
+            ? `По умолчанию для Quadro V6 (${esc(quadroDrawerDecorObj().name)})`
+            : (isKitchenModule(mod)
+              ? `По умолчанию (${esc(kitchenDrawerDecorObj().name)})`
+              : `Как корпус (${esc((DECORS.find((d) => d.code === carcassDecorCodeOf(mod)) || {}).name || '')})`)}</option>
           ${DECORS.map(d => `<option value="${d.code}" ${sec.drawerDecorCode && d.code === sec.drawerDecorCode ? 'selected' : ''}>${esc(d.name)}</option>`).join('')}
         </select>
-        <div class="hint">${isKitchenModule(mod)
-          ? 'На кухне ящики по умолчанию из белого ЛДСП 8681 SM. Выбрали другой материал — он сохраняется.'
-          : 'По умолчанию ящики из того же материала, что и корпус, и меняются вместе с ним. Выбрали другой материал — он сохраняется.'}</div>
+        <div class="hint">${isQuadroDrawerSystem(sec)
+          ? `Направляющие Hettich Quadro V6 держат боковину короба не толще 16 мм — ящики по умолчанию из белого ЛДСП ${esc(quadroDrawerDecorObj().name)}. Выбрали другой материал — он сохраняется.`
+          : (isKitchenModule(mod)
+            ? `На кухне ящики по умолчанию из белого ЛДСП ${esc(kitchenDrawerDecorObj().name)}. Выбрали другой материал — он сохраняется.`
+            : 'По умолчанию ящики из того же материала, что и корпус, и меняются вместе с ним. Выбрали другой материал — он сохраняется.')}</div>
       </div>
       <div class="field">
         <label>Высота короба ящика</label>
@@ -11765,7 +11931,7 @@ function renderParamsPanel() {
   if (!mod) {
     screen = emptyProjectBlock();
   } else if (state.panelView === 'materials') {
-    screen = materialsBackLinkBlock() + materialsBlock() + hangerSystemBlock() + grainGroupsBlock();
+    screen = materialsBackLinkBlock() + matFacadeFieldHtml() + materialsBlock(mod) + grainGroupsBlock();
   } else if (state.panelView === 'drawers') {
     screen = drawersPanelBlock(mod, state.drawersSectionIndex);
   } else if (state.panelView === 'part') {
@@ -11994,7 +12160,7 @@ function zoneCardHtml(sec, i, zi, doorZoneCount) {
       <option value="dishwasher" ${appliance === 'dishwasher' ? 'selected' : ''}>Посудомоечная машина</option>
     </select>
     ${!nicheOnly ? `
-    <label class="mt6">Фасад</label>
+    <label class="mt6">Открывание фасадов</label>
     <select data-zonefacade="${zi}" data-idx="${i}">
       <option value="doorLeft" ${(zone.facade === 'doorLeft' || zone.facade === 'doors1') ? 'selected' : ''}>Дверь левая</option>
       <option value="doorRight" ${zone.facade === 'doorRight' ? 'selected' : ''}>Дверь правая</option>
@@ -12802,7 +12968,11 @@ function aluFreeTarget() {
   if (aluFreeBlockReason()) return null;
   const t = matFacadeTarget();
   if (!t) return null;
-  return Object.assign({ role: 'facadeMaterial', returnTo: t.zoneIdx != null ? 'materials' : 'module', setAlu: true }, t);
+  // returnTo — всегда «Материалы» (2026-09-29): «Вид фасада»/плашка
+  // алюминиевого фасада секции/отсека показываются только там (см.
+  // matFacadeFieldHtml) — раньше секция без отсеков возвращала на «Конструктив
+  // модуля», где жила своя плашка (убрана, экран больше не знает про фасад).
+  return Object.assign({ role: 'facadeMaterial', returnTo: 'materials', setAlu: true }, t);
 }
 // «Выбрать» у профиля в таблице «Алюминиевых фасадов»: профиль → черновик
 // конструктора (проект не меняется до «Выбрать» в конструкторе).
@@ -13132,19 +13302,6 @@ function secGlassInside(sec, ftId, ftInfo) {
   return !!(ftInfo && ftInfo.glassInside);
 }
 
-// «Материал фасада» секции в «Конструктиве» (решение 2026-09-26): вид фасада
-// выбирается выше, а клик по плашке открывает Библиотеку сразу в разделе
-// материалов ЭТОГО вида (ЛДСП → «Листовые материалы → ДСП», МДФ →
-// МДФ-плиты, стекло → «Стекло»; см. openFacadeMaterialPicker), «Выбрать»
-// пишет sec.facadeMaterial. Без data-mat-pick — у экрана «Материалы» свой
-// обработчик плашек (bindPanelEvents), здесь — data-sec-facade-pick.
-// Вид без выбора материала (фрезерованный МДФ, массив…) — плашки нет.
-function secFacadeMatPlashkaHtml(sec, ftId, i) {
-  if (!facadeMaterialOptionsOf(ftId).length) return '';
-  let fm = null;
-  try { fm = window.Modul3D.engine.facadeMaterialOf(sec, matFacadeProj()); } catch (err) { fm = null; }
-  return `<label class="mt6">Материал фасада</label>${matPickPlashkaHtml(null, '', fm && fm.code, fm && fm.name, ` data-sec-facade-pick="${i}"`)}`;
-}
 
 function renderSectionsList() {
   const mod = state.modules[state.activeModule];
@@ -13180,16 +13337,17 @@ function renderSectionsList() {
   const contentHtml = (() => {
     const ftId = effFacadeTypeId(sec);
     const ftInfo = FACADE_TYPES[ftId] || FACADE_TYPES.ldsp;
+    // Вид фасада и материал фасада секции выбираются на экране «Материалы»
+    // (см. matFacadeFieldHtml, блок «Фасад» наверху экрана) — здесь, в
+    // «Конструктиве модуля», дублировать эти же поля больше не нужно
+    // (решение пользователя 2026-09-29). Из прежнего блока остаётся только
+    // то, чего на «Материалы» нет: подсказка «сначала выберите дверь» для
+    // секции без фасада и предупреждение про стеклянные полки внутри.
     const glassBlock = (secEffectiveFacades(sec).every((f) => f === 'open') && !sec.drawers)
-      ? '<div class="sub"><div class="hint sec-facade-type-hint">Сначала выберите дверь — тогда появится вид фасада.</div></div>' : `
-      <div class="sub">
-        <label>Вид фасада</label>
-        <select data-field="facadeType" data-idx="${i}">
-          ${FACADE_TYPE_ORDER.map((id) => `<option value="${id}" ${ftId === id ? 'selected' : ''}>${esc(FACADE_TYPES[id].name)}</option>`).join('')}
-        </select>
-        <div class="hint">${esc(secFacadeThickness(sec, ftInfo))} мм${secGlassInside(sec, ftId, ftInfo) ? ' · полки в секции — стекло 6 мм на держателях с силиконовой пяткой' : ''}</div>
-        ${ftId === 'alu' ? `<label class="mt6">Алюминиевый фасад</label>${aluSummaryPlashkaHtml(sec, ` data-alu-open="${i}"`)}` : secFacadeMatPlashkaHtml(sec, ftId, i)}
-      </div>`;
+      ? '<div class="sub"><div class="hint sec-facade-type-hint">Сначала выберите дверь — тогда появится вид фасада.</div></div>'
+      : (secGlassInside(sec, ftId, ftInfo)
+        ? '<div class="sub"><div class="hint">Полки в секции — стекло 6 мм на держателях с силиконовой пяткой.</div></div>'
+        : '');
 
     const handleBlock = secEffectiveFacades(sec).every((f) => f === 'open') && !sec.drawers ? '' : `
       <div class="sub">
@@ -13303,7 +13461,7 @@ function renderSectionsList() {
         ${widthModeBlock}
         ${doorZoneCount <= 1 ? `
         <div class="field">
-          <label>Фасад</label>
+          <label>Открывание фасадов</label>
           <select data-field="facade" data-idx="${i}">
             <option value="doorLeft" ${(sec.facade === 'doorLeft' || sec.facade === 'doors1') ? 'selected' : ''}>Дверь левая</option>
             <option value="doorRight" ${sec.facade === 'doorRight' ? 'selected' : ''}>Дверь правая</option>
@@ -13392,22 +13550,6 @@ function renderSectionsList() {
     });
   });
 
-  // Плашка-итог алюм. фасада — конструктор фасада в Библиотеке с настройками
-  // этой секции (см. openAluConstructor), «Выбрать» вернёт сюда же.
-  list.querySelectorAll('[data-alu-open]').forEach((el) => {
-    el.addEventListener('click', (e) => {
-      const si = Number(e.currentTarget.dataset.aluOpen);
-      openAluConstructor({ role: 'facadeMaterial', moduleIdx: state.activeModule, moduleName: mod.name, secIdx: si, zoneIdx: null, returnTo: 'module' });
-    });
-  });
-  // «Материал фасада» секции — Библиотека в разделе материалов вида фасада
-  // (см. secFacadeMatPlashkaHtml), «Выбрать» вернёт сюда же.
-  list.querySelectorAll('[data-sec-facade-pick]').forEach((el) => {
-    el.addEventListener('click', (e) => {
-      const si = Number(e.currentTarget.dataset.secFacadePick);
-      openFacadeMaterialPicker({ moduleIdx: state.activeModule, moduleName: mod.name, secIdx: si, zoneIdx: null }, 'module');
-    });
-  });
   // поля секции
   list.querySelectorAll('[data-field]').forEach((el) => {
     el.addEventListener('change', (e) => {
@@ -13505,10 +13647,14 @@ function addPresetToProject(catId, presetId, placementId) {
       if (state.decorCode !== white.code) {
         state.facadeDecorCode = state.decorCode;
         state.facadeMatCode = state.decorCode;
+        // Толщина фасада наследует толщину прежнего декора корпуса — та же
+        // синхронизация, что и при ручном выборе материала в Библиотеке.
+        state.facadeThickness = state.bodyThickness;
       }
       state.decorCode = white.code;
+      if (white.thickness) state.bodyThickness = white.thickness;
       // Материал ящиков кухни сюда не пишем: пустой sec.drawerDecorCode у
-      // кухонного модуля = «8681 SM Белый бриллиант» (effectiveDrawerDecorCode).
+      // кухонного модуля = «0110 SM Белый» (effectiveDrawerDecorCode).
     }
   }
   insertModule(m);
@@ -13843,13 +13989,7 @@ function bindPanelEvents() {
   updateHistoryButtons();
 
   on('m-width', 'change', (e) => { mod.width = Number(e.target.value); recompute(); });
-  on('m-height', 'change', (e) => {
-    mod.height = Number(e.target.value);
-    // Подсказка «Авто» у задней стенки зависит от высоты (шкаф/тумба).
-    const autoHint = document.getElementById('backMountAutoHint');
-    if (autoHint) autoHint.textContent = backMountAutoHintText(mod);
-    recompute();
-  });
+  on('m-height', 'change', (e) => { mod.height = Number(e.target.value); recompute(); });
   on('m-depth', 'change', (e) => { mod.depth = Number(e.target.value); recompute(); });
   on('m-leftSide', 'change', (e) => { mod.leftSide = e.target.value; recompute(); });
   on('m-rightSide', 'change', (e) => { mod.rightSide = e.target.value; recompute(); });
@@ -13928,10 +14068,6 @@ function bindPanelEvents() {
     recompute();
   });
 
-  on('p-worktop', 'change', (e) => { state.worktopDepth = Number(e.target.value) || 0; recompute(); });
-  on('p-hangerSystem', 'change', (e) => { state.hangerSystem = e.target.value; recompute(); });
-  on('p-bodyThickness', 'change', (e) => { state.bodyThickness = Number(e.target.value); recompute(); });
-  on('p-facadeThickness', 'change', (e) => { state.facadeThickness = Number(e.target.value); recompute(); });
   // «Направление текстуры» по группам (grainGroupsBlock): 'across' пишем,
   // 'auto' — удаляем ключ (нет ключа = «Авто», как ждёт движок).
   (window.Modul3D.engine.GRAIN_GROUPS || []).forEach((g) => {
@@ -13957,6 +14093,7 @@ function bindPanelEvents() {
         const role = btn.dataset.matPick;
         if (role === 'facade') openFacadeMaterialPicker(matFacadeTarget(), 'materials');
         else if (role === 'part') openPartMaterialPicker();
+        else if (role === 'hangerSystem') openHangerSystemPicker();
         else openMaterialPicker(role);
       });
     });
@@ -16775,13 +16912,23 @@ function initSketchPanel() {
       // Результат применяем к активному модулю
       const mod = state.modules[state.activeModule];
       mod.width = r.width; mod.height = r.height; mod.depth = r.depth;
-      state.bodyThickness = r.bodyThickness;
       state.backThickness = r.backThickness;
       mod.plinthHeight = r.baseHeight;
       mod.sections = r.sections.map(s => Object.assign(newSection(), s));
 
       const decorCode = guessDecorCode(r.decorHint);
-      if (decorCode) state.decorCode = decorCode;
+      if (decorCode) {
+        state.decorCode = decorCode;
+        // Поле «Толщина ЛДСП» убрано (2026-09-28) — толщина корпуса берётся
+        // из найденного материала, а не из «сырого» числа, распознанного ИИ
+        // по эскизу (иначе толщина молча разойдётся с реальным декором).
+        const decorItem = findAnyMaterialByCode(decorCode);
+        if (decorItem && decorItem.thickness) state.bodyThickness = decorItem.thickness;
+      } else {
+        // Материал не опознан — декор (и его толщина) не меняем, используем
+        // распознанную ИИ толщину как есть.
+        state.bodyThickness = r.bodyThickness;
+      }
 
       renderParamsPanel();
       recompute();
