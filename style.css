@@ -1745,6 +1745,7 @@ h4.spec-title { margin: var(--sp-5) 0 var(--sp-2); font-size: var(--fs-md); font
 .hud-group { font-size: 10px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin-bottom: 4px; }
 .hud-actions { display: flex; gap: 6px; }
 .hud-actions .btn { flex: 1; padding: 6px 8px; font-size: var(--fs-xs); text-align: center; }
+.hud-sec-title { margin-top: var(--sp-2); padding-top: var(--sp-2); border-top: 1px solid var(--border, rgba(255,255,255,.1)); }
 .hud-full { display: block; width: 100%; margin-top: 6px; text-align: center; }
 .hud-numrow { display: flex; gap: 6px; margin-top: 6px; align-items: center; }
 .hud-numrow input[type="number"] {

@@ -34,10 +34,10 @@ var viewerInstance = null;
 var lastPointer = { x: 0, y: 0 };
 var openPanel = null;
 var hudModule = null;
-// Раскрыт ли инлайн-степпер «Разделить на отсеки» в HUD (см. renderHud) —
-// сбрасывается при каждом показе/скрытии HUD, чтобы степпер не оставался
-// развёрнутым при переключении на другой модуль.
-var hudSplitOpen = false;
+// Отсек, по которому кликнули в 3D ({sectionIndex, zoneIndex}) — блок
+// «секция» HUD (деление, «Редактировать отсек») относится к нему. null —
+// клик по другой части модуля: тогда блок работает с единственной секцией.
+var hudZone = null;
 var syncingDocs = false;
 // Положение рейки панелей (см. раздел 3б) — одно из RAIL_POSITIONS; и текущий
 // перелёт рейки (WAAPI-анимация), чтобы новый не накладывался на идущий.
@@ -1363,7 +1363,8 @@ function renderHud() {
   var box = hudEl();
   if (!box || !hudModule) return;
   var app = window.Modul3D.app;
-  var hudState = (app && app.getModuleHudState) ? app.getModuleHudState(hudModule) : null;
+  var hudState = (app && app.getModuleHudState)
+    ? app.getModuleHudState(hudModule, hudZone ? hudZone.sectionIndex : undefined) : null;
   var rotations = (app && app.getRotations) ? app.getRotations() : [];
   var curRot = hudState ? hudState.rotation : 0;
 
@@ -1379,17 +1380,18 @@ function renderHud() {
     '<div class="hud-group">Поворот: ' + escapeHtml(curLabel) + '</div>' +
     '<button type="button" class="btn hud-full" data-hud-rotate-step>⟳ Повернуть на 90°</button>';
 
-  // Кнопка «Разделить на отсеки» — только когда в модуле ровно одна секция
-  // и у неё есть фасад-дверь (см. app.js: getModuleHudState). По клику
-  // раскрывается компактный инлайн-степпер вместо самой кнопки.
+  // Блок секции: деление на отсеки + «Редактировать отсек» — для кликнутого
+  // отсека или единственной секции с фасадом-дверью (см. app.js:
+  // getModuleHudState).
   var splitHtml = '';
   if (hudState && hudState.canSplitByHeight) {
-    splitHtml = hudSplitOpen ?
+    splitHtml =
+      '<div class="hud-group hud-sec-title">Разделить секцию на отсеки</div>' +
       '<div class="hud-numrow">' +
         '<input type="number" min="1" max="4" value="' + (hudState.doorZoneCount || 1) + '" data-hud-split-input>' +
         '<button type="button" class="btn" data-hud-split-apply>Разделить</button>' +
-      '</div>' :
-      '<button type="button" class="btn hud-full" data-hud-split-open>Разделить на отсеки</button>';
+      '</div>' +
+      '<button type="button" class="btn hud-full" data-hud-zone-edit>Редактировать отсек</button>';
   }
 
   box.innerHTML =
@@ -1418,9 +1420,8 @@ function applyHudSplit() {
   if (!input || !hudModule) return;
   var n = Number(input.value) || 1;
   if (window.Modul3D.app && window.Modul3D.app.setModuleDoorZoneCount) {
-    window.Modul3D.app.setModuleDoorZoneCount(hudModule, n);
+    window.Modul3D.app.setModuleDoorZoneCount(hudModule, n, hudZone ? hudZone.sectionIndex : undefined);
   }
-  hudSplitOpen = false;
   renderHud();
 }
 
@@ -1446,11 +1447,11 @@ function selectedText(id) {
   return txt || '—';
 }
 
-function showHud(name) {
+function showHud(name, zone) {
   var box = hudEl();
   if (!box) return;
   hudModule = name;
-  hudSplitOpen = false;
+  hudZone = zone || null;
   renderHud();
   box.setAttribute('aria-hidden', 'false');
   box.classList.add('open');
@@ -1503,7 +1504,7 @@ function hideHud() {
   var box = hudEl();
   if (!box) return;
   hudModule = null;
-  hudSplitOpen = false;
+  hudZone = null;
   box.classList.remove('open');
   box.setAttribute('aria-hidden', 'true');
 }
@@ -1535,9 +1536,12 @@ function initHud() {
       return;
     }
 
-    if (e.target.closest('[data-hud-split-open]')) {
-      hudSplitOpen = true;
-      renderHud();
+    if (e.target.closest('[data-hud-zone-edit]')) {
+      var zm = hudModule, zs = hudZone ? hudZone.sectionIndex : 0, zz = hudZone ? hudZone.zoneIndex : 0;
+      hideHud();
+      if (zm && window.Modul3D.app && window.Modul3D.app.editModuleZone) {
+        window.Modul3D.app.editModuleZone(zm, zs, zz);
+      }
       return;
     }
 
@@ -1601,10 +1605,15 @@ function initHud() {
     // накопления панелей, что и у onIsolateModule выше: если HUD уже был
     // открыт для этого модуля (клик до этого пришёлся мимо отсека), он
     // остался бы висеть под новым меню.
+    // Теперь клик по отсеку показывает ТОТ ЖЕ HUD, что и клик по любой другой
+    // части модуля, плюс блок секции для кликнутого отсека.
     var prevSelectZone = viewerInstance.onSelectZone;
     viewerInstance.onSelectZone = function (payload) {
       hideHud();
       if (typeof prevSelectZone === 'function') prevSelectZone.call(viewerInstance, payload);
+      if (payload && payload.module) {
+        showHud(payload.module, { sectionIndex: payload.sectionIndex, zoneIndex: payload.zoneIndex });
+      }
     };
     return true;
   }
