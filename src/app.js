@@ -14,7 +14,7 @@
 (function () {
 // Версия сборки — показывается во вкладке браузера и в шапке.
 // При выпуске новой версии меняется только эта строка.
-const APP_VERSION = 'v324';
+const APP_VERSION = 'v325';
 
 // Номер версии выводим ПЕРВЫМ делом: если дальше что-то упадёт, по нему сразу
 // видно, какая сборка открыта.
@@ -5264,7 +5264,9 @@ function libTreeRowHtml(topCode, path, name, kind, collapsed, depthOffset) {
   // ни то ни другое.
   const isModules = topCode.indexOf('mod:') === 0;
   const isModCustomTop = isTop && isModules && !libModTopIsBuiltin(topCode.slice(4));
-  const arrowHtml = isLeaf ? '<span class="lib-tree-arrow"></span>' : `<span class="lib-tree-arrow">${collapsed ? '▸' : '▾'}</span>`;
+  // «База модулей»: лист раскрывается кликом (показывает миниатюры), как ветка
+  // — поэтому стрелка есть и у него.
+  const arrowHtml = (isLeaf && !isModules) ? '<span class="lib-tree-arrow"></span>' : `<span class="lib-tree-arrow">${collapsed ? '▸' : '▾'}</span>`;
   const canRename = !isCountertop && (!isTop || isHardware || isMatCustomTop || isFacCustomTop || isModCustomTop);
   // «База модулей» не подчиняется инварианту «есть подкатегории → своих
   // позиций нет» (см. libEntryTargetPath/libModAllPlacements) — карточки
@@ -5300,17 +5302,19 @@ function libNodeHtml(topCode, path, opts) {
   // строк его дерева, см. libTreeRowHtml/libTopCategoryTreeHtml.
   const off = (opts && opts.depthOffset) || 0;
   if (!children.length) {
-    const rowHtml = libTreeRowHtml(topCode, path, name, 'leaf', false, off);
-    // «База модулей»: настоящий лист (без своих подкатегорий) — тот же
-    // случай, что и у ветки/корня выше (см. комментарии там): карточки
-    // пресета лежащие прямо в этом узле показываем инлайн под строкой
-    // дерева, без клика-фокуса (в отличие от «Материалов»/«Фурнитуры»,
-    // где лист открывает таблицу только через state.libActiveLeaf).
+    // «База модулей»: настоящий лист (без своих подкатегорий) — карточки
+    // пресета лежащие прямо в этом узле показываем инлайн под строкой дерева
+    // ТОЛЬКО когда лист раскрыт кликом (state.libCollapsed, по умолчанию
+    // свёрнут), как у веток; фокус-режим state.libActiveLeaf здесь не
+    // используется (в отличие от «Материалов»/«Фурнитуры»).
     if (String(topCode).indexOf('mod:') === 0) {
+      const modCollapsed = libIsNodeCollapsed(topCode, path);
+      const rowHtml = libTreeRowHtml(topCode, path, name, 'leaf', modCollapsed, off);
       const ownEntries = libEntriesAtPath(topCode, path);
-      if (ownEntries.length) return rowHtml + libModLeafGridHtml(topCode, path, ownEntries);
+      if (ownEntries.length && !modCollapsed) return rowHtml + libModLeafGridHtml(topCode, path, ownEntries);
+      return rowHtml;
     }
-    return rowHtml;
+    return libTreeRowHtml(topCode, path, name, 'leaf', false, off);
   }
   const collapsed = libIsNodeCollapsed(topCode, path);
   let childrenHtml = children.map((seg) => libNodeHtml(topCode, path.concat([seg]), opts)).join('');
@@ -9750,6 +9754,9 @@ function initLibraryPanel() {
           state.libCatOpen[topCode] = !state.libCatOpen[topCode];
         }
         state.libSelectedRow = null;
+      }
+      else if (kind === 'leaf' && String(topCode).indexOf('mod:') === 0) {
+        libToggleNode(topCode, path);
       }
       else if (kind === 'leaf') {
         const key = path.join('::');

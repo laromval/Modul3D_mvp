@@ -273,7 +273,25 @@ function modGroupRow(groupId) {
 function toggleModGroup(row) {
   if (row) libPanelEl().dispatch('click', { target: row });
 }
+// Лист категории базы модулей показывает свой грид карточек ТОЛЬКО раскрытым
+// кликом (state.libCollapsed, по умолчанию свёрнут — см. libNodeHtml в
+// app.js), поэтому перед поиском карточек группы раскрываем её листья. Клик
+// — переключатель, потому запоминаем уже раскрытые (идемпотентно).
+const modOpenedLeaves = {};
+function openModLeaves(groupId) {
+  const leaves = libPanelEl().querySelectorAll('[data-tree-node]')
+    .filter((r) => r.dataset.kind === 'leaf' && r.dataset.top === 'mod:' + groupId)
+    .map((r) => r.dataset.path);
+  leaves.forEach((p) => {
+    const key = groupId + '/' + p;
+    if (modOpenedLeaves[key]) return;
+    const row = libPanelEl().querySelectorAll('[data-tree-node]')
+      .filter((r) => r.dataset.kind === 'leaf' && r.dataset.top === 'mod:' + groupId && r.dataset.path === p)[0];
+    if (row) { libPanelEl().dispatch('click', { target: row }); modOpenedLeaves[key] = true; }
+  });
+}
 function modGridItems(groupId) {
+  if (groupId != null) openModLeaves(groupId);
   const all = libPanelEl().querySelectorAll('[data-preset]');
   return groupId == null ? all : all.filter((el) => el.dataset.group === groupId);
 }
