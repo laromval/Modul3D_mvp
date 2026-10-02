@@ -14,7 +14,7 @@
 (function () {
 // Версия сборки — показывается во вкладке браузера и в шапке.
 // При выпуске новой версии меняется только эта строка.
-const APP_VERSION = 'v328';
+const APP_VERSION = 'v329';
 
 // Номер версии выводим ПЕРВЫМ делом: если дальше что-то упадёт, по нему сразу
 // видно, какая сборка открыта.
@@ -12329,16 +12329,20 @@ function findNeighborBottomZoneHeight(mod, sectionIndex) {
 // секции фасад (kind === 'door'), проверяем по уже построенной модели
 // (currentModel.partsRaw, см. overridablePartCandidates выше — тот же
 // источник для 3D→деталь).
-function getModuleHudState(moduleName) {
+function getModuleHudState(moduleName, sectionIndex) {
   const mod = state.modules.find((m) => m.name === moduleName);
   if (!mod) return null;
   const rotation = Number(mod.rotation) || 0;
   const singleSection = Array.isArray(mod.sections) && mod.sections.length === 1;
-  const sec = singleSection ? mod.sections[0] : null;
+  // Блок «секция» HUD: секция кликнутого отсека, а при клике по другой части
+  // модуля — единственная секция (у многосекционного модуля без явного
+  // отсека блока нет: неоднозначно, какую делить).
+  const si = sectionIndex !== undefined ? sectionIndex : (singleSection ? 0 : -1);
+  const sec = si >= 0 && Array.isArray(mod.sections) ? mod.sections[si] : null;
   const doorZoneCount = sec ? (Number(sec.doorZoneCount) || 1) : 1;
   const rows = (currentModel && currentModel.partsRaw) || [];
-  const canSplitByHeight = !!(singleSection && rows.some(
-    (r) => r.module === moduleName && r.kind === 'door' && r.sectionIndex === 0
+  const canSplitByHeight = !!(sec && rows.some(
+    (r) => r.module === moduleName && r.kind === 'door' && r.sectionIndex === si
   ));
   // Материал корпуса для строки «Материал:» HUD — как берёт ядро
   // (m.carcassDecor || proj.decor), а не из поля панели: экран «Материалы»
@@ -12357,17 +12361,22 @@ function getModuleHudState(moduleName) {
 // Полки-перегородки на стыках отсеков отдельно расставлять не нужно —
 // engine.js считает их прямо из sec.doorZones при каждой сборке модели
 // (см. layoutDoorZones).
-function setModuleDoorZoneCount(moduleName, n) {
+function setModuleDoorZoneCount(moduleName, n, sectionIndex) {
   const mod = state.modules.find((m) => m.name === moduleName);
-  if (!mod || !Array.isArray(mod.sections) || mod.sections.length !== 1) return;
-  const sec = mod.sections[0];
+  if (!mod || !Array.isArray(mod.sections)) return;
+  // Секция не указана — только для однозонного модуля (как раньше);
+  // указана (клик по отсеку в 3D) — любая секция модуля.
+  const si = sectionIndex === undefined ? 0 : sectionIndex;
+  if (sectionIndex === undefined && mod.sections.length !== 1) return;
+  const sec = mod.sections[si];
+  if (!sec) return;
   const applied = setDoorZoneCount(sec, n);
   if (applied >= 2) {
     // Нижний отсек по умолчанию — вровень с фасадом соседа (единая
     // горизонтальная линия по ряду), если высота ещё не задана вручную;
     // уже настроенную высоту не трогаем.
     if (!sec.doorZones[0].height) {
-      const neighborH = findNeighborBottomZoneHeight(mod, 0);
+      const neighborH = findNeighborBottomZoneHeight(mod, si);
       // findNeighborBottomZoneHeight отдаёт высоту ДВЕРИ соседа (для
       // выравнивания видимой линии фасадов); doorZones[0].height хранит
       // высоту НИШИ — переводим, иначе сама эта подгонка создаст рассинхрон.
@@ -15905,33 +15914,17 @@ function initHeaderControls() {
       // (по тому же принципу, что и onSelectPart в фокусе выше). Без этого
       // подсветка появлялась только после «Редактировать отсек», а сам клик
       // по отсеку выглядел так, будто ничего не произошло.
+      // Клик по отсеку выбирает и МОДУЛЬ (как клик по любой его части), и
+      // отсек — единая панель-HUD (ui-shell.js: onSelectZone → showHud) с
+      // параметрами модуля, делением секции и «Редактировать отсек». Модуль
+      // выбираем здесь, чтобы поля размеров HUD относились к нему.
+      closeFocusMenu();
+      exitIsolation();
+      selectModuleByName(module);
+      state.panelView = 'module';
+      renderParamsPanel();
       state.selectedPart = { module, kind: 'door', side: undefined, subIndex: 0, sectionIndex, zoneIndex, asPart: false };
       viewer.render(currentModel, viewOpts());
-      const items = [];
-      // Число отсеков по высоте (пенал под встроенную технику) — единственный
-      // способ задать его (в сайдбаре поля больше нет, см. renderSectionsList).
-      // Полки-перегородки на стыках новых отсеков отдельно расставлять не
-      // нужно — engine.js считает их сам при каждой сборке модели
-      // (layoutDoorZones).
-      items.push({
-        type: 'numberInput', label: 'Разделить секцию на отсеки',
-        value: Number(sec.doorZoneCount) || 1, min: 1, max: 4, buttonLabel: 'Разделить',
-        onApply: (n) => {
-          const applied = setDoorZoneCount(sec, n);
-          // Нижний отсек по умолчанию — вровень с фасадом соседа (единая
-          // горизонтальная линия по ряду), если высота ещё не задана вручную;
-          // уже настроенную высоту не трогаем.
-          if (applied >= 2 && !sec.doorZones[0].height) {
-            const neighborH = findNeighborBottomZoneHeight(mm, sectionIndex);
-            // Перевод «высота двери → высота ниши», см. setModuleDoorZoneCount.
-            if (neighborH) sec.doorZones[0].height = window.Modul3D.engine.nicheFromEdgeDoorHeight(neighborH, state.bodyThickness);
-          }
-          renderParamsPanel();
-          recompute();
-        },
-      });
-      items.push({ label: 'Редактировать отсек', action: () => openPartEditor(module, 'door', undefined, sectionIndex, zoneIndex) });
-      showFocusMenu(clientX, clientY, items);
     };
 
     // Клик МИМО любой детали, пока изоляция активна — то же меню, но только
@@ -17048,6 +17041,10 @@ window.Modul3D.app = {
   rotateModuleStep: rotateModuleStep,
   getModuleHudState: getModuleHudState,
   setModuleDoorZoneCount: setModuleDoorZoneCount,
+  // «Редактировать отсек» из HUD (клик по отсеку в 3D).
+  editModuleZone: function (moduleName, sectionIndex, zoneIndex) {
+    openPartEditor(moduleName, 'door', undefined, sectionIndex, zoneIndex);
+  },
   // Вкладки документов строятся лениво (см. docsTabsDirty/ensureTabBuilt).
   // ensureVisibleDocsTabBuilt зовёт ui-shell.js, когда панель «Документы»
   // открывают мимо setDocsTab (кнопка HUD, горячая клавиша D,
