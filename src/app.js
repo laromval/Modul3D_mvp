@@ -14,7 +14,7 @@
 (function () {
 // Версия сборки — показывается во вкладке браузера и в шапке.
 // При выпуске новой версии меняется только эта строка.
-const APP_VERSION = 'v325';
+const APP_VERSION = 'v326';
 
 // Номер версии выводим ПЕРВЫМ делом: если дальше что-то упадёт, по нему сразу
 // видно, какая сборка открыта.
@@ -87,6 +87,9 @@ function defaultDecorCode() { return defaultDecorObj().code; }
 //      модуля, и ящики следуют за ним при смене корпуса.
 // Сохранённый в старых проектах код считается ручным выбором и не трогается.
 function isKitchenModule(mod) { return !!mod && mod.family === 'kitchen'; }
+// Только EB20 (боковина до 16 мм). EB23 (quadroSlide23, боковина до 19 мм)
+// сюда НАМЕРЕННО не входит: белый 16-мм дефолт ему не нужен, у него обычные
+// правила (кухня — белый, иначе как корпус).
 function isQuadroDrawerSystem(sec) {
   return !!sec && (sec.drawerSystem === 'quadro' || sec.drawerSystem === 'quadroSlide');
 }
@@ -347,11 +350,7 @@ const state = {
       "Прикроватные тумбочки"
     ]
   ],
-  "hw:runner": [
-    [
-      "фаа"
-    ]
-  ],
+  "hw:runner": [],
   "mod:kitchen": [
     [
       "Верхние модули"
@@ -1069,6 +1068,15 @@ function mergeCatalogItem(savedItem, freshItem) {
   });
   const savedIsUpload = typeof savedItem.image === 'string' && savedItem.image.indexOf('data:') === 0;
   merged.image = savedIsUpload ? savedItem.image : freshItem.image;
+  // Чертёж (колонка «Чертёж» под «Характеристики», см. libDrawingSwatchHtml) —
+  // тот же приём: заводской путь к картинке в assets/drawings обновляем, а
+  // загруженный пользователем файл (data:) не трогаем. У позиций, которым
+  // заводской чертёж не заведён, сохранённое значение остаётся как есть.
+  const savedDrawingIsUpload = typeof savedItem.drawing === 'string' && savedItem.drawing.indexOf('data:') === 0;
+  if (!savedDrawingIsUpload && freshItem.drawing !== undefined) {
+    merged.drawing = freshItem.drawing;
+    if (freshItem.drawingFull !== undefined) merged.drawingFull = freshItem.drawingFull;
+  }
   // priceNoteCleared — пользователь сам отредактировал цену этой позиции и
   // тем снял пометку о неточной цене (см. libClearPriceNote). У встроенных
   // позиций priceNote живёт в catalog.js, то есть freshItem всегда готов
@@ -2751,10 +2759,14 @@ function libSwatchHtml(group, key, image, sourceUrl) {
 // state.libHwCharsVisible/libHardwareLeafTableHtml). Класс намеренно тот же
 // .lib-swatch, что у обычного образца — так на неё распространяется общая
 // лупа-зум по наведению (см. .lib-swatch-zoom-icon/openLibSwatchZoomPreview).
-function libDrawingSwatchHtml(group, key, drawing) {
+// drawingFull — тяжёлая версия того же чертежа (400 dpi) для клика «открыть в
+// полном размере»; в таблице и в лупе показывается лёгкая drawing.
+function libDrawingSwatchHtml(group, key, drawing, drawingFull, itemName) {
   const style = drawing ? ` style="background-image:url('${esc(drawing)}')"` : '';
-  const srcAttr = drawing ? ` data-swatch-src="${esc(drawing)}"` : '';
-  const title = drawing ? 'Чертёж присадки' : 'Чертёж не добавлен';
+  const srcAttr = (drawing ? ` data-swatch-src="${esc(drawing)}"` : '')
+    + (drawing && drawingFull ? ` data-swatch-full="${esc(drawingFull)}"` : '')
+    + (drawing && itemName ? ` data-swatch-title="${esc(itemName)}"` : '');
+  const title = drawing ? 'Чертёж — клик открывает его в полном размере' : 'Чертёж не добавлен';
   const zoomIcon = drawing ? '<span class="lib-swatch-zoom-icon" title="Увеличить превью">🔍</span>' : '';
   return `<span class="lib-swatch lib-drawing-swatch${drawing ? '' : ' empty'}" data-swatch-group="${esc(group)}" data-swatch-key="${esc(key)}"${style}${srcAttr} title="${esc(title)}">${zoomIcon}</span>`;
 }
@@ -5095,7 +5107,7 @@ function libHardwareLeafTableHtml(topCode, path, entries, opts) {
           data-row-idx="${i}" class="${isSelected ? 'lib-row-selected' : ''}">
         ${libEditCell(group, key, 'name', 'text', it.name, { afterHtml: moveIc, extraClass: 'lib-name-cell' })}
         <td>${libSwatchHtml(group, key, it.image, it.sourceUrl)}</td>
-        ${hwCharsVisible ? `<td>${libDrawingSwatchHtml(group, key, it.drawing)}</td>` : ''}
+        ${hwCharsVisible ? `<td>${libDrawingSwatchHtml(group, key, it.drawing, it.drawingFull, it.name)}</td>` : ''}
         ${libHwPriceCellHtml(group, key, it, unit)}
         ${suppliersVisible ? `<td class="lib-supplier-col" title="${esc(supplierDisplay)}">${esc(supplierDisplay)}</td>` : ''}
         ${pickCell}
@@ -8014,7 +8026,9 @@ const LIB_EDGE_RESERVED_NAMES = [EDGE_FRONT, EDGE_BACK, EDGE_MID];
 // minifixBolt, minifixCam, dowel, backPanelScrew, worktopScrew — из
 // FASTENER_PRICES, ВСЕ 6 ключей; плюс навесы верхних модулей и шина —
 // hangerBlum48N0510, hangerGtvR1, hangerGtvForzaL/R, wallRailGtv2m, их читает
-// смета через catalog.HANGER_SYSTEMS), и удаление любого из них либо уронит расчёт
+// смета через catalog.HANGER_SYSTEMS; и цены ящичных систем — drawerHettich*/
+// drawerBlum*, их смета берёт через DRAWER_SYSTEMS[...].priceKey), и удаление
+// любого из них либо уронит расчёт
 // TypeError'ом, либо молча обнулит строку стоимости. Пара ключей
 // HARDWARE_PRICES (handle, drawerRunnerPair) технически нигде в расчёте не
 // читается, но защищена наравне со всеми остальными — иначе в UI возникла бы
@@ -9938,11 +9952,26 @@ function initLibraryPanel() {
         return;
       }
       // Миниатюра чертежа присадки (.lib-drawing-swatch, см.
-      // libDrawingSwatchHtml) — только просмотр (лупа-зум по наведению, см.
-      // .lib-swatch-zoom-icon), без клика: у неё нет sourceUrl, а
-      // openLibImagePicker ниже писал бы выбранный файл в it.image — чужое
-      // поле, предназначенное для фото товара, а не для чертежа (it.drawing).
-      if (swatch.classList.contains('lib-drawing-swatch')) return;
+      // libDrawingSwatchHtml) — только просмотр: лупа-зум по наведению (см.
+      // .lib-swatch-zoom-icon), а клик открывает чертёж в полном размере в
+      // новой вкладке (в превью целая страница документа не читается). Загрузки
+      // файла у неё нет: у неё нет sourceUrl, а openLibImagePicker ниже писал бы
+      // выбранный файл в it.image — чужое поле, предназначенное для фото
+      // товара, а не для чертежа (it.drawing).
+      if (swatch.classList.contains('lib-drawing-swatch')) {
+        const full = swatch.dataset.swatchFull || swatch.dataset.swatchSrc;
+        if (!full) return;
+        // Свой просмотрщик (drawing.html): масштаб колёсиком и сдвиг
+        // перетаскиванием — в обычной вкладке браузера увеличенная картинка
+        // уходила за край, и сдвинуть её было нечем. Картинки не из
+        // assets/drawings (если когда-нибудь появятся загруженные) — как раньше.
+        const viewable = /^assets\/drawings\/[A-Za-z0-9._-]+\.(png|jpe?g|webp)$/.test(full);
+        const url = viewable
+          ? 'drawing.html?src=' + encodeURIComponent(full) + '&t=' + encodeURIComponent(swatch.dataset.swatchTitle || '')
+          : full;
+        window.open(url, '_blank', 'noopener');
+        return;
+      }
       // sourceUrl (data-swatch-url, см. libSwatchHtml) — открыть карточку
       // товара на сайте поставщика вместо загрузки своего файла.
       const swatchUrl = swatch.dataset.swatchUrl;
@@ -11856,6 +11885,9 @@ function drawersPanelBlock(mod, secIndex) {
       <div class="field">
         <label>Толщина ЛДСП ящиков</label>
         <input id="drawersThickness" type="number" step="1" value="${window.Modul3D.engine.effectiveDrawerThickness(sec, null)}">
+        ${(DRAWER_SYSTEMS[sys] || {}).maxBoxSide
+          ? `<div class="hint">Эта система направляющих держит боковину короба не толще ${DRAWER_SYSTEMS[sys].maxBoxSide} мм.</div>`
+          : ''}
       </div>
       <div class="field">
         <label>Материал ящиков</label>

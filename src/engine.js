@@ -592,9 +592,11 @@ function buildDrawerBoxes(o) {
       const clr = sys.clearanceFor ? sys.clearanceFor(o.t) : sys.clearancePerSide;
       // Серия EB задаёт и предельную толщину боковины КОРОБА
       if (sys.maxBoxSide && o.drawerT > sys.maxBoxSide) {
+        const bigger = sys.biggerSideSystem && cat.DRAWER_SYSTEMS[sys.biggerSideSystem];
         o.warnings.push(`${o.secName}: боковина ящика ${o.drawerT} мм при `
           + `ограничении ${sys.maxBoxSide} мм для этой серии направляющих — `
-          + 'возьмите исполнение EB23 или уменьшите толщину.');
+          + (bigger ? `выберите систему «${bigger.name}» или уменьшите толщину.`
+                    : 'уменьшите толщину.'));
       }
       // У систем, где зазор задан до ВНУТРЕННЕЙ грани боковины ящика
       // (Quadro), просвет короба = проём − 2×зазор, а наружная ширина

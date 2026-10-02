@@ -183,10 +183,14 @@ function buildSpecification(model) {
   for (const id of Object.keys(drawerSets)) {
     const sys = DRAWER_SYSTEMS[id];
     if (!sys) continue;
+    // Цена — позиция Библиотеки «Фурнитура» (sys.priceKey), чтобы её можно
+    // было править там и обновлять с сайта; setPrice — у систем без позиции.
+    const libItem = sys.priceKey && HARDWARE_PRICES[sys.priceKey];
+    const setPrice = Number(libItem ? libItem.price : sys.setPrice) || 0;
     hardware.push({
       name: sys.setName, article: id, unit: 'компл.',
-      qty: drawerSets[id], price: sys.setPrice,
-      sum: round2(drawerSets[id] * sys.setPrice),
+      qty: drawerSets[id], price: setPrice,
+      sum: round2(drawerSets[id] * setPrice),
     });
   }
 

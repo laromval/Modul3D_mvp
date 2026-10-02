@@ -1006,6 +1006,122 @@
     "sourceSiteId": "mobilierMd",
     "sourceArticle": "PK-0H45500GX1"
   },
+  // Чертёж (поле drawing, колонка «Чертёж» под «Характеристики») — страницы
+  // официальных документов производителей, картинки лежат в assets/drawings
+  // (drawing — лёгкая для таблицы/лупы, drawingFull — «-big», 400 dpi, для клика):
+  // Quadro EB23 — Hettich MTA_9 296 802 00; Quadro EB20 надвижной — MTA_9 296
+  // 800 00; Quadro EB20 насадной — MTA_9 302 560 00; ATIRA — каталог Hettich
+  // InnoTech Atira, стр. 120; TANDEMBOX — каталог Blum 2022/2023 (KA-150),
+  // стр. 309; LEGRABOX — инструкция Blum MD-013/5 (LEGRABOX pure), стр. 4.
+  "drawerHettichQuadroSlide23": {
+    "name": "Направляющая Quadro V6. 18 мм Silent System L=500 мм полного выдв.L+P Hettich (9225731+9225732)",
+    "unit": "компл.",
+    "image": "https://dask-centru.md/image/cache/catalog/dask/products/96309_1-1200x800.jpg",
+    "drawing": "assets/drawings/hettich-quadro-v6-eb23-slide-on.png",
+    "drawingFull": "assets/drawings/hettich-quadro-v6-eb23-slide-on-big.png",
+    "price": 652,
+    "article": "9225731+9225732",
+    "category": "runner",
+    "sourceUrl": "https://dask-centru.md/index.php?product_id=96309&route=product%2Fproduct",
+    "sourceName": "Направляющая Quadro V6. 18 мм Silent System L=500 мм полного выдв.L+P Hettich (9225731+9225732)",
+    "verifiedAt": "2026-10-02T09:30:00.000Z",
+    "subcategory": "Hettich",
+    "categoryPath": [
+      "Hettich"
+    ],
+    "sourceSiteId": "daskCentruMd"
+  },
+  "drawerHettichQuadroSlide": {
+    "name": "Направляющая Quadro V6 Silent System L=500 мм L+P Hettich — под ЛДСП 16 мм, надвижной монтаж (цена по аналогу «18 мм»)",
+    "unit": "компл.",
+    "image": "https://dask-centru.md/image/cache/catalog/dask/products/96309_1-1200x800.jpg",
+    "drawing": "assets/drawings/hettich-quadro-v6-eb20-slide-on.png",
+    "drawingFull": "assets/drawings/hettich-quadro-v6-eb20-slide-on-big.png",
+    "price": 652,
+    "article": "",
+    "category": "runner",
+    "sourceUrl": "https://dask-centru.md/index.php?product_id=96309&route=product%2Fproduct",
+    "sourceName": "Направляющая Quadro V6. 18 мм Silent System L=500 мм полного выдв.L+P Hettich (9225731+9225732)",
+    "verifiedAt": "2026-10-02T09:30:00.000Z",
+    "subcategory": "Hettich",
+    "categoryPath": [
+      "Hettich"
+    ],
+    "sourceSiteId": "daskCentruMd"
+  },
+  "drawerHettichQuadro": {
+    "name": "Направляющая Quadro V6 Silent System L=500 мм L+P Hettich — под ЛДСП 16 мм, насадной монтаж (цена по аналогу «18 мм»)",
+    "unit": "компл.",
+    "image": "https://dask-centru.md/image/cache/catalog/dask/products/96309_1-1200x800.jpg",
+    "drawing": "assets/drawings/hettich-quadro-v6-eb20-plug-on.png",
+    "drawingFull": "assets/drawings/hettich-quadro-v6-eb20-plug-on-big.png",
+    "price": 652,
+    "article": "",
+    "category": "runner",
+    "sourceUrl": "https://dask-centru.md/index.php?product_id=96309&route=product%2Fproduct",
+    "sourceName": "Направляющая Quadro V6. 18 мм Silent System L=500 мм полного выдв.L+P Hettich (9225731+9225732)",
+    "verifiedAt": "2026-10-02T09:30:00.000Z",
+    "subcategory": "Hettich",
+    "categoryPath": [
+      "Hettich"
+    ],
+    "sourceSiteId": "daskCentruMd"
+  },
+  "drawerHettichAtira": {
+    "name": "Комплект для ящиков ATIRA, полного выдвижения L=420 мм H=144 мм, антрацит Hettich",
+    "unit": "компл.",
+    "image": "https://dask-centru.md/image/cache/catalog/dask/products/96356_1-1200x800.jpg",
+    "drawing": "assets/drawings/hettich-innotech-atira-h144.png",
+    "drawingFull": "assets/drawings/hettich-innotech-atira-h144-big.png",
+    "price": 900,
+    "article": "",
+    "category": "runner",
+    "sourceUrl": "https://dask-centru.md/index.php?route=product/product&path=1000_1005_10055&product_id=96356",
+    "sourceName": "Комплект для ящиков ATIRA, полного выдвижения L=420 мм H=144 мм, антрацит Hettich",
+    "verifiedAt": "2026-10-02T09:30:00.000Z",
+    "subcategory": "Hettich",
+    "categoryPath": [
+      "Hettich"
+    ],
+    "sourceSiteId": "daskCentruMd"
+  },
+  "drawerBlumTandembox": {
+    "name": "TANDEMBOX 500M, Белый, 30 кг",
+    "unit": "компл.",
+    "image": "https://dask-centru.md/image/cache/catalog/dask/products/96821_1-1200x800.jpg",
+    "drawing": "assets/drawings/blum-tandembox-antaro-m.png",
+    "drawingFull": "assets/drawings/blum-tandembox-antaro-m-big.png",
+    "price": 837,
+    "article": "",
+    "category": "runner",
+    "sourceUrl": "https://dask-centru.md/index.php?route=product/product&path=1000_1005_10053&product_id=96821",
+    "sourceName": "TANDEMBOX 500M, Белый, 30 кг",
+    "verifiedAt": "2026-10-02T09:30:00.000Z",
+    "subcategory": "Blum",
+    "categoryPath": [
+      "Blum"
+    ],
+    "sourceSiteId": "daskCentruMd"
+  },
+  "drawerBlumLegrabox": {
+    "name": "Legrabox 500mm C (Белый,Графит)",
+    "unit": "компл.",
+    "image": "https://tehmob.md/image/catalog/products/2025/Legrabox-C-height-deep-drawer-box-set-available-in-standard-and-bespoke-sizes-with-next-day-delivery__19677.jpg",
+    "drawing": "assets/drawings/blum-legrabox-pure.png",
+    "drawingFull": "assets/drawings/blum-legrabox-pure-big.png",
+    "price": 1593,
+    "article": "750C500",
+    "category": "runner",
+    "sourceUrl": "https://tehmob.md/15562-legrabox-500mm-c-belyjgrafit.html",
+    "sourceName": "Legrabox 500mm C (Белый,Графит)",
+    "verifiedAt": "2026-10-02T09:30:00.000Z",
+    "subcategory": "Blum",
+    "categoryPath": [
+      "Blum"
+    ],
+    "sourceSiteId": "tehmobMd",
+    "sourceArticle": "750C500"
+  },
   "countertopSealant": {
     "name": "Клей/герметик для стыка столешницы",
     "unit": "уп",
@@ -1351,13 +1467,16 @@
   // ВНИМАНИЕ: производители меняют серии и размеры. Перед запуском в
   // производство сверять с актуальным каталогом конкретной серии.
   // ==========================================================================
-  // Blum и Hettich на mobilier.md не продаются вообще (0 совпадений по
-  // каждому бренду) — setPrice для tandembox/legrabox/innotech/quadro/
-  // quadroSlide ниже остались условными, с mobilier.md не сверялись.
+  // ЦЕНА комплекта системы — не число здесь, а позиция Библиотеки «Фурнитура»
+  // → «Направляющие» (подкатегории Hettich / Blum): priceKey указывает ключ в
+  // HARDWARE_PRICES, смета берёт цену оттуда (specification.js), а «Обновить
+  // цены с сайта» правит её с карточки товара. У ballBearing priceKey нет —
+  // его цена остаётся setPrice.
+  // Hettich под ЛДСП 16 мм (quadro, quadroSlide, EB20): на подключённых сайтах
+  // нет карточки именно под 16 мм, поэтому их позиции в Библиотеке взяли
+  // цену близкого аналога — Quadro V6 «18 мм» (то же семейство Silent System).
   // sourceUrl у каждой системы ниже ведёт на официальную страницу Blum/
-  // Hettich — цены там не публикуются (маркетинговые/каталожные страницы
-  // производителя, не магазин), поэтому setPrice по-прежнему требует
-  // проверки, сам sourceUrl подтверждён (открыт и проверен).
+  // Hettich (а у EB23 — docUrl на PDF-инструкцию) — это источник РАЗМЕРОВ.
   const DRAWER_SYSTEMS = {
     tandembox: {
       src: 'Blum, каталог TANDEMBOX antaro, раздел «Cutting»',
@@ -1380,7 +1499,7 @@
       ],
       bottom: (icw, nl) => ({ length: nl - 24, width: icw - 75 }),
       back:   (icw, hh) => ({ length: icw - 87, width: hh.backH }),
-      setPrice: 2400,
+      priceKey: 'drawerBlumTandembox',
       setName: 'Комплект TANDEMBOX antaro (царги + направляющие)',
     },
     legrabox: {
@@ -1396,7 +1515,7 @@
       ],
       bottom: (icw, nl) => ({ length: nl - 10, width: icw - 35 }),
       back:   (icw, hh) => ({ length: icw - 38, width: hh.backH }),
-      setPrice: 4200,
+      priceKey: 'drawerBlumLegrabox',
       setName: 'Комплект LEGRABOX (царги + направляющие)',
     },
     innotech: {
@@ -1425,7 +1544,7 @@
         const eb = sys.ebFor ? sys.ebFor(t) : sys.eb;
         return { length: icw - 2 * eb - 63, width: hh.backH };
       },
-      setPrice: 2100,
+      priceKey: 'drawerHettichAtira',
       setName: 'Комплект InnoTech Atira (царги + Quadro)',
     },
     quadro: {
@@ -1449,6 +1568,7 @@
       clearancePerSide: 20,
       clearanceToInner: true,
       maxBoxSide: 16,          // толще боковина короба — нужна серия EB23
+      biggerSideSystem: 'quadroSlide23',   // куда переключать при боковине > 16 мм
       // ДЛИНА ДНА = NL, в размер короба. Пометка «NL − 10» в инструкции
       // относится к коробу с ТОНКИМ дном из ДВП — у нас дно из ЛДСП.
       bottomLen: (nl) => nl,
@@ -1485,7 +1605,7 @@
       // У Quadro ящик собирается как коробка из ЛДСП с дном ИЗ ЛДСП: направляющая
       // держит короб под дном, и тонкое ХДФ там не годится.
       bottom: 'chipboard',
-      setPrice: 1250,
+      priceKey: 'drawerHettichQuadro',
       setName: 'Направляющие Hettich Quadro V6 Silent System, насадные, EB20 (пара)',
     },
     // ------------------------------------------------------------------
@@ -1509,6 +1629,7 @@
       clearancePerSide: 20,
       clearanceToInner: true,
       maxBoxSide: 16,
+      biggerSideSystem: 'quadroSlide23',
       // Дно ЛДСП — в размер короба; «NL − 12» из инструкции — для ДВП.
       bottomLen: (nl) => nl,
       thinBottomLen: (nl) => nl - 12,
@@ -1545,8 +1666,50 @@
         { code: '200', h: 200, minFront: 230 },
       ],
       bottom: 'chipboard',
-      setPrice: 1390,
+      priceKey: 'drawerHettichQuadroSlide',
       setName: 'Направляющие Hettich Quadro V6 Stop Control, надвижные, EB20 (пара)',
+    },
+    // ------------------------------------------------------------------
+    // Quadro V6 Silent System, НАДВИЖНОЙ монтаж (Slide-on), EB23 — боковина
+    // ящика до 19 мм, то есть под ЛДСП 18 мм. Источник: MTA_9 296 802 00 от
+    // 12.10.2020. От EB20 (MTA_9 296 800 00) отличается только зазором
+    // (23 мм вместо 20, SKW = LB − 46), пределом боковины (≤ 19) и рядом NL
+    // (нет 280/320/380/420/480/580); присадка и сборка короба — те же
+    // размеры, что на чертеже EB20 (сверено по двум чертежам рядом).
+    // В Hettich это артикулы 9225729…9225732 (EB 23, ≤ 19 мм); на
+    // dask-centru.md продаются как «Quadro V6. 18 мм» — позиция Библиотеки
+    // drawerHettichQuadroSlide23 (пара L+P, NL 500; NL 450 стоит 640).
+    // ------------------------------------------------------------------
+    quadroSlide23: {
+      name: 'Hettich Quadro V6 Silent System, надвижной монтаж, EB23 (боковина до 19 мм)',
+      src: 'Hettich MTA_9 296 802 00 от 12.10.2020',
+      docUrl: 'https://web2.hettich.com/hbh/addon/montage/MTA_929680200_QV6_SFD_SiSy_EB23.pdf',
+      assumed: [],
+      metal: false,
+      nl: [250, 300, 350, 400, 450, 500, 550, 600],
+      clearanceFor: () => 23,     // 23 мм до ВНУТРЕННЕЙ грани боковины ящика
+      clearancePerSide: 23,
+      clearanceToInner: true,
+      maxBoxSide: 19,
+      bottomLen: (nl) => nl,
+      thinBottomLen: (nl) => nl - 12,
+      minCorpusDepth: (nl) => nl + 13,            // ≥ KT из таблицы
+      boxStyle: 'ledge',
+      cabinetPin: { d: 6, depth: 11, fromFront: 10 },
+      boxLedge: 12,
+      bracketScrew: { d: 2.5, depth: 12, fromSide: [26, 74], fromFront: 7.5 },
+      bottomPin: { d: 6, depth: 10, overBottom: 11, fromSide: 7 },
+      heights: [
+        { code: '80',  h: 80,  minFront: 110 },
+        { code: '100', h: 100, minFront: 130 },
+        { code: '120', h: 120, minFront: 150 },
+        { code: '150', h: 150, minFront: 180 },
+        { code: '160', h: 160, minFront: 190 },
+        { code: '200', h: 200, minFront: 230 },
+      ],
+      bottom: 'chipboard',
+      priceKey: 'drawerHettichQuadroSlide23',
+      setName: 'Направляющие Hettich Quadro V6 Silent System, надвижные, EB23 (пара)',
     },
     ballBearing: {
       src: 'практика цеха: шариковые направляющие, ящик из ЛДСП',
@@ -1574,7 +1737,7 @@
   };
 
   const DRAWER_SYSTEM_ORDER = ['tandembox', 'legrabox', 'innotech',
-    'quadro', 'quadroSlide', 'ballBearing'];
+    'quadro', 'quadroSlide', 'quadroSlide23', 'ballBearing'];
 
   // ---------------------------------------------------------------------------
   // РУЧКИ
