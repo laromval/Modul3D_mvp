@@ -2054,6 +2054,10 @@
     const it = findMaterialByCode(code) || findCountertopMaterialByCode(code);
     const nm = (it && it.name) || '';
     if (!nm) return true;
+    // Декор с настоящей плиткой листа производителя (src/decorTiles.js) всегда
+    // с рисунком, что бы ни говорило название («черный» мрамор F206 и т.п.).
+    const dt = window.Modul3D && window.Modul3D.decorTiles;
+    if (dt && dt.byCode && dt.byCode[code]) return true;
     if (/бел/i.test(nm)) return false;
     if (/чёрн|черн/i.test(nm)) return false;
     if (/мрамор|камень|керамика/i.test(nm)) return false;
