@@ -4506,6 +4506,8 @@ class Viewer3D {
       // Размер плитки в метрах детали: у woodTexture() — WOOD_TILE_M, у настоящей
       // плитки листа — её реальный размер (1300 мм), чтобы масштаб рисунка был 1:1.
       const tileM = (look && look.tile && tex) ? look.tile.tileMM * MM : WOOD_TILE_M;
+      // Плитка — не обязательно квадрат: у F206 это лист целиком (2800×1300 мм), tileMM2 — размер по y.
+      const tileM2 = (look && look.tile && tex && look.tile.tileMM2) ? look.tile.tileMM2 * MM : tileM;
       // Волокно вдоль v пласти (а не вдоль u, как рисует woodTexture) — тогда
       // UV геометрии переставляются (uvSwap ниже), а offset в цикле по boxes
       // получает ту же перестановку. Без grainAxis (белый/МДФ/стекло и т.п.)
@@ -4541,7 +4543,7 @@ class Viewer3D {
         // offset (фаза узора относительно корпуса) выставляется ниже, в
         // цикле по row.boxes — woodUvOrigin(), — там известно положение
         // конкретной детали в корпусе.
-        mat.map.repeat.set(1 / tileM, 1 / tileM);
+        mat.map.repeat.set(1 / tileM, 1 / tileM2);
       }
       // Кэш геометрии детали (см. this._partGeoCache в конструкторе):
       // одинаковые по размеру пласти и присадке детали (несколько ящиков/
@@ -4657,7 +4659,19 @@ class Viewer3D {
             boxMat.map = mat.map.clone();
             boxMat.map.needsUpdate = true;
           }
-          boxMat.map.offset.set(origin.u / tileM, origin.v / tileM);
+          if (look.tile.sheet) {
+            // Плитка — лист целиком: деталь «вырезана» из него в случайном месте (по хэшу
+            // положения), в пределах листа рисунок не зеркалится. UV детали центрованы
+            // (±половина размера), поэтому половину размера добавляем в фазу — граница
+            // ячейки (зеркало) уходит на край детали, а не в её середину.
+            const hu = (grainV ? vSize : uSize) * MM / 2, hv = (grainV ? uSize : vSize) * MM / 2;
+            const hs = (a) => { const x = Math.sin(a * 12.9898 + 78.233) * 43758.5453; return x - Math.floor(x); };
+            const fu = Math.max(0, tileM - 2 * hu), fv = Math.max(0, tileM2 - 2 * hv);
+            boxMat.map.offset.set((hu + fu * hs(origin.u + 3.1 * origin.v + 1)) / tileM,
+              (hv + fv * hs(origin.v + 5.7 * origin.u + 2)) / tileM2);
+          } else {
+            boxMat.map.offset.set(origin.u / tileM, origin.v / tileM2);
+          }
         }
         for (const g of partGeos) {
           const piece = new THREE.Mesh(g, boxMat);
