@@ -39,6 +39,76 @@ function procPieceTexture(spec, uMM, vMM) {
   return t;
 }
 
+// Растровая плитка декора (src/decorTiles.js): настоящий бесшовный фрагмент листа
+// производителя (дуб Бардолино H1145). Волокно в ней идёт вдоль оси x текстуры — как
+// у woodTexture(), поэтому направление волокна (grainAxis), сдвиг фазы между деталями
+// и uvSwap работают ровно так же. Картинка грузится асинхронно (data:-URI), текстура
+// обновляется по готовности — сцена перерисовывается сама (_animate).
+const _tileTexCache = {};
+function decorTileSpec(code) {
+  const dt = window.Modul3D && window.Modul3D.decorTiles;
+  return (dt && code && dt.byCode[code]) || null;
+}
+function tileTexture(spec) {
+  if (_tileTexCache[spec.src]) return _tileTexCache[spec.src];
+  const img = new Image();
+  const t = new THREE.Texture(img);
+  // Клоны (на материалы деталей) могут появиться ДО окончания загрузки картинки:
+  // запоминаем их и после onload просим перезагрузить на GPU (иначе у клона version
+  // не меняется и three каждый кадр ругается «image is not complete»).
+  let pending = [t];
+  const track = (tex) => {
+    tex.clone = function () {
+      const c = THREE.Texture.prototype.clone.call(this);
+      if (pending) pending.push(c);
+      track(c);
+      return c;
+    };
+  };
+  track(t);
+  img.onload = () => { const list = pending; pending = null; list.forEach((x) => { x.needsUpdate = true; }); };
+  img.src = spec.src;
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.anisotropy = 8;
+  markShared(t);
+  _tileTexCache[spec.src] = t;
+  return t;
+}
+
+// НЕ ПОВТОРЯТЬ РИСУНОК ЧЕРЕЗ ПЕРИОД. Плитка бесшовна, но у 1300 мм повторяется один в
+// один — на ряде одинаковых модулей это видно «через раз». Поэтому в шейдере каждая
+// клетка плитки зеркалится: по x — по хэшу номера её СТОЛБЦА, по y — по хэшу номера
+// СТРОКИ. Так стык клеток остаётся непрерывным (зеркало границы периодической плитки
+// совпадает с самой границей, а у соседей по столбцу/строке одинаковое отражение), а
+// последовательность клеток перестаёт быть периодической. Нужен WebGL2 (textureGrad —
+// чтобы на стыках клеток не было шва от скачка производных). Иначе — как раньше.
+let _tileFlipOk = null;
+function tileFlipSupported() {
+  if (_tileFlipOk === null) {
+    try { _tileFlipOk = !!document.createElement('canvas').getContext('webgl2'); } catch (e) { _tileFlipOk = false; }
+  }
+  return _tileFlipOk;
+}
+function applyTileFlip(mat) {
+  if (!tileFlipSupported()) return;
+  mat.onBeforeCompile = (sh) => {
+    sh.fragmentShader = sh.fragmentShader.replace('#include <map_fragment>', `
+      #ifdef USE_MAP
+        vec2 tcell = floor(vUv);
+        vec2 tf = vUv - tcell;
+        vec2 tdx = dFdx(vUv), tdy = dFdy(vUv);
+        float thx = fract(sin(tcell.x * 12.9898 + 4.1) * 43758.5453);
+        float thy = fract(sin(tcell.y * 78.233 + 9.7) * 43758.5453);
+        if (thx > 0.5) { tf.x = 1.0 - tf.x; tdx.x = -tdx.x; tdy.x = -tdy.x; }
+        if (thy > 0.5) { tf.y = 1.0 - tf.y; tdx.y = -tdx.y; tdy.y = -tdy.y; }
+        vec4 texelColor = textureGrad(map, tf, tdx, tdy);
+        texelColor = mapTexelToLinear(texelColor);
+        diffuseColor *= texelColor;
+      #endif`);
+  };
+  mat.customProgramCacheKey = () => 'tileFlip';
+}
+
 // Текстура ЛДСП рисуется прямо в браузере: полосы «под древесину». Так не
 // нужны внешние файлы, а фасад из ЛДСП визуально отличается от гладкого МДФ.
 //
@@ -271,7 +341,9 @@ function decorLook(code) {
   const spec = pd && pd.get(code);
   // Процедурный декор (src/decorData.js): жилки рисуются из векторных данных,
   // а не из JPEG — см. procPieceTexture выше.
-  return spec ? Object.assign({ color: 0x35332f, wood: false }, base || {}, { proc: spec }) : base;
+  if (spec) return Object.assign({ color: 0x35332f, wood: false }, base || {}, { proc: spec });
+  const tile = decorTileSpec(code);
+  return tile ? Object.assign({}, base || { color: 0xc9a76a }, { wood: true, tile }) : base;
 }
 function decorLookBase(code) {
   const cat = (typeof window !== 'undefined' && window.Modul3D && window.Modul3D.catalog) || {};
@@ -4438,7 +4510,10 @@ class Viewer3D {
       const procSpec = (look && look.proc && !glass && !isMdf && !isActive && !hiCyan) ? look.proc : null;
       const procPiece = !!procSpec;   // одна процедурная текстура на всю деталь, без плитки
       const tex = procSpec ? procPieceTexture(procSpec, uSize, vSize)
-        : ((ldspLike && !isActive && !hiCyan) ? woodTexture() : null);
+        : ((ldspLike && !isActive && !hiCyan) ? (look && look.tile ? tileTexture(look.tile) : woodTexture()) : null);
+      // Размер плитки в метрах детали: у woodTexture() — WOOD_TILE_M, у настоящей
+      // плитки листа — её реальный размер (1300 мм), чтобы масштаб рисунка был 1:1.
+      const tileM = (look && look.tile && tex) ? look.tile.tileMM * MM : WOOD_TILE_M;
       // Волокно вдоль v пласти (а не вдоль u, как рисует woodTexture) — тогда
       // UV геометрии переставляются (uvSwap ниже), а offset в цикле по boxes
       // получает ту же перестановку. Без grainAxis (белый/МДФ/стекло и т.п.)
@@ -4446,7 +4521,7 @@ class Viewer3D {
       const grainV = !!tex && !procPiece && grainRunsAlongV(row.grainAxis, planeIsX, planeIsY);
       const mat = new THREE.MeshStandardMaterial({
         color: hiCyan ? SECTION_HI_COLOR
-          : (glassFacade ? GLASS4_COLOR : (glass ? 0xbfe3ea : (isMdf ? (isActive ? 0x7fb0d8 : 0xf2efe9) : (procSpec ? 0xffffff : color)))),
+          : (glassFacade ? GLASS4_COLOR : (glass ? 0xbfe3ea : (isMdf ? (isActive ? 0x7fb0d8 : 0xf2efe9) : (procSpec ? 0xffffff : ((look && look.tile && tex) ? 0xe2e2e2 : color))))),
         map: tex || null,
         roughness: glass ? 0.1 : (isMdf ? 0.12 : (procSpec ? procSpec.rough : 0.75)),
         metalness: isMdf ? 0.05 : 0.02,
@@ -4459,6 +4534,8 @@ class Viewer3D {
             : (glass ? 0.35 : ((drillCheck || xray) ? 0.22 : (isActive ? ACTIVE_MODULE_OPACITY : 1))))),
         depthWrite: !(hiCyan || ghostLike || glass || drillCheck || xray || isActive),
       });
+      const tileMat = !!(look && look.tile && tex);
+      if (tileMat) applyTileFlip(mat);
       if (tex) {
         mat.map = tex.clone();
         mat.map.needsUpdate = true;
@@ -4477,7 +4554,7 @@ class Viewer3D {
           mat.map.repeat.set(1 / (uSize * MM), 1 / (vSize * MM));
           mat.map.offset.set(0.5, 0.5);
         } else {
-          mat.map.repeat.set(1 / WOOD_TILE_M, 1 / WOOD_TILE_M);
+          mat.map.repeat.set(1 / tileM, 1 / tileM);
         }
       }
       // Кэш геометрии детали (см. this._partGeoCache в конструкторе):
@@ -4590,10 +4667,11 @@ class Viewer3D {
           const origin = woodUvOrigin(box, rotDeg, planeIsX, planeIsY, grainV);
           if (row.boxes.length > 1) {
             boxMat = mat.clone();
+            if (tileMat) applyTileFlip(boxMat);
             boxMat.map = mat.map.clone();
             boxMat.map.needsUpdate = true;
           }
-          if (!procPiece) boxMat.map.offset.set(origin.u / WOOD_TILE_M, origin.v / WOOD_TILE_M);
+          if (!procPiece) boxMat.map.offset.set(origin.u / tileM, origin.v / tileM);
         }
         for (const g of partGeos) {
           const piece = new THREE.Mesh(g, boxMat);
