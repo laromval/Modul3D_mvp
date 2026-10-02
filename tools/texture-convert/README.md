@@ -1,15 +1,16 @@
-# Конвертер «полный лист декора → процедурная текстура»
+# Конвертер «лист декора → растровая плитка»
 
-Dev-набор, приложением не используется. Из изображения ЦЕЛОГО листа производителя
-(на странице декора на сайте Egger — «Plattenansicht») получает векторные жилы и карту
-«облаков» для `src/decorData.js`. Рисует их `src/proceduralDecor.js` под размер детали.
+Dev-набор, приложением не используется. `bake_tile.py` берёт изображение ЦЕЛОГО листа
+производителя (Egger: страница декора `egger.com/de/moebel-innenausbau/dekore/<код>`, «Plattenansicht»,
+`cdn.egger.com/img/pim/.../original.png`; для очень тяжёлых PNG — `original.jpg?width=3685&srcext=png`),
+режет квадрат 1300×1300 мм, уменьшает и пишет `src/decorTiles.js` (base64 JPEG). Во вьювере
+(`tileTexture`/`applyTileFlip` в `src/viewer.js`) клетки плитки зеркалятся, поэтому рисунок не
+повторяется «через период», а стыки непрерывны. Волокно идёт вдоль оси x текстуры — правила
+«Направление текстуры» работают как у обычной древесной текстуры.
 
-Порядок (из папки с исходниками, нужны Python 3, numpy, scipy, pillow, scikit-image, skan, opencv-python-headless):
-1. положить лёгшее горизонтально изображение листа как `board.png` (главные потоки по горизонтали);
-2. `python ex3.py 88 95 60` — выделение жилок (ridge-фильтр) → `mask3.npy`, `board3200.png`;
-3. `python trace3.py 12` — скелет → полилинии с шириной и яркостью → `veins3.json`;
-4. `python gen4.py <путь>/src/decorData.js` — запись данных. Перед запуском поправить в `gen4.py`
-   код материала, размер листа `tileMM`, период повтора `period` (определить по автокорреляции листа).
-
-Исходники F206 ST9 лежат вне репозитория: `D:\#Project claude\Model3D\texture-sources\F206_ST9_Egger`
-(официальный лист: https://www.egger.com/de/moebel-innenausbau/dekore/F206_9, период повтора 1310.75 мм).
+Листы лежат вне репозитория: `D:\#Project claude\Model3D\texture-sources\<код>_Egger\board_orig.png`
+(F206 — `egger_full.png`). Запуск (нужны Python 3 и pillow, numpy):
+`python bake_tile.py "D:/#Project claude/Model3D/texture-sources" ../../src/decorTiles.js`.
+Новый декор — строка в списке ENTRIES: папка, высота кропа, размер, качество, режим
+(`hash` — лист периодичен по ширине; `mirror` — не периодичен), коды позиций каталога.
+Однотонные декоры (U702, U250, U399 и т.п.) текстуры не имеют — их цвет задан в `decorLookBase` (viewer.js).

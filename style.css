@@ -2894,7 +2894,7 @@ body.is-focus .scrim { opacity: 0 !important; }
 .mat-facade-target.active { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); font-weight: 600; }
 .mat-facade-target:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 #matFacadeField select { width: 100%; }
-.mat-facade-all { display: inline-block; margin-top: var(--sp-2); }
+.mat-facade-all { display: block; width: 100%; margin-top: var(--sp-2); white-space: normal; text-align: center; }
 /* Конструктор алюм. фасада вверху раздела Библиотеки. */
 .alu-ctor { margin-top: 0; padding: var(--sp-2) 0 var(--sp-3); border-top: none; border-bottom: 1px dashed var(--border); }
 .alu-ctor .lib-alu-sub { margin-top: 0; }

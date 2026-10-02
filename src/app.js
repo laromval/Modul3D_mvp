@@ -14,7 +14,7 @@
 (function () {
 // Версия сборки — показывается во вкладке браузера и в шапке.
 // При выпуске новой версии меняется только эта строка.
-const APP_VERSION = 'v328';
+const APP_VERSION = 'v330';
 
 // Номер версии выводим ПЕРВЫМ делом: если дальше что-то упадёт, по нему сразу
 // видно, какая сборка открыта.
@@ -11502,7 +11502,7 @@ function matFacadeFieldHtml() {
       ${targetsHtml}
       ${typeHtml}
       ${matHtml}
-      <button type="button" class="link-btn mat-facade-all" id="p-facadeApplyAll"
+      <button type="button" class="btn mat-facade-all" id="p-facadeApplyAll"
               title="Поставить этот вид и материал фасада во все секции и отсеки всех модулей">Заменить фасады на весь проект</button>
     </div>`;
 }

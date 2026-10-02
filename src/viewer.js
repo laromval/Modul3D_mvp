@@ -24,21 +24,6 @@ const MM = 0.001; // мм -> м
 // декоративное и его можно потом подправить визуально по вкусу.
 const WOOD_TILE_M = 0.6;
 
-// Текстура на ВСЮ деталь (столешницу): рисуется под её реальные длину и глубину,
-// без повтора и стыков (см. proceduralDecor.renderPiece). Кэш — по размеру.
-const _pieceTexCache = {};
-function procPieceTexture(spec, uMM, vMM) {
-  const pd = window.Modul3D && window.Modul3D.procDecor;
-  if (!pd || !pd.renderPiece) return null;
-  const key = spec.code + '|' + Math.round(uMM) + '|' + Math.round(vMM);
-  if (_pieceTexCache[key]) return _pieceTexCache[key];
-  const t = new THREE.CanvasTexture(pd.renderPiece(spec, uMM, vMM));
-  t.wrapS = t.wrapT = THREE.ClampToEdgeWrapping;
-  t.anisotropy = 8;
-  _pieceTexCache[key] = t;
-  return t;
-}
-
 // Растровая плитка декора (src/decorTiles.js): настоящий бесшовный фрагмент листа
 // производителя (дуб Бардолино H1145). Волокно в ней идёт вдоль оси x текстуры — как
 // у woodTexture(), поэтому направление волокна (grainAxis), сдвиг фазы между деталями
@@ -48,6 +33,10 @@ const _tileTexCache = {};
 function decorTileSpec(code) {
   const dt = window.Modul3D && window.Modul3D.decorTiles;
   return (dt && code && dt.byCode[code]) || null;
+}
+function tileColor(k) {
+  const v = Math.round(255 * (k || 0.88));
+  return (v << 16) | (v << 8) | v;
 }
 function tileTexture(spec) {
   if (_tileTexCache[spec.src]) return _tileTexCache[spec.src];
@@ -78,7 +67,8 @@ function tileTexture(spec) {
 // НЕ ПОВТОРЯТЬ РИСУНОК ЧЕРЕЗ ПЕРИОД. Плитка бесшовна, но у 1300 мм повторяется один в
 // один — на ряде одинаковых модулей это видно «через раз». Поэтому в шейдере каждая
 // клетка плитки зеркалится: по x — по хэшу номера её СТОЛБЦА, по y — по хэшу номера
-// СТРОКИ. Так стык клеток остаётся непрерывным (зеркало границы периодической плитки
+// СТРОКИ (spec.mode 'hash'; у непериодичных листов — 'mirror': чередование, зеркальный
+// стык клеток непрерывен всегда). Так стык клеток остаётся непрерывным (зеркало границы периодической плитки
 // совпадает с самой границей, а у соседей по столбцу/строке одинаковое отражение), а
 // последовательность клеток перестаёт быть периодической. Нужен WebGL2 (textureGrad —
 // чтобы на стыках клеток не было шва от скачка производных). Иначе — как раньше.
@@ -89,7 +79,7 @@ function tileFlipSupported() {
   }
   return _tileFlipOk;
 }
-function applyTileFlip(mat) {
+function applyTileFlip(mat, mode) {
   if (!tileFlipSupported()) return;
   mat.onBeforeCompile = (sh) => {
     sh.fragmentShader = sh.fragmentShader.replace('#include <map_fragment>', `
@@ -97,8 +87,9 @@ function applyTileFlip(mat) {
         vec2 tcell = floor(vUv);
         vec2 tf = vUv - tcell;
         vec2 tdx = dFdx(vUv), tdy = dFdy(vUv);
-        float thx = fract(sin(tcell.x * 12.9898 + 4.1) * 43758.5453);
-        float thy = fract(sin(tcell.y * 78.233 + 9.7) * 43758.5453);
+        ${mode === 'mirror'
+          ? 'float thx = mod(tcell.x, 2.0), thy = mod(tcell.y, 2.0);'
+          : 'float thx = fract(sin(tcell.x * 12.9898 + 4.1) * 43758.5453), thy = fract(sin(tcell.y * 78.233 + 9.7) * 43758.5453);'}
         if (thx > 0.5) { tf.x = 1.0 - tf.x; tdx.x = -tdx.x; tdy.x = -tdy.x; }
         if (thy > 0.5) { tf.y = 1.0 - tf.y; tdx.y = -tdx.y; tdy.y = -tdy.y; }
         vec4 texelColor = textureGrad(map, tf, tdx, tdy);
@@ -106,7 +97,7 @@ function applyTileFlip(mat) {
         diffuseColor *= texelColor;
       #endif`);
   };
-  mat.customProgramCacheKey = () => 'tileFlip';
+  mat.customProgramCacheKey = () => 'tileFlip' + mode;
 }
 
 // Текстура ЛДСП рисуется прямо в браузере: полосы «под древесину». Так не
@@ -337,11 +328,6 @@ function applyGrainBoxUv(geo, grainAxis) {
 // «древесным» по типу детали. Ищем материал в каталоге и смотрим на название.
 function decorLook(code) {
   const base = decorLookBase(code);
-  const pd = (typeof window !== 'undefined' && window.Modul3D && window.Modul3D.procDecor) || null;
-  const spec = pd && pd.get(code);
-  // Процедурный декор (src/decorData.js): жилки рисуются из векторных данных,
-  // а не из JPEG — см. procPieceTexture выше.
-  if (spec) return Object.assign({ color: 0x35332f, wood: false }, base || {}, { proc: spec });
   const tile = decorTileSpec(code);
   return tile ? Object.assign({}, base || { color: 0xc9a76a }, { wood: true, tile }) : base;
 }
@@ -356,6 +342,12 @@ function decorLookBase(code) {
   const it = all.filter((x) => x && x.code === code)[0];
   const nm = (it && it.name) || '';
   if (!nm) return null;
+  // Однотонные декоры Egger: цвет — средний по официальному листу (egger.com), как
+  // есть, ×0.78 (свет сцены усиливает цвет — как у остальных тайлов). Без отдельной ветки «лдсп»/«мдф» в названии красили их как дерево (U702 «серый
+  // кашемир» выходил жёлто-оранжевым в полоску).
+  if (/U702/i.test(nm)) return { color: 0xa79c92, wood: false };   // 214,200,187 ×0.78
+  if (/U250/i.test(nm)) return { color: 0x856f57, wood: false };   // 171,142,112 ×0.78
+  if (/U399/i.test(nm)) return { color: 0x491719, wood: false };   // 94,29,33 ×0.78
   if (/бел/i.test(nm)) return { color: 0xf3f1ec, wood: false };
   if (/чёрн|черн/i.test(nm)) return { color: 0x35332f, wood: false };
   // Камень/мрамор/керамика (столешницы CTOP-*, напр. «мрамор Bianco Bello»,
@@ -4507,10 +4499,8 @@ class Viewer3D {
       // drillCheck: если эта деталь — фасад выбранной секции ИЛИ конкретная
       // деталь, открытая на экране «Деталь», красим её бирюзовым и никакую
       // текстуру/другой оттенок сверху не кладём.
-      const procSpec = (look && look.proc && !glass && !isMdf && !isActive && !hiCyan) ? look.proc : null;
-      const procPiece = !!procSpec;   // одна процедурная текстура на всю деталь, без плитки
-      const tex = procSpec ? procPieceTexture(procSpec, uSize, vSize)
-        : ((ldspLike && !isActive && !hiCyan) ? (look && look.tile ? tileTexture(look.tile) : woodTexture()) : null);
+      const tex = ((ldspLike || (look && look.tile && !glass)) && !isActive && !hiCyan)
+        ? (look && look.tile ? tileTexture(look.tile) : woodTexture()) : null;
       // Размер плитки в метрах детали: у woodTexture() — WOOD_TILE_M, у настоящей
       // плитки листа — её реальный размер (1300 мм), чтобы масштаб рисунка был 1:1.
       const tileM = (look && look.tile && tex) ? look.tile.tileMM * MM : WOOD_TILE_M;
@@ -4518,12 +4508,12 @@ class Viewer3D {
       // UV геометрии переставляются (uvSwap ниже), а offset в цикле по boxes
       // получает ту же перестановку. Без grainAxis (белый/МДФ/стекло и т.п.)
       // остаётся false — всё как раньше.
-      const grainV = !!tex && !procPiece && grainRunsAlongV(row.grainAxis, planeIsX, planeIsY);
+      const grainV = !!tex && grainRunsAlongV(row.grainAxis, planeIsX, planeIsY);
       const mat = new THREE.MeshStandardMaterial({
         color: hiCyan ? SECTION_HI_COLOR
-          : (glassFacade ? GLASS4_COLOR : (glass ? 0xbfe3ea : (isMdf ? (isActive ? 0x7fb0d8 : 0xf2efe9) : (procSpec ? 0xffffff : ((look && look.tile && tex) ? 0xe2e2e2 : color))))),
+          : (glassFacade ? GLASS4_COLOR : (glass ? 0xbfe3ea : ((look && look.tile && tex) ? tileColor(look.tile.k) : (isMdf ? (isActive ? 0x7fb0d8 : 0xf2efe9) : color)))),
         map: tex || null,
-        roughness: glass ? 0.1 : (isMdf ? 0.12 : (procSpec ? procSpec.rough : 0.75)),
+        roughness: glass ? 0.1 : (isMdf ? 0.12 : 0.75),
         metalness: isMdf ? 0.05 : 0.02,
         emissive: hiCyan ? SECTION_HI_EMISSIVE : (isActive ? 0x14314a : 0x000000),
         // xray — та же прозрачность, что и в drillCheck (стекло остаётся
@@ -4535,7 +4525,7 @@ class Viewer3D {
         depthWrite: !(hiCyan || ghostLike || glass || drillCheck || xray || isActive),
       });
       const tileMat = !!(look && look.tile && tex);
-      if (tileMat) applyTileFlip(mat);
+      if (tileMat) applyTileFlip(mat, look.tile.mode);
       if (tex) {
         mat.map = tex.clone();
         mat.map.needsUpdate = true;
@@ -4549,13 +4539,7 @@ class Viewer3D {
         // offset (фаза узора относительно корпуса) выставляется ниже, в
         // цикле по row.boxes — woodUvOrigin(), — там известно положение
         // конкретной детали в корпусе.
-        if (procPiece) {
-          // UV — «сырые» метры от центра пласти: одна текстура ровно на всю пласть.
-          mat.map.repeat.set(1 / (uSize * MM), 1 / (vSize * MM));
-          mat.map.offset.set(0.5, 0.5);
-        } else {
-          mat.map.repeat.set(1 / tileM, 1 / tileM);
-        }
+        mat.map.repeat.set(1 / tileM, 1 / tileM);
       }
       // Кэш геометрии детали (см. this._partGeoCache в конструкторе):
       // одинаковые по размеру пласти и присадке детали (несколько ящиков/
@@ -4667,11 +4651,11 @@ class Viewer3D {
           const origin = woodUvOrigin(box, rotDeg, planeIsX, planeIsY, grainV);
           if (row.boxes.length > 1) {
             boxMat = mat.clone();
-            if (tileMat) applyTileFlip(boxMat);
+            if (tileMat) applyTileFlip(boxMat, look.tile.mode);
             boxMat.map = mat.map.clone();
             boxMat.map.needsUpdate = true;
           }
-          if (!procPiece) boxMat.map.offset.set(origin.u / tileM, origin.v / tileM);
+          boxMat.map.offset.set(origin.u / tileM, origin.v / tileM);
         }
         for (const g of partGeos) {
           const piece = new THREE.Mesh(g, boxMat);
