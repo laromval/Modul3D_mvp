@@ -21,25 +21,6 @@
   // неверным, реальный декор Egger называется иначе).
   const DECORS = [
   {
-    "code": "H1180ST37",
-    "name": "ЛДСП Egger H1180 ST37 Дуб Халифакс натуральный",
-    "unit": "м²",
-    "image": "https://mobilier.md/image/cache/catalog/products/23949/37de281fd09df8ce907afbcf155ae164-520x350.png",
-    "sheetH": 2070,
-    "sheetW": 2800,
-    "sourceUrl": "https://mobilier.md/ru/plitnye-materialy/dsp/dsp_egger/h1180-st37-dub-galifaks-naturalnyy-2800x2070x186-eg-dsp-laminirovannyy.html",
-    "thickness": 18.6,
-    "sheetPrice": 3535.56,
-    "sourceName": "H1180 ST37 Дуб Галифакс натуральный 2800x2070x18.6 (EG) Дсп ламинированный",
-    "verifiedAt": "2026-09-24T17:35:55.811Z",
-    "categoryPath": [
-      "ДСП",
-      "Egger"
-    ],
-    "sourceSiteId": "mobilierMd",
-    "categoryPathEdited": true
-  },
-  {
     "code": "U702ST9",
     "name": "ЛДСП Egger U702 ST9 Серый кашемир",
     "unit": "м²",
@@ -98,7 +79,7 @@
   },
   {
     "code": "LINK-1790014004794",
-    "name": "H1145 ST10 Дуб Бардолино натуральный",
+    "name": "«0110 SM Белый» (16 мм)",
     "unit": "м²",
     "image": "https://mobilier.md/image/cache/catalog/products/24750/6390e2cc89e9a4392f1f31ffd03bb28a-768x1089.png",
     "sheetH": 2070,
@@ -158,27 +139,6 @@
     "categoryPathEdited": true
   },
   {
-    "code": "LINK-1790623797766",
-    "name": "0110 SM Белый",
-    "unit": "м²",
-    "image": "https://mobilier.md/image/cache/catalog/products/24921/26476d5b2d8bf3739df02fd5e80d4b0c-1200x1800.png",
-    "sheetH": 2070,
-    "sheetW": 2800,
-    "article": "",
-    "sourceUrl": "https://mobilier.md/ru/plitnye-materialy/dsp/kronospan/dsp-laminirovannyy-0110-sm-belyy-16-2800x2070-ku.html",
-    "thickness": 16,
-    "sheetPrice": 168,
-    "sourceName": "Дсп ламинированный 0110 SM Белый (16) 2800x2070 (KU)",
-    "verifiedAt": "2026-09-28T19:29:57.766Z",
-    "categoryPath": [
-      "ДСП",
-      "Kronospan"
-    ],
-    "sourceSiteId": "mobilierMd",
-    "sourceArticle": "",
-    "categoryPathEdited": true
-  },
-  {
     "code": "LINK-1790249477980",
     "name": "F206 ST9 Пьетра Гриджиа черный",
     "unit": "м²",
@@ -196,7 +156,8 @@
       "Egger"
     ],
     "sourceSiteId": "mobilierMd",
-    "sourceArticle": ""
+    "sourceArticle": "",
+    "categoryPathEdited": true
   },
   {
     "code": "LINK-1790325008828",
@@ -218,6 +179,202 @@
     "sourceSiteId": "mobilierMd",
     "sourceArticle": "",
     "categoryPathEdited": true
+  },
+  {
+    "code": "LINK-1790623210595",
+    "name": "0110 SM Белый",
+    "unit": "м²",
+    "image": "https://mobilier.md/image/cache/catalog/products/24882/26476d5b2d8bf3739df02fd5e80d4b0c-1200x1800.png",
+    "sheetH": 2070,
+    "sheetW": 2800,
+    "article": "",
+    "sourceUrl": "https://mobilier.md/ru/plitnye-materialy/dsp/kronospan/dsp-laminirovannyy-0110-sm-belyy-10-2800x2070-ku.html",
+    "thickness": 16,
+    "sheetPrice": 1031.69,
+    "sourceName": "Дсп ламинированный 0110 SM Белый (10) 2800x2070 (KU)",
+    "verifiedAt": "2026-09-28T19:20:10.595Z",
+    "categoryPath": [
+      "ДСП",
+      "Kronospan"
+    ],
+    "sourceSiteId": "mobilierMd",
+    "sourceArticle": "",
+    "categoryPathEdited": true
+  },
+  {
+    "code": "LINK-1790703582470",
+    "name": "H1145 ST10 Дуб Бардолино натуральный",
+    "unit": "м²",
+    "image": "https://mobilier.md/image/cache/catalog/products/24750/6390e2cc89e9a4392f1f31ffd03bb28a-768x1089.png",
+    "sheetH": 2070,
+    "sheetW": 2800,
+    "article": "",
+    "sourceUrl": "https://mobilier.md/ru/plitnye-materialy/dsp/dsp_egger/h1145-st10-dub-bardolino-naturalnyy-2800x2070x18-eg-dsp-laminirovannyy.html",
+    "thickness": 18,
+    "sheetPrice": 1715.62,
+    "sourceName": "H1145 ST10 Дуб Бардолино натуральный  2800x2070x18 (EG) Дсп ламинированный",
+    "verifiedAt": "2026-09-29T17:39:42.470Z",
+    "categoryPath": [
+      "ДСП",
+      "Egger"
+    ],
+    "sourceSiteId": "mobilierMd",
+    "sourceArticle": "",
+    "categoryPathEdited": true
+  },
+  {
+    "code": "LINK-1790623797766",
+    "name": "0110 SM Белый",
+    "unit": "м²",
+    "image": "https://mobilier.md/image/cache/catalog/products/24921/26476d5b2d8bf3739df02fd5e80d4b0c-1200x1800.png",
+    "sheetH": 2070,
+    "sheetW": 2800,
+    "article": "",
+    "sourceUrl": "https://mobilier.md/ru/plitnye-materialy/dsp/kronospan/dsp-laminirovannyy-0110-sm-belyy-16-2800x2070-ku.html",
+    "thickness": 16,
+    "sheetPrice": 168,
+    "sourceName": "Дсп ламинированный 0110 SM Белый (16) 2800x2070 (KU)",
+    "verifiedAt": "2026-09-28T19:29:57.766Z",
+    "categoryPath": [
+      "ДСП",
+      "Kronospan"
+    ],
+    "sourceSiteId": "mobilierMd",
+    "sourceArticle": "",
+    "categoryPathEdited": true
+  },
+  {
+    "code": "LINK-1791034137833",
+    "name": "F685 ST10 Acapulco",
+    "unit": "м²",
+    "image": "https://mobilier.md/image/cache/catalog/products/24425/ee22cb9886983c579385c52719d932f8-768x1087.png",
+    "sheetH": 2070,
+    "sheetW": 2800,
+    "article": "F685ST10",
+    "sourceUrl": "https://mobilier.md/index.php?route=product/product&path=287_315&product_id=24425",
+    "thickness": 18,
+    "sheetPrice": 2295.22,
+    "sourceName": "F685 ST10 Acapulco 2800x2070x18 (EG) Pal melaminat",
+    "textureUrl": "https://www.egger.com/en/furniture-interior-design/decors/F685_10?country=AU",
+    "verifiedAt": "2026-10-03T13:28:57.833Z",
+    "categoryPath": [
+      "ДСП",
+      "Egger"
+    ],
+    "sourceSiteId": "mobilierMd",
+    "sourceArticle": "F685ST10",
+    "textureSiteId": "egger",
+    "categoryPathEdited": true
+  },
+  {
+    "code": "LINK-1791037664817",
+    "name": "2739 PW Дуб Кремона Канноло (18) 2800x2070 (KU)",
+    "unit": "м²",
+    "image": "https://mobilier.md/image/cache/catalog/products/32269/f76c1ac72021a44deca731423df37b24-915x1372.png",
+    "sheetH": 2070,
+    "sheetW": 2800,
+    "article": "",
+    "sourceUrl": "https://mobilier.md/ru/plitnye-materialy/dsp/kronospan/dsp-laminirovannyy-2739-pw-dub-kremona-kannolo-18-2800x2070-ku.html",
+    "thickness": 18,
+    "sheetPrice": 1054.87,
+    "sourceName": "Дсп ламинированный 2739 PW Дуб Кремона Канноло (18) 2800x2070 (KU)",
+    "textureUrl": "https://kronospan.com/en_EN/decors/view/kronodesign/cremona-oak/K2739/",
+    "verifiedAt": "2026-10-03T14:27:44.817Z",
+    "categoryPath": [
+      "ДСП",
+      "Kronospan"
+    ],
+    "sourceSiteId": "mobilierMd",
+    "sourceArticle": "",
+    "textureSiteId": "kronospan",
+    "textureFragmentMM": 1950
+  },
+  {
+    "code": "LINK-1791041399187",
+    "name": "Дсп K110 SM Белый (16) ",
+    "unit": "м²",
+    "image": "https://mobilier.md/image/cache/catalog/products/25823/c395e6c215140ccd7929275d06faab4c-553x1200.png",
+    "sheetH": 2070,
+    "sheetW": 2800,
+    "article": "",
+    "sourceUrl": "https://mobilier.md/ru/plitnye-materialy/dsp/swiss-krono/dsp-laminirovannyy-k110-sm-belyy-16-2800x2070-su.html",
+    "thickness": 0,
+    "sheetPrice": 1043.28,
+    "sourceName": "Дсп ламинированный K110 SM Белый (16) 2800x2070 (SU)",
+    "verifiedAt": "2026-10-03T15:29:59.187Z",
+    "categoryPath": [
+      "ДСП",
+      "SWISS Krono"
+    ],
+    "sourceSiteId": "mobilierMd",
+    "sourceArticle": "",
+    "categoryPathEdited": true
+  },
+  {
+    "code": "H1180ST37",
+    "name": "ЛДСП Egger H1180 ST37 Дуб Халифакс натуральный",
+    "unit": "м²",
+    "image": "https://mobilier.md/image/cache/catalog/products/23949/37de281fd09df8ce907afbcf155ae164-520x350.png",
+    "sheetH": 2070,
+    "sheetW": 2800,
+    "sourceUrl": "https://mobilier.md/ru/plitnye-materialy/dsp/dsp_egger/h1180-st37-dub-galifaks-naturalnyy-2800x2070x186-eg-dsp-laminirovannyy.html",
+    "thickness": 18.6,
+    "sheetPrice": 3535.56,
+    "sourceName": "H1180 ST37 Дуб Галифакс натуральный 2800x2070x18.6 (EG) Дсп ламинированный",
+    "verifiedAt": "2026-09-24T17:35:55.811Z",
+    "categoryPath": [
+      "ДСП",
+      "Egger"
+    ],
+    "sourceSiteId": "mobilierMd",
+    "categoryPathEdited": true
+  },
+  {
+    "code": "LINK-1791048957049",
+    "name": "Дсп K351 RT Ржавый камень (18)",
+    "unit": "м²",
+    "image": "https://mobilier.md/image/cache/catalog/products/25044/093a159b2dffe79bf83bdc4b88a9c4e2-960x1440.png",
+    "sheetH": 2070,
+    "sheetW": 2800,
+    "article": "",
+    "sourceUrl": "https://mobilier.md/ru/plitnye-materialy/dsp/kronospan/dsp-laminirovannyy-k351-rt-rzhavyy-kamen-18-2800x2070-ku.html",
+    "thickness": 18,
+    "sheetPrice": 1547.53,
+    "sourceName": "Дсп ламинированный K351 RT Ржавый камень (18) 2800x2070 (KU)",
+    "textureUrl": "https://kronospan.com/en_EN/decors/view/kronodesign/contempo/K351/",
+    "verifiedAt": "2026-10-03T17:35:57.049Z",
+    "categoryPath": [
+      "ДСП",
+      "Kronospan"
+    ],
+    "sourceSiteId": "mobilierMd",
+    "sourceArticle": "",
+    "textureSiteId": "kronospan",
+    "textureFragmentMM": 1950,
+    "categoryPathEdited": true
+  },
+  {
+    "code": "LINK-1791049438521",
+    "name": "Дсп 0244 PD Бензин",
+    "unit": "м²",
+    "image": "https://mobilier.md/image/cache/catalog/products/33305/ae81177b07c7c6ba7a905d9dad8b6fd2-1200x1800.png",
+    "sheetH": 2070,
+    "sheetW": 2800,
+    "article": "",
+    "sourceUrl": "https://mobilier.md/ru/plitnye-materialy/dsp/kronospan/dsp-laminirovannyy-0244-pd-benzin-18-2800x2070-ku.html",
+    "thickness": 18,
+    "sheetPrice": 1547.53,
+    "sourceName": "Дсп ламинированный 0244 PD Бензин (18) 2800x2070 (KU)",
+    "textureUrl": "https://kronospan.com/en_EN/decors/view/kronodesign/color/0244/",
+    "verifiedAt": "2026-10-03T17:43:58.521Z",
+    "categoryPath": [
+      "ДСП",
+      "Kronospan"
+    ],
+    "sourceSiteId": "mobilierMd",
+    "sourceArticle": "",
+    "textureSiteId": "kronospan",
+    "textureFragmentMM": 1950
   }
 ];
 
@@ -491,7 +648,7 @@
   },
   "GLASS-4": {
     "code": "GLASS-4",
-    "name": "Стекло сатин бронз 4 мм",
+    "name": "Стекло сатин бронз 4 мм (фасад)",
     "unit": "м²",
     "image": null,
     "priceNote": "приближённая — уточняйте у поставщика",
@@ -692,7 +849,7 @@
       supplier: 'Tehmob', sourceUrl: 'https://tehmob.md/15633-profil-ramochnyj-2020-alyuminij.html',
       width: 19.7, depth: 21.1, kind: null,
       fillType: 'glass', fillThickness: 4, fillStop: 12.5, fillGap: 3,
-      price: 60, priceUnit: 'm', barLength: 5.8, colorPrices: null, colors: null,
+      price: 60, priceUnit: "m", barLength: 5.8, colorPrices: null, colors: null,
       hinge: 'aluFrame', priceNote: ALU_PRICE_NOTE,
       // Паспорт: 21.1 × 19.7, стенки 1.2, стекло входит в паз, дно паза — 12.5
       // от наружного края (показано в повёрнутом виде, как на схеме со стеклом).
@@ -823,9 +980,11 @@
     "sourceName": "АБС кромка W1000 ST9 23x2.0 UW",
     "verifiedAt": "2026-09-24T17:35:55.812Z",
     "categoryPath": [
-      "ПВХ"
+      "ABS",
+      "Без бренда"
     ],
-    "sourceSiteId": "mobilierMd"
+    "sourceSiteId": "mobilierMd",
+    "categoryPathEdited": true
   },
   "ПВХ 0.4 мм": {
     "unit": "пог.м",
@@ -837,9 +996,11 @@
     "sourceName": "АБС кромка W1000 ST9 22x0.4",
     "verifiedAt": "2026-09-24T17:35:55.812Z",
     "categoryPath": [
-      "ПВХ"
+      "ABS",
+      "Без бренда"
     ],
-    "sourceSiteId": "mobilierMd"
+    "sourceSiteId": "mobilierMd",
+    "categoryPathEdited": true
   },
   "ПВХ 0.8 мм": {
     "unit": "пог.м",
@@ -851,9 +1012,29 @@
     "sourceName": "АБС кромка W1000 ST9 23x0.8",
     "verifiedAt": "2026-09-24T17:35:55.812Z",
     "categoryPath": [
-      "ПВХ"
+      "ABS",
+      "Без бренда"
     ],
-    "sourceSiteId": "mobilierMd"
+    "sourceSiteId": "mobilierMd",
+    "categoryPathEdited": true
+  },
+  "АБС кромка F685 ST10": {
+    "unit": "пог.м",
+    "image": "https://mobilier.md/image/cache/catalog/products/33260/c65c206c35f575de0e6406f5796aab77-900x300.png",
+    "price": 19,
+    "width": 23,
+    "article": "",
+    "sourceUrl": "https://mobilier.md/ru/plitnye-materialy/kromka/egger/abs-kromka-f685-st10-23x20.html",
+    "thickness": 2,
+    "sourceName": "АБС кромка F685 ST10 23x2.0",
+    "verifiedAt": "2026-10-03T15:18:18.822Z",
+    "categoryPath": [
+      "ABS",
+      "EGGER"
+    ],
+    "sourceSiteId": "mobilierMd",
+    "sourceArticle": "",
+    "categoryPathEdited": true
   }
 };
 
@@ -1006,122 +1187,6 @@
     "sourceSiteId": "mobilierMd",
     "sourceArticle": "PK-0H45500GX1"
   },
-  // Чертёж (поле drawing, колонка «Чертёж» под «Характеристики») — страницы
-  // официальных документов производителей, картинки лежат в assets/drawings
-  // (drawing — лёгкая для таблицы/лупы, drawingFull — «-big», 400 dpi, для клика):
-  // Quadro EB23 — Hettich MTA_9 296 802 00; Quadro EB20 надвижной — MTA_9 296
-  // 800 00; Quadro EB20 насадной — MTA_9 302 560 00; ATIRA — каталог Hettich
-  // InnoTech Atira, стр. 120; TANDEMBOX — каталог Blum 2022/2023 (KA-150),
-  // стр. 309; LEGRABOX — инструкция Blum MD-013/5 (LEGRABOX pure), стр. 4.
-  "drawerHettichQuadroSlide23": {
-    "name": "Направляющая Quadro V6. 18 мм Silent System L=500 мм полного выдв.L+P Hettich (9225731+9225732)",
-    "unit": "компл.",
-    "image": "https://dask-centru.md/image/cache/catalog/dask/products/96309_1-1200x800.jpg",
-    "drawing": "assets/drawings/hettich-quadro-v6-eb23-slide-on.png",
-    "drawingFull": "assets/drawings/hettich-quadro-v6-eb23-slide-on-big.png",
-    "price": 652,
-    "article": "9225731+9225732",
-    "category": "runner",
-    "sourceUrl": "https://dask-centru.md/index.php?product_id=96309&route=product%2Fproduct",
-    "sourceName": "Направляющая Quadro V6. 18 мм Silent System L=500 мм полного выдв.L+P Hettich (9225731+9225732)",
-    "verifiedAt": "2026-10-02T09:30:00.000Z",
-    "subcategory": "Hettich",
-    "categoryPath": [
-      "Hettich"
-    ],
-    "sourceSiteId": "daskCentruMd"
-  },
-  "drawerHettichQuadroSlide": {
-    "name": "Направляющая Quadro V6 Silent System L=500 мм L+P Hettich — под ЛДСП 16 мм, надвижной монтаж (цена по аналогу «18 мм»)",
-    "unit": "компл.",
-    "image": "https://dask-centru.md/image/cache/catalog/dask/products/96309_1-1200x800.jpg",
-    "drawing": "assets/drawings/hettich-quadro-v6-eb20-slide-on.png",
-    "drawingFull": "assets/drawings/hettich-quadro-v6-eb20-slide-on-big.png",
-    "price": 652,
-    "article": "",
-    "category": "runner",
-    "sourceUrl": "https://dask-centru.md/index.php?product_id=96309&route=product%2Fproduct",
-    "sourceName": "Направляющая Quadro V6. 18 мм Silent System L=500 мм полного выдв.L+P Hettich (9225731+9225732)",
-    "verifiedAt": "2026-10-02T09:30:00.000Z",
-    "subcategory": "Hettich",
-    "categoryPath": [
-      "Hettich"
-    ],
-    "sourceSiteId": "daskCentruMd"
-  },
-  "drawerHettichQuadro": {
-    "name": "Направляющая Quadro V6 Silent System L=500 мм L+P Hettich — под ЛДСП 16 мм, насадной монтаж (цена по аналогу «18 мм»)",
-    "unit": "компл.",
-    "image": "https://dask-centru.md/image/cache/catalog/dask/products/96309_1-1200x800.jpg",
-    "drawing": "assets/drawings/hettich-quadro-v6-eb20-plug-on.png",
-    "drawingFull": "assets/drawings/hettich-quadro-v6-eb20-plug-on-big.png",
-    "price": 652,
-    "article": "",
-    "category": "runner",
-    "sourceUrl": "https://dask-centru.md/index.php?product_id=96309&route=product%2Fproduct",
-    "sourceName": "Направляющая Quadro V6. 18 мм Silent System L=500 мм полного выдв.L+P Hettich (9225731+9225732)",
-    "verifiedAt": "2026-10-02T09:30:00.000Z",
-    "subcategory": "Hettich",
-    "categoryPath": [
-      "Hettich"
-    ],
-    "sourceSiteId": "daskCentruMd"
-  },
-  "drawerHettichAtira": {
-    "name": "Комплект для ящиков ATIRA, полного выдвижения L=420 мм H=144 мм, антрацит Hettich",
-    "unit": "компл.",
-    "image": "https://dask-centru.md/image/cache/catalog/dask/products/96356_1-1200x800.jpg",
-    "drawing": "assets/drawings/hettich-innotech-atira-h144.png",
-    "drawingFull": "assets/drawings/hettich-innotech-atira-h144-big.png",
-    "price": 900,
-    "article": "",
-    "category": "runner",
-    "sourceUrl": "https://dask-centru.md/index.php?route=product/product&path=1000_1005_10055&product_id=96356",
-    "sourceName": "Комплект для ящиков ATIRA, полного выдвижения L=420 мм H=144 мм, антрацит Hettich",
-    "verifiedAt": "2026-10-02T09:30:00.000Z",
-    "subcategory": "Hettich",
-    "categoryPath": [
-      "Hettich"
-    ],
-    "sourceSiteId": "daskCentruMd"
-  },
-  "drawerBlumTandembox": {
-    "name": "TANDEMBOX 500M, Белый, 30 кг",
-    "unit": "компл.",
-    "image": "https://dask-centru.md/image/cache/catalog/dask/products/96821_1-1200x800.jpg",
-    "drawing": "assets/drawings/blum-tandembox-antaro-m.png",
-    "drawingFull": "assets/drawings/blum-tandembox-antaro-m-big.png",
-    "price": 837,
-    "article": "",
-    "category": "runner",
-    "sourceUrl": "https://dask-centru.md/index.php?route=product/product&path=1000_1005_10053&product_id=96821",
-    "sourceName": "TANDEMBOX 500M, Белый, 30 кг",
-    "verifiedAt": "2026-10-02T09:30:00.000Z",
-    "subcategory": "Blum",
-    "categoryPath": [
-      "Blum"
-    ],
-    "sourceSiteId": "daskCentruMd"
-  },
-  "drawerBlumLegrabox": {
-    "name": "Legrabox 500mm C (Белый,Графит)",
-    "unit": "компл.",
-    "image": "https://tehmob.md/image/catalog/products/2025/Legrabox-C-height-deep-drawer-box-set-available-in-standard-and-bespoke-sizes-with-next-day-delivery__19677.jpg",
-    "drawing": "assets/drawings/blum-legrabox-pure.png",
-    "drawingFull": "assets/drawings/blum-legrabox-pure-big.png",
-    "price": 1593,
-    "article": "750C500",
-    "category": "runner",
-    "sourceUrl": "https://tehmob.md/15562-legrabox-500mm-c-belyjgrafit.html",
-    "sourceName": "Legrabox 500mm C (Белый,Графит)",
-    "verifiedAt": "2026-10-02T09:30:00.000Z",
-    "subcategory": "Blum",
-    "categoryPath": [
-      "Blum"
-    ],
-    "sourceSiteId": "tehmobMd",
-    "sourceArticle": "750C500"
-  },
   "countertopSealant": {
     "name": "Клей/герметик для стыка столешницы",
     "unit": "уп",
@@ -1146,6 +1211,43 @@
     "sourceSiteId": "mobilierMd",
     "categoryPathEdited": true
   },
+  "drawerBlumLegrabox": {
+    "name": "Legrabox 500mm C (Белый,Графит)",
+    "unit": "компл.",
+    "image": "https://tehmob.md/image/catalog/products/2025/Legrabox-C-height-deep-drawer-box-set-available-in-standard-and-bespoke-sizes-with-next-day-delivery__19677.jpg",
+    "price": 1593,
+    "article": "750C500",
+    "drawing": "assets/drawings/blum-legrabox-pure.png",
+    "category": "runner",
+    "sourceUrl": "https://tehmob.md/15562-legrabox-500mm-c-belyjgrafit.html",
+    "sourceName": "Legrabox 500mm C (Белый,Графит)",
+    "verifiedAt": "2026-10-02T09:30:00.000Z",
+    "drawingFull": "assets/drawings/blum-legrabox-pure-big.png",
+    "subcategory": "Blum",
+    "categoryPath": [
+      "Blum"
+    ],
+    "sourceSiteId": "tehmobMd",
+    "sourceArticle": "750C500"
+  },
+  "drawerHettichAtira": {
+    "name": "Комплект для ящиков ATIRA, полного выдвижения L=420 мм H=144 мм, антрацит Hettich",
+    "unit": "компл.",
+    "image": "https://dask-centru.md/image/cache/catalog/dask/products/96356_1-1200x800.jpg",
+    "price": 900,
+    "article": "",
+    "drawing": "assets/drawings/hettich-innotech-atira-h144.png",
+    "category": "runner",
+    "sourceUrl": "https://dask-centru.md/index.php?route=product/product&path=1000_1005_10055&product_id=96356",
+    "sourceName": "Комплект для ящиков ATIRA, полного выдвижения L=420 мм H=144 мм, антрацит Hettich",
+    "verifiedAt": "2026-10-02T09:30:00.000Z",
+    "drawingFull": "assets/drawings/hettich-innotech-atira-h144-big.png",
+    "subcategory": "Hettich",
+    "categoryPath": [
+      "Hettich"
+    ],
+    "sourceSiteId": "daskCentruMd"
+  },
   "countertopCornerTie": {
     "name": "Угловая стяжка для столешницы Egger 38 (LMB-KAT38-20M)",
     "unit": "шт",
@@ -1157,6 +1259,42 @@
     "sourceName": "LMB-KAT38-20M Планка для столешницы угловая EGGER 38мм, черная",
     "verifiedAt": "2026-09-24T17:35:55.812Z",
     "sourceSiteId": "mobilierMd"
+  },
+  "drawerBlumTandembox": {
+    "name": "TANDEMBOX 500M, Белый, 30 кг",
+    "unit": "компл.",
+    "image": "https://dask-centru.md/image/cache/catalog/dask/products/96821_1-1200x800.jpg",
+    "price": 837,
+    "article": "",
+    "drawing": "assets/drawings/blum-tandembox-antaro-m.png",
+    "category": "runner",
+    "sourceUrl": "https://dask-centru.md/index.php?route=product/product&path=1000_1005_10053&product_id=96821",
+    "sourceName": "TANDEMBOX 500M, Белый, 30 кг",
+    "verifiedAt": "2026-10-02T09:30:00.000Z",
+    "drawingFull": "assets/drawings/blum-tandembox-antaro-m-big.png",
+    "subcategory": "Blum",
+    "categoryPath": [
+      "Blum"
+    ],
+    "sourceSiteId": "daskCentruMd"
+  },
+  "drawerHettichQuadro": {
+    "name": "Направляющая Quadro V6 Silent System L=500 мм L+P Hettich — под ЛДСП 16 мм, насадной монтаж (цена по аналогу «18 мм»)",
+    "unit": "компл.",
+    "image": "https://dask-centru.md/image/cache/catalog/dask/products/96309_1-1200x800.jpg",
+    "price": 652,
+    "article": "",
+    "drawing": "assets/drawings/hettich-quadro-v6-eb20-plug-on.png",
+    "category": "runner",
+    "sourceUrl": "https://dask-centru.md/index.php?product_id=96309&route=product%2Fproduct",
+    "sourceName": "Направляющая Quadro V6. 18 мм Silent System L=500 мм полного выдв.L+P Hettich (9225731+9225732)",
+    "verifiedAt": "2026-10-02T09:30:00.000Z",
+    "drawingFull": "assets/drawings/hettich-quadro-v6-eb20-plug-on-big.png",
+    "subcategory": "Hettich",
+    "categoryPath": [
+      "Hettich"
+    ],
+    "sourceSiteId": "daskCentruMd"
   },
   "countertopStraightTie": {
     "name": "Стяжка для прямого стыка столешницы (эксцентрик Ø20)",
@@ -1171,6 +1309,24 @@
     "price": 0,
     "article": "CTOP-GLUE-CARCASS",
     "category": "countertop"
+  },
+  "drawerHettichQuadroSlide": {
+    "name": "Направляющая Quadro V6 Silent System L=500 мм L+P Hettich — под ЛДСП 16 мм, надвижной монтаж (цена по аналогу «18 мм»)",
+    "unit": "компл.",
+    "image": "https://dask-centru.md/image/cache/catalog/dask/products/96309_1-1200x800.jpg",
+    "price": 652,
+    "article": "",
+    "drawing": "assets/drawings/hettich-quadro-v6-eb20-slide-on.png",
+    "category": "runner",
+    "sourceUrl": "https://dask-centru.md/index.php?product_id=96309&route=product%2Fproduct",
+    "sourceName": "Направляющая Quadro V6. 18 мм Silent System L=500 мм полного выдв.L+P Hettich (9225731+9225732)",
+    "verifiedAt": "2026-10-02T09:30:00.000Z",
+    "drawingFull": "assets/drawings/hettich-quadro-v6-eb20-slide-on-big.png",
+    "subcategory": "Hettich",
+    "categoryPath": [
+      "Hettich"
+    ],
+    "sourceSiteId": "daskCentruMd"
   },
   "link_hinge_1790325382612": {
     "name": "Петля внутренняя Clip Top Blumotion Blum",
@@ -1204,6 +1360,24 @@
     ],
     "sourceSiteId": "mobilierMd",
     "sourceArticle": "PB-3D0SHX18-250-PRO"
+  },
+  "drawerHettichQuadroSlide23": {
+    "name": "Направляющая Quadro V6. 18 мм Silent System L=500 мм полного выдв.L+P Hettich (9225731+9225732)",
+    "unit": "компл.",
+    "image": "https://dask-centru.md/image/cache/catalog/dask/products/96309_1-1200x800.jpg",
+    "price": 652,
+    "article": "9225731+9225732",
+    "drawing": "assets/drawings/hettich-quadro-v6-eb23-slide-on.png",
+    "category": "runner",
+    "sourceUrl": "https://dask-centru.md/index.php?product_id=96309&route=product%2Fproduct",
+    "sourceName": "Направляющая Quadro V6. 18 мм Silent System L=500 мм полного выдв.L+P Hettich (9225731+9225732)",
+    "verifiedAt": "2026-10-02T09:30:00.000Z",
+    "drawingFull": "assets/drawings/hettich-quadro-v6-eb23-slide-on-big.png",
+    "subcategory": "Hettich",
+    "categoryPath": [
+      "Hettich"
+    ],
+    "sourceSiteId": "daskCentruMd"
   }
 };
 
@@ -1253,6 +1427,22 @@
     "sourceArticle": "WK-CAM-15-13-D",
     "categoryPathEdited": true
   },
+  "hangerGtvR1": {
+    "name": "Навес кухонный GTV R1 ZK-R1-KPL-10 (Л+П)",
+    "unit": "компл. (Л+П)",
+    "price": 24,
+    "article": "ZK-R1-KPL-10",
+    "category": "fastener",
+    "sourceUrl": "https://mobilier.md/accesorii-pentru-mobilier/furnitura-functionala/elemente-de-asamblare/zk-r1-kpl-10-suport-corp-suspendat-set-stigadreapta-alb.html",
+    "subcategory": "GTV",
+    "categoryPath": [
+      "Навесы",
+      "GTV"
+    ],
+    "sourceSiteId": "mobilierMd",
+    "sourceArticle": "ZK-R1-KPL-10",
+    "categoryPathEdited": true
+  },
   "minifixBolt": {
     "name": "Rastex шток",
     "unit": "шт",
@@ -1283,6 +1473,22 @@
     ],
     "categoryPathEdited": true
   },
+  "wallRailGtv2m": {
+    "name": "Шина монтажная для навесных модулей GTV LO-M2M-00-125-A, 2 м",
+    "unit": "шт",
+    "price": 65,
+    "article": "LO-M2M-00-125-A",
+    "category": "fastener",
+    "sourceUrl": "https://mobilier.md/accesorii-pentru-mobilier/furnitura-functionala/elemente-de-asamblare/lo-m2m-00-125-a-bara-suport-corp-suspendat-l-2m.html",
+    "subcategory": "GTV",
+    "categoryPath": [
+      "Навесы",
+      "GTV"
+    ],
+    "sourceSiteId": "mobilierMd",
+    "sourceArticle": "LO-M2M-00-125-A",
+    "categoryPathEdited": true
+  },
   "backPanelScrew": {
     "name": "Шуруп-стяжка задней стенки",
     "unit": "шт",
@@ -1298,36 +1504,6 @@
     ],
     "sourceSiteId": "mobilierMd",
     "sourceArticle": "WZ-SCTYLPR-WK",
-    "categoryPathEdited": true
-  },
-  "hangerBlum48N0510": {
-    "name": "Навеска Blum на саморезы 48N0510 (Л+П)",
-    "unit": "компл. (Л+П)",
-    "price": 54,
-    "article": "48N0510.02/.03",
-    "category": "fastener",
-    "sourceUrl": "https://tehmob.md/15645-naves-kukhonnyj-blum-lr.html",
-    "subcategory": "Blum",
-    "categoryPath": [
-      "Навесы",
-      "Blum"
-    ],
-    "categoryPathEdited": true
-  },
-  "hangerGtvR1": {
-    "name": "Навес кухонный GTV R1 ZK-R1-KPL-10 (Л+П)",
-    "unit": "компл. (Л+П)",
-    "price": 24,
-    "article": "ZK-R1-KPL-10",
-    "category": "fastener",
-    "sourceUrl": "https://mobilier.md/accesorii-pentru-mobilier/furnitura-functionala/elemente-de-asamblare/zk-r1-kpl-10-suport-corp-suspendat-set-stigadreapta-alb.html",
-    "subcategory": "GTV",
-    "categoryPath": [
-      "Навесы",
-      "GTV"
-    ],
-    "sourceSiteId": "mobilierMd",
-    "sourceArticle": "ZK-R1-KPL-10",
     "categoryPathEdited": true
   },
   "hangerGtvForzaL": {
@@ -1360,20 +1536,18 @@
     "sourceSiteId": "mobilierMd",
     "categoryPathEdited": true
   },
-  "wallRailGtv2m": {
-    "name": "Шина монтажная для навесных модулей GTV LO-M2M-00-125-A, 2 м",
-    "unit": "шт",
-    "price": 65,
-    "article": "LO-M2M-00-125-A",
+  "hangerBlum48N0510": {
+    "name": "Навеска Blum на саморезы 48N0510 (Л+П)",
+    "unit": "компл. (Л+П)",
+    "price": 54,
+    "article": "48N0510.02/.03",
     "category": "fastener",
-    "sourceUrl": "https://mobilier.md/accesorii-pentru-mobilier/furnitura-functionala/elemente-de-asamblare/lo-m2m-00-125-a-bara-suport-corp-suspendat-l-2m.html",
-    "subcategory": "GTV",
+    "sourceUrl": "https://tehmob.md/15645-naves-kukhonnyj-blum-lr.html",
+    "subcategory": "Blum",
     "categoryPath": [
       "Навесы",
-      "GTV"
+      "Blum"
     ],
-    "sourceSiteId": "mobilierMd",
-    "sourceArticle": "LO-M2M-00-125-A",
     "categoryPathEdited": true
   }
 };

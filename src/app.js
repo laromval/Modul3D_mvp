@@ -328,7 +328,12 @@ const state = {
   // subcategory). Чисто UI-состояние, как libCollapsed выше: в историю
   // отмены/файл проекта не попадает.
   libExtraNodes: {
-  "edge": [],
+  "edge": [
+    [
+      "ABS",
+      "EGGER"
+    ]
+  ],
   "glass": [],
   "sheet": [
     [
@@ -350,7 +355,11 @@ const state = {
       "Прикроватные тумбочки"
     ]
   ],
-  "hw:runner": [],
+  "hw:runner": [
+    [
+      "фаа"
+    ]
+  ],
   "mod:kitchen": [
     [
       "Верхние модули"
@@ -378,6 +387,14 @@ const state = {
   // едет на сервер в общем снимке каталога (см. snapshotCatalogCollections)
   // и переживает перезагрузку, как libExtraNodes/libHwCatLabels.
   libNodeOrder: {
+  "edge": {
+    "": [
+      "ABS"
+    ],
+    "ABS": [
+      "EGGER"
+    ]
+  },
   "sheet": {
     "": [
       "ДСП",
@@ -386,7 +403,8 @@ const state = {
     ],
     "ДСП": [
       "Egger",
-      "Kronospan"
+      "Kronospan",
+      "SWISS Krono"
     ],
     "МДФ-плита": [
       "Фасадные панели МДФ",
@@ -706,7 +724,7 @@ const state = {
           "handleOrient": "vertical",
           "shelfHeights": [],
           "drawerHeights": [],
-          "drawerDecorCode": null,
+          "drawerDecorCode": "H3450ST22",
           "drawerThickness": 16
         }
       ],
