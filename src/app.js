@@ -14,7 +14,7 @@
 (function () {
 // Версия сборки — показывается во вкладке браузера и в шапке.
 // При выпуске новой версии меняется только эта строка.
-const APP_VERSION = 'v339';
+const APP_VERSION = 'v340';
 
 // Номер версии выводим ПЕРВЫМ делом: если дальше что-то упадёт, по нему сразу
 // видно, какая сборка открыта.
@@ -6338,20 +6338,46 @@ async function libLinkCheckSubmit(panel) {
 // список <option> «Раздел каталога» экрана подтверждения — переиспользует
 // ТУ ЖЕ структуру дерева, что и вся остальная «Библиотека» (libAddChildNode/
 // libChildSegments), без параллельного механизма выбора категории (п.5 ТЗ).
-function libLinkParentOptionsHtml(topCode, selectedJoined) {
-  // ПОЛНОЕ дерево (v338): каждый узел любой глубины, включая промежуточные
-  // без своих позиций, в порядке дерева (родитель, затем его дети), с
-  // отступом по уровню — пользователь сам выбирает, куда вложить.
-  const uniq = topCode ? libTreeAllNodePaths(topCode) : [];
-  if (selectedJoined && !uniq.some((p) => p.join('::') === selectedJoined)) uniq.push(selectedJoined.split('::'));
-  const rootSelected = selectedJoined === '' ? 'selected' : '';
-  const rootOpt = `<option value="" ${rootSelected}>— без раздела (верхний уровень) —</option>`;
-  const restOpt = uniq.map((p) => {
-    const j = p.join('::');
-    const indent = '   '.repeat(p.length - 1);
-    return `<option value="${esc(j)}" ${selectedJoined === j ? 'selected' : ''}>${indent}${esc(p[p.length - 1])}</option>`;
-  }).join('');
-  return rootOpt + restOpt;
+function libLinkCatRootTitle(topCode) {
+  const def = (LIB_TAB_TOP_DEFS.materials && LIB_TAB_TOP_DEFS.materials[topCode])
+    || (LIB_TAB_TOP_DEFS.facades && LIB_TAB_TOP_DEFS.facades[topCode]);
+  if (def) return def[0];
+  if ((state.libMatCustomCats || []).indexOf(topCode) >= 0) return libMatCategoryLabel(topCode);
+  if ((state.libFacCustomCats || []).indexOf(topCode) >= 0) return libFacCategoryLabel(topCode);
+  return topCode || 'Раздел';
+}
+// Выбор места в каталоге — ТО ЖЕ дерево, что и в самой «Библиотеке» (корень
+// раздела жирным акцентом, под ним узлы любой глубины со стрелками). Выбранный
+// путь лежит в скрытом input.lib-link-cat-parent (он же читается при
+// сохранении и в срезе формы), клик по строке .lib-link-cat-node его меняет
+// (см. делегированный click в initLibraryPanel). Одинаковые имена («Egger» в
+// двух ветках) различаются положением в дереве и подписью «Сохранить в: …».
+function libLinkParentOptionsHtml(topCode, selectedJoined, anyTop) {
+  // Разделы, кроме того, в который сейчас кладём, изначально свёрнуты (как в
+  // самой «Библиотеке»); клик по строке с детьми сворачивает/разворачивает её.
+  const row = (top, path, title, isRoot, nodes, selected) => {
+    const j = path.join('::');
+    const hasKids = nodes.some((q) => q.length === path.length + 1 && path.every((seg, i) => q[i] === seg));
+    const folded = top !== topCode;
+    const collapsed = hasKids && isRoot && folded;
+    const arrow = hasKids ? `<span class="lib-tree-arrow lib-link-cat-arrow">${collapsed ? '▸' : '▾'}</span>` : '<span class="lib-tree-arrow"></span>';
+    return `<div class="lib-tree-row lib-link-cat-node${isRoot ? ' lib-tree-top' : ''}${selected ? ' selected' : ''}${collapsed ? ' collapsed' : ''}" data-top="${esc(top)}" data-path="${esc(j)}"${folded && !isRoot ? ' hidden' : ''} style="padding-left:${path.length * 18 + 6}px">${arrow}<span class="lib-tree-name">${esc(title)}</span></div>`;
+  };
+  const branch = (top) => {
+    const nodes = top ? libTreeAllNodePaths(top) : [];
+    const isCur = top === topCode;
+    if (isCur && selectedJoined && !nodes.some((p) => p.join('::') === selectedJoined)) nodes.push(selectedJoined.split('::'));
+    return row(top, [], libLinkCatRootTitle(top), true, nodes, isCur && selectedJoined === '')
+      + nodes.map((p) => row(top, p, p[p.length - 1], false, nodes, isCur && selectedJoined === p.join('::'))).join('');
+  };
+  // Форма открыта верхней кнопкой «+ Добавить по ссылке» — тип материала ещё
+  // не известен, поэтому в дереве ВСЕ разделы, куда можно добавлять
+  // (листовые, кромка, столешницы, свои); выбор узла сам задаёт тип.
+  const tops = anyTop
+    ? libTabTopCodes('materials').filter((c) => { const d = libTopCategoryDef('materials', c); return d && d.opts && d.opts.addLabel; })
+    : [topCode];
+  return `<input type="hidden" class="lib-link-cat-parent" value="${esc(selectedJoined || '')}">
+    <div class="lib-link-cat-tree">${tops.map(branch).join('')}</div>`;
 }
 
 // Раздел (существующий путь дерева) + новая подкатегория по умолчанию (п.3.3
@@ -6414,10 +6440,11 @@ function libLinkDefaultCategorySplit(form) {
   }
   return { parent: '', newSegment: '' };
 }
-function libLinkCategoryPreviewLabel(split) {
+function libLinkCategoryPreviewLabel(split, rootTitle) {
   const parentSegs = split.parent ? split.parent.split('::').filter(Boolean) : [];
   const full = split.newSegment ? parentSegs.concat([split.newSegment]) : parentSegs;
-  return full.length ? full.join(' › ') : '(без раздела)';
+  const all = rootTitle ? [rootTitle].concat(full) : full;
+  return all.length ? all.join(' › ') : '(без раздела)';
 }
 
 // Раздел фурнитуры (Петли/Ручки/Механизмы/...) — тот же набор и те же
@@ -6992,12 +7019,12 @@ function libLinkConfirmHtml(form) {
   const catSplit = !isHw ? (form.cat || libLinkDefaultCategorySplit(form)) : null;
   const catHtml = !isHw ? `
     <div class="field"><label>Раздел каталога</label>
-      <select class="lib-link-cat-parent">${libLinkParentOptionsHtml(form.top, catSplit.parent)}</select>
+      ${libLinkParentOptionsHtml(form.top, catSplit.parent, form.anyTop)}
     </div>
-    <div class="field"><label>Новая подкатегория (например, бренд) — необязательно</label>
+    <div class="field"><label>Новая подкатегория (например, бренд) — создастся внутри выбранного узла</label>
       <input type="text" class="lib-link-cat-new" value="${esc(catSplit.newSegment)}" placeholder="например, GTV">
     </div>
-    <p class="hint">Категория: <b class="lib-link-cat-preview">${esc(libLinkCategoryPreviewLabel({ parent: catSplit.parent, newSegment: String(catSplit.newSegment || '').trim() }))}</b></p>` : '';
+    <p class="hint">Сохранить в: <b class="lib-link-cat-preview">${esc(libLinkCategoryPreviewLabel({ parent: catSplit.parent, newSegment: String(catSplit.newSegment || '').trim() }, libLinkCatRootTitle(form.top)))}</b></p>` : '';
   // «Раздел фурнитуры» — только когда форма открыта без контекста (см.
   // libLinkTopBarHtml/hwCatHtml, form.hwCategory ещё не известен): из
   // конкретного раздела (кнопка под его же таблицей в libraryHardwareBlock)
@@ -7536,7 +7563,7 @@ function libLinkRevalidate(panel) {
         previewEl.textContent = libLinkCategoryPreviewLabel({
           parent: parentSel ? parentSel.value : '',
           newSegment: newSeg ? newSeg.value.trim() : '',
-        });
+        }, libLinkCatRootTitle(form.top));
       }
     }
   }
@@ -7601,6 +7628,8 @@ function libLinkSaveMaterial(form, values, categoryPath) {
   const common = Object.assign({ sourceUrl: form.url, sourceSiteId: form.siteId, verifiedAt: new Date().toISOString() },
     libLinkSourceFields(form));
   if (variant) common.variant = variant;
+  // Позиция своей категории «Материалов»/«Дверей» — как в libAddRow.
+  if (/^(matcustom|faccustom)-/.test(form.top || '')) common.customRoot = form.top;
   // Текстура листа (необязательный блок формы): в материал уходят только адрес
   // страницы декора и сайт; сама картинка — в IndexedDB этого компьютера
   // (см. libTexAfterSave). Для кромки текстуры нет.
@@ -7994,7 +8023,7 @@ function libLinkRefreshBarHtml() {
 function libLinkTopBarHtml(kind) {
   const addAttrs = kind === 'hardware'
     ? 'data-link-kind="hardware"'
-    : 'data-link-kind="materials" data-link-top="sheet" data-link-group="decors"';
+    : 'data-link-kind="materials"';
   return `<div class="lib-link-refresh-bar">
     <button type="button" class="btn lib-add-by-link" ${addAttrs}>+ Добавить по ссылке</button>
     ${libAddCatTileHtml(kind)}
@@ -10354,8 +10383,9 @@ function initLibraryPanel() {
         });
       } else {
         openLibLinkForm('materials', {
-          top: linkAddBtn.dataset.linkTop,
-          group: linkAddBtn.dataset.linkGroup,
+          top: linkAddBtn.dataset.linkTop || 'sheet',
+          group: linkAddBtn.dataset.linkGroup || 'decors',
+          anyTop: !linkAddBtn.dataset.linkTop,
           path: linkAddBtn.dataset.linkPath ? linkAddBtn.dataset.linkPath.split('::') : [],
         });
       }
@@ -10381,6 +10411,50 @@ function initLibraryPanel() {
     // preventDefault погасил бы сам переход по ссылке. Найти товар и
     // скопировать его URL — единственное, что остаётся сделать
     // пользователю руками, отдельной ссылки-подсказки под списком не нужно.
+    // Дерево «Раздел каталога» формы «Добавить по ссылке»: стрелка сворачивает
+    // ветку, клик по строке выбирает узел (и сбрасывает «Новую подкатегорию»:
+    // подсказка могла относиться к другому разделу).
+    const catNode = e.target.closest('.lib-link-cat-node');
+    if (catNode && catNode.closest('.lib-link-form')) {
+      const tree = catNode.closest('.lib-link-cat-tree');
+      const nodes = Array.from(tree.querySelectorAll('.lib-link-cat-node'));
+      const path = catNode.dataset.path;
+      const box = catNode.closest('.lib-link-form');
+      const nodeTop = catNode.dataset.top;
+      const lf = state.libLinkForm;
+      if (lf && nodeTop && nodeTop !== lf.top) {
+        // Другой раздел каталога = другой тип материала (кромка/столешница/
+        // листовой): набор полей формы зависит от группы, нужна перерисовка.
+        libLinkCaptureFormState(box);
+        const def = libTopCategoryDef('materials', nodeTop);
+        lf.top = nodeTop;
+        lf.group = nodeTop === 'edge' ? 'edge' : ((def && def.opts && def.opts.addDefaultGroup) || nodeTop);
+        lf.path = [];
+        lf.cat = { parent: path, newSegment: '' };
+        renderLibraryPanel();
+        return;
+      }
+      const hidden = box.querySelector('.lib-link-cat-parent');
+      if (hidden) hidden.value = path;
+      nodes.forEach((n) => n.classList.toggle('selected', n === catNode));
+      // Клик по узлу с детьми ещё и сворачивает/разворачивает их (видимость
+      // узла = ни один его предок в том же разделе не свёрнут).
+      const arrowEl = catNode.querySelector('.lib-link-cat-arrow');
+      if (arrowEl) {
+        const collapsed = !catNode.classList.contains('collapsed');
+        catNode.classList.toggle('collapsed', collapsed);
+        arrowEl.textContent = collapsed ? '▸' : '▾';
+        nodes.forEach((n) => {
+          n.hidden = nodes.some((a) => a !== n && a.dataset.top === n.dataset.top
+            && a.classList.contains('collapsed')
+            && (a.dataset.path === '' ? n.dataset.path !== '' : n.dataset.path.indexOf(a.dataset.path + '::') === 0));
+        });
+      }
+      const newSegInput = box.querySelector('.lib-link-cat-new');
+      if (newSegInput) newSegInput.value = '';
+      libLinkRevalidate(panel);
+      return;
+    }
     const siteItem = e.target.closest('.lib-link-site-item');
     if (siteItem && siteItem.closest('.lib-link-site-picker[data-picker="tex"]')) {
       // Сайт производителя текстуры: браузер сам открывает его в новой вкладке

@@ -2936,3 +2936,10 @@ body.is-focus .scrim { opacity: 0 !important; }
 .lib-tex-pack { display: inline-flex; gap: var(--sp-3); flex-wrap: wrap; }
 .lib-tex-missing { display: block; font-size: 11px; color: #a06a00; line-height: 1.3; }
 .lib-tex-missing .link-btn { font-size: 11px; padding: 0 2px; }
+
+/* Дерево «Раздел каталога» в форме «Добавить по ссылке» — тот же вид, что у
+   дерева «Библиотеки» (.lib-tree-row), с подсветкой выбранного узла. */
+.lib-link-cat-tree { max-height: 260px; overflow-y: auto; border: 1px solid var(--border, rgba(128,128,128,.3)); border-radius: var(--r-sm); padding: 4px 0; }
+.lib-link-cat-node[hidden] { display: none; }
+.lib-link-cat-node.selected { background: var(--accent-soft); box-shadow: inset 3px 0 0 var(--accent); }
+.lib-link-cat-node.selected .lib-tree-name { color: var(--accent); font-weight: 600; }
