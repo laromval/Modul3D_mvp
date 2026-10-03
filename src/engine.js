@@ -4966,6 +4966,28 @@ function buildModel(project) {
   // Раскладка каждого модуля (по индексу в mods): начало и направление его
   // прогона, смещение в системе прогона, данные угловой фальш-планки.
   const place = new Array(mods.length);
+  // СТЕНА — там, где кончается столешница нижнего ряда (решение пользователя
+  // 2026-10-03): корпус нижних отступает от стены на задний свес столешницы
+  // за вычетом задней стенки (кухня 600 мм: 52 − 3 = 49), а верхние модули
+  // задней стороной стоят на самой стене. Свес считается так же, как в
+  // buildModuleParts: ручной overhangBack, иначе (кухня) глубина листа
+  // минус корпус, фасад и свес спереди. Нет столешниц — 0, как раньше.
+  const floorWallGap = (() => {
+    const wallDepths = resolveCountertopChainDepths(mods, floorIdx);
+    let gap = 0;
+    floorIdx.forEach((i) => {
+      const m = mods[i], ct = m.countertop;
+      if (!ct || !ct.enabled) return;
+      const hasManual = ct.overhangBack !== undefined && ct.overhangBack !== null && ct.overhangBack !== '';
+      const D = Number(m.depth || 0);
+      const oF = Number(ct.overhangFront) || 0;
+      const oB = hasManual ? (Number(ct.overhangBack) || 0)
+        : (m.family === 'kitchen' && wallDepths[i]
+          ? wallDepths[i] - D - (Number(proj.facadeThickness) || tBody) - oF : 0);
+      gap = Math.max(gap, oB - backOut(m));
+    });
+    return Math.max(0, round1(gap));
+  })();
   // frames[k] — начало k-го прогона ряда и положение его угла (u конца
   // углового модуля = стена следующего, перпендикулярного прогона).
   const layoutLayer = (runs, wall, floorFrames) => {
@@ -5009,7 +5031,7 @@ function buildModel(project) {
         }
         const offU = cursor - e.x0;                // левый край встаёт на курсор
         const offV = wall
-          ? -e.z0                                  // задняя сторона — по стене
+          ? -e.z0 - floorWallGap                   // задняя сторона — по стене
           : runDepth - e.z1;                       // передние плоскости совпадают
         const frontV = offV + e.z1;                // фасадная плоскость модуля
         cursor += (e.x1 - e.x0);

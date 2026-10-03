@@ -14139,7 +14139,11 @@ function addPresetToProject(catId, presetId, placementId) {
   if (item.tier === 'lower' && state.modules.length) {
     const left = state.modules[state.activeModule];
     const right = state.modules[state.activeModule + 1];
-    const neighborDepth = (left && left.depth) || (right && right.depth);
+    // Верхние (навесные) соседи глубину ряда не задают — у них своя, меньшая.
+    const floorOnly = (x) => (x && !moduleIsWallHung(x) ? x : null);
+    const anyFloor = state.modules.filter((x) => !moduleIsWallHung(x)).pop();
+    const neighborDepth = (floorOnly(left) && left.depth) || (floorOnly(right) && right.depth)
+      || (anyFloor && anyFloor.depth);
     if (neighborDepth) m.depth = neighborDepth;
   }
   // Первый кухонный модуль задаёт материалы «как на производстве»:
