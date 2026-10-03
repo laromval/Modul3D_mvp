@@ -14,7 +14,7 @@
 (function () {
 // Версия сборки — показывается во вкладке браузера и в шапке.
 // При выпуске новой версии меняется только эта строка.
-const APP_VERSION = 'v334';
+const APP_VERSION = 'v335';
 
 // Номер версии выводим ПЕРВЫМ делом: если дальше что-то упадёт, по нему сразу
 // видно, какая сборка открыта.
@@ -1573,9 +1573,13 @@ const SIDE_VARIANTS = [
   ['onBottom', 'на дно'],
   ['besideBottom', 'сбоку дна'],
 ];
-function sideOptions(cur) {
-  const v = SIDE_VARIANTS.some(x => x[0] === cur) ? cur : 'floor';
-  return SIDE_VARIANTS
+// У навесного модуля «до пола» нет (он не стоит на полу), текущее значение
+// floor показываем как «сбоку дна» — так его читает и движок (normalizeSides).
+function sideOptions(cur, wallHung) {
+  const list = wallHung ? SIDE_VARIANTS.filter(x => x[0] !== 'floor') : SIDE_VARIANTS;
+  const fallback = wallHung ? 'besideBottom' : 'floor';
+  const v = list.some(x => x[0] === cur) ? cur : fallback;
+  return list
     .map(([id, label]) => `<option value="${id}" ${id === v ? 'selected' : ''}>${label}</option>`)
     .join('');
 }
@@ -11024,11 +11028,11 @@ function moduleFieldsBlock(mod) {
     <div class="field-row">
       <div class="field">
         <label>Левая боковина</label>
-        <select id="m-leftSide">${sideOptions(mod.leftSide)}</select>
+        <select id="m-leftSide">${sideOptions(mod.leftSide, moduleIsWallHung(mod))}</select>
       </div>
       <div class="field">
         <label>Правая боковина</label>
-        <select id="m-rightSide">${sideOptions(mod.rightSide)}</select>
+        <select id="m-rightSide">${sideOptions(mod.rightSide, moduleIsWallHung(mod))}</select>
       </div>
     </div>
     <div class="field-row">
@@ -11146,7 +11150,7 @@ function autoBackMountMode(mod) {
   const engine = window.Modul3D.engine;
   if (!engine || typeof engine.resolveBackMount !== 'function') return 'overlay';
   try {
-    const sides = engine.normalizeSides(mod);
+    const sides = engine.normalizeSides(Object.assign({}, mod, { wallHung: moduleIsWallHung(mod) }));
     return engine.resolveBackMount(Object.assign({ backMount: undefined }, mod), sides, state.backThickness).mode;
   } catch (err) {
     return 'overlay';
@@ -11387,7 +11391,7 @@ function partBlock(mod) {
     <h3>Боковина ${label}</h3>
     <div class="field">
       <label>Конструктив</label>
-      <select id="${selectId}">${sideOptions(cur)}</select>
+      <select id="${selectId}">${sideOptions(cur, moduleIsWallHung(mod))}</select>
     </div>
     ${visible && !ov.materialOverride ? `
     <div class="hint">Эта боковина видимая — режется из материала «Видимая боковина» проекта.

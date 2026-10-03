@@ -4349,7 +4349,11 @@ for (const glass of [false, true]) {
       if (sides.length !== 2) problems.push(`навеска ${nm}: боковин ${sides.length}`);
       for (const sp of sides) {
         const hs = sp.holes.filter((h) => h.kind === 'hangerScrew').sort((a, b) => a.y - b.y);
-        const y1 = 15 + tb + 14;
+        // Боковина в пазу удлинена до стены (E = 15 + tb + 0.5); закрытая соседом
+        // боковина стоит «на дне» (накладная стенка, решение 2026-10-03) и до
+        // стены не дотягивается — разметка на E ближе к её заднему краю.
+        const grooved = (sp.grooves || []).some((g) => g.kind === 'backGroove');
+        const y1 = 15 + tb + 14 - (grooved ? 0 : 15 + tb + 0.5);
         if (hs.length !== 2) { problems.push(`навеска ${nm}: на «${sp.name}» ${hs.length} точек разметки вместо 2`); continue; }
         if (Math.abs(hs[0].y - y1) > 0.05 || Math.abs(hs[1].y - (y1 + 32)) > 0.05) {
           problems.push(`навеска ${nm}: саморезы на y ${hs[0].y}/${hs[1].y} вместо ${y1}/${y1 + 32}`);
@@ -4379,8 +4383,12 @@ for (const glass of [false, true]) {
       });
       const nl = notches.filter((n) => n.x0 === 0)[0], nr = notches.filter((n) => n.x0 > 0)[0];
       if (!nl || Math.abs(backL + nl.x1 - lIn - 22) > 0.1) problems.push(`навеска ${nm}: левый вырез не 22 от внутренней грани боковины`);
-      if (nl && Math.abs(nl.x1 - 30) > 0.05) problems.push(`навеска ${nm}: левый вырез шириной ${nl.x1} на детали вместо 30 (паз 8 + 22)`);
-      if (nr && Math.abs(back.length - nr.x0 - 30) > 0.05) problems.push(`навеска ${nm}: правый вырез шириной ${back.length - nr.x0} на детали вместо 30`);
+      // Ширина выреза: 30 (паз 8 + 22) у боковины в пазу; у «на дно» стенка
+      // накладная и перекрывает боковину — 22 + её толщина − 1 (стенка уже на 1 мм).
+      const bySide = sides.slice().sort((a, b) => a.boxes[0].x - b.boxes[0].x), sideL = bySide[0], sideR = bySide[1];
+      const wantW = (sd) => ((sd.grooves || []).some((g) => g.kind === 'backGroove') ? 30 : 22 + sd.boxes[0].w - 1);
+      if (nl && Math.abs(nl.x1 - wantW(sideL)) > 0.05) problems.push(`навеска ${nm}: левый вырез шириной ${nl.x1} на детали вместо ${wantW(sideL)}`);
+      if (nr && Math.abs(back.length - nr.x0 - wantW(sideR)) > 0.05) problems.push(`навеска ${nm}: правый вырез шириной ${back.length - nr.x0} на детали вместо ${wantW(sideR)}`);
       if (!nr || Math.abs(rIn - (backL + nr.x0) - 22) > 0.1 || Math.abs(nr.x1 - back.length) > 0.05) {
         problems.push(`навеска ${nm}: правый вырез не 22 от внутренней грани боковины`);
       }
@@ -4507,7 +4515,7 @@ for (const glass of [false, true]) {
     // Смета: площадь листа по-прежнему по целому прямоугольнику
     const areaOf = (m) => midSides(m).reduce((a, q) => a + q.length * q.width * (q.qty || 1), 0);
     const mPlain = buildModel(Object.assign({}, base, {
-      modules: row3({ leftSide: 'floor', rightSide: 'floor', backMount: 'groove', wallHung: false }) }));
+      modules: row3({ leftSide: 'onBottom', rightSide: 'onBottom', backMount: 'groove', wallHung: false }) }));
     if (sidesOf(mPlain).some((sp) => railOf(sp).length)) problems.push('выпил под шину: у ненавесного модуля есть выпил');
     if (Math.abs(areaOf(mPlain) - areaOf(mHid)) > 1) problems.push('выпил под шину: площадь боковин изменилась из-за выпила');
     // CSV/DXF: строка на каждый вырез, контур с вырезами полилинией
@@ -4541,11 +4549,14 @@ for (const glass of [false, true]) {
     // d) слева сосед (левая «до пола», закрыта), справа торец ряда (правая
     //    видимая) — выпил только на закрытой; тип боковины у навесного
     //    видимость не задаёт (закрытость решает геометрия соседей, не тип)
+    //    С 2026-10-03 закрытая соседом боковина навесного сама становится «на
+    //    дно» (накладная стенка) — выпила нет и в авто-режиме; он остаётся
+    //    только при ручном «В паз» (пункты b, f).
     const mMix = buildModel(Object.assign({}, base, {
       modules: row3({ leftSide: 'floor', rightSide: 'floor' }).slice(0, 2) }));
     const lS = midSides(mMix).filter((q) => /левая/.test(q.name))[0];
     const rS = midSides(mMix).filter((q) => /правая/.test(q.name))[0];
-    if (!lS || railOf(lS).length !== 1) problems.push('выпил под шину: у невидимой левой нет выпила');
+    if (!lS || railOf(lS).length !== 0) problems.push('выпил под шину: у закрытой соседом боковины (она «на дно») есть выпил');
     if (!rS || railOf(rS).length !== 0) problems.push('выпил под шину: у видимой правой есть выпил');
     // e) слева сосед, боковина «на дно» — закрыта соседом (геометрия та же,
     //    что и у (d)), но выпила быть не должно (тип «на дно», правило (c))
@@ -4598,7 +4609,9 @@ for (const glass of [false, true]) {
         if (isVis !== vis) problems.push(`видимость по соседям: «${name}» ${q.name} — видимая ${isVis}, ожидалось ${vis}`);
         if (vis && q.material !== vDecor.code) problems.push(`видимость по соседям: «${name}» ${q.name} не в материале «Видимая боковина»`);
         if (!vis && q.material !== base.decor.code) problems.push(`видимость по соседям: «${name}» ${q.name} не в декоре корпуса`);
-        if (railN(q) !== (vis ? 0 : 1)) problems.push(`видимость по соседям: «${name}» ${q.name} выпилов ${railN(q)}`);
+        // закрытая соседом — «на дно», накладная стенка, выпила нет (2026-10-03)
+        if (railN(q) !== 0) problems.push(`видимость по соседям: «${name}» ${q.name} выпилов ${railN(q)}`);
+        if (!vis && !/Стоит на дне/.test(q.note || '')) problems.push(`видимость по соседям: «${name}» ${q.name} закрыта, но не «на дно»`);
       }
     }
     // Крепёж дна
@@ -4607,11 +4620,14 @@ for (const glass of [false, true]) {
     if (!bM) problems.push('крепёж дна: нет дна у среднего');
     else {
       const k = (bM.holes || []).map((h) => h.kind);
-      if (k.some((x) => /^minifix/.test(x))) problems.push('крепёж дна: у среднего есть Rastex');
-      if (!k.some((x) => x === 'confirmatEdge')) problems.push('крепёж дна: у среднего нет конфирматов');
-      const L = bM.length;
-      const edgesAt = (x) => (bM.holes || []).filter((h) => h.kind === 'confirmatEdge' && Math.abs(h.x - x) < 0.05).length;
-      if (!edgesAt(0) || edgesAt(0) !== edgesAt(L)) problems.push(`крепёж дна: у среднего конфирматы не с обеих сторон (${edgesAt(0)}/${edgesAt(L)})`);
+      // Обе боковины «на дно» (закрыты соседями): боковины стоят на дне, в дне
+      // только дюбели Rastex, кулачки и конфирматы — в боковинах.
+      if (k.some((x) => x === 'minifixCam' || x === 'confirmatEdge')) problems.push('крепёж дна: у среднего в дне кулачок/конфирмат (боковины на дне)');
+      if (!k.some((x) => x === 'minifixDowel')) problems.push('крепёж дна: у среднего нет дюбелей Rastex');
+      const sM = sidesOfM(row, 'М');
+      if (!sM.length || !sM.every((q) => (q.holes || []).some((h) => h.kind === 'minifixCam') && (q.holes || []).some((h) => h.kind === 'confirmatThrough'))) {
+        problems.push('крепёж дна: у боковин среднего нет Rastex-кулачков/конфирматов');
+      }
     }
     const bL = bottomOf('Л');
     if (!bL) problems.push('крепёж дна: нет дна у крайнего');
@@ -4620,8 +4636,8 @@ for (const glass of [false, true]) {
       const L = bL.length;
       if (!cams.length || cams.some((h) => Math.abs(h.x - 34) > 0.05)) problems.push('крепёж дна: у крайнего Rastex не у наружной (левой) боковины');
       if (cams.some((h) => h.side !== 'front')) problems.push('крепёж дна: гнездо эксцентрика не на верхней (внутренней) пласти дна');
-      if (!(bL.holes || []).some((h) => h.kind === 'confirmatEdge' && Math.abs(h.x - L) < 0.05)) {
-        problems.push('крепёж дна: у крайнего к закрытой боковине не конфирмат');
+      if (!(bL.holes || []).some((h) => h.kind === 'minifixDowel' && Math.abs(h.x - (L - 9)) < 0.05)) {
+        problems.push('крепёж дна: у крайнего к закрытой («на дно») боковине нет дюбеля Rastex');
       }
       const sL = sidesOfM(row, 'Л').filter((q) => sideKey(q) === 'left')[0];
       const dow = sL ? (sL.holes || []).filter((h) => h.kind === 'minifixDowel') : [];

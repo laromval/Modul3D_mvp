@@ -77,6 +77,14 @@ function normalizeSides(p) {
     left = left || def;
     right = right || def;
   }
+  // Навесной модуль не стоит на полу — «до пола» у него невозможно (решение
+  // пользователя 2026-10-03): floor (старые проекты, умолчание) читается как
+  // «сбоку дна» — у навесного (цоколь 0) геометрия та же, а в базе хранится
+  // именно «сбоку дна».
+  if (isWallHung(p)) {
+    if (left === 'floor') left = 'besideBottom';
+    if (right === 'floor') right = 'besideBottom';
+  }
   return { left, right };
 }
 
@@ -2581,6 +2589,15 @@ function buildModuleParts(p) {
     else vis = byType || !cov[key];
     sideVisible[key] = vis;
   }
+  // НАВЕСНОЙ: боковина, полностью закрытая соседом вплотную (невидимая),
+  // становится «на дно» — задняя стенка у неё накладная, паза и выпила под
+  // шину нет, остаётся только вырез в задней стенке под навес (решение
+  // пользователя 2026-10-03). Видимость посчитана выше по заявленному типу.
+  if (hungModule && p.sideCovered) {
+    for (const key of ['left', 'right']) {
+      if (p.sideCovered[key]) sides[key] = 'onBottom';
+    }
+  }
   // ЭФФЕКТИВНЫЙ ТИП БОКОВИНЫ (решение пользователя 2026-09-28, уточнено
   // 2026-09-28 после визуальной проверки — «опоры с цоколем» тоже до пола).
   // У оснований «опоры» и «опоры с цоколем» видимая боковина обязана
@@ -4868,7 +4885,8 @@ function buildModel(project) {
       noBack: !!m.noBack, backMount: m.backMount, backGroove: m.backGroove,
       wallHung: m.wallHung, family: m.family, base: m.base,
       topType: m.topType, countertop: m.countertop, height: m.height,
-    }, normalizeSides({ leftSide: m.leftSide, rightSide: m.rightSide, scheme: m.scheme }), tBack);
+    }, normalizeSides({ leftSide: m.leftSide, rightSide: m.rightSide, scheme: m.scheme,
+      wallHung: m.wallHung, family: m.family, base: m.base }), tBack);
     return bmm.mode === 'groove' ? bmm.E : tBack;
   };
   const extent = (m) => {
@@ -5051,7 +5069,8 @@ function buildModel(project) {
   const sideFaces = mods.map((m, idx) => {
     const pl = place[idx];
     const W = Number(m.width || 0), D = Number(m.depth || 0), H = Number(m.height || 0);
-    const sd = normalizeSides({ leftSide: m.leftSide, rightSide: m.rightSide, scheme: m.scheme });
+    const sd = normalizeSides({ leftSide: m.leftSide, rightSide: m.rightSide, scheme: m.scheme,
+      wallHung: m.wallHung, family: m.family, base: m.base });
     const b = m.base || {};
     const baseH = b.type === 'plinth' ? Number(b.plinthHeight || 0) : Number(b.legHeight || 0);
     const yb = mountBottomOf(m);
