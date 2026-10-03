@@ -328,12 +328,7 @@ const state = {
   // subcategory). Чисто UI-состояние, как libCollapsed выше: в историю
   // отмены/файл проекта не попадает.
   libExtraNodes: {
-  "edge": [
-    [
-      "ABS",
-      "EGGER"
-    ]
-  ],
+  "edge": [],
   "glass": [],
   "sheet": [
     [
@@ -387,14 +382,6 @@ const state = {
   // едет на сервер в общем снимке каталога (см. snapshotCatalogCollections)
   // и переживает перезагрузку, как libExtraNodes/libHwCatLabels.
   libNodeOrder: {
-  "edge": {
-    "": [
-      "ABS"
-    ],
-    "ABS": [
-      "EGGER"
-    ]
-  },
   "sheet": {
     "": [
       "ДСП",
@@ -403,8 +390,7 @@ const state = {
     ],
     "ДСП": [
       "Egger",
-      "Kronospan",
-      "SWISS Krono"
+      "Kronospan"
     ],
     "МДФ-плита": [
       "Фасадные панели МДФ",
