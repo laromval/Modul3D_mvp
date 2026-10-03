@@ -2924,3 +2924,15 @@ body.is-focus .scrim { opacity: 0 !important; }
    renderSpecTable) и к итогу, если в нём не учтены позиции без цены. */
 .spec-note { font-size: var(--fs-xs); color: var(--muted); margin-top: 2px; }
 .spec-total-note { font-size: var(--fs-xs); font-weight: 400; color: var(--muted); margin-left: 6px; }
+
+/* Текстура листа в форме «Добавить по ссылке» и пометка «нет текстуры» (userTextures.js) */
+.lib-tex-block { margin: var(--sp-3) 0; padding: var(--sp-3); border: 1px dashed var(--border, #c9ced6); border-radius: 6px; }
+.lib-tex-block .hint { margin: 4px 0; }
+.lib-tex-actions { display: flex; gap: var(--sp-3); flex-wrap: wrap; align-items: center; margin-top: 6px; }
+.lib-tex-file-label { cursor: pointer; }
+.lib-tex-status { display: flex; gap: var(--sp-3); align-items: center; margin-top: 6px; }
+.lib-tex-status:empty { display: none; }
+.lib-tex-preview { width: 72px; height: 36px; object-fit: cover; border-radius: 3px; border: 1px solid var(--border, #c9ced6); }
+.lib-tex-pack { display: inline-flex; gap: var(--sp-3); flex-wrap: wrap; }
+.lib-tex-missing { display: block; font-size: 11px; color: #a06a00; line-height: 1.3; }
+.lib-tex-missing .link-btn { font-size: 11px; padding: 0 2px; }

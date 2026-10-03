@@ -113,6 +113,16 @@ module.exports = {
   // сайта чужими руками.
   catalogLinkMaxRefreshItems: parseInt(process.env.CATALOG_LINK_MAX_REFRESH_ITEMS || '60', 10),
 
+  // --- Источники текстур (routes/textureSources.js, services/textureSources/*,
+  // ТЗ-ПАРСЕР-МАТЕРИАЛОВ.md, раздел «Источники текстур») ---
+  // Максимальный размер скачиваемой картинки текстуры, байт (по умолчанию 12 МБ).
+  textureMaxImageBytes: parseInt(process.env.TEXTURE_MAX_IMAGE_BYTES || String(12 * 1024 * 1024), 10),
+  // Запросов POST /texture-sheet в минуту на пользователя (эндпоинт ходит на
+  // чужие сайты — не должен быть инструментом нагрузки).
+  // Глобальный лимит одновременных обработок POST /texture-sheet.
+  textureMaxConcurrent: parseInt(process.env.TEXTURE_MAX_CONCURRENT || '3', 10),
+  textureRateLimitPerMin: parseInt(process.env.TEXTURE_RATE_LIMIT_PER_MIN || '12', 10),
+
   // --- Публикация каталога как базы по умолчанию (routes/catalogPublish.js,
   // services/catalogPublishCodegen.js, services/githubPublish.js,
   // ТЗ-МОНЕТИЗАЦИЯ.md, раздел 6) ---

@@ -14,7 +14,7 @@
 (function () {
 // Версия сборки — показывается во вкладке браузера и в шапке.
 // При выпуске новой версии меняется только эта строка.
-const APP_VERSION = 'v333';
+const APP_VERSION = 'v334';
 
 // Номер версии выводим ПЕРВЫМ делом: если дальше что-то упадёт, по нему сразу
 // видно, какая сборка открыта.
@@ -868,6 +868,15 @@ const state = {
   // открытии формы «Добавить по ссылке»), не запуская второй параллельный
   // запрос, если загрузка уже идёт.
   libLinkSitesPromise: null,
+  // Сайты-источники текстур листа (GET /texture-sources, см. loadTextureSources)
+  // — тот же принцип, что у libLinkSites: null до первой загрузки, [] при
+  // ошибке. texBusy — коды материалов, у которых прямо сейчас идёт повторная
+  // загрузка текстуры кнопкой «Загрузить» в таблице Библиотеки.
+  texSources: null,
+  texSourcesLoading: false,
+  texSourcesError: null,
+  texSourcesPromise: null,
+  texBusy: {},
   // Статус кнопки «Обновить цены с сайта» (см. refreshCatalogLinkedPrices) —
   // libLinkRefreshBusy: запрос выполняется прямо сейчас; libLinkRefreshResult:
   // null, пока не запускали, иначе { updated, failed } или { error }.
@@ -4714,7 +4723,7 @@ function libRowHtml(entry, opts) {
   // алюминиевого фасада (см. openAluConstructorFromLibrary).
   const aluCtorBtn = group === 'facade' && key === 'FAC-ALU'
     ? ' <button type="button" class="link-btn lib-alu-open-ctor" data-alu-open-ctor="1" title="Открыть конструктор алюминиевого фасада для активной секции">Выбрать</button>' : '';
-  const moveIc = moveIc0 + aluCtorBtn;
+  const moveIc = moveIc0 + aluCtorBtn + libTexMissingHtml(group, it);
   const nameCell = group === 'edge'
     ? `<td${moveIc ? ' class="lib-name-cell"' : ''}>${esc(nameDisplay)}${moveIc}</td>`
     : libEditCell(group, key, 'name', 'text', it.name, { displayText: nameDisplay, afterHtml: moveIc, extraClass: moveIc ? 'lib-name-cell' : '' });
@@ -6222,12 +6231,16 @@ function openLibLinkForm(kind, opts) {
   state.libLinkForm = Object.assign({ kind, step: 'input', siteId: '', url: '', error: '', draft: null,
     values: null, extra: null, cat: null, variantSel: null, touched: {} }, opts || {});
   loadLibLinkSites();
+  // Прошлая попытка получить список сайтов текстур не удалась — пробуем снова.
+  if (state.texSourcesError && !state.texSourcesLoading) { state.texSources = null; state.texSourcesError = null; }
+  if (kind === 'materials') loadTextureSources();
   renderLibraryPanel();
   const panel = document.getElementById('libraryPanel');
   if (panel) panel.scrollTop = 0;   // форма рисуется вверху вкладки — прокручиваем к ней
 }
 function closeLibLinkForm() {
   closeLibLinkSiteMenu();
+  libTexRelease(state.libLinkForm);
   state.libLinkForm = null;
   renderLibraryPanel();
 }
@@ -6267,6 +6280,12 @@ async function libLinkCheckSubmit(panel) {
   // Пользователь мог закрыть форму, пока шёл запрос (closeLibLinkForm
   // обнуляет state.libLinkForm целиком) — не воскрешаем её после ответа.
   if (state.libLinkForm === form) renderLibraryPanel();
+  // Адрес страницы декора указан — скачиваем лист в фоне, пока пользователь
+  // правит поля экрана подтверждения (результат покажет libTexBlockHtml).
+  if (state.libLinkForm === form && form.step === 'confirm' && libTexApplies(form)) {
+    const tex = libTexState(form);
+    if (tex.url.trim() && tex.siteId && !(tex.blob && tex.blobSrc === tex.url.trim())) libTexDownload(form);
+  }
 }
 
 // Известные пути дерева категории topCode (см. libAllPaths) как готовый
@@ -6967,13 +6986,371 @@ function libLinkConfirmHtml(form) {
       ${catHtml}
       ${hwCatHtml}
       ${extraHtml}
+      ${libTexBlockHtml(form)}
       <p class="hint lib-link-missing-hint">${initialMissing.length ? 'Заполните: ' + esc(initialMissing.join(', ')) + '.' : ''}</p>
       ${form.error ? `<p class="hint lib-link-error">${esc(form.error)}</p>` : ''}
       <div class="lib-leaf-actions">
-        <button type="button" class="link-btn lib-link-save" ${initialMissing.length ? 'disabled' : ''}>Сохранить</button>
+        <button type="button" class="link-btn lib-link-save" ${initialMissing.length || libTexLoading(form) ? 'disabled' : ''}${libTexLoading(form) ? ' title="Дождитесь загрузки текстуры"' : ''}>Сохранить</button>
         <button type="button" class="link-btn lib-link-cancel">Отмена</button>
       </div>
     </div>`;
+}
+
+// ---------------------------------------------------------------------------
+// Текстура листа в форме «Добавить по ссылке» (необязательный блок для
+// материалов, кроме кромки). Пользователь указывает страницу декора у
+// производителя (Egger, Kronospan) — сервер отдаёт картинку листа
+// (POST /texture-sheet), клиент превращает её в плитку (userTextures.js) и
+// кладёт ТОЛЬКО на этот компьютер (IndexedDB). В сам материал уходят лишь
+// textureUrl и textureSiteId. Неудача с текстурой никогда не блокирует
+// сохранение материала — он остаётся с плоским цветом. Состояние блока —
+// form.tex: { siteId, url, status: idle|loading|ok|error, error, blob,
+// blobSrc (адрес, с которого получен blob; '' если файл выбран вручную),
+// previewUrl, sheetW, sheetH (размер листа из заголовков сервера) }.
+// ---------------------------------------------------------------------------
+function libTexApplies(form) {
+  return !!form && form.kind === 'materials' && form.group !== 'edge';
+}
+function libTexState(form) {
+  if (!form.tex) form.tex = { siteId: '', url: '', status: 'idle', error: '', blob: null, blobSrc: '', previewUrl: '', sheetW: null, sheetH: null };
+  return form.tex;
+}
+// Освобождает превью (object URL) — при закрытии формы и после сохранения.
+function libTexRelease(form) {
+  if (!form || !form.tex) return;
+  if (form.tex.previewUrl) { try { URL.revokeObjectURL(form.tex.previewUrl); } catch (err) { /* не критично */ } }
+  form.tex.previewUrl = '';
+}
+function libTexSetBlob(form, blob, src, w, h, kind) {
+  const tex = libTexState(form);
+  tex.reqId = (tex.reqId || 0) + 1;   // выбранный файл отменяет идущую загрузку
+  libTexRelease(form);
+  tex.blob = blob;
+  tex.blobSrc = src || '';
+  tex.sheetW = w || null;
+  tex.sheetH = h || null;
+  tex.kind = kind || '';
+  tex.previewUrl = URL.createObjectURL(blob);
+  tex.status = 'ok';
+  tex.error = '';
+  tex.warn = '';
+  libTexCheckProportions(form);
+}
+// Предупреждение, если пропорции картинки не совпадают с размером листа
+// (сервер/поля формы). Сама плитка при сохранении подгоняется под картинку
+// (userTextures.convertSheet), это только сигнал пользователю.
+function libTexCheckProportions(form) {
+  const tex = libTexState(form);
+  if (tex.kind === 'fragment' || !tex.previewUrl) return;
+  const vals = form.values || {};
+  const w = Number(tex.sheetW || vals.sheetW), h = Number(tex.sheetH || vals.sheetH);
+  if (!(w > 0) || !(h > 0)) return;
+  const img = new Image();
+  img.onload = () => {
+    if (state.libLinkForm !== form || !img.naturalWidth) return;
+    const real = Math.max(img.naturalWidth, img.naturalHeight) / Math.min(img.naturalWidth, img.naturalHeight);
+    const want = Math.max(w, h) / Math.min(w, h);
+    tex.warn = Math.abs(real / want - 1) > 0.05 ? 'Пропорции картинки не совпадают с размером листа — рисунок будет подогнан под картинку.' : '';
+    const st = document.querySelector('#libraryPanel .lib-tex-status');
+    if (st) st.innerHTML = libTexStatusHtml(form);
+  };
+  img.src = tex.previewUrl;
+}
+
+// Список сайтов-источников текстур — по образцу loadLibLinkSites (тот же токен
+// и базовый адрес), но без привязки к перерисовке всей панели: перерисовываем
+// только пока открыта форма.
+function loadTextureSources() {
+  if (state.texSources) return Promise.resolve(state.texSources);
+  if (state.texSourcesLoading) return state.texSourcesPromise || Promise.resolve([]);
+  const token = getAuthToken();
+  if (!token) return Promise.resolve([]);
+  state.texSourcesLoading = true;
+  state.texSourcesPromise = fetch(`${AUTH_API_BASE}/texture-sources`, { headers: { authorization: 'Bearer ' + token } })
+    .then((res) => res.json().catch(() => null).then((data) => ({ ok: res.ok, status: res.status, data })))
+    .then(({ ok, status, data }) => {
+      const list = Array.isArray(data) ? data : (data && Array.isArray(data.sources) ? data.sources : null);
+      state.texSources = ok && list ? list : [];
+      state.texSourcesError = ok && list ? null
+        : status === 404 ? 'Сервер пока не поддерживает загрузку текстур.'
+        : ((data && data.error) || 'Не удалось получить список сайтов с текстурами.');
+    })
+    .catch(() => {
+      state.texSources = [];
+      state.texSourcesError = 'Нет связи с сервером — список сайтов с текстурами недоступен.';
+    })
+    .finally(() => {
+      state.texSourcesLoading = false;
+      if (state.libLinkForm && document.getElementById('libraryPanel')) libTexRerender();
+    })
+    .then(() => state.texSources || []);
+  return state.texSourcesPromise;
+}
+
+// Скачивает лист с сервера -> { blob, w, h } или бросает Error с понятным
+// русским текстом (общая функция для формы и для кнопки «Загрузить» в таблице).
+async function libTexFetchSheet(siteId, url) {
+  const token = getAuthToken();
+  if (!token) throw new Error('Войдите в аккаунт, чтобы загрузить текстуру.');
+  let res;
+  try {
+    res = await fetch(`${AUTH_API_BASE}/texture-sheet`, {
+      method: 'POST',
+      headers: { authorization: 'Bearer ' + token, 'content-type': 'application/json' },
+      body: JSON.stringify({ siteId, url }),
+    });
+  } catch (err) {
+    throw new Error('Нет связи с сервером. Выберите файл с картинкой листа вручную.');
+  }
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    if (res.status === 429) throw new Error('Слишком много запросов за минуту (не больше 12). Подождите немного и повторите.');
+    if (res.status === 404 && !(data && data.error)) throw new Error('Сервер пока не поддерживает загрузку текстур. Выберите файл вручную.');
+    throw new Error((data && data.error) || 'Сервер не смог получить картинку листа. Выберите файл вручную.');
+  }
+  const type = String(res.headers.get('content-type') || '').toLowerCase();
+  if (type.indexOf('image/') !== 0) throw new Error('Сервер вернул не картинку. Выберите файл вручную.');
+  const blob = await res.blob();
+  const w = Number(res.headers.get('x-sheet-width-mm')), h = Number(res.headers.get('x-sheet-height-mm'));
+  // kind: 'sheet' (лист/полоса с известным размером) или 'fragment' (кусок декора
+  // без масштаба, Kronospan); размеры в заголовках — размеры ИЗОБРАЖЕНИЯ.
+  const kind = String(res.headers.get('x-texture-kind') || '').toLowerCase() === 'fragment' ? 'fragment' : 'sheet';
+  return { blob, w: w > 0 ? w : null, h: h > 0 ? h : null, kind };
+}
+
+// Перерисовка панели с сохранением введённого на экране подтверждения (на шаге
+// ввода всё уже зеркалится в form.url/form.tex.url).
+function libTexRerender() {
+  const box = document.querySelector('#libraryPanel .lib-link-form');
+  if (box) libLinkCaptureFormState(box);
+  renderLibraryPanel();
+}
+
+async function libTexDownload(form) {
+  const tex = libTexState(form);
+  const site = (state.texSources || []).find((s) => s.id === tex.siteId);
+  const url = tex.url.trim();
+  if (!site || !url || tex.status === 'loading') return;
+  if (!libLinkDomainMatches(url, site.domain)) {
+    tex.status = 'error'; tex.error = `Похоже, это не сайт ${site.domain} — проверьте ссылку на декор.`;
+    libTexRerender(); return;
+  }
+  tex.status = 'loading'; tex.error = '';
+  tex.loadingSrc = url;
+  const reqId = tex.reqId = (tex.reqId || 0) + 1;   // устаревший ответ игнорируем
+  libTexRerender();
+  try {
+    const sheet = await libTexFetchSheet(tex.siteId, url);
+    if (state.libLinkForm !== form || tex.reqId !== reqId) return;
+    const srcKind = ((state.texSources || []).find((s) => s.id === tex.siteId) || {}).kind;
+    libTexSetBlob(form, sheet.blob, url, sheet.w, sheet.h, sheet.kind === 'fragment' || srcKind === 'fragment' ? 'fragment' : 'sheet');
+  } catch (err) {
+    if (state.libLinkForm !== form || tex.reqId !== reqId) return;
+    tex.status = 'error'; tex.error = err.message;
+  }
+  libTexRerender();
+}
+function libTexLoading(form) {
+  return libTexApplies(form) && !!form.tex && form.tex.status === 'loading';
+}
+
+// Код декора Egger (H1145 ST10, F206 ST9, U702 ST9) из наименования/артикула —
+// для подсказки «Найти декор … на egger.com». Только подсказка: поиск открывается
+// в новой вкладке, ничего не скачивается.
+function libTexDecorCode(form) {
+  const draft = form.draft || {};
+  const text = `${libLinkFieldValue(form, 'name', draft.name || '')} ${libLinkFieldValue(form, 'article', draft.article || '')}`;
+  const m = /(?:^|[^A-Za-z0-9])([HFUW]\d{3,4})(?:\s*(ST\s?\d{1,2}))?(?![0-9])/i.exec(text);
+  return m ? { code: m[1].toUpperCase(), st: m[2] ? m[2].replace(/\s+/g, '').toUpperCase() : '' } : null;
+}
+
+// Строка статуса под полями (точечно обновляется при вводе адреса).
+function libTexStatusHtml(form) {
+  const tex = libTexState(form);
+  if (tex.status === 'loading') return '<span class="hint">Загружаем лист…</span>';
+  if (tex.status === 'ok') {
+    return `<img class="lib-tex-preview" src="${esc(tex.previewUrl)}" alt="Лист"><span class="hint">Текстура загружена — сохранится на этом компьютере.${tex.warn ? ' <span class="lib-link-warning">' + esc(tex.warn) + '</span>' : ''}</span>`;
+  }
+  if (tex.status === 'error') return `<span class="hint lib-link-error">${esc(tex.error)}</span>`;
+  return '';
+}
+
+function libTexBlockHtml(form) {
+  if (!libTexApplies(form)) return '';
+  const tex = libTexState(form);
+  const confirm = form.step === 'confirm';
+  const sources = state.texSources || [];
+  const loading = state.texSourcesLoading || (state.texSources == null && !!getAuthToken());
+  const site = sources.find((s) => s.id === tex.siteId);
+  const hint = site ? (site.hint || '') : 'Откройте страницу декора на сайте производителя, найдите вид листа (Plattenansicht) и скопируйте адрес страницы сюда.';
+  const domainWarn = tex.url.trim() && site && !libLinkDomainMatches(tex.url, site.domain) ? `Похоже, это не сайт ${site.domain} — проверьте ссылку.` : '';
+  let sourcesHtml;
+  if (loading) sourcesHtml = '<p class="hint">Загрузка списка сайтов с текстурами…</p>';
+  else if (!sources.length) {
+    sourcesHtml = `<p class="hint">${esc(getAuthToken() ? (state.texSourcesError || 'Нет доступных сайтов с текстурами.') : 'Войдите в аккаунт, чтобы загрузить текстуру по ссылке.')}</p>`;
+  } else {
+    const opts = ['<option value="">— сайт не выбран —</option>']
+      .concat(sources.map((s) => `<option value="${esc(s.id)}" ${s.id === tex.siteId ? 'selected' : ''}>${esc(s.name === s.domain ? s.name : `${s.name} (${s.domain})`)}</option>`)).join('');
+    sourcesHtml = `
+      <div class="field"><label>Сайт производителя</label><select class="lib-tex-site">${opts}</select></div>
+      <div class="field"><label>Ссылка на страницу декора</label>
+        <input type="url" class="lib-tex-url" placeholder="${esc((site && site.exampleUrl) || 'https://...')}" value="${esc(tex.url)}">
+      </div>
+      <p class="hint lib-tex-hint">${esc(hint)}</p>
+      <p class="hint lib-link-warning lib-tex-warning">${esc(domainWarn)}</p>`;
+  }
+  // Подсказка-поиск декора Egger по коду из наименования (после «Проверить»).
+  const dc = confirm ? libTexDecorCode(form) : null;
+  const findHtml = dc
+    ? `<p class="hint"><a class="lib-tex-find" href="${esc('https://www.google.com/search?q=' + encodeURIComponent('site:egger.com ' + dc.code + (dc.st ? ' ' + dc.st : '')))}" target="_blank" rel="noopener">Найти декор ${esc(dc.code)} на egger.com</a></p>`
+    : '';
+  const canFetch = !!site && !!tex.url.trim() && tex.status !== 'loading';
+  const fetchHtml = confirm && sources.length
+    ? `<button type="button" class="link-btn lib-tex-fetch" ${canFetch ? '' : 'disabled'}>${tex.status === 'error' ? 'Повторить' : 'Загрузить по ссылке'}</button>` : '';
+  // Запасной вариант: сервер не смог скачать лист — картинку можно выбрать файлом.
+  const fileHtml = confirm
+    ? `<label class="link-btn lib-tex-file-label">Выбрать файл…<input type="file" accept="image/*" class="lib-tex-file" hidden></label>` : '';
+  return `
+    <div class="lib-tex-block">
+      <b>Текстура листа (необязательно)</b>
+      ${sourcesHtml}
+      ${findHtml}
+      <div class="lib-tex-actions">${fetchHtml}${fileHtml}</div>
+      <div class="lib-tex-status">${libTexStatusHtml(form)}</div>
+    </div>`;
+}
+
+// Читает поля блока из DOM в form.tex и точечно правит подсказки/кнопки (без
+// перерисовки — иначе слетал бы фокус в поле адреса). Если адрес изменился
+// после загрузки листа — загруженная картинка снимается.
+function libTexSync(box) {
+  const form = state.libLinkForm;
+  if (!form || !box || !libTexApplies(form)) return;
+  const tex = libTexState(form);
+  const siteSel = box.querySelector('.lib-tex-site');
+  const urlInput = box.querySelector('.lib-tex-url');
+  if (!siteSel || !urlInput) return;
+  tex.siteId = siteSel.value;
+  tex.url = urlInput.value;
+  const sources = state.texSources || [];
+  // Адрес с домена известного сайта сам выбирает этот сайт.
+  if (!sources.some((s) => s.id === tex.siteId && libLinkDomainMatches(tex.url, s.domain))) {
+    const byUrl = sources.find((s) => libLinkDomainMatches(tex.url, s.domain));
+    if (byUrl) { tex.siteId = byUrl.id; siteSel.value = byUrl.id; }
+  }
+  const site = sources.find((s) => s.id === tex.siteId);
+  if (tex.status === 'loading' && tex.loadingSrc !== tex.url.trim()) {
+    tex.reqId = (tex.reqId || 0) + 1;   // ответ на старую ссылку больше не нужен
+    tex.status = 'idle'; tex.error = '';
+    const st = box.querySelector('.lib-tex-status');
+    if (st) st.innerHTML = libTexStatusHtml(form);
+  }
+  if (tex.blob && tex.blobSrc && tex.blobSrc !== tex.url.trim()) {
+    libTexRelease(form);
+    tex.blob = null; tex.blobSrc = ''; tex.status = 'idle'; tex.error = '';
+    const st = box.querySelector('.lib-tex-status');
+    if (st) st.innerHTML = libTexStatusHtml(form);
+  }
+  const hintEl = box.querySelector('.lib-tex-hint');
+  if (hintEl && site && site.hint) hintEl.textContent = site.hint;
+  if (urlInput && site && site.exampleUrl) urlInput.placeholder = site.exampleUrl;
+  const warnEl = box.querySelector('.lib-tex-warning');
+  const domainOk = !!site && libLinkDomainMatches(tex.url, site.domain);
+  if (warnEl) warnEl.textContent = tex.url.trim() && site && !domainOk ? `Похоже, это не сайт ${site.domain} — проверьте ссылку.` : '';
+  const fetchBtn = box.querySelector('.lib-tex-fetch');
+  if (fetchBtn) fetchBtn.disabled = !(domainOk && tex.status !== 'loading');
+}
+
+// После добавления материала: сохраняет плитку локально (если лист получен) и
+// перерисовывает сцену. Неудача конвертации не отменяет уже сохранённый материал.
+function libTexAfterSave(form, group, code, values) {
+  const tex = form.tex;
+  const ut = window.Modul3D.userTextures;
+  if (!tex || !tex.blob || !code || !ut) { libTexRelease(form); return; }
+  const blob = tex.blob;
+  // Правило выбора размеров (то же в libTexReload): размеры из заголовков
+  // сервера — это размеры ИЗОБРАЖЕНИЯ (у Egger полоса 1300x2800, а не весь
+  // лист), поэтому они главнее; иначе берём размеры материала из формы (у
+  // столешницы это длина/глубина). Пропорции дополнительно сверяет и
+  // подгоняет convertSheet по самой картинке.
+  const dims = tex.sheetW && tex.sheetH
+    ? { sheetW: tex.sheetW, sheetH: tex.sheetH, kind: tex.kind } : { sheetW: values.sheetW, sheetH: values.sheetH, kind: tex.kind };
+  libTexRelease(form);
+  ut.convertSheet(blob, dims)
+    // Материал могли удалить, пока шла конвертация — тогда плитку не сохраняем.
+    .then((tile) => (libFindItem(group, code) ? ut.save(code, tile) : null))
+    .then(() => renderLibraryPanel())
+    .catch((err) => {
+      console.warn('Текстура не сохранена:', err);
+      window.alert('Материал сохранён, но текстуру листа создать не удалось: ' + err.message);
+    });
+}
+
+// Резервная копия пользовательских текстур одним файлом (кнопки в верхней
+// панели вкладки «Материалы»): картинки лежат только в браузере этого
+// компьютера, при очистке данных браузера они пропадут.
+function libTexPackBarHtml() {
+  return `<span class="lib-tex-pack">
+    <button type="button" class="link-btn lib-tex-pack-save" title="Скачать файл со всеми загруженными текстурами листов">Сохранить набор текстур</button>
+    <button type="button" class="link-btn lib-tex-pack-load" title="Загрузить ранее сохранённый набор текстур">Загрузить набор текстур</button>
+    <input type="file" accept=".json,application/json" class="lib-tex-pack-input" hidden>
+  </span>`;
+}
+function libTexPackSave() {
+  const ut = window.Modul3D.userTextures;
+  if (!ut) return;
+  ut.exportPack().then((blob) => {
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'modul3d-textures.json';
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+  }).catch((err) => window.alert('Не удалось сохранить набор: ' + err.message));
+}
+function libTexPackLoad(input) {
+  const ut = window.Modul3D.userTextures;
+  const file = input.files && input.files[0];
+  input.value = '';
+  if (!ut || !file) return;
+  ut.importPack(file)
+    .then((r) => { window.alert(`Загружено: ${r.loaded}, пропущено: ${r.skipped}.`); renderLibraryPanel(); })
+    .catch((err) => window.alert('Не удалось загрузить набор: ' + err.message));
+}
+
+// Кнопка «Загрузить» рядом с материалом, у которого есть textureUrl, а картинки
+// на этом компьютере нет (проект/каталог открыт на другом компьютере).
+async function libTexReload(group, key) {
+  const it = libFindItem(group, key);
+  const ut = window.Modul3D.userTextures;
+  if (!it || !it.textureUrl || !it.textureSiteId || !ut) return;
+  const code = it.code || key;
+  if (state.texBusy[code]) return;
+  if (!getAuthToken()) { window.alert('Войдите в аккаунт, чтобы загрузить текстуру.'); return; }
+  state.texBusy[code] = true;
+  renderLibraryPanel();
+  try {
+    const sheet = await libTexFetchSheet(it.textureSiteId, it.textureUrl);
+    const own = group === 'countertop' ? { sheetW: it.maxLength, sheetH: it.depth } : { sheetW: it.sheetW, sheetH: it.sheetH };
+    const dims = sheet.w && sheet.h ? { sheetW: sheet.w, sheetH: sheet.h, kind: sheet.kind } : Object.assign(own, { kind: sheet.kind });
+    const tile = await ut.convertSheet(sheet.blob, dims);
+    await ut.save(code, tile);
+  } catch (err) {
+    window.alert('Не удалось загрузить текстуру: ' + err.message);
+  } finally {
+    delete state.texBusy[code];
+    renderLibraryPanel();
+  }
+}
+
+// Пометка в ячейке названия: текстура задана ссылкой, но картинки на этом
+// компьютере нет — материал пока рисуется плоским цветом.
+function libTexMissingHtml(group, it) {
+  if (!it || !it.textureUrl || !it.textureSiteId || group === 'edge') return '';
+  const ut = window.Modul3D.userTextures;
+  if (ut && ut.has(it.code)) return '';
+  const busy = !!state.texBusy[it.code];
+  return `<span class="lib-tex-missing" title="Картинки листа нет на этом компьютере — материал рисуется плоским цветом">нет текстуры на этом компьютере <button type="button" class="link-btn lib-tex-load" data-tex-group="${esc(group)}" data-tex-code="${esc(it.code)}" ${busy ? 'disabled' : ''}>${busy ? 'Загрузка…' : 'Загрузить'}</button></span>`;
 }
 
 function libLinkInputStepHtml(form) {
@@ -6987,6 +7364,7 @@ function libLinkInputStepHtml(form) {
       <input type="url" class="lib-link-url-input" placeholder="https://..." value="${esc(form.url)}">
     </div>
     <p class="hint lib-link-warning">${esc(warning)}</p>
+    ${libTexBlockHtml(form)}
     ${form.error ? `<p class="hint lib-link-error">${esc(form.error)}</p>` : ''}
     <div class="lib-leaf-actions">
       <button type="button" class="link-btn lib-link-check" ${domainOk && form.url.trim() ? '' : 'disabled'}>Проверить</button>
@@ -7019,6 +7397,7 @@ function libLinkRevalidate(panel) {
   if (!form) return;
   const box = panel.querySelector('.lib-link-form');
   if (!box) return;
+  libTexSync(box);   // необязательный блок «Текстура листа» — на оба шага
   if (form.step === 'input') {
     // form.siteId сюда пишет клик по .lib-link-site-item (см.
     // libLinkSitePickerHtml/делегированный click ниже) — здесь его только
@@ -7055,7 +7434,11 @@ function libLinkRevalidate(panel) {
       if (nm && cat.EDGE_PRICES[nm]) missing.push('кромка с таким названием уже есть');
     }
     const saveBtn = box.querySelector('.lib-link-save');
-    if (saveBtn) saveBtn.disabled = missing.length > 0;
+    const texWait = libTexLoading(form);
+    if (saveBtn) {
+      saveBtn.disabled = missing.length > 0 || texWait;
+      saveBtn.title = texWait ? 'Дождитесь загрузки текстуры' : '';
+    }
     const hintEl = box.querySelector('.lib-link-missing-hint');
     if (hintEl) hintEl.textContent = missing.length ? `Заполните: ${missing.join(', ')}.` : '';
     if (form.kind === 'materials') {
@@ -7131,6 +7514,16 @@ function libLinkSaveMaterial(form, values, categoryPath) {
   const common = Object.assign({ sourceUrl: form.url, sourceSiteId: form.siteId, verifiedAt: new Date().toISOString() },
     libLinkSourceFields(form));
   if (variant) common.variant = variant;
+  // Текстура листа (необязательный блок формы): в материал уходят только адрес
+  // страницы декора и сайт; сама картинка — в IndexedDB этого компьютера
+  // (см. libTexAfterSave). Для кромки текстуры нет.
+  const tex = libTexApplies(form) && group !== 'edge' ? libTexState(form) : null;
+  const texSite = tex ? (state.texSources || []).find((s) => s.id === tex.siteId) : null;
+  if (tex && texSite && tex.url.trim() && libLinkDomainMatches(tex.url, texSite.domain)) {
+    common.textureUrl = tex.url.trim();
+    common.textureSiteId = tex.siteId;
+  }
+  let newCode = null;   // code новой позиции — под ним же лежит текстура
   // decors/back/facade: values.sheetW/sheetH к этому моменту уже проверены
   // libLinkMaterialDimsMissing (кнопка «Сохранить» и не дала бы дойти сюда
   // без них) — numOr(...) ниже больше не «угадывает» реальный размер листа,
@@ -7138,16 +7531,18 @@ function libLinkSaveMaterial(form, values, categoryPath) {
   // ниже), а не рабочий путь.
   if (group === 'decors') {
     const sheetW = numOr(values.sheetW, 2750), sheetH = numOr(values.sheetH, 1830);
-    DECORS.push(Object.assign({ code: 'LINK-' + Date.now(), name,
+    newCode = 'LINK-' + Date.now();
+    DECORS.push(Object.assign({ code: newCode, name,
       sheetPrice: libLinkSheetPriceFromSite(price, unit, sheetW, sheetH), sheetW, sheetH,
       thickness: numOrNull(values.thickness), unit, image, article, categoryPath }, common));
   } else if (group === 'back') {
     const sheetW = numOr(values.sheetW, 2440), sheetH = numOr(values.sheetH, 1220);
-    BACK_MATERIALS.push(Object.assign({ code: 'LINK-' + Date.now(), name,
+    newCode = 'LINK-' + Date.now();
+    BACK_MATERIALS.push(Object.assign({ code: newCode, name,
       sheetPrice: libLinkSheetPriceFromSite(price, unit, sheetW, sheetH), sheetW, sheetH,
       thickness: numOr(values.thickness, 3), unit, image, article, categoryPath }, common));
   } else if (group === 'facade') {
-    const code = 'FAC-LINK-' + Date.now();
+    const code = newCode = 'FAC-LINK-' + Date.now();
     const sheetW = numOr(values.sheetW, 2750), sheetH = numOr(values.sheetH, 1830);
     cat.FACADE_MATERIALS[code] = Object.assign({ code, name,
       sheetPrice: libLinkSheetPriceFromSite(price, unit, sheetW, sheetH), sheetW, sheetH,
@@ -7161,12 +7556,14 @@ function libLinkSaveMaterial(form, values, categoryPath) {
     if (!cat.COUNTERTOP_MATERIALS) cat.COUNTERTOP_MATERIALS = [];
     const materialId = COUNTERTOP_MATERIAL_LABEL_TO_ID[categoryPath[0]] || 'ldsp38';
     const ctBrand = categoryPath[1] || brand || 'Новый бренд';
-    cat.COUNTERTOP_MATERIALS.push(Object.assign({ code: 'CTOP-LINK-' + Date.now(), materialId, brand: ctBrand,
+    newCode = 'CTOP-LINK-' + Date.now();
+    cat.COUNTERTOP_MATERIALS.push(Object.assign({ code: newCode, materialId, brand: ctBrand,
       name, thickness: numOr(values.thickness, 38), depth: numOr(values.sheetH, 600),
       pricePerMeter: price, maxLength: numOr(values.sheetW, 4100), unit: 'пог.м', image, article }, common));
   } else {
     return;
   }
+  if (tex) libTexAfterSave(form, group, newCode, values);
   state.libLinkForm = null;
   recompute();
   scheduleCatalogSave();
@@ -7236,6 +7633,7 @@ function libLinkSaveHardware(form, values, extra) {
 function libLinkSaveSubmit(panel) {
   const form = state.libLinkForm;
   if (!form || form.step !== 'confirm') return;
+  if (libTexLoading(form)) return;   // текстура ещё грузится — «Сохранить» заблокирована
   const box = panel.querySelector('.lib-link-form');
   if (!box) return;
   // Перед самой записью ещё раз снимаем срез полей (libLinkCaptureFormState) —
@@ -7513,6 +7911,7 @@ function libLinkTopBarHtml(kind) {
     <button type="button" class="btn lib-add-by-link" ${addAttrs}>+ Добавить по ссылке</button>
     ${libAddCatTileHtml(kind)}
     ${libLinkRefreshBarHtml()}
+    ${kind === 'materials' ? libTexPackBarHtml() : ''}
   </div>`;
 }
 
@@ -8309,6 +8708,8 @@ function libDeleteSelectedRow() {
   } else {
     return;
   }
+  // Картинка листа живёт только на этом компьютере — удаляем вместе с материалом.
+  if (sel.group !== 'edge' && window.Modul3D.userTextures) window.Modul3D.userTextures.remove(sel.key);
   state.libSelectedRow = null;
   recompute();
   scheduleCatalogSave();
@@ -9919,6 +10320,14 @@ function initLibraryPanel() {
     if (linkCheckBtn) { if (!linkCheckBtn.disabled) libLinkCheckSubmit(panel); return; }
     const linkSaveBtn = e.target.closest('.lib-link-save');
     if (linkSaveBtn) { if (!linkSaveBtn.disabled) libLinkSaveSubmit(panel); return; }
+    const texFetchBtn = e.target.closest('.lib-tex-fetch');
+    if (texFetchBtn) { if (!texFetchBtn.disabled && state.libLinkForm) libTexDownload(state.libLinkForm); return; }
+    const texLoadBtn = e.target.closest('.lib-tex-load');
+    if (texLoadBtn) { if (!texLoadBtn.disabled) libTexReload(texLoadBtn.dataset.texGroup, texLoadBtn.dataset.texCode); return; }
+    const texPackSave = e.target.closest('.lib-tex-pack-save');
+    if (texPackSave) { libTexPackSave(); return; }
+    const texPackLoad = e.target.closest('.lib-tex-pack-load');
+    if (texPackLoad) { const inp = panel.querySelector('.lib-tex-pack-input'); if (inp) inp.click(); return; }
     const linkRefreshBtn = e.target.closest('.lib-link-refresh-btn');
     if (linkRefreshBtn) { if (!linkRefreshBtn.disabled) refreshCatalogLinkedPrices(); return; }
     // «− Удалить материал» / «− Удалить позицию» под таблицей листа (см.
@@ -10058,6 +10467,20 @@ function initLibraryPanel() {
       renderLibraryPanel();
       return;
     }
+    // Запасной вариант блока «Текстура листа»: картинка листа выбрана файлом.
+    const texFile = e.target.closest('.lib-tex-file');
+    if (texFile && state.libLinkForm) {
+      const f = texFile.files && texFile.files[0];
+      if (f) {
+        if (!/^image\//.test(f.type)) { window.alert('Нужна картинка (JPEG или PNG).'); return; }
+        libTexSetBlob(state.libLinkForm, f, '', null, null, '');
+        libTexRerender();
+      }
+      return;
+    }
+    // Набор текстур из файла (кнопка «Загрузить набор текстур»).
+    const texPackInput = e.target.closest('.lib-tex-pack-input');
+    if (texPackInput) { libTexPackLoad(texPackInput); return; }
     // Выбор варианта вариативного товара (см. libLinkVariantsHtml) — своя
     // ветка ДО общей: кроме перевалидации нужно подставить цену/артикул/
     // название выбранной комбинации, и всё это точечно, без перерисовки.
@@ -17070,6 +17493,12 @@ try {
   initLibraryPanel();
   initCountertopPanel();
   recompute();
+  // Пользовательские текстуры листов (IndexedDB этого компьютера) читаются
+  // асинхронно — по готовности сцена перерисовывается; без IndexedDB молча
+  // остаёмся с плоскими цветами.
+  if (window.Modul3D.userTextures) {
+    window.Modul3D.userTextures.init(() => { recompute(); renderLibraryPanel(); });
+  }
   offerAutosaveRestore();
   initAccountPanel();
   initPaddle();

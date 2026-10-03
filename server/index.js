@@ -20,6 +20,7 @@ const reviewsRouter = require('./src/routes/reviews');
 const catalogOverridesRouter = require('./src/routes/catalogOverrides');
 const catalogLinksRouter = require('./src/routes/catalogLinks');
 const catalogPublishRouter = require('./src/routes/catalogPublish');
+const textureSourcesRouter = require('./src/routes/textureSources');
 
 const app = express();
 
@@ -74,6 +75,8 @@ app.use('/catalog-publish', catalogPublishRouter);
 // относительно других роутов ни на что не влияет — см. комментарий в
 // routes/catalogLinks.js.
 app.use(catalogLinksRouter);
+// Источники текстур — тоже без префикса (/texture-sources, /texture-sheet).
+app.use(textureSourcesRouter);
 
 app.use((req, res) => {
   res.status(404).json({ error: 'Не найдено.' });

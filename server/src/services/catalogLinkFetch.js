@@ -175,6 +175,7 @@ async function fetchAndParseProduct(site, rawUrl) {
 
 module.exports = {
   CatalogLinkError,
+  normalizeHost,
   assertUrlBelongsToSite,
   fetchProductHtml,
   fetchAndParseProduct,
