@@ -23,8 +23,8 @@ const SOURCES = [
     domain: 'kronospan.com',
     kind: 'fragment',
     browseUrl: 'https://kronospan.com/en_EN/decors/by_collection/kronodesign/',
-    hint: 'Откройте страницу декора Kronodesign на kronospan.com и скопируйте адрес. Kronospan публикует не лист целиком, а фрагмент рисунка.',
-    exampleUrl: 'https://kronospan.com/en_EN/decors/view/kronodesign/K001/',
+    hint: 'Откройте страницу конкретного декора Kronodesign на kronospan.com (адрес вида …/decors/view/kronodesign/standard/K001/) и скопируйте её адрес. Kronospan публикует не лист целиком, а фрагмент рисунка.',
+    exampleUrl: 'https://kronospan.com/en_EN/decors/view/kronodesign/standard/K001/',
     fetchTexture: kronospan.fetchTexture,
   },
 ];

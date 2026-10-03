@@ -14,7 +14,7 @@
 (function () {
 // Версия сборки — показывается во вкладке браузера и в шапке.
 // При выпуске новой версии меняется только эта строка.
-const APP_VERSION = 'v336';
+const APP_VERSION = 'v337';
 
 // Номер версии выводим ПЕРВЫМ делом: если дальше что-то упадёт, по нему сразу
 // видно, какая сборка открыта.
@@ -7174,6 +7174,17 @@ async function libTexDownload(form) {
   }
   libTexRerender();
 }
+// Размер фрагмента (Kronospan): 300..5000 мм, иначе по умолчанию + предупреждение.
+function libTexFragDefault() {
+  const ut = window.Modul3D.userTextures;
+  return ut ? ut.FRAGMENT_DEFAULT_MM : 1950;
+}
+function libTexFragMM(tex) {
+  const raw = tex.fragMM;
+  const n = Number(raw);
+  if (raw == null || raw === '' || (n >= 300 && n <= 5000)) return { mm: raw == null || raw === '' ? libTexFragDefault() : n, warn: '' };
+  return { mm: libTexFragDefault(), warn: `Допустимо от 300 до 5000 мм — используем ${libTexFragDefault()} мм.` };
+}
 function libTexLoading(form) {
   return libTexApplies(form) && !!form.tex && form.tex.status === 'loading';
 }
@@ -7221,7 +7232,14 @@ function libTexBlockHtml(form) {
         <input type="url" class="lib-tex-url" placeholder="${esc((site && site.exampleUrl) || 'https://...')}" value="${esc(tex.url)}">
       </div>
       <p class="hint lib-tex-hint">${esc(hint)}</p>
-      <p class="hint lib-link-warning lib-tex-warning">${esc(domainWarn)}</p>`;
+      <p class="hint lib-link-warning lib-tex-warning">${esc(domainWarn)}</p>
+      <div class="lib-tex-frag"${site && site.kind === 'fragment' ? '' : ' hidden'}>
+        <div class="field"><label>Размер фрагмента по длинной стороне, мм</label>
+          <input type="number" class="lib-tex-frag-mm" min="300" max="5000" value="${esc(tex.fragMM != null ? tex.fragMM : libTexFragDefault())}">
+        </div>
+        <p class="hint">Kronospan не публикует лист целиком и масштаб фрагмента — размер приблизительный, рисунок на больших деталях повторяется с зеркалом.</p>
+        <p class="hint lib-link-warning lib-tex-frag-warn">${esc(libTexFragMM(tex).warn)}</p>
+      </div>`;
   }
   // Подсказка-поиск декора Egger по коду из наименования (после «Проверить»).
   const dc = confirm ? libTexDecorCode(form) : null;
@@ -7279,6 +7297,14 @@ function libTexSync(box) {
   const hintEl = box.querySelector('.lib-tex-hint');
   if (hintEl && site && site.hint) hintEl.textContent = site.hint;
   if (urlInput && site && site.exampleUrl) urlInput.placeholder = site.exampleUrl;
+  const fragBox = box.querySelector('.lib-tex-frag');
+  if (fragBox) {
+    fragBox.hidden = !(site && site.kind === 'fragment');
+    const fi = box.querySelector('.lib-tex-frag-mm');
+    if (fi) tex.fragMM = fi.value;
+    const fw = box.querySelector('.lib-tex-frag-warn');
+    if (fw) fw.textContent = libTexFragMM(tex).warn;
+  }
   const warnEl = box.querySelector('.lib-tex-warning');
   const domainOk = !!site && libLinkDomainMatches(tex.url, site.domain);
   if (warnEl) warnEl.textContent = tex.url.trim() && site && !domainOk ? `Похоже, это не сайт ${site.domain} — проверьте ссылку.` : '';
@@ -7298,8 +7324,10 @@ function libTexAfterSave(form, group, code, values) {
   // лист), поэтому они главнее; иначе берём размеры материала из формы (у
   // столешницы это длина/глубина). Пропорции дополнительно сверяет и
   // подгоняет convertSheet по самой картинке.
+  const fragmentMM = libTexFragMM(tex).mm;
   const dims = tex.sheetW && tex.sheetH
-    ? { sheetW: tex.sheetW, sheetH: tex.sheetH, kind: tex.kind } : { sheetW: values.sheetW, sheetH: values.sheetH, kind: tex.kind };
+    ? { sheetW: tex.sheetW, sheetH: tex.sheetH, kind: tex.kind, fragmentMM }
+    : { sheetW: values.sheetW, sheetH: values.sheetH, kind: tex.kind, fragmentMM };
   libTexRelease(form);
   ut.convertSheet(blob, dims)
     // Материал могли удалить, пока шла конвертация — тогда плитку не сохраняем.
@@ -7357,7 +7385,8 @@ async function libTexReload(group, key) {
   try {
     const sheet = await libTexFetchSheet(it.textureSiteId, it.textureUrl);
     const own = group === 'countertop' ? { sheetW: it.maxLength, sheetH: it.depth } : { sheetW: it.sheetW, sheetH: it.sheetH };
-    const dims = sheet.w && sheet.h ? { sheetW: sheet.w, sheetH: sheet.h, kind: sheet.kind } : Object.assign(own, { kind: sheet.kind });
+    const dims = Object.assign(sheet.w && sheet.h ? { sheetW: sheet.w, sheetH: sheet.h } : own,
+      { kind: sheet.kind, fragmentMM: it.textureFragmentMM });
     const tile = await ut.convertSheet(sheet.blob, dims);
     await ut.save(code, tile);
   } catch (err) {
@@ -7547,6 +7576,7 @@ function libLinkSaveMaterial(form, values, categoryPath) {
   if (tex && texSite && tex.url.trim() && libLinkDomainMatches(tex.url, texSite.domain)) {
     common.textureUrl = tex.url.trim();
     common.textureSiteId = tex.siteId;
+    if (texSite.kind === 'fragment' || tex.kind === 'fragment') common.textureFragmentMM = libTexFragMM(tex).mm;
   }
   let newCode = null;   // code новой позиции — под ним же лежит текстура
   // decors/back/facade: values.sheetW/sheetH к этому моменту уже проверены
@@ -10511,7 +10541,8 @@ function initLibraryPanel() {
       const f = texFile.files && texFile.files[0];
       if (f) {
         if (!/^image\//.test(f.type)) { window.alert('Нужна картинка (JPEG или PNG).'); return; }
-        libTexSetBlob(state.libLinkForm, f, '', null, null, '');
+        const fsite = (state.texSources || []).find((s) => s.id === libTexState(state.libLinkForm).siteId);
+        libTexSetBlob(state.libLinkForm, f, '', null, null, fsite && fsite.kind === 'fragment' ? 'fragment' : '');
         libTexRerender();
       }
       return;

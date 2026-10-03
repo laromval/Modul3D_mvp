@@ -6,13 +6,16 @@ const { CatalogLinkError } = require('../catalogLinkFetch');
 const { assertAllowedUrl, fetchHtml, fetchImage } = require('./fetchCore');
 
 const HOSTS = ['kronospan.com', 'www.kronospan.com'];
-const PATH_RE = /^\/[a-z]{2}_[A-Z]{2}\/decors\/view\/kronodesign\/[^/]+\/?$/;
+// /<lang>/decors/view/<линейка>/[<подраздел>/]<код>/ — подраздел (standard, color,
+// lhdf, compact-interior…) необязателен: страница открывается и без него.
+const PATH_RE = /^\/[a-z]{2}_[A-Z]{2}\/decors\/view\/[a-z0-9_-]+\/(?:[a-z0-9_-]+\/)?[A-Za-z0-9_-]+\/?$/;
+const EXAMPLE = 'kronospan.com/en_EN/decors/view/kronodesign/standard/K001/';
 const DOWNLOAD_RE = /href="(\/[a-z]{2}_[A-Z]{2}\/ajax\/express_services\/download\?args%5B0%5D=decors[^"]+)"/;
 
 function validatePageUrl(raw) {
   const u = assertAllowedUrl(raw, HOSTS, 'Ссылка не ведёт на kronospan.com — проверьте адрес.');
   if (!PATH_RE.test(u.pathname)) {
-    throw new CatalogLinkError('Это не страница декора Kronodesign. Нужен адрес вида kronospan.com/en_EN/decors/view/kronodesign/K001/.', 400);
+    throw new CatalogLinkError('Это не страница декора Kronospan. Откройте страницу конкретного декора и скопируйте адрес вида ' + EXAMPLE, 400);
   }
   return u;
 }
@@ -35,10 +38,11 @@ async function fetchTexture(rawUrl, { maxBytes }) {
 
   if (!img) {
     // Запасной прямой адрес: /public/files/decors/kronodesign/<папка>/<код>.jpg
+    const line = downloadUrl.searchParams.get('args[1]');
     const folder = downloadUrl.searchParams.get('args[2]');
     const file = downloadUrl.searchParams.get('args[3]');
-    if (folder && file && /^[\w.-]+$/.test(folder) && /^[\w.-]+$/.test(file)) {
-      sourceUrl = `https://kronospan.com/public/files/decors/kronodesign/${folder}/${file}`;
+    if (line && folder && file && [line, folder, file].every((x) => /^[\w.-]+$/.test(x))) {
+      sourceUrl = `https://kronospan.com/public/files/decors/${line}/${folder}/${file}`;
       img = await fetchImage(sourceUrl, HOSTS, maxBytes);
     } else {
       throw new CatalogLinkError('Не удалось скачать изображение декора.', 502);

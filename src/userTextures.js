@@ -22,13 +22,18 @@
   const MAX_SIDE = 2560;       // длинная сторона готовой картинки, px
   const MAX_DATA_URI = 1.5e6;  // потолок размера data-URI, символов (~1.5 МБ)
   const PACK_FORMAT = 'modul3d-user-textures';
-  // Фрагмент (Kronospan, kind:'fragment'): картинка небольшого куска декора без
-  // известного физического масштаба — рисуем зеркальным повтором (sheet:false).
-  // Масштаб подобран грубо, решение за пользователем: меняется только здесь.
   // Свои коды: LINK-/FAC-LINK-/CTOP-LINK- + метка времени. Встроенные плитки
   // (decorTiles.js) этим кодам не соответствуют и не затираются.
   const CODE_RE = /^(LINK|FAC-LINK|CTOP-LINK)-\d+$/;
-  const FRAGMENT_TILE_MM = { x: 1300, y: 1950 };
+  // Фрагмент (Kronospan, kind:'fragment'): небольшой кусок декора без известного
+  // физического масштаба. Длинная сторона картинки получает заданный
+  // пользователем размер (мм); по умолчанию — условные 1950 мм.
+  const FRAGMENT_DEFAULT_MM = 1950;
+  const FRAGMENT_MIN_MM = 300, FRAGMENT_MAX_MM = 5000;
+  function fragmentMM(v) {
+    const n = Number(v);
+    return n >= FRAGMENT_MIN_MM && n <= FRAGMENT_MAX_MM ? n : FRAGMENT_DEFAULT_MM;
+  }
 
   // Коды, чьи записи в byCode принадлежат нам (удалять из byCode можно только их).
   const userCodes = new Set();
@@ -133,13 +138,13 @@
   // декор (как в tools/texture-convert/bake_tile.py: min(1, 0.88*170/средняя_яркость)).
   function convertSheet(blob, dims) {
     const fragment = !!(dims && dims.kind === 'fragment');
-    const w = fragment ? FRAGMENT_TILE_MM.x : Number(dims && dims.sheetW);
-    const h = fragment ? FRAGMENT_TILE_MM.y : Number(dims && dims.sheetH);
+    const w = fragment ? fragmentMM(dims.fragmentMM) : Number(dims && dims.sheetW);
+    const h = fragment ? w : Number(dims && dims.sheetH);
     if (!(w > 0) || !(h > 0)) return Promise.reject(new Error('Укажите длину и ширину листа в мм.'));
     return loadImage(blob).then((img) => {
       const iw = img.naturalWidth, ih = img.naturalHeight;
       if (!iw || !ih) throw new Error('Пустая картинка.');
-      const rotate = !fragment && ih > iw;   // фрагмент не поворачиваем
+      const rotate = ih > iw;   // длинная сторона всегда вдоль оси x текстуры
       const lw = rotate ? ih : iw, lh = rotate ? iw : ih;   // размер лежачего листа
       let scale = Math.min(1, MAX_SIDE / lw);
       let quality = 0.72;
@@ -172,7 +177,8 @@
       for (let i = 0; i < px.length; i += 4) sum += 0.299 * px[i] + 0.587 * px[i + 1] + 0.114 * px[i + 2];
       const L = sum / (px.length / 4) || 170;
       const k = Math.round(Math.min(1, 0.88 * 170 / L) * 100) / 100;
-      if (fragment) return { tileMM: w, tileMM2: h, sheet: false, k, src };
+      // Фрагмент: tileMM — размер длинной стороны, короткая по пропорциям картинки.
+      if (fragment) return { tileMM: w, tileMM2: Math.round(w * lh / lw), sheet: false, k, src };
       // Соотношение сторон картинки главнее заявленного размера листа: при
       // расхождении больше 5% подгоняем tileMM2, иначе рисунок растянется.
       const tileMM = Math.max(w, h);
@@ -220,5 +226,5 @@
     });
   }
 
-  root.userTextures = { init, convertSheet, save, remove, has, exportPack, importPack };
+  root.userTextures = { fragmentMM, FRAGMENT_DEFAULT_MM, init, convertSheet, save, remove, has, exportPack, importPack };
 })();
