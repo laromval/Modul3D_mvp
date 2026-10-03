@@ -14,7 +14,7 @@
 (function () {
 // Версия сборки — показывается во вкладке браузера и в шапке.
 // При выпуске новой версии меняется только эта строка.
-const APP_VERSION = 'v337';
+const APP_VERSION = 'v338';
 
 // Номер версии выводим ПЕРВЫМ делом: если дальше что-то упадёт, по нему сразу
 // видно, какая сборка открыта.
@@ -2960,6 +2960,8 @@ function openLibSwatchZoomPreview(anchorEl, opts) {
 // столешниц (libTopEntries) — иначе переименование в одном месте дало бы
 // две разные «безбрендовые» подкатегории рядом.
 const NO_BRAND_SUBCAT = 'Без бренда';
+// true — узел может хранить свои позиции рядом с подкатегориями (v338).
+const LIB_OWN_ENTRIES_ALLOWED = true;
 
 // Записи { group, item } одной верхнеуровневой категории дерева — group у
 // записи ИСТИННОЕ происхождение позиции (decors/back/facade/edge/glass),
@@ -3312,11 +3314,10 @@ function libEntryTargetPath(topCode, path) {
   // «База модулей» не подчиняется этому инварианту (см. большой комментарий
   // над libModAllPlacements) — карточка пресета может лежать прямо в узле,
   // даже если у него уже есть подкатегории, путь не подменяется.
-  if (String(topCode).indexOf('mod:') === 0) return path.slice();
-  const children = libChildSegments(topCode, path);
-  if (!children.length) return path.slice();
-  const existing = children.find((seg) => String(seg).toLowerCase() === NO_BRAND_SUBCAT.toLowerCase());
-  return path.concat([existing || NO_BRAND_SUBCAT]);
+  // С v338 инвариант «ветка своих позиций не хранит» снят (задача 2026-10-03):
+  // узел одновременно держит свои позиции и подкатегории, позиция всегда
+  // ложится ровно в выбранный узел. «Без бренда» — обычный узел.
+  return path.slice();
 }
 
 // Разделы, дерево которых приводится к инварианту. 'countertop' сюда не
@@ -3344,6 +3345,10 @@ function libNormalizableTopCodes() {
 // дереве возвращает false и ничего не трогает: иначе каждая отрисовка
 // панели дёргала бы сохранение.
 function libNormalizeOwnEntries(topCode) {
+  // С v338 миграция отключена: позиции остаются в своём узле рядом с его
+  // подкатегориями (см. libEntryTargetPath). Функция оставлена, чтобы не
+  // трогать вызовы; всегда «ничего не переносили».
+  if (LIB_OWN_ENTRIES_ALLOWED) return false;
   let moved = false;
   [[]].concat(libTreeAllNodePaths(topCode)).forEach((path) => {
     if (!libChildSegments(topCode, path).length) return;
@@ -3856,9 +3861,10 @@ function libRowMoveTargetsIn(topCode, entry, isCurrent) {
   };
   // У листа libEntryTargetPath вернёт его самого, у ветки — её «Без бренда»;
   // добавляем ПОСЛЕ детей, поэтому ведро всегда ниже брендов.
+  // Узел идёт ПЕРЕД своими детьми (порядок дерева): цель = сам узел.
   const walk = (path) => {
+    if (path.length || !libIsCustomRootTop(topCode) || !libChildSegments(topCode, path).length) add(libEntryTargetPath(topCode, path));
     libChildSegments(topCode, path).forEach((seg) => walk(path.concat([seg])));
-    add(libEntryTargetPath(topCode, path));
   };
   walk([]);
   return targets;
@@ -5367,6 +5373,10 @@ function libNodeHtml(topCode, path, opts) {
   if (String(topCode).indexOf('mod:') === 0) {
     const ownEntries = libEntriesAtPath(topCode, path);
     if (ownEntries.length) childrenHtml = libModLeafGridHtml(topCode, path, ownEntries) + childrenHtml;
+  } else if (LIB_OWN_ENTRIES_ALLOWED) {
+    // v338: свои позиции ветки (если есть) — таблицей НАД подкатегориями.
+    const ownEntries = libEntriesAtPath(topCode, path);
+    if (ownEntries.length) childrenHtml = libLeafTableHtmlAny(topCode, path, ownEntries, opts || {}) + childrenHtml;
   }
   return libTreeRowHtml(topCode, path, name, 'branch', collapsed, off)
     + `<div class="lib-tree-children${collapsed ? ' lib-collapsed' : ''}">${childrenHtml}</div>`;
@@ -5464,6 +5474,10 @@ function libTopCategoryHtml(topCode, title, opts) {
       if (String(topCode).indexOf('mod:') === 0) {
         const rootEntries = libEntriesAtPath(topCode, []);
         if (rootEntries.length) ownHtml = libModLeafGridHtml(topCode, [], rootEntries) + ownHtml;
+      } else if (LIB_OWN_ENTRIES_ALLOWED) {
+        // v338: позиции прямо в корне раздела — таблицей над подкатегориями.
+        const rootEntries = libEntriesAtPath(topCode, []);
+        if (rootEntries.length) ownHtml = libLeafTableHtmlAny(topCode, [], rootEntries, opts || {}) + ownHtml;
       }
     } else if (libIsCustomRootTop(topCode)) {
       // Своя категория без единой подкатегории — «папка», а не лист (см.
@@ -6335,18 +6349,17 @@ async function libLinkCheckSubmit(panel) {
 // ТУ ЖЕ структуру дерева, что и вся остальная «Библиотека» (libAddChildNode/
 // libChildSegments), без параллельного механизма выбора категории (п.5 ТЗ).
 function libLinkParentOptionsHtml(topCode, selectedJoined) {
-  const seen = new Set();
-  const uniq = [];
-  (topCode ? libAllPaths(topCode) : []).forEach((p) => {
-    const j = p.join('::');
-    if (!seen.has(j)) { seen.add(j); uniq.push(p); }
-  });
-  uniq.sort((a, b) => a.join('/').localeCompare(b.join('/'), 'ru', { sensitivity: 'base' }));
+  // ПОЛНОЕ дерево (v338): каждый узел любой глубины, включая промежуточные
+  // без своих позиций, в порядке дерева (родитель, затем его дети), с
+  // отступом по уровню — пользователь сам выбирает, куда вложить.
+  const uniq = topCode ? libTreeAllNodePaths(topCode) : [];
+  if (selectedJoined && !uniq.some((p) => p.join('::') === selectedJoined)) uniq.push(selectedJoined.split('::'));
   const rootSelected = selectedJoined === '' ? 'selected' : '';
   const rootOpt = `<option value="" ${rootSelected}>— без раздела (верхний уровень) —</option>`;
   const restOpt = uniq.map((p) => {
     const j = p.join('::');
-    return `<option value="${esc(j)}" ${selectedJoined === j ? 'selected' : ''}>${esc(p.join(' › '))}</option>`;
+    const indent = '   '.repeat(p.length - 1);
+    return `<option value="${esc(j)}" ${selectedJoined === j ? 'selected' : ''}>${indent}${esc(p[p.length - 1])}</option>`;
   }).join('');
   return rootOpt + restOpt;
 }
@@ -6386,7 +6399,19 @@ function libLinkDefaultCategorySplit(form) {
     const draftBrandGuess = draftPath.length ? draftPath[draftPath.length - 1]
       : (!isBlankValue(draft.brand) ? String(draft.brand).trim() : '');
     const isDifferentBrand = canGuessBrand && draftBrandGuess && draftBrandGuess.toLowerCase() !== openBrand;
-    return { parent: formPath.join('::'), newSegment: isDifferentBrand ? draftBrandGuess : '' };
+    if (!isDifferentBrand) return { parent: formPath.join('::'), newSegment: '' };
+    // v338: новая подкатегория — СОСЕДНЯЯ открытой (дочерняя к её родителю,
+    // например «ДСП»), а не вложенная внутрь неё. Вложить глубже можно только
+    // явным выбором в списке. Если у родителя уже есть узел с таким именем —
+    // выбираем его. Открытая ветка верхнего уровня (нет родителя) остаётся
+    // родителем: на корне раздела «бренды» не заводят.
+    if (formPath.length < 2) return { parent: formPath.join('::'), newSegment: draftBrandGuess };
+    const parentOfOpen = formPath.slice(0, -1);
+    const sibling = form.top
+      ? libChildSegments(form.top, parentOfOpen).find((s) => String(s).toLowerCase() === draftBrandGuess.toLowerCase())
+      : null;
+    if (sibling) return { parent: parentOfOpen.concat([sibling]).join('::'), newSegment: '' };
+    return { parent: parentOfOpen.join('::'), newSegment: draftBrandGuess };
   }
   const known = (form.top ? libAllPaths(form.top) : []).map((p) => p.join('::'));
   if (draftPath.length) {
