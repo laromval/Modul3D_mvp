@@ -14,7 +14,7 @@
 (function () {
 // Версия сборки — показывается во вкладке браузера и в шапке.
 // При выпуске новой версии меняется только эта строка.
-const APP_VERSION = 'v334';
+const APP_VERSION = 'v335';
 
 // Номер версии выводим ПЕРВЫМ делом: если дальше что-то упадёт, по нему сразу
 // видно, какая сборка открыта.
@@ -5941,11 +5941,22 @@ function libLinkSitePickerHtml(form) {
   // что уже применена к browseUrl чуть ниже по файлу.
   const sites = (state.libLinkSites || [])
     .filter((s) => !Array.isArray(s.kinds) || s.kinds.includes(form.kind));
+  return libSitePickerHtml({ sites, selectedId: form.siteId, loading, label: 'Сайт-источник',
+    emptyText: state.libLinkSitesError || 'Нет доступных сайтов' });
+}
+
+// Общий рендер выпадающего списка сайтов (пикер продавцов формы и пикер сайтов
+// с текстурами — один вид, один обработчик клика). opts: sites, selectedId,
+// loading, emptyText, label, kind ('' — продавцы, 'tex' — текстуры: по этому
+// data-picker клик пишет выбор в form.tex.siteId, а не в form.siteId).
+function libSiteLabelOf(s) { return s.name === s.domain ? s.name : `${s.name} (${s.domain})`; }
+function libSitePickerHtml(opts) {
+  const { sites, loading } = opts;
   const empty = !loading && !sites.length;
-  const labelOf = (s) => (s.name === s.domain ? s.name : `${s.name} (${s.domain})`);
-  const site = sites.find((s) => s.id === form.siteId);
+  const labelOf = libSiteLabelOf;
+  const site = sites.find((s) => s.id === opts.selectedId);
   const toggleLabelRaw = loading ? 'Загрузка списка сайтов…'
-    : empty ? (state.libLinkSitesError || 'Нет доступных сайтов')
+    : empty ? opts.emptyText
     : site ? labelOf(site)
     : '— выберите сайт —';
   const itemsHtml = sites.map((s) => {
@@ -5967,11 +5978,11 @@ function libLinkSitePickerHtml(form) {
       ? ` href="${esc(browseUrl)}" target="_blank" rel="noopener noreferrer"`
       : ' tabindex="0" role="button"';
     return `
-      <li><a class="lib-link-site-item${s.id === form.siteId ? ' active' : ''}"${attrs} data-site-id="${esc(s.id)}">${esc(labelOf(s))}</a></li>`;
+      <li><a class="lib-link-site-item${s.id === opts.selectedId ? ' active' : ''}"${attrs} data-site-id="${esc(s.id)}">${esc(labelOf(s))}</a></li>`;
   }).join('');
   return `
-    <div class="field lib-link-site-picker">
-      <label>Сайт-источник</label>
+    <div class="field lib-link-site-picker"${opts.kind ? ` data-picker="${esc(opts.kind)}"` : ''}>
+      <label>${esc(opts.label)}</label>
       <button type="button" class="lib-link-site-toggle" ${loading || empty ? 'disabled' : ''}>
         <span class="lib-link-site-toggle-label">${esc(toggleLabelRaw)}</span>
         <span class="lib-link-site-toggle-caret">▾</span>
@@ -6001,6 +6012,15 @@ function closeLibLinkSiteMenu() {
     document.removeEventListener('keydown', libLinkSiteMenuEscHandler);
     libLinkSiteMenuEscHandler = null;
   }
+}
+// Точечно обновляет подпись переключателя и «active»-пункт пикера сайтов.
+function libSitePickerMark(picker, site, selectedId) {
+  if (!picker) return;
+  const labelEl = picker.querySelector('.lib-link-site-toggle-label');
+  if (labelEl && site) labelEl.textContent = libSiteLabelOf(site);
+  picker.querySelectorAll('.lib-link-site-item').forEach((item) => {
+    item.classList.toggle('active', item.dataset.siteId === selectedId);
+  });
 }
 function openLibLinkSiteMenu(picker) {
   closeLibLinkSiteMenu();
@@ -7189,11 +7209,11 @@ function libTexBlockHtml(form) {
   else if (!sources.length) {
     sourcesHtml = `<p class="hint">${esc(getAuthToken() ? (state.texSourcesError || 'Нет доступных сайтов с текстурами.') : 'Войдите в аккаунт, чтобы загрузить текстуру по ссылке.')}</p>`;
   } else {
-    const opts = ['<option value="">— сайт не выбран —</option>']
-      .concat(sources.map((s) => `<option value="${esc(s.id)}" ${s.id === tex.siteId ? 'selected' : ''}>${esc(s.name === s.domain ? s.name : `${s.name} (${s.domain})`)}</option>`)).join('');
+    // Тот же список, что у продавцов: пункт — ссылка на сайт производителя
+    // (открывается в новой вкладке) и одновременно выбор сайта.
     sourcesHtml = `
-      <div class="field"><label>Сайт производителя</label><select class="lib-tex-site">${opts}</select></div>
-      <div class="field"><label>Ссылка на страницу декора</label>
+      ${libSitePickerHtml({ sites: sources, selectedId: tex.siteId, loading: false, label: 'Сайт производителя', emptyText: '', kind: 'tex' })}
+      <div class="field"><label>Добавьте ссылку на страницу декора</label>
         <input type="url" class="lib-tex-url" placeholder="${esc((site && site.exampleUrl) || 'https://...')}" value="${esc(tex.url)}">
       </div>
       <p class="hint lib-tex-hint">${esc(hint)}</p>
@@ -7227,16 +7247,17 @@ function libTexSync(box) {
   const form = state.libLinkForm;
   if (!form || !box || !libTexApplies(form)) return;
   const tex = libTexState(form);
-  const siteSel = box.querySelector('.lib-tex-site');
   const urlInput = box.querySelector('.lib-tex-url');
-  if (!siteSel || !urlInput) return;
-  tex.siteId = siteSel.value;
+  if (!urlInput) return;
   tex.url = urlInput.value;
   const sources = state.texSources || [];
   // Адрес с домена известного сайта сам выбирает этот сайт.
   if (!sources.some((s) => s.id === tex.siteId && libLinkDomainMatches(tex.url, s.domain))) {
     const byUrl = sources.find((s) => libLinkDomainMatches(tex.url, s.domain));
-    if (byUrl) { tex.siteId = byUrl.id; siteSel.value = byUrl.id; }
+    if (byUrl) {
+      tex.siteId = byUrl.id;
+      libSitePickerMark(box.querySelector('.lib-link-site-picker[data-picker="tex"]'), byUrl, tex.siteId);
+    }
   }
   const site = sources.find((s) => s.id === tex.siteId);
   if (tex.status === 'loading' && tex.loadingSrc !== tex.url.trim()) {
@@ -7360,7 +7381,7 @@ function libLinkInputStepHtml(form) {
     : form.url.trim() && !site ? 'Сначала выберите сайт из списка.' : '';
   return `
     ${libLinkSitePickerHtml(form)}
-    <div class="field"><label>Ссылка на товар</label>
+    <div class="field"><label>Добавьте ссылку на товар</label>
       <input type="url" class="lib-link-url-input" placeholder="https://..." value="${esc(form.url)}">
     </div>
     <p class="hint lib-link-warning">${esc(warning)}</p>
@@ -10294,6 +10315,19 @@ function initLibraryPanel() {
     // скопировать его URL — единственное, что остаётся сделать
     // пользователю руками, отдельной ссылки-подсказки под списком не нужно.
     const siteItem = e.target.closest('.lib-link-site-item');
+    if (siteItem && siteItem.closest('.lib-link-site-picker[data-picker="tex"]')) {
+      // Сайт производителя текстуры: браузер сам открывает его в новой вкладке
+      // (пункт — <a target=_blank>), здесь только запоминаем выбор.
+      const form = state.libLinkForm;
+      if (!form) return;
+      const tex = libTexState(form);
+      tex.siteId = siteItem.dataset.siteId || '';
+      closeLibLinkSiteMenu();
+      const site = (state.texSources || []).find((s) => s.id === tex.siteId);
+      libSitePickerMark(siteItem.closest('.lib-link-site-picker'), site, tex.siteId);
+      libLinkRevalidate(panel);
+      return;
+    }
     if (siteItem) {
       const form = state.libLinkForm;
       if (!form) return;

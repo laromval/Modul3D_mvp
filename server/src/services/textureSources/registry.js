@@ -10,6 +10,9 @@ const SOURCES = [
     name: 'Egger',
     domain: 'egger.com',
     kind: 'sheet',
+    // Раздел «Мебель и интерьер» (200 при живой проверке); прямой адрес каталога
+    // декоров /decors у Egger для запросов без браузера отдаёт 404/500.
+    browseUrl: 'https://www.egger.com/en/furniture-interior-design/',
     hint: 'Откройте страницу декора на egger.com (раздел «Декоры»), скопируйте адрес страницы из адресной строки. Берётся изображение листа (вид «Platte»).',
     exampleUrl: 'https://www.egger.com/de/moebel-innenausbau/dekore/F206_9',
     fetchTexture: egger.fetchTexture,
@@ -19,6 +22,7 @@ const SOURCES = [
     name: 'Kronospan',
     domain: 'kronospan.com',
     kind: 'fragment',
+    browseUrl: 'https://kronospan.com/en_EN/decors/by_collection/kronodesign/',
     hint: 'Откройте страницу декора Kronodesign на kronospan.com и скопируйте адрес. Kronospan публикует не лист целиком, а фрагмент рисунка.',
     exampleUrl: 'https://kronospan.com/en_EN/decors/view/kronodesign/K001/',
     fetchTexture: kronospan.fetchTexture,
@@ -26,7 +30,7 @@ const SOURCES = [
 ];
 
 function listSources() {
-  return SOURCES.map(({ id, name, domain, hint, exampleUrl, kind }) => ({ id, name, domain, hint, exampleUrl, kind }));
+  return SOURCES.map(({ id, name, domain, hint, exampleUrl, kind, browseUrl }) => ({ id, name, domain, hint, exampleUrl, kind, browseUrl }));
 }
 
 function getSource(id) {
