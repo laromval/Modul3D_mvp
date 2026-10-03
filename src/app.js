@@ -14,7 +14,7 @@
 (function () {
 // Версия сборки — показывается во вкладке браузера и в шапке.
 // При выпуске новой версии меняется только эта строка.
-const APP_VERSION = 'v338';
+const APP_VERSION = 'v339';
 
 // Номер версии выводим ПЕРВЫМ делом: если дальше что-то упадёт, по нему сразу
 // видно, какая сборка открыта.
@@ -771,9 +771,9 @@ const state = {
   // отличается от применения материала до появления цепочек). Чисто
   // UI-состояние, в историю отмены/файл проекта не попадает.
   countertopChainNotice: null,
-  // Единица, в которой показана колонка «Цена» ВО ВСЕХ таблицах вкладки
-  // «Материалы» одновременно (общий переключатель, выбирается прямо в шапке
-  // любой из таблиц, см. libPriceUnitHeaderHtml) — 'perM2' (по умолчанию,
+  // Единица колонки «Цена» в таблицах вкладки «Материалы» — { [charsKey
+  // таблицы]: единица }, у каждой таблицы свой независимый выбор (шапка,
+  // см. libPriceUnitHeaderHtml/libPriceUnitOf); нет ключа = 'perM2'. Значения: 'perM2' (по умолчанию,
   // так цена подаётся у поставщика mobilier.md для листовых материалов) или
   // один из 'native' | 'perMeter' | 'perPiece' | 'perSheet' (см.
   // libPriceValueForUnit). 'native' — «как на сайте»: показывает цену в
@@ -786,7 +786,7 @@ const state = {
   // всё равно считается по своим правилам (за лист/пог.метр), эта колонка
   // их не подменяет. Чисто UI-состояние, как libraryTab выше: в историю
   // отмены/файл проекта не попадает.
-  libPriceUnit: 'perM2',
+  libPriceUnit: {},
   // То же самое, но для таблиц вкладки «Фурнитура» (см.
   // libHwPriceUnitHeaderHtml) — ОТДЕЛЬНОЕ поле, а не общее с libPriceUnit
   // выше: единицы у вкладок разные по смыслу (у материалов это «в чём
@@ -810,7 +810,7 @@ const state = {
   libHwPriceUnit: {},
   // Свёрнутость колонок Длина/Ширина/Толщина (кнопка «Характеристики
   // листа», см. libTableHead/libLeafTableHtml) — ОБЩАЯ на всю Библиотеку
-  // (как libPriceUnit выше), а не своя у каждой открытой таблицы: одна и та
+  // (в отличие от libPriceUnit выше, который по таблицам), а не своя у каждой открытой таблицы: одна и та
   // же кнопка в любой из одновременно открытых таблиц сворачивает/
   // разворачивает их все разом — цель именно в этом (высвободить место под
   // 3D-сцену, а не сравнивать таблицы между собой в разных режимах).
@@ -4518,9 +4518,9 @@ function libPriceDisplayValue(kind, it, unit) {
   return val != null ? `${Math.round(val)} ${curSym()}` : '—';
 }
 
-// Единицы измерения цены — общий переключатель на ВСЮ «Библиотеку» (см.
-// state.libPriceUnit): меняешь в шапке одной таблицы, пересчитываются все
-// остальные открытые таблицы (renderLibraryPanel — полная перерисовка).
+// Единицы измерения цены — переключатель СВОЙ у каждой таблицы (см.
+// state.libPriceUnit, ключ — charsKey таблицы): меняешь в шапке одной
+// таблицы, остальные не затрагиваются (renderLibraryPanel — перерисовка).
 // 'native' стоит первым пунктом списка (порядок в select), но дефолт
 // state.libPriceUnit — 'perM2' (см. там же); 'native' остаётся доступен для
 // ручного переключения на просмотр «как на сайте»/за лист, без пересчёта
@@ -4536,12 +4536,16 @@ const LIB_PRICE_UNITS = [
   { id: 'perM2', label: 'м²' },
   { id: 'perSheet', label: 'лист' },
 ];
-function libPriceUnitHeaderHtml() {
+function libPriceUnitOf(tableKey) {
+  return (state.libPriceUnit || {})[tableKey] || 'perM2';
+}
+function libPriceUnitHeaderHtml(tableKey) {
+  const cur = libPriceUnitOf(tableKey);
   const opts = LIB_PRICE_UNITS.map((u) => {
     const label = u.id === 'native' ? `Цена (${esc(u.label)})` : `Цена/${esc(u.label)}`;
-    return `<option value="${esc(u.id)}" ${u.id === state.libPriceUnit ? 'selected' : ''}>${label}</option>`;
+    return `<option value="${esc(u.id)}" ${u.id === cur ? 'selected' : ''}>${label}</option>`;
   }).join('');
-  return `<select class="lib-price-unit-select">${opts}</select>`;
+  return `<select class="lib-price-unit-select" data-table-key="${esc(tableKey)}">${opts}</select>`;
 }
 
 // Укороченное название столешницы для колонки «Наименование» — убирает
@@ -4678,7 +4682,7 @@ function libTableHead(pickMode, collapsed, tableKey, suppliersVisible) {
       <th class="lib-th-filter"><span class="dth-label">Наименование</span>${filterBtn(0)}</th>
       <th>Образец</th>
       ${charsHeadCells}
-      <th class="lib-th-filter"><span class="dth-label">${libPriceUnitHeaderHtml()}</span>${filterBtn(4)}</th>
+      <th class="lib-th-filter"><span class="dth-label">${libPriceUnitHeaderHtml(tableKey)}</span>${filterBtn(4)}</th>
       ${supplierHeadCell}
       ${pickMode ? '<th></th>' : ''}
     </tr>
@@ -4716,7 +4720,7 @@ function libRowHtml(entry, opts) {
   const pickMode = !!opts.pickMode;
   const collapsed = !!opts.collapsed;
   const suppliersVisible = !!opts.suppliersVisible;
-  const unit = state.libPriceUnit;
+  const unit = libPriceUnitOf(opts.tableKey);
   const sel = state.libSelectedRow;
   const isSelected = !!(sel && sel.group === group && sel.key === key);
   const searchText = String((group === 'edge' ? it.key : it.name) || '').toLowerCase();
@@ -10519,9 +10523,9 @@ function initLibraryPanel() {
     if (dataRow) { libApplyRowSelection(panel, dataRow.dataset.rowGroup, dataRow.dataset.rowKey); return; }
   });
 
-  // Переключатель единицы цены (см. libPriceUnitHeaderHtml) — общий на всю
-  // Библиотеку (state.libPriceUnit), поэтому полная перерисовка, а не
-  // точечное обновление одной таблицы. Фильтр по столбцам (Длина/Ширина/
+  // Переключатель единицы цены (см. libPriceUnitHeaderHtml) — свой у каждой
+  // таблицы (state.libPriceUnit[charsKey]); перерисовка панели целиком — проще
+  // точечного обновления. Фильтр по столбцам (Длина/Ширина/
   // Толщина/Наименование/Цена) теперь не отдельный <select> с `change`, а
   // поповер сортировки/фильтра (см. .dth-filter-btn выше, в делегированном
   // `click`) — старый механизм убран целиком.
@@ -10545,7 +10549,12 @@ function initLibraryPanel() {
     }
     const priceUnitSel = e.target.closest('.lib-price-unit-select');
     if (priceUnitSel) {
-      state.libPriceUnit = priceUnitSel.value;
+      // Единица — ТОЛЬКО для своей таблицы (ключ — data-chars-key таблицы).
+      const unitKey = priceUnitSel.dataset.tableKey;
+      if (unitKey) {
+        if (!state.libPriceUnit || typeof state.libPriceUnit !== 'object') state.libPriceUnit = {};
+        state.libPriceUnit[unitKey] = priceUnitSel.value;
+      }
       renderLibraryPanel();
       return;
     }

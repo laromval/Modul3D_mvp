@@ -18,6 +18,8 @@
 // - размер тела ответа ограничен (см. MAX_BODY_BYTES) — не читаем
 //   бесконечный/огромный ответ целиком в память.
 
+const { applyCleanName } = require('./catalogLinkParsers/cleanName');
+
 const DEFAULT_TIMEOUT_MS = 9000;
 const MAX_REDIRECTS = 3;
 const MAX_BODY_BYTES = 5 * 1024 * 1024; // обычная страница товара — сотни КБ
@@ -163,7 +165,7 @@ async function fetchProductHtml(rawUrl, site, { timeoutMs = DEFAULT_TIMEOUT_MS }
 async function fetchAndParseProduct(site, rawUrl) {
   const { html, finalUrl } = await fetchProductHtml(rawUrl, site);
   try {
-    return site.parse(html, finalUrl);
+    return applyCleanName(site.parse(html, finalUrl));
   } catch (err) {
     if (err instanceof CatalogLinkError) throw err;
     throw new CatalogLinkError(

@@ -2499,6 +2499,45 @@ for (const el of document.querySelectorAll('.tab-btn')) {
   }
 }
 
+// Библиотека → «Материалы»: единица цены в шапке таблицы — СВОЯ у каждой
+// таблицы (v339, state.libPriceUnit по charsKey, data-table-key на select).
+{
+  const tabs = document.getElementById('libTabs');
+  const matTab = Array.from(document.querySelectorAll('.lib-tab-btn'))
+    .filter((b) => b.dataset.libtab === 'materials')[0];
+  const lib = document.getElementById('libraryPanel');
+  try {
+    if (tabs && matTab && lib) {
+      tabs.dispatch('click', { target: matTab });
+      lib.querySelectorAll('[data-tree-node]')
+        .filter((r) => r.dataset.kind === 'leaf')
+        .slice(0, 2)
+        .forEach((leaf) => lib.dispatch('click', { target: leaf }));
+      const selRe = /<select class="lib-price-unit-select" data-table-key="([^"]*)">[\s\S]*?<\/select>/g;
+      const read = () => {
+        const out = {};
+        let m;
+        const h = String(lib.innerHTML || '');
+        while ((m = selRe.exec(h))) out[m[1]] = (/<option value="([^"]*)"\s*selected/.exec(m[0]) || [])[1];
+        return out;
+      };
+      const before = read();
+      const keys = Object.keys(before);
+      if (keys.length) {
+        const el = lib.querySelectorAll('.lib-price-unit-select').filter((x) => x.attrs['data-table-key'] === keys[0])[0];
+        el.value = 'perMeter';
+        lib.dispatch('change', { target: el });
+        const after = read();
+        if (after[keys[0]] !== 'perMeter') fails.push('Материалы: единица цены не сохранилась для своей таблицы');
+        keys.slice(1).forEach((k) => {
+          if (after[k] !== before[k]) fails.push('Материалы: единица цены протекла в соседнюю таблицу');
+        });
+        console.log('  (материалы: таблиц с переключателем ' + keys.length + ')');
+      }
+    }
+  } catch (e) { fails.push('Материалы: единица цены по таблицам: ' + e.message); }
+}
+
 // Библиотека → «Двери» → «Алюминиевые фасады» (v311, app.js:
 // libAluFacadesHtml): заголовок раздела раскрывает четыре таблицы.
 {
