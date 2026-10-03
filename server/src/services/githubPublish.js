@@ -89,6 +89,15 @@ async function getFileContent(filePath) {
   if (!data || typeof data.content !== 'string') {
     throw new GithubPublishError(`GitHub вернул файл ${filePath} в неожиданном формате (нет поля content).`);
   }
+  // Contents API для файлов больше 1 МБ отдаёт пустой content (encoding
+  // "none") — забираем тело через Git Blobs API по sha (лимит 100 МБ).
+  if (data.content === '' && data.sha) {
+    const blob = await githubRequest('GET', `/repos/${config.githubRepo}/git/blobs/${data.sha}`);
+    if (!blob || blob.encoding !== 'base64' || typeof blob.content !== 'string') {
+      throw new GithubPublishError(`GitHub вернул blob файла ${filePath} в неожиданном формате.`);
+    }
+    return Buffer.from(blob.content, 'base64').toString('utf8');
+  }
   return Buffer.from(data.content, 'base64').toString('utf8');
 }
 
