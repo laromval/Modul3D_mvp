@@ -237,7 +237,7 @@
   },
   {
     "code": "LINK-1791051838016",
-    "name": "F187 ST9 Бетон Чикаго темно-серый 2800x2070x18 (EG)  Дсп ламинированный",
+    "name": "F187 ST9 Бетон Чикаго темно-серый",
     "unit": "м²",
     "image": "https://mobilier.md/image/cache/catalog/products/23873/03ae80c0edd99913096409749044ba88-250x250.png",
     "sheetH": 2070,
@@ -302,7 +302,7 @@
   },
   {
     "code": "LINK-1791037664817",
-    "name": "2739 PW Дуб Кремона Канноло (18) 2800x2070 (KU)",
+    "name": "2739 PW Дуб Кремона Канноло ",
     "unit": "м²",
     "image": "https://mobilier.md/image/cache/catalog/products/32269/f76c1ac72021a44deca731423df37b24-915x1372.png",
     "sheetH": 2070,
