@@ -1744,7 +1744,7 @@ var sheetRatio = SHEET_H_DEFAULT;   // запомненная высота ли�
 var sheetPx = 0;                    // высота листа в px «сейчас» (в ходе жеста может быть ниже минимума)
 var sheetDrag = null;               // идущее перетаскивание: { id, head, y0, h0, raw, moved }
 var sheetInsetRaf = 0;              // id запланированной публикации отступа (rAF-троттлинг)
-var sheetInsetLast = null;          // последнее опубликованное значение отступа
+var sheetInsetLast = null;          // последний опубликованный отступ (строка «низ|лево|право»)
 var sheetLastTap = 0;               // время последнего тапа по шапке (для двойного тапа)
 
 function isMobileLayout() {
@@ -1797,14 +1797,36 @@ function sheetInsetBottom() {
 // даже если значение не менялось (итог жеста).
 function publishSheetInset(force) {
   var bottom = sheetInsetBottom();
+  var sides = sheetInsetSides();
   // --mobile-drawer-h — про телефонный лист; на компьютере остаётся 0px
   document.documentElement.style.setProperty('--mobile-drawer-h',
     (isMobileLayout() ? bottom : 0) + 'px');
-  if (!force && bottom === sheetInsetLast) return;
-  sheetInsetLast = bottom;
+  var sig = bottom + '|' + sides.left + '|' + sides.right;
+  if (!force && sig === sheetInsetLast) return;
+  sheetInsetLast = sig;
   try {
-    window.dispatchEvent(new CustomEvent('modul3d:drawer-inset', { detail: { bottom: bottom } }));
+    window.dispatchEvent(new CustomEvent('modul3d:drawer-inset', {
+      detail: { bottom: bottom, left: sides.left, right: sides.right }
+    }));
   } catch (e) { /* очень старый браузер без CustomEvent — вьюер просто не сдвинется */ }
+}
+
+// Боковые панели на компьютере (Библиотека, Параметры и т.д.) закрывают часть
+// сцены слева или справа. Считаем по РАСКЛАДКЕ (offsetLeft/offsetWidth не
+// зависят от transform, то есть от того, где панель на пути выезда): left —
+// сколько px от ЛЕВОГО края окна закрыто, right — от ПРАВОГО. Панель «Документы»
+// (нижняя) и телефонный лист боковых отступов не дают. + зазор до края панели.
+var SIDE_PANEL_GAP = 8;
+function sheetInsetSides() {
+  var none = { left: 0, right: 0 };
+  if (!openPanel || isMobileLayout() || openPanel === 'docs') return none;
+  var el = drawerOf(openPanel);
+  if (!el || !el.offsetParent || !el.offsetWidth) return none;
+  var pr = el.offsetParent.getBoundingClientRect();
+  var x0 = pr.left + el.offsetLeft, x1 = x0 + el.offsetWidth;
+  var winW = window.innerWidth || document.documentElement.clientWidth || 1;
+  if ((x0 + x1) / 2 < winW / 2) return { left: Math.round(x1 + SIDE_PANEL_GAP), right: 0 };
+  return { left: 0, right: Math.round(winW - x0 + SIDE_PANEL_GAP) };
 }
 
 // В ходе перетаскивания — не чаще одного раза за кадр.
@@ -1920,6 +1942,12 @@ function initSheetResize() {
     // Поворот экрана / смена размера окна / переход через 820px: пересчитать
     // высоту из запомненной доли, зажать в границы, пересообщить отступ.
     if (!sheetDrag && !docsDrag) refreshSheetHeight();
+  });
+  // Ширина боковой панели меняется анимацией (Библиотека: вкладки «Материалы»/
+  // «Фурнитура» шире) — когда она дошла до конца, пересообщаем боковой отступ.
+  document.addEventListener('transitionend', function (e) {
+    if (e.propertyName === 'width' && e.target && e.target.classList &&
+        e.target.classList.contains('drawer')) publishSheetInset(false);
   });
 }
 
@@ -2866,6 +2894,7 @@ window.Modul3D.uiShell = {
   // открыта левая панель). То же значение, что в событии
   // 'modul3d:drawer-inset' (разделы 7б и 7б′).
   getDrawerInset: sheetInsetBottom,
+  getDrawerInsets: sheetInsetSides,
   // Высота панели «Документы» на компьютере, px (7б′)
   getDocsHeight: function () { return docsPx; },
   // Масштаб чертежей (7в): проценты (100 — как отрисовано; на телефоне в режиме

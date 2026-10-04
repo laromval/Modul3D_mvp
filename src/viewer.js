@@ -3102,7 +3102,11 @@ class Viewer3D {
     // обычное кадрирование на весь холст (десктоп без панели «Документы»: всегда так).
     this._inset = 0;
     this._insetShown = 0;
-    this._insetEventT = 0;     // время последнего изменения _inset (отличить «тянут лист» от разового открытия)
+    // Боковые панели (компьютер): сколько px холста слева/справа закрыто
+    // выдвижной панелью. Работают так же, как нижний отступ (цель и «показано»).
+    this._insetL = 0; this._insetR = 0;
+    this._insetLShown = 0; this._insetRShown = 0;
+    this._insetEventT = 0;    // время последнего изменения _inset (отличить «тянут лист» от разового открытия)
     this._camTween = null;     // идущая плавная подгонка кадра (крутится внутри _animate, отдельного rAF нет)
     this._compCache = null;    // кэш габарита композиции (сбрасывается в render())
     // Необязательный колбэк «кадр сдвинули подгонкой под лист» — app.js может
@@ -3157,11 +3161,15 @@ class Viewer3D {
     // после него — поэтому текущее значение можно спросить сразу (с проверкой:
     // без ui-shell/в тестовой среде просто остаёмся на весь холст).
     window.addEventListener('modul3d:drawer-inset', (e) => {
-      this.setBottomInset(e && e.detail ? e.detail.bottom : 0);
+      const d = (e && e.detail) || {};
+      this.setInsets(d.bottom, d.left, d.right);
     });
     try {
       const shell = window.Modul3D && window.Modul3D.uiShell;
-      if (shell && typeof shell.getDrawerInset === 'function') this.setBottomInset(shell.getDrawerInset());
+      if (shell && typeof shell.getDrawerInset === 'function') {
+        const s = typeof shell.getDrawerInsets === 'function' ? shell.getDrawerInsets() : {};
+        this.setInsets(shell.getDrawerInset(), s.left, s.right);
+      }
     } catch (err) { /* не критично: кадр останется на весь холст */ }
 
     // Оверлей ручной разметки (плоские виды) — см. блок MK_* выше.
@@ -3492,6 +3500,18 @@ class Viewer3D {
     return Math.min(b, Math.max(0, ch - INSET_MIN_VISIBLE));
   }
 
+  // То же для боковых панелей: слева и справа вместе не больше cw − минимум.
+  _insetPxLR(cw, l0, r0) {
+    let l = Math.max(0, l0 === undefined ? this._insetLShown : l0);
+    let r = Math.max(0, r0 === undefined ? this._insetRShown : r0);
+    const room = Math.max(0, cw - INSET_MIN_VISIBLE);
+    if (l + r > room) {
+      const s = l + r > 0 ? room / (l + r) : 0;
+      l *= s; r *= s;
+    }
+    return { l, r };
+  }
+
   /**
    * Сдвигает проекцию обеих камер так, чтобы центр кадра (точка, куда смотрит
    * камера) лёг в центр ВИДИМОЙ части холста — от верха до верха листа.
@@ -3507,10 +3527,13 @@ class Viewer3D {
   _applyViewOffset() {
     const { w, h } = this._canvasCssSize();
     const b = this._insetPx(h);
+    const { l, r } = this._insetPxLR(w);
     for (const cam of [this.persp, this.ortho]) {
-      if (b > 0 && typeof cam.setViewOffset === 'function') {
-        cam.setViewOffset(w, h, 0, b / 2, w, h);
-      } else if (b === 0 && cam.view && cam.view.enabled && typeof cam.clearViewOffset === 'function') {
+      // Боковая панель слева закрывает l px: окно сдвигается на −l/2 (картинка
+      // уезжает вправо), справа — на +r/2; середина видимой части = центр кадра.
+      if ((b > 0 || l > 0 || r > 0) && typeof cam.setViewOffset === 'function') {
+        cam.setViewOffset(w, h, (r - l) / 2, b / 2, w, h);
+      } else if (b === 0 && l === 0 && r === 0 && cam.view && cam.view.enabled && typeof cam.clearViewOffset === 'function') {
         cam.clearViewOffset();
       }
     }
@@ -3566,16 +3589,19 @@ class Viewer3D {
    * габариту и видимой части — там достаточно поставить цель в центр габарита
    * и сбросить зум; радиус считаем всё равно (для перехода обратно в 3D).
    */
+  // inset — высота нижнего листа (px) либо { b, l, r }: низ/лево/право.
   _calcFrame(inset, fitAll) {
-    if (!(inset > 0) && !fitAll) return this._calcDefaultFrame();
+    const ins = (inset && typeof inset === 'object') ? inset : { b: inset, l: 0, r: 0 };
+    if (!(ins.b > 0) && !(ins.l > 0) && !(ins.r > 0) && !fitAll) return this._calcDefaultFrame();
     const box = this._compositionBox();
     if (!box) return this._calcDefaultFrame();
 
     const { w, h } = this._canvasCssSize();
-    const b = Math.min(inset, Math.max(0, h - INSET_MIN_VISIBLE));
+    const b = Math.min(ins.b || 0, Math.max(0, h - INSET_MIN_VISIBLE));
+    const { l, r } = this._insetPxLR(w, ins.l || 0, ins.r || 0);
     const k = 1 - 2 * INSET_FIT_MARGIN;
     const tanHalf = Math.tan(this.persp.fov * Math.PI / 360);
-    const th = tanHalf * (w / h) * k;
+    const th = tanHalf * ((w - l - r) / h) * k;
     const tv = tanHalf * ((h - b) / h) * k;
 
     const { right, up, back } = this.controls.basis();
@@ -3651,19 +3677,35 @@ class Viewer3D {
    * _animate, отдельного rAF нет); если события идут чаще INSET_BURST_MS
    * (лист тянут пальцем) — кадр ставится сразу, без анимации.
    */
-  setBottomInset(px) {
+  setBottomInset(px) { this.setInsets(px, this._insetL, this._insetR); }
+
+  // Низ/лево/право: сколько px холста закрыто панелями (левый и правый — от
+  // краёв окна браузера). undefined = оставить как есть.
+  setInsets(bottom, left, right) {
     if (this._broken) return;
-    let v = Math.round(Number(px));
-    if (!(v > 0)) v = 0;
-    if (v === this._inset) return;
-    this._inset = v;
-    // Кадр под лист поставил вьювер — дальше он остаётся на месте при любых правках модели.
+    const num = (x, cur) => {
+      if (x === undefined || x === null) return cur;
+      const n = Math.round(Number(x));
+      return n > 0 ? n : 0;
+    };
+    const b = num(bottom, this._inset);
+    // Холст может начинаться не от края окна браузера — вычитаем его сдвиг.
+    let rect = null;
+    try { rect = this.container.getBoundingClientRect(); } catch (e) { rect = null; }
+    const cl = rect ? rect.left : 0;
+    const cr = rect ? (window.innerWidth || rect.right) - rect.right : 0;
+    const l = left === undefined || left === null ? this._insetL : Math.max(0, num(left, 0) - Math.round(cl));
+    const r = right === undefined || right === null ? this._insetR : Math.max(0, num(right, 0) - Math.round(cr));
+    if (b === this._inset && l === this._insetL && r === this._insetR) return;
+    this._inset = b; this._insetL = l; this._insetR = r;
+    // Кадр под панель поставил вьювер — дальше он остаётся на месте при любых правках модели.
     this.controls.userMoved = true;
 
-    // Закрытие листа (v = 0; сюда попадаем только после открытого, повторный 0
-    // отсеян выше — без нижней панели событий нет): вписываем ВСЮ композицию в весь
-    // экран с теми же полями и углами (в плоских видах — прежний кадр).
-    const to = (v === 0 && !this.isOrtho) ? this._calcFrame(0, true) : this._calcFrame(v);
+    // Все панели закрыты (повторный 0 отсеян выше — значит, панель только что
+    // закрылась): вписываем ВСЮ композицию в весь экран с теми же полями и
+    // углами (в плоских видах — прежний кадр). Иначе — под видимую часть.
+    const none = !(b > 0 || l > 0 || r > 0);
+    const to = (none && !this.isOrtho) ? this._calcFrame(0, true) : this._calcFrame({ b, l, r });
     const now = nowMs();
     const burst = now - this._insetEventT < INSET_BURST_MS;
     this._insetEventT = now;
@@ -3671,24 +3713,30 @@ class Viewer3D {
     if (to && !burst && !prefersReducedMotion()) {
       // Стартуем с того, что на экране сию секунду (в том числе с середины
       // прерванной подгонки) — рывка нет.
-      this._camTween = { t0: now, inset0: this._insetShown, inset1: v, from: this._currentFrame(), to };
+      this._camTween = {
+        t0: now, from: this._currentFrame(), to,
+        inset0: this._insetShown, inset1: b,
+        l0: this._insetLShown, l1: l, r0: this._insetRShown, r1: r,
+      };
       return;
     }
     this._camTween = null;
-    this._insetShown = v;
+    this._insetShown = b; this._insetLShown = l; this._insetRShown = r;
     this._applyViewOffset();
     if (to) this._setFrame(to);
     else this._fitOrtho();
     this._notifyCameraFit();
   }
 
-  // Подгоняет кадр под ТЕКУЩИЙ лист сразу, без анимации (смена габарита
-  // композиции и смена вида, пока лист открыт).
+  _hasInset() { return this._inset > 0 || this._insetL > 0 || this._insetR > 0; }
+
+  // Подгоняет кадр под ТЕКУЩИЕ панели сразу, без анимации (смена габарита
+  // композиции и смена вида, пока панель открыта).
   _refitInset() {
     this._camTween = null;
-    this._insetShown = this._inset;
+    this._insetShown = this._inset; this._insetLShown = this._insetL; this._insetRShown = this._insetR;
     this._applyViewOffset();
-    const f = this._calcFrame(this._inset);
+    const f = this._calcFrame({ b: this._inset, l: this._insetL, r: this._insetR });
     if (f) this._setFrame(f);
     this._notifyCameraFit();
   }
@@ -3702,6 +3750,8 @@ class Viewer3D {
     const e = 1 - Math.pow(1 - t, 3);   // быстро в начале, мягко к концу
     const L = (a, b) => a + (b - a) * e;
     this._insetShown = L(tw.inset0, tw.inset1);
+    this._insetLShown = L(tw.l0, tw.l1);
+    this._insetRShown = L(tw.r0, tw.r1);
     this._applyViewOffset();
     this._setFrame({
       radius: L(tw.from.radius, tw.to.radius),
@@ -3716,7 +3766,7 @@ class Viewer3D {
     const tw = this._camTween;
     if (!tw) return;
     this._camTween = null;
-    this._insetShown = tw.inset1;
+    this._insetShown = tw.inset1; this._insetLShown = tw.l1; this._insetRShown = tw.r1;
     this._applyViewOffset();
     this._setFrame(tw.to);
     this._notifyCameraFit();
@@ -4104,7 +4154,7 @@ class Viewer3D {
     this._resize();
     // Под нижним листом смена вида — явная команда «покажи так»: кадр
     // подгоняем под видимую часть заново, уже с новыми углами.
-    if (this._inset > 0) this._refitInset();
+    if (this._hasInset()) this._refitInset();
   }
 
   /**
@@ -4151,7 +4201,8 @@ class Viewer3D {
     // в ВИДИМУЮ часть — её высота visH и пропорции visAspect. Без листа
     // visH = chPx, visAspect = aspect, множитель = 1: формулы прежние.
     const visH = Math.max(chPx - this._insetPx(chPx), 1);
-    const visAspect = (el.clientWidth || 1) / visH;
+    const lr = this._insetPxLR(el.clientWidth || 1);
+    const visAspect = Math.max((el.clientWidth || 1) - lr.l - lr.r, 1) / visH;   // боковые панели сужают видимую часть
     const vn = this.viewName;
     const ext = (vn === 'side' || vn === 'left')  ? { w: D, h: H }
               : (vn === 'top'  || vn === 'bottom') ? { w: W, h: D }
@@ -4908,7 +4959,35 @@ class Viewer3D {
     // видов (те же правила пропуска, что в цикле выше: изоляция, ручки при
     // «Скрыть фасады»). Оверлей перестроится на ближайшем кадре.
     this._markupSetScene(model, source, hideFacades, isolateModule, xray || drillCheck, drillCheck, mkClearRows);
+    // Число модулей в композиции изменилось (добавили/удалили модуль) — плавно
+    // вписываем ВСЕ модули в кадр (отъезд при добавлении, приближение при
+    // удалении), даже если пользователь уже двигал камеру. Поворот и правка
+    // размеров число модулей не меняют — их кадр по-прежнему не трогает.
+    const modSet = new Set();
+    for (const r of source) if (r && r.module != null) modSet.add(r.module);
+    const modCount = modSet.size;
+    const modCountChanged = this._modCount != null && modCount !== this._modCount && modCount > 0;
+    this._modCount = modCount;
     const key = `${W}|${H}|${D}`;
+    if (modCountChanged && this._fitKey != null) {
+      this._fitKey = key;
+      const to = this._calcFrame({ b: this._inset, l: this._insetL, r: this._insetR }, true);
+      if (to) {
+        this._compCache = null;
+        if (!prefersReducedMotion()) {
+          this._camTween = {
+            t0: nowMs(), from: this._currentFrame(), to,
+            inset0: this._insetShown, inset1: this._insetShown,
+            l0: this._insetLShown, l1: this._insetLShown, r0: this._insetRShown, r1: this._insetRShown,
+          };
+        } else {
+          this._camTween = null;
+          this._setFrame(to);
+          this._notifyCameraFit();
+        }
+        return;
+      }
+    }
     if (key !== this._fitKey) {
       const hadFit = this._fitKey != null;
       this._fitKey = key;
@@ -4916,7 +4995,7 @@ class Viewer3D {
       // поворот модуля) её не сдвигает: камера остаётся на месте.
       if (hadFit && this.controls.userMoved) {
         // камеру не трогаем
-      } else if (this._inset > 0) {
+      } else if (this._hasInset()) {
         // Открыт нижний лист (телефон): новый габарит композиции подгоняем
         // под видимую над ним часть, углы обзора сохраняются.
         this._refitInset();
