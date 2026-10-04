@@ -62,7 +62,7 @@ function dimH(x1, x2, yBase, level, label, dir) {
   s += (Math.abs(x2 - x1) > 2 * ARROW + 2)
     ? arrowH(x1, y, -1) + arrowH(x2, y, 1)
     : arrowH(x1, y, 1) + arrowH(x2, y, -1);
-  s += text((x1 + x2) / 2, y - 2.5, label, 'dw-dt', 'middle');
+  if (label !== '') s += text((x1 + x2) / 2, y - 2.5, label, 'dw-dt', 'middle');
   return s;
 }
 
@@ -76,7 +76,7 @@ function dimV(y1, y2, xBase, level, label, dir) {
     ? arrowV(x, y1, -1) + arrowV(x, y2, 1)
     : arrowV(x, y1, 1) + arrowV(x, y2, -1);
   const my = (y1 + y2) / 2;
-  s += `<text x="${r(x - 2.5)}" y="${r(my)}" class="dw-dt" text-anchor="middle" transform="rotate(-90 ${r(x - 2.5)} ${r(my)})">${esc(label)}</text>`;
+  if (label !== '') s += `<text x="${r(x - 2.5)}" y="${r(my)}" class="dw-dt" text-anchor="middle" transform="rotate(-90 ${r(x - 2.5)} ${r(my)})">${esc(label)}</text>`;
   return s;
 }
 
@@ -105,7 +105,8 @@ function svgFit(w, h, body) {
     x0 = Math.min(x0, +m[1], +m[3]); y0 = Math.min(y0, +m[2], +m[4]);
     x1 = Math.max(x1, +m[1], +m[3]); y1 = Math.max(y1, +m[2], +m[4]);
   }
-  const rt = /<text x="(-?[\d.]+)" y="(-?[\d.]+)"/g;
+  // тексты таблиц (dw-lt/dw-lth) не считаем: они лежат внутри своих прямоугольников
+  const rt = /<text x="(-?[\d.]+)" y="(-?[\d.]+)"(?! class="dw-lth?")/g;
   while ((m = rt.exec(body))) {
     x0 = Math.min(x0, +m[1] - 28); y0 = Math.min(y0, +m[2] - 10);
     x1 = Math.max(x1, +m[1] + 28); y1 = Math.max(y1, +m[2] + 4);
@@ -600,7 +601,7 @@ function unifyBlocks(html) {
   });
 }
 
-function buildOverview(model, scale) {
+function buildOverview(model, scale, headText) {
   const d = model.dims;
   // Снаружи видно корпус и фасады. Полки и стойки тоже берём: закрыты ли они
   // фасадом, решает visibleParts() по геометрии — у открытого модуля (без
@@ -716,7 +717,9 @@ function buildOverview(model, scale) {
   body += mkBody;
 
   // Без подзаголовка: над блоком уже стоит заголовок раздела «Общий вид»
-  return `<div class="dw-block">${svgTagMk(totalW, totalH, body, mkBody ? 'overview' : '')}</div>`;
+  // Заголовок и габарит — только для печати: на листе с рамкой шапка вкладки
+  // (dw-head) скрыта, и эта строка стоит внутри рамки.
+  return `<div class="dw-block dw-overview"><div class="dw-title dw-printonly">Общий вид · ${esc(headText || '')}</div>${svgTagMk(totalW, totalH, body, mkBody ? 'overview' : '')}</div>`;
 }
 
 // ---------------------------------------------------------------------------
@@ -819,7 +822,8 @@ function buildModuleDrawing(model, mod, scale) {
 
   const fw = dWidth * scale, fh = dHeight * scale, dd = dDepth * scale;
   const PAD_L = DIM_FIRST + 4 * DIM_STEP + 16;
-  const PAD_T = 22, PAD_R = DIM_FIRST + 8 * DIM_STEP + 18;
+  const PAD_T = 22;
+  const PAD_R = DIM_FIRST + 8 * DIM_STEP + 18;
   const PAD_B = DIM_FIRST + 2 * DIM_STEP + 18;
   const totalW = PAD_L + fw + GAP + dd + PAD_R;
   const totalH = PAD_T + fh + GAP + dd + PAD_B;
@@ -927,17 +931,41 @@ function buildModuleDrawing(model, mod, scale) {
   const mkBody = mkAttach(mkSheet, model, mkViews, totalW, totalH, body);
   body += mkBody;
 
-  const legend = `<table class="dw-legend"><thead><tr>
-      <th>Поз.</th><th>Деталь</th><th>Материал</th><th>Размер, мм</th>
-      <th>Толщ.</th><th>Кол.</th></tr></thead><tbody>`
-    + rows.map(x => `<tr><td>${x.num}</td><td>${esc(x.name)}</td>`
-      + `<td>${esc(materialTitle(x.material))}</td>`
-      + `<td>${esc(x.size)}</td><td>${x.th}</td><td>${x.qty}</td></tr>`).join('')
-    + `</tbody></table>`;
+  // Таблица деталей — внутри чертежа, в правом нижнем углу листа. Если в этом
+  // углу она не налезает на виды (под видом сбоку и правее вида сверху), то
+  // стоит там; иначе чертёж удлиняется вниз и таблица идёт под видами.
+  const tbl = svgTable(0, 0, [30, 170, 250, 80, 36, 34],
+    ['Поз.', 'Деталь', 'Материал', 'Размер, мм', 'Толщ.', 'Кол.'],
+    rows.map((x) => [String(x.num), x.name, materialTitle(x.material), x.size, String(x.th), String(x.qty)]));
+  let sheetW = Math.max(totalW, tbl.w + 12), sheetH = totalH;
+  let tx = sheetW - tbl.w - 6, ty = sheetH - tbl.h - 4;
+  const clearOfTop = tx > fx0 + fw + 14 || ty > ty0 + dd + 40;
+  const clearOfSide = ty > fy0 + fh + 40 || tx > sx0 + dd + 8;
+  if (!(clearOfTop && clearOfSide)) {
+    sheetH = totalH + tbl.h + 10;
+    ty = sheetH - tbl.h - 4;
+  }
+  // Холст подгоняется под пропорции рамки листа (поле чертежа 269×190 мм):
+  // чертёж не прижимается к краю, а таблица остаётся строго в правом нижнем
+  // углу листа после масштабирования. Узкий холст расширяем в стороны
+  // (виды остаются посередине), низкий — добавляем высоты сверху.
+  const SHEET_ASPECT = 269 / 190;
+  let leftExt = 0;
+  if (sheetW / sheetH < SHEET_ASPECT) {
+    const nw = sheetH * SHEET_ASPECT, dx = (nw - sheetW) / 2;
+    leftExt = -dx; sheetW += dx; tx = sheetW - tbl.w - 6;
+    body += `<rect x="${r(leftExt)}" y="0" width="1" height="1" style="fill:none;stroke:none"/>`;
+  } else {
+    const nh = sheetW / SHEET_ASPECT;
+    ty += nh - sheetH; sheetH = nh;
+  }
+  body += svgTable(tx, ty, [30, 170, 250, 80, 36, 34],
+    ['Поз.', 'Деталь', 'Материал', 'Размер, мм', 'Толщ.', 'Кол.'],
+    rows.map((x) => [String(x.num), x.name, materialTitle(x.material), x.size, String(x.th), String(x.qty)])).svg;
 
-  return `<div class="dw-block">
+  return `<div class="dw-block dw-modsheet">
     <div class="dw-title">${esc(mod.name)} — каркас без фасадов</div>
-    <div class="dw-secrow">${svgTagMk(totalW, totalH, body, mkBody ? mkSheet : '')}${legend}</div>
+    ${svgTagMk(sheetW, sheetH, body, mkBody ? mkSheet : '')}
   </div>`;
 }
 
@@ -1011,7 +1039,133 @@ function packDims(items, baseLevel) {
   return sorted;
 }
 
-function facadeHoles(p, x0, y0, fw, fh, scale) {
+// ---------------------------------------------------------------------------
+// Таблица в самом чертеже (SVG): масштабируется вместе с видами, поэтому на
+// печатном листе всегда остаётся в своём углу и не налезает на чертёж.
+// cols — ширины колонок, head — заголовки, rows — строки. Слишком длинный
+// текст сжимается по ширине колонки (textLength), а не вылезает за неё.
+// ---------------------------------------------------------------------------
+function svgTable(x, y, cols, head, rows) {
+  const RH = 14, FS = 9;
+  const w = cols.reduce((a, c) => a + c, 0), h = (rows.length + 1) * RH;
+  let s2 = `<rect x="${r(x)}" y="${r(y)}" width="${r(w)}" height="${r(h)}" class="dw-legbg"/>`
+    + `<rect x="${r(x)}" y="${r(y)}" width="${r(w)}" height="${RH}" class="dw-legh"/>`;
+  let cx = x;
+  for (let i = 0; i < cols.length - 1; i++) { cx += cols[i]; s2 += line(cx, y, cx, y + h, 'dw-thin'); }
+  for (let k = 1; k <= rows.length; k++) s2 += line(x, y + k * RH, x + w, y + k * RH, 'dw-thin');
+  const cell = (tx, ty, str, cw, cls) => {
+    const t = String(str);
+    const need = t.length * FS * 0.55;
+    const fit = need > cw - 6 ? ` textLength="${r(cw - 6)}" lengthAdjust="spacingAndGlyphs"` : '';
+    return `<text x="${r(tx + 3)}" y="${r(ty + RH - 4)}" class="${cls}"${fit}>${esc(t)}</text>`;
+  };
+  cx = x;
+  head.forEach((t, i) => { s2 += cell(cx, y, t, cols[i], 'dw-lth'); cx += cols[i]; });
+  rows.forEach((row, k) => {
+    cx = x;
+    row.forEach((t, i) => {
+      if (t && typeof t === 'object') {
+        s2 += `<circle cx="${r(cx + cols[i] / 2)}" cy="${r(y + (k + 1) * RH + RH / 2)}" r="4" style="stroke:${t.swatch};fill:${t.swatch};fill-opacity:.3;stroke-width:1.4"/>`;
+      } else s2 += cell(cx, y + (k + 1) * RH, t, cols[i], 'dw-lt');
+      cx += cols[i];
+    });
+  });
+  return { svg: s2, w, h };
+}
+
+// Названия присадки для таблицы обозначений на листе детали. Только
+// назначение — размеры (Ø, глубина) берутся из самого отверстия.
+const HOLE_LABELS = {
+  minifixCam: 'Эксцентрик минификса',
+  minifixBolt: 'Стяжка минификса, в торец',
+  minifixDowel: 'Шкант минификса',
+  dowelFace: 'Шкант, в пласть',
+  dowelEdge: 'Шкант, в торец',
+  confirmatEdge: 'Конфирмат, в торец',
+  confirmatThrough: 'Конфирмат, сквозное',
+  legFix: 'Крепление опоры',
+  frontFix: 'Крепление фасада',
+  boxBottomFix: 'Крепление дна ящика',
+  shelfSupport: 'Полкодержатель',
+  drawerRunner: 'Направляющая ящика',
+  runnerPinRear: 'Штифт направляющей (задний)',
+  runnerPinCabinet: 'Штифт направляющей (корпус)',
+  runnerBracket: 'Кронштейн направляющей',
+  relingFix: 'Крепление рейлинга',
+  rodFlange: 'Фланец штанги',
+  hangerScrew: 'Шуруп навесной шины',
+  handle: 'Ручка',
+  hingeCup: 'Чашка петли',
+  hingeGlass: 'Чашка петли (стекло)',
+  custom: 'Пользовательское',
+};
+// Цвета групп присадки на чертеже детали: буквы у отверстий в тесной присадке
+// сливались с размерами, цвет читается сразу (в таблице — тот же кружок).
+const HOLE_COLORS = ['#e6194b', '#3cb44b', '#4363d8', '#f58231', '#911eb4', '#00a6b8',
+  '#c9a200', '#d81b8c', '#8d6e63', '#00897b', '#7cb342', '#5e35b1'];
+
+// Группы одинаковой присадки детали (вид, Ø, глубина, сторона) с буквенным
+// обозначением. Отверстия под саморезы алюм. рамки не входят — у них своя
+// таблица (aluHingeTable). null — размечать нечего.
+function holeGroups(p) {
+  const list = [];
+  const byKey = {};
+  for (const h of (p.holes || [])) {
+    if (h.kind === 'aluHingeScrew') continue;
+    const key = [h.kind, h.d, h.through ? 'T' : h.depth, h.side || '', h.tz || 0].join('|');
+    if (!byKey[key]) {
+      // zb — высота оси отверстия в торец от нижней пласти (h.tz считается от
+      // середины толщины вверх): так же, как в 3D и в файле для ЧПУ.
+      byKey[key] = { key, kind: h.kind, d: h.d, depth: h.depth, through: !!h.through,
+        side: h.side || '', zb: Number.isFinite(h.tz) ? h.tz + p.thickness / 2 : null, count: 0, color: HOLE_COLORS[list.length % HOLE_COLORS.length] };
+      list.push(byKey[key]);
+    }
+    byKey[key].count += 1;
+  }
+  if (!list.length) return null;
+  const keyOf = (h) => [h.kind, h.d, h.through ? 'T' : h.depth, h.side || '', h.tz || 0].join('|');
+  return { list, colorOf: (h) => (byKey[keyOf(h)] || {}).color || '' };
+}
+
+function holeLegendSvg(hg, x0, y0) {
+  x0 = x0 || 0; y0 = y0 || 0;
+  const rows = hg.list.map((g) => [
+    { swatch: g.color },
+    (HOLE_LABELS[g.kind] || g.kind) + (g.side === 'back' ? ', с тыла' : '')
+      + (g.zb != null ? `, ось ${mm1(g.zb)} мм от низа` : ''),
+    'Ø' + mm1(g.d),
+    g.through ? 'насквозь' : mm1(g.depth),
+    String(g.count),
+  ]);
+  // Сноска (если есть) — НАД таблицей, чтобы сама таблица стояла вплотную к углу.
+  const note = hg.list.some((g) => g.kind === 'legFix');
+  const off = note ? 13 : 0;
+  const t = svgTable(x0, y0 + off, [24, 128, 30, 44, 24], ['Об.', 'Присадка', 'Ø', 'Глуб.', 'Шт.'], rows);
+  if (note) t.svg += text(x0, y0 + 9, 'Крепление опоры: размеры отверстий — в файле для ЧПУ', 'dw-lt', 'start');
+  t.h += off;
+  return t;
+}
+
+// Метка отверстия в торец: показываем его вход на краю детали —
+// штриховой прямоугольник глубиной с отверстие. Координаты: x=0 или
+// x=длина — торцы по длине, y — положение вдоль торца.
+function edgeHoleMark(p, h, px, py, scale, color) {
+  const eps = 0.01;
+  let rx, ry, rw, rh;
+  const wid = Math.max(h.d * scale, 2), len = Math.max(h.depth * scale, 3);
+  if (h.x <= eps || h.x >= p.length - eps) {
+    const right = h.x > p.length / 2;
+    rx = right ? px(p.length) - len : px(0); ry = py(h.y) - wid / 2; rw = len; rh = wid;
+
+  } else if (h.y <= eps || h.y >= p.width - eps) {
+    const top = h.y > p.width / 2;
+    rx = px(h.x) - wid / 2; ry = top ? py(p.width) : py(0) - len; rw = wid; rh = len;
+  } else return '';
+  const c = color || 'currentColor';
+  return `<rect x="${r(rx)}" y="${r(ry)}" width="${r(rw)}" height="${r(rh)}" class="dw-thin" style="fill:${c};fill-opacity:.25;stroke:${c};stroke-width:1.2"/>`;
+}
+
+function facadeHoles(p, x0, y0, fw, fh, scale, hg) {
   const holes = p.holes || [];
   const aluSlots = (p.grooves || []).filter((g) => g.kind === 'aluHingeSlot');
   if (!holes.length && !aluSlots.length) return '';
@@ -1023,14 +1177,18 @@ function facadeHoles(p, x0, y0, fw, fh, scale) {
   for (const h of holes) {
     // Присадка в торец на пласти не изображается — её место в документации
     // для ЧПУ (см. такую же проверку в drawParts()).
-    if (h.side === 'edge') continue;
+    if (h.side === 'edge') {
+      if (hg) body += edgeHoleMark(p, h, px, py, scale, hg.colorOf(h));
+      continue;
+    }
     const cx = px(h.x), cy = py(h.y);
     const rr = Math.max((h.d * scale) / 2, 1.6);
     if (h.kind === 'aluHingeScrew' && h.csk > h.d) {
       // фаска (зенковка) — концентрическая окружность Ø фаски
       body += `<circle cx="${r(cx)}" cy="${r(cy)}" r="${r(Math.max((h.csk * scale) / 2, rr + 0.8))}" class="dw-thin" style="fill:none"/>`;
     }
-    body += `<circle cx="${r(cx)}" cy="${r(cy)}" r="${r(rr)}" class="dw-hole"/>`;
+    const hc = hg && h.kind !== 'aluHingeScrew' ? hg.colorOf(h) : '';
+    body += `<circle cx="${r(cx)}" cy="${r(cy)}" r="${r(rr)}" class="dw-hole"${hc ? ` style="stroke:${hc};fill:${hc};fill-opacity:.25;stroke-width:1.4"` : ''}/>`;
     body += line(cx - rr - 4, cy, cx + rr + 4, cy, 'dw-axis');
     body += line(cx, cy - rr - 4, cx, cy + rr + 4, 'dw-axis');
   }
@@ -1113,7 +1271,8 @@ function facadeHoles(p, x0, y0, fw, fh, scale) {
     chainX([c0.x], 'bottom');
     chainY(cups.map((c) => c.y), vside);
     const label = c0.through ? `Ø${c0.d} насквозь` : `Ø${c0.d} глуб. ${c0.depth}`;
-    body += text(px(c0.x) + (hingeLeft ? 10 : -10), py(c0.y) - 6, label, 'dw-t',
+    // С таблицей обозначений (hg) подпись Ø/глубины дублировала бы её.
+    if (!hg) body += text(px(c0.x) + (hingeLeft ? 10 : -10), py(c0.y) - 6, label, 'dw-t',
                  hingeLeft ? 'start' : 'end');
   }
 
@@ -1180,10 +1339,27 @@ function facadeHoles(p, x0, y0, fw, fh, scale) {
     const fallback = preferred === 'right' ? 'left' : 'right';
     const vsideCustom = !usedV.has(preferred) ? preferred : (!usedV.has(fallback) ? fallback : preferred);
     chainY(ys, vsideCustom);
-    for (const h of custom) {
+    for (const h of (hg ? [] : custom)) {
       const label = h.through ? `Ø${h.d} насквозь` : `Ø${h.d} глуб. ${h.depth}`;
       body += text(px(h.x), py(h.y) - 6, label, 'dw-t', 'middle');
     }
+  }
+
+  // Остальная присадка (минификс, шканты, опоры, направляющие…): раньше на
+  // чертеже было видно только первое отверстие без размеров. Теперь — полная
+  // цепочка размеров от краёв по X и по Y (одной линией по каждой оси), а
+  // буквы у отверстий отсылают к таблице обозначений на листе.
+  if (hg && otherRest.length) {
+    const uniq = (arr) => arr.map((v) => Math.round(v * 10) / 10)
+      .filter((v, i, a) => a.indexOf(v) === i);
+    // Пилотные отверстия Ø2 под опоры (legFix) кучкуются по 4 в углах и дают
+    // десятки коротких размеров, в которых тонет остальная присадка. Их
+    // положение — в файлах для ЧПУ (CSV/DXF), как и раньше; на листе они
+    // только показаны цветом (см. сноску под таблицей).
+    const dimmable = otherRest.filter((h) => h.kind !== 'legFix');
+    const face = dimmable.filter((h) => h.side !== 'edge');
+    if (face.length) chainX(uniq(face.map((h) => h.x)), 'bottom');
+    if (dimmable.length) chainY(uniq(dimmable.map((h) => h.y)), 'left');
   }
 
   // Раскладываем по уровням и рисуем. Уровень 0 занят габаритом детали
@@ -1198,14 +1374,51 @@ function facadeHoles(p, x0, y0, fw, fh, scale) {
   // детали вынесет наружу вызывающий код, см. levels.
   const levels = { bottom: 0, top: 0, right: 0, left: 0 };
   for (const side of ['bottom', 'top', 'right', 'left']) {
-    for (const d of packDims(dims[side], 0)) {
-      body += draw[side](d);
-      levels[side] = Math.max(levels[side], d.level + 1);
+    const items = packDims(dims[side], 0);
+    let L = 0;
+    for (const d of items) L = Math.max(L, d.level + 1);
+    // Подписи, которые не помещаются на своём звене (короткие размеры),
+    // выносим наружу за все размерные линии, в свои ряды: каждая подпись —
+    // в первом ряду, где не налезает на соседние. Тонкая выноска ведёт к звену.
+    const horiz = side === 'bottom' || side === 'top';
+    const dirS = (side === 'bottom' || side === 'right') ? 1 : -1;
+    const tight = items.filter((d) => Math.abs(d.b - d.a) < String(d.label).length * 5.6 + 3)
+      .sort((u, v) => (u.a + u.b) - (v.a + v.b));
+    const rowsOcc = [];
+    for (const d of tight) {
+      const w = String(d.label).length * 5.6 + 3, mid = (d.a + d.b) / 2;
+      let k = 0;
+      for (;; k++) {
+        if (!rowsOcc[k]) rowsOcc[k] = [];
+        if (!rowsOcc[k].some((o) => mid - w / 2 < o[1] + 1 && mid + w / 2 > o[0] - 1)) break;
+      }
+      rowsOcc[k].push([mid - w / 2, mid + w / 2]);
+      d.row = k + 1;
     }
+    for (const d of items) {
+      if (!d.row) { body += draw[side](d); continue; }
+      const lbl = d.label;
+      d.label = '';
+      body += draw[side](d);
+      const mid = (d.a + d.b) / 2;
+      const off = DIM_FIRST + L * DIM_STEP + (d.row - 1) * 10;
+      const lineOff = DIM_FIRST + d.level * DIM_STEP;
+      if (horiz) {
+        const yBase = side === 'bottom' ? BOTTOM : TOP;
+        body += line(mid, yBase + dirS * lineOff, mid, yBase + dirS * (off + 1), 'dw-ext');
+        body += text(mid, yBase + dirS * off + (dirS > 0 ? 9 : -2), lbl, 'dw-dt', 'middle');
+      } else {
+        const xBase = side === 'right' ? RIGHT : LEFT;
+        body += line(xBase + dirS * lineOff, mid, xBase + dirS * (off + 1), mid, 'dw-ext');
+        const tx = xBase + dirS * off + (dirS > 0 ? 9 : -2);
+        body += `<text x="${r(tx)}" y="${r(mid)}" class="dw-dt" text-anchor="middle" transform="rotate(-90 ${r(tx)} ${r(mid)})">${esc(lbl)}</text>`;
+      }
+    }
+    levels[side] = L + (rowsOcc.length ? Math.ceil(rowsOcc.length * 10 / DIM_STEP) : 0);
   }
   facadeHoles.levels = levels;
 
-  if (otherRest.length) {
+  if (otherRest.length && !hg) {
     const o0 = otherRest[0];
     const label = o0.through ? `Ø${o0.d} насквозь` : `Ø${o0.d} глуб. ${o0.depth}`;
     body += text(px(o0.x), py(o0.y) - 6, label, 'dw-t', 'middle');
@@ -1442,13 +1655,38 @@ function notchDims(p, x0, y0, fw, fh, scale) {
 // Чертежи ДЕТАЛЕЙ: фасады и любые другие детали с присадкой или пазом.
 // Раньше свой лист был только у фасада, и присадку остальных деталей
 // (стенки ящика, боковины, планки) на чертежах было просто не видно.
-function buildPartDrawings(model, scale, pick, emptyText) {
-  const facades = model.partsRaw.filter(pick);
-  if (!facades.length) return `<div class="dw-empty">${emptyText}</div>`;
+// Размер «ячейки» листа детали в px — вся рамка листа (530×340 с границей):
+// надписей сверху нет, всё (позиция, материал, кромка, масштаб) — в таблице
+// в правом нижнем углу, так чертёж получается крупнее.
+const PART_CELL_W = 528, PART_CELL_H = 338;
+// Масштаб листов деталей — ОДИН на все детали (чтобы не путать размеры), из
+// ряда круглых знаменателей (чем мельче шаг, тем крупнее деталь). Мм бумаги на один px чертежа (при печати 100%).
+const PART_MM = 25.4 / 96;
+const PART_STD_N = [1, 1.5, 2, 2.5, 3, 4, 5, 6, 7, 8, 9, 10, 12, 14, 16, 18, 20, 22, 25, 30, 35, 40, 50, 75, 100];
+// Детали длиннее этого (столешница, длинная планка, цоколь) не тянут общий
+// масштаб вниз: они получают свой, мельче, и он явно написан в таблице.
+const PART_NORMAL_LEN = 1200;
+// Две таблицы внизу листа РЯДОМ: присадка слева, штамп справа; вместе — во всю ширину ячейки.
+const HOLE_TBL_W = 250, STAMP_W = 278, STAMP_LABEL_W = 54;
 
-  // Одинаковые фасады — один чертёж. Одинаковыми считаются детали с тем же
-  // габаритом, материалом, толщиной И той же присадкой: сверлить их будут
-  // по одному шаблону. В заголовке перечисляются все их позиции.
+const FACADE_PICK = (p) => FACADE_KINDS[p.kind];
+const DRILLED_PICK = (p) => !FACADE_KINDS[p.kind] && !p.hardware
+  && (((p.holes || []).length) || ((p.grooves || []).length) || ((p.notches || []).length));
+
+// Знаменатель стандартного масштаба, при котором деталь ещё влезает
+// (fit — наибольший масштаб в px/мм, при котором она влезает в ячейку).
+function stdN(fit) {
+  const need = 1 / (Math.max(fit, 1e-6) * PART_MM);
+  for (const n of PART_STD_N) if (n >= need - 1e-9) return n;
+  return PART_STD_N[PART_STD_N.length - 1];
+}
+const nToScale = (n) => 1 / (n * PART_MM);
+
+// Одинаковые детали — один чертёж. Одинаковыми считаются детали с тем же
+// габаритом, материалом, толщиной И той же присадкой: сверлить их будут
+// по одному шаблону. В таблице перечисляются все их позиции.
+function partGroupsOf(model, pick) {
+  const list = model.partsRaw.filter(pick);
   const sign = (f) => [
     Math.round(f.length), Math.round(f.width), f.thickness, f.material,
     // Алюминиевые фасады с разной рамкой/заполнением — разные чертежи.
@@ -1458,32 +1696,151 @@ function buildPartDrawings(model, scale, pick, emptyText) {
     // Сквозные вырезы (выпил под шину, вырез под крюк) — тоже по шаблону.
     (f.notches || []).map((n) => `${n.kind}:${n.x0}:${n.y0}:${n.x1}:${n.y1}`).sort().join('|'),
   ].join('/');
-
   const groups = {};
   const order = [];
-  for (const f of facades) {
+  for (const f of list) {
     const k = sign(f);
     if (!groups[k]) { groups[k] = { part: f, qty: 0, nums: [], members: [] }; order.push(k); }
     groups[k].qty += 1;
     if (f.moduleUid && f.anchorKey) groups[k].members.push(`${f.moduleUid}|${f.anchorKey}`);
     if (f.num != null && groups[k].nums.indexOf(f.num) === -1) groups[k].nums.push(f.num);
   }
+  return order.map((k) => groups[k]);
+}
 
-  return order.map((key) => {
-    const g = groups[key], p = g.part;
+// Таблица «ключ — значение» (штамп листа детали): позиция, материал, модуль,
+// кромка, масштаб. Лежит под таблицей присадки, вплотную к углу рамки.
+function svgKV(x, y, w, labelW, rows) {
+  const RH = 14, FS = 9;
+  const h = rows.length * RH;
+  let o = `<rect x="${r(x)}" y="${r(y)}" width="${r(w)}" height="${r(h)}" class="dw-legbg"/>`
+    + `<rect x="${r(x)}" y="${r(y)}" width="${r(labelW)}" height="${r(h)}" class="dw-legh"/>`
+    + line(x + labelW, y, x + labelW, y + h, 'dw-thin');
+  rows.forEach((row, i) => {
+    if (i) o += line(x, y + i * RH, x + w, y + i * RH, 'dw-thin');
+    const t = String(row[1]);
+    const fit = t.length * FS * 0.55 > w - labelW - 6
+      ? ` textLength="${r(w - labelW - 6)}" lengthAdjust="spacingAndGlyphs"` : '';
+    o += `<text x="${r(x + 3)}" y="${r(y + i * RH + RH - 4)}" class="dw-lth">${esc(row[0])}</text>`
+      + `<text x="${r(x + labelW + 3)}" y="${r(y + i * RH + RH - 4)}" class="dw-lt"${fit}>${esc(t)}</text>`;
+  });
+  return { svg: o, w, h };
+}
+
+// Строки штампа детали.
+function partStampRows(p, g, scaleText) {
+  const mat = p.material ? materialTitle(p.material) : '';
+  const aluProf = p.aluFrame && window.Modul3D && window.Modul3D.catalog
+    && window.Modul3D.catalog.ALU_PROFILES
+    ? window.Modul3D.catalog.ALU_PROFILES[p.aluFrame.profile] : null;
+  const aluKnownW = !!(aluProf && aluProf.width > 0);
+  const aluSl = (p.grooves || []).filter((q) => q.kind === 'aluHingeSlot');
+  const otherGr = (p.grooves || []).filter((q) => q.kind !== 'aluHingeSlot');
+  const extra = [
+    (p.holes || []).length && !holeGroups(p) ? `присадка: ${holeSummary(p)}` : '',
+    partNotches(p).length ? `вырезы: ${notchSummary(p)}` : '',
+    otherGr.length ? `паз ${otherGr[0].w}×${otherGr[0].depth} мм` : '',
+    aluSl.length ? `${aluSl.length}×${aluSlotText(aluSl[0])}` : '',
+  ].filter(Boolean).join(' · ');
+  const rows = [
+    ['Деталь', `Поз. ${g.nums.slice().sort((a, b) => a - b).join(', ')} · ${p.name} · ${g.qty} шт`],
+    ['Материал', mat || '—'],
+    ['Модуль', `${p.module} · ${p.section}`],
+    p.aluFrame
+      ? ['Профиль', `алюм. ${p.aluFrame.profile || ''}, ${aluKnownW ? `рамка ${Math.round((p.frameW || 0) * 10) / 10} мм` : 'рамка — по паспорту'}, без кромки`]
+      : ['Кромка', `${(p.edging && p.edging.long1) || '—'} по периметру`],
+  ];
+  if (extra) rows.push(['Доп.', extra]);
+  rows.push(['Масштаб', scaleText]);
+  return rows;
+}
+
+// Раскладка листа детали: масштаб и поля подбираем итерациями — число
+// размерных линий (а с ним и поля) зависит от масштаба. cap — наибольший
+// допустимый масштаб (px/мм); tbl — размер блока таблиц в правом углу.
+function partLayout(p, hg, tbl, cap) {
+  const padOf = (n) => (n ? DIM_FIRST + n * DIM_STEP + 14 : 16);
+  const probeLv = (sc) => {
+    facadeHoles.levels = null;
+    facadeHoles(p, 0, 0, p.length * sc, p.width * sc, sc, hg);
+    return facadeHoles.levels || { bottom: 0, top: 0, right: 0, left: 0 };
+  };
+  const layoutFor = (sc) => {
+    const lvl = probeLv(sc);
+    const PL0 = padOf(lvl.left), PT0 = padOf(lvl.top);
+    const PR0 = padOf(lvl.right + 1), PB0 = padOf(lvl.bottom + 1);
+    // Таблицы всегда внизу листа (в правом нижнем углу), чертёж над ними.
+    const fitScale = (extraW, extraH) => Math.max(0.02, Math.min(cap,
+      (PART_CELL_W - PL0 - PR0 - extraW) / Math.max(p.length, 1),
+      (PART_CELL_H - PT0 - PB0 - extraH) / Math.max(p.width, 1)));
+    return { PL0, PT0, PR0, PB0, scale: fitScale(0, tbl.h + 8) };
+  };
+  let scale = Math.max(0.02, Math.min(cap,
+    (PART_CELL_W - 30) / Math.max(p.length, 1),
+    (PART_CELL_H - tbl.h - 30) / Math.max(p.width, 1)));
+  let lay = layoutFor(scale);
+  for (let it = 0; it < 6 && lay.scale < scale - 0.0005; it++) {
+    scale = lay.scale;
+    lay = layoutFor(scale);
+  }
+  lay.scale = Math.min(scale, lay.scale);
+  return lay;
+}
+
+// Размер блока таблиц детали: таблица присадки (если есть) и штамп рядом;
+// высота блока — по более высокой из них.
+function partTblSize(p, g, hg) {
+  const stamp = partStampRows(p, g, '1:1');
+  const hl = hg ? holeLegendSvg(hg) : null;
+  const sh = stamp.length * 14;
+  const hh = hl ? hl.h : 0;
+  return { w: STAMP_W + (hl ? HOLE_TBL_W : 0), h: Math.max(sh, hh), hh, sh };
+}
+
+// Общий знаменатель масштаба листов деталей проекта (см. PART_NORMAL_LEN).
+function commonPartN(model) {
+  const items = [];
+  for (const pick of [FACADE_PICK, DRILLED_PICK]) {
+    for (const g of partGroupsOf(model, pick)) {
+      const p = g.part, hg = holeGroups(p);
+      const lay = partLayout(p, hg, partTblSize(p, g, hg), Infinity);
+      items.push({ n: stdN(lay.scale), len: p.length });
+    }
+  }
+  if (!items.length) return 1;
+  const normal = items.filter((it) => it.len <= PART_NORMAL_LEN);
+  return Math.max.apply(null, (normal.length ? normal : items).map((it) => it.n));
+}
+
+function buildPartDrawings(model, baseScale, pick, emptyText) {
+  const grps = partGroupsOf(model, pick);
+  if (!grps.length) return `<div class="dw-empty">${emptyText}</div>`;
+  const nCommon = commonPartN(model);
+
+  return grps.map((g) => {
+    const p = g.part;
+    // Лист детали — ячейка ОДНОГО размера (PART_CELL_*): все рамки одинаковые,
+    // на A4 помещается 2×2. Масштаб — общий на все детали (или свой, мельче,
+    // для очень длинных); он вписан в таблицу в углу листа.
+    const hg = holeGroups(p);
+    const tbl = partTblSize(p, g, hg);
+    const fitLay = partLayout(p, hg, tbl, Infinity);
+    const N = Math.max(nCommon, stdN(fitLay.scale));
+    const scale = nToScale(N);
+    const lay = partLayout(p, hg, tbl, scale);
+    const { PL0, PT0, PR0, PB0 } = lay;
+    const scaleText = `1:${N}`;
     // Чертёж ДЕТАЛИ строится по её собственным габаритам (длина × ширина),
     // а не по мировому боксу: у модуля, повёрнутого на 90°, бокс развёрнут
     // вместе с корпусом, и фасад выходил на чертеже «на боку».
     const fw = p.length * scale, fh = p.width * scale;
-    // Под размеры присадки нужны дополнительные размерные линии, поэтому
-    // поля справа и снизу считаем по числу уровней, а не берём фиксированные.
-    const lv = (p.holes && p.holes.length) ? 4 : 0;
-    const PAD = DIM_FIRST + lv * DIM_STEP + 22;
-    const PAD_L = lv ? PAD : 16;
-    const PAD_T = lv ? PAD : 16;
-    const PAD_R = PAD;
-    const PAD_B = PAD;
-    const W = fw + PAD_L + PAD_R, H = fh + PAD_T + PAD_B;
+    // Холст — вся ячейка листа: чертёж стоит по центру свободной области, а
+    // таблицы — строго в правом нижнем углу ячейки.
+    const W = PART_CELL_W, H = PART_CELL_H;
+    const availW = W;
+    const availH = H - (tbl.h + 8);
+    const PAD_L = PL0 + Math.max(0, (availW - (PL0 + fw + PR0)) / 2);
+    const PAD_T = PT0 + Math.max(0, (availH - (PT0 + fh + PB0)) / 2);
     // Контур детали — с учётом сквозных вырезов (part.notches).
     let body = partContour(p, PAD_L, PAD_T, fw, fh, scale, 'dw-facade');
     // Алюминиевый фасад из профиля (engine.js, part.aluFrame): внутренний
@@ -1501,7 +1858,7 @@ function buildPartDrawings(model, scale, pick, emptyText) {
     }
     body += callout(PAD_L + fw / 2, PAD_T + fh / 2, p.num);
     // Сначала цепочка присадки — она ближе к детали, потом габарит снаружи.
-    body += facadeHoles(p, PAD_L, PAD_T, fw, fh, scale);
+    body += facadeHoles(p, PAD_L, PAD_T, fw, fh, scale, hg);
     const usedLv = facadeHoles.levels || { bottom: 0, right: 0 };
     body += notchDims(p, PAD_L, PAD_T, fw, fh, scale);
     body += dimH(PAD_L, PAD_L + fw, PAD_T + fh, usedLv.bottom || 0, String(p.length));
@@ -1513,41 +1870,34 @@ function buildPartDrawings(model, scale, pick, emptyText) {
     const mkSheet = p.moduleUid && p.anchorKey ? `part:${p.moduleUid}|${p.anchorKey}` : '';
     const mkBody = mkAttach(mkSheet, model, partLocalViews(p, PAD_L, PAD_T, fw, fh, scale, g.members), W, H, body);
     body += mkBody;
-    const drill = ((p.holes || []).length
-      ? ` · присадка: ${holeSummary(p)}`
-      : '') + (partNotches(p).length ? ` · вырезы: ${notchSummary(p)}` : '');
-    const aluSl = (p.grooves || []).filter((g) => g.kind === 'aluHingeSlot');
-    const otherGr = (p.grooves || []).filter((g) => g.kind !== 'aluHingeSlot');
-    const paz = (otherGr.length
-      ? ` · паз ${otherGr[0].w}×${otherGr[0].depth} мм`
-      : '') + (aluSl.length ? ` · ${aluSl.length}×${aluSlotText(aluSl[0])}` : '');
+    // Таблицы в правом нижнем углу листа: присадка слева, штамп справа
+    // (координаты абсолютные, без transform: svgFit считает границы по ним).
+    if (hg) body += holeLegendSvg(hg, W - STAMP_W - HOLE_TBL_W, H - tbl.hh).svg;
+    body += svgKV(W - STAMP_W, H - tbl.sh, STAMP_W, STAMP_LABEL_W, partStampRows(p, g, scaleText)).svg;
     // Выносной элемент «А» и таблица присадки петли алюм. рамки (если есть).
     const aluNode = aluHingeNode(p);
     const aluTable = aluHingeTable(p);
-    return `<div class="dw-block">
-      <div class="dw-title">Поз. ${g.nums.sort((a, b2) => a - b2).join(', ')} · ${esc(p.name)} · ${g.qty} шт</div>
+    // Холст листа детали — ровно размер ячейки (viewBox 0 0 W H, без полей
+    // svgFit): таблицы лежат вплотную к углу рамки.
+    const exact = (tag) => tag.replace(/<svg width="[^"]+" height="[^"]+" viewBox="[^"]+"/,
+      `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}"`);
+    const svgOut = exact(svgTagMk(W, H, body, mkBody ? mkSheet : ''));
+    return `<div class="dw-block dw-partsheet${(aluNode || aluTable) ? ' dw-partwide' : ''}">
       ${(aluNode || aluTable)
-        ? `<div class="dw-secrow">${svgTagMk(W, H, body, mkBody ? mkSheet : '')}<div class="dw-node">${aluNode}${aluTable}</div></div>`
-        : svgTagMk(W, H, body, mkBody ? mkSheet : '')}
-      <div class="dw-note">${esc(p.module)} · ${esc(p.section)} · ${p.aluFrame
-        ? `алюм. профиль ${esc(p.aluFrame.profile || '')}, ${aluKnownW ? `рамка ${Math.round((p.frameW || 0) * 10) / 10} мм` : 'рамка — по паспорту профиля'}, без кромки`
-        : `кромка ${esc((p.edging && p.edging.long1) || '—')} по периметру`}${drill}${paz}</div>
+        ? `<div class="dw-secrow">${svgOut}<div class="dw-node">${aluNode}${aluTable}</div></div>`
+        : svgOut}
     </div>`;
   }).join('');
 }
 
 function buildFacadeDrawings(model, scale) {
-  return buildPartDrawings(model, scale, (p) => FACADE_KINDS[p.kind],
-    'Фасадов в проекте нет.');
+  return buildPartDrawings(model, scale, FACADE_PICK, 'Фасадов в проекте нет.');
 }
 
 // Все НЕфасадные детали, на которых есть присадка или паз: боковины, дно,
 // планки, стенки ящиков. По ним сверлят, значит им нужен свой чертёж.
 function buildDrilledPartDrawings(model, scale) {
-  return buildPartDrawings(model, scale,
-    (p) => !FACADE_KINDS[p.kind] && !p.hardware
-      && (((p.holes || []).length) || ((p.grooves || []).length) || ((p.notches || []).length)),
-    'Деталей с присадкой в проекте нет.');
+  return buildPartDrawings(model, scale, DRILLED_PICK, 'Деталей с присадкой в проекте нет.');
 }
 
 // ---------------------------------------------------------------------------
@@ -1752,12 +2102,15 @@ function buildDrawings(model, showFacades) {
   const scale = Math.min(SHEET_W / Math.max(needW, 1), SHEET_H / Math.max(needH, 1));
   const denom = Math.max(1, Math.round(1 / scale));
 
+  const headText = `Габарит проекта ${Math.round(d.W)}×${Math.round(d.H)}×${Math.round(d.D)} мм · `
+    + `модулей: ${model.modules.length} · единый масштаб 1:${denom} · `
+    + `все размеры в мм · номера в кружках — позиции деталировки`;
   let html = `<div class="dw-head">`
     + `Габарит проекта ${Math.round(d.W)}×${Math.round(d.H)}×${Math.round(d.D)} мм · `
     + `модулей: ${model.modules.length} · единый масштаб 1:${denom} · `
     + `все размеры в мм · номера в кружках — позиции деталировки</div>`;
 
-  html += `<h4 class="dw-h">Общий вид</h4><div class="dw-grid">${buildOverview(model, scale)}</div>`;
+  html += `<h4 class="dw-h dw-h-ov">Общий вид</h4><div class="dw-grid">${buildOverview(model, scale, headText)}</div>`;
 
   // Чертежи модулей и фасадов крупнее общего вида: они рабочие, по ним
   // читают размеры в цеху, и мелкий масштаб там мешает.
@@ -1765,24 +2118,37 @@ function buildDrawings(model, showFacades) {
   // Фасады — самые простые чертежи, места на листе у них много: их можно
   // увеличить сильнее, чтобы читались межосевые и присадка под петли.
   const FACADE_ZOOM = 1.4;
+  // Лист модуля (чертёж + таблица деталей справа) должен целиком помещаться
+  // на печатной странице A4: если самый высокий чертёж выше, уменьшаем масштаб.
+  const MOD_SHEET_MAX_H = 880;
+  let modScale = scale * DETAIL_ZOOM;
   let modHtml = '';
-  for (const mod of model.modules) modHtml += buildModuleDrawing(model, mod, scale * DETAIL_ZOOM);
-  html += `<h4 class="dw-h">Чертежи модулей (каркас)</h4><div class="dw-grid">${unifyBlocks(modHtml)}</div>`;
+  for (let pass = 0; pass < 3; pass++) {
+    modHtml = '';
+    for (const mod of model.modules) modHtml += buildModuleDrawing(model, mod, modScale);
+    const re = /<svg width="[\d.]+" height="[\d.]+" viewBox="-?[\d.]+ -?[\d.]+ [\d.]+ ([\d.]+)"/g;
+    let mm, maxH = 0;
+    while ((mm = re.exec(modHtml))) maxH = Math.max(maxH, +mm[1]);
+    if (maxH <= MOD_SHEET_MAX_H) break;
+    modScale *= MOD_SHEET_MAX_H / maxH * 0.98;
+  }
+  html += `<h4 class="dw-h dw-h-mod">Чертежи модулей (каркас)</h4><div class="dw-grid">${modHtml}</div>`;
 
   if (showFacades) {
     const facHtml = buildFacadeDrawings(model, scale * FACADE_ZOOM);
-    html += `<h4 class="dw-h">Фасады</h4><div class="dw-grid">${unifyBlocks(facHtml)}</div>`;
+    html += `<h4 class="dw-h">Фасады</h4><div class="dw-grid">${facHtml}</div>`;
   }
   // Детали с присадкой — каждая своим чертежом: по ним сверлят, и координаты
   // отверстий должны быть видны, а не тонуть в общем чертеже модуля.
   const drilledHtml = buildDrilledPartDrawings(model, scale * FACADE_ZOOM);
-  html += `<h4 class="dw-h">Детали с присадкой</h4><div class="dw-grid">${unifyBlocks(drilledHtml)}</div>`;
+  html += `<h4 class="dw-h">Детали с присадкой</h4><div class="dw-grid">${drilledHtml}</div>`;
   // Спецификация деталей — в самый низ, после всех чертежей.
   html += `<h4 class="dw-h">Спецификация деталей</h4>${buildPartsTable(model)}`;
   return html;
 }
 
 const DRAWINGS_CSS = `
+.dw-printonly{display:none}
 .dw-head{font:12px sans-serif;color:#333;margin-bottom:12px;padding-bottom:8px;border-bottom:1px solid #000}
 .dw-h{margin:18px 0 10px;font:600 13px sans-serif;color:#000;text-transform:uppercase;letter-spacing:.04em}
 .dw-grid{display:flex;flex-wrap:wrap;gap:14px;align-items:flex-start}
@@ -1814,6 +2180,13 @@ const DRAWINGS_CSS = `
 .dw-legend{border-collapse:collapse;font:11px sans-serif;width:auto}
 .dw-legend th,.dw-legend td{border:1px solid #000;padding:3px 6px;white-space:nowrap}
 .dw-legend th{background:#eee}
+.dw-legbg{fill:#fff;stroke:#000;stroke-width:.8}
+.dw-legh{fill:#eee;stroke:none}
+.dw-lt{font:9px sans-serif;fill:#000}
+.dw-lth{font:600 9px sans-serif;fill:#000}
+.dw-partsheet{box-sizing:border-box;width:530px;height:340px;display:flex;flex-direction:column;overflow:hidden;padding:0}
+.dw-partsheet>svg{margin:0}
+.dw-partsheet.dw-partwide{width:auto;min-width:530px}
 .dw-wide{width:100%}
 .dw-empty{font:11px sans-serif;color:#333}
 `;

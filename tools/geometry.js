@@ -850,7 +850,8 @@ for (const sd of ['besideBottom', 'onBottom']) {
     const html = String(buildDrawings(model, true));
     if (/Ручка \(/.test(html)) problems.push('чертёж: изображена сама ручка');
     if (!/dw-hole/.test(html)) problems.push('чертёж: нет присадки');
-    if (html.indexOf('присадка:') === -1) problems.push('чертёж фасада: нет сводки по присадке');
+    // сводка присадки теперь — таблица обозначений (цветные кружки) на листе детали
+    if (html.indexOf('Присадка</text>') === -1) problems.push('чертёж фасада: нет таблицы обозначений присадки');
     cases += 1;
   }
 
@@ -1740,7 +1741,10 @@ for (const fac of ['doorLeft', 'doorRight']) {
   const door = model.parts.filter((p) => p.kind === 'door')[0];
   const cups = door.holes.filter((h) => h.kind === 'hingeCup');
   const html = String(buildDrawings(model, true));
-  const blk = html.slice(html.indexOf('Фасады'));
+  // Только раздел «Фасады»: листы деталей с присадкой ниже имеют свои размеры.
+  const blk0 = html.slice(html.indexOf('Фасады'));
+  const blkEnd = blk0.indexOf('Детали с присадкой');
+  const blk = blkEnd === -1 ? blk0 : blk0.slice(0, blkEnd);
   // вертикальные размеры рисуются повёрнутым текстом — берём их координаты
   const vs = [];
   const re = /<text x="([-\d.]+)" y="([-\d.]+)" class="dw-dt"[^>]*transform="rotate\(-90[^>]*>([^<]+)</g;
@@ -2727,11 +2731,9 @@ for (const glass of [false, true]) {
     if (!/GROOVE_/.test(dxf)) problems.push('ЧПУ: паза нет в DXF');
     // В таблице чертежа модуля обязан быть столбец «Материал»
     const html = String(buildDrawings(m, true));
-    if (!/<th>Деталь<\/th><th>Материал<\/th>/.test(html.replace(/\s+/g, ''))) {
-      const compact = html.replace(/\s+/g, '');
-      if (compact.indexOf('<th>Деталь</th><th>Материал</th>') === -1) {
-        problems.push('чертёж модуля: нет столбца «Материал» после «Деталь»');
-      }
+    // (таблица теперь нарисована внутри SVG чертежа — заголовки в <text>)
+    if (!/>Деталь<\/text><text[^>]*>Материал<\/text>/.test(html)) {
+      problems.push('чертёж модуля: нет столбца «Материал» после «Деталь»');
     }
     // Стенка остаётся на задней плоскости корпуса и НЕ уезжает внутрь
     const bb = bk && bk.boxes[0];
@@ -3421,7 +3423,8 @@ for (const glass of [false, true]) {
   if (i === -1) problems.push('чертежи: нет раздела «Детали с присадкой»');
   else {
     const chunk = html.slice(i);
-    const titles = [...chunk.matchAll(/<div class="dw-title">([^<]+)<\/div>/g)].map((m2) => m2[1]);
+    // название листа детали — в штампе (строка «Деталь») внутри SVG
+    const titles = [...chunk.matchAll(/class="dw-lt"[^>]*>(Поз\.[^<]+)</g)].map((m2) => m2[1]);
     // Физический список (partsRaw), не склеенный model.parts: одинаковые
     // боковины/планки могут схлопнуться в одну строку деталировки («Боковины»,
     // см. mergeEqualParts в engine.js), а чертежи присадки по-прежнему
@@ -3536,14 +3539,25 @@ for (const glass of [false, true]) {
   }));
   const model = buildModel(Object.assign({}, base, { modules: mods }));
   const html = String(buildDrawings(model, true));
-  for (const sec of ['Чертежи модулей', 'Фасады']) {
-    const i0 = html.indexOf(sec);
+  // Лист модуля подгоняется под пропорции рамки печатного листа (269×190 мм),
+  // чтобы чертёж и таблица деталей занимали лист одинаково у любого модуля.
+  {
+    const i0 = html.indexOf('Чертежи модулей');
+    const i1 = html.indexOf('<h4 class="dw-h">', i0 + 5);
+    const chunk = html.slice(i0, i1 === -1 ? undefined : i1);
+    const re = /<svg width="[\d.]+" height="[\d.]+" viewBox="-?[\d.]+ -?[\d.]+ ([\d.]+) ([\d.]+)"/g;
+    let mm;
+    while ((mm = re.exec(chunk))) {
+      if (Math.abs(+mm[1] / +mm[2] - 269 / 190) > 0.03) problems.push(`чертежи: лист модуля не в пропорции рамки (${mm[1]}×${mm[2]})`);
+    }
+  }
+  // Листы деталей («Фасады», «Детали с присадкой») — ячейки одного размера.
+  for (const sec of ['Фасады', 'Детали с присадкой']) {
+    const i0 = html.indexOf('<h4 class="dw-h">' + sec);
     if (i0 === -1) continue;
     const i1 = html.indexOf('<h4 class="dw-h">', i0 + 5);
     const chunk = html.slice(i0, i1 === -1 ? undefined : i1);
-    const sizes = (chunk.match(/<svg width="([\d.]+)" height="([\d.]+)"/g) || []);
-    const uniq = sizes.filter((v, i, a) => a.indexOf(v) === i);
-    if (uniq.length > 1) problems.push(`чертежи: в разделе «${sec}» рамки разного формата (${uniq.length})`);
+    if (chunk.indexOf('dw-partsheet') === -1) problems.push(`чертежи: в разделе «${sec}» нет единых листов деталей`);
   }
   cases += 1;
 }

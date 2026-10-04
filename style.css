@@ -1642,6 +1642,7 @@ h4.spec-title { margin: var(--sp-5) 0 var(--sp-2); font-size: var(--fs-md); font
 .dw-note { font-size: 10.5px; color: var(--muted); margin-top: 4px; }
 .dw-svg { display: block; max-width: none; overflow: visible; }
 .dw-secrow { display: flex; gap: var(--sp-3); align-items: flex-start; flex-wrap: wrap; }
+.dw-printonly { display: none; }
 .dw-empty { font-size: var(--fs-sm); color: var(--muted); }
 .dw-wide { width: 100%; }
 .dw-wire { fill: none; stroke: var(--text); stroke-width: 1; }
@@ -1667,6 +1668,13 @@ h4.spec-title { margin: var(--sp-5) 0 var(--sp-2); font-size: var(--fs-md); font
 .dw-legend { border-collapse: collapse; font-size: var(--fs-xs); width: auto; color: var(--text); }
 .dw-legend th, .dw-legend td { border: 1px solid var(--border); padding: 3px 7px; white-space: nowrap; }
 .dw-legend th { background: var(--surface-2); }
+.dw-legbg { fill: var(--surface-solid); stroke: var(--text); stroke-width: .8; }
+.dw-legh { fill: var(--surface-2); stroke: none; }
+.dw-lt { font: 9px var(--ff); fill: var(--text); }
+.dw-lth { font: 600 9px var(--ff); fill: var(--text); }
+.dw-partsheet { box-sizing: border-box; width: 530px; height: 340px; display: flex; flex-direction: column; overflow: hidden; padding: 0; }
+.dw-partsheet > svg { margin: 0; }
+.dw-partsheet.dw-partwide { width: auto; min-width: 530px; }
 
 /* Масштаб чертежей (ui-shell.js, раздел 7в). Все чертежи вкладки — ОДИН лист
    (.dw-sheet внутри .dw-zoom; обёртку пишет renderDrawings через

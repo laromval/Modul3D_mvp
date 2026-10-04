@@ -14,7 +14,7 @@
 (function () {
 // Версия сборки — показывается во вкладке браузера и в шапке.
 // При выпуске новой версии меняется только эта строка.
-const APP_VERSION = 'v347';
+const APP_VERSION = 'v354';
 
 // Номер версии выводим ПЕРВЫМ делом: если дальше что-то упадёт, по нему сразу
 // видно, какая сборка открыта.
@@ -16382,9 +16382,29 @@ document.getElementById('printDrawings').addEventListener('click', () => {
   // ссылка на style.css не разрешилась бы и чертёж напечатался бы пустым.
   w.document.write(`<!DOCTYPE html><html lang="ru"><head><meta charset="UTF-8">
     <title>Чертежи</title><style>${DRAWINGS_CSS}
-      body{background:#fff;padding:10mm;font-family:sans-serif}
+      body{background:#fff;margin:0;padding:0;font-family:sans-serif}
       .dw-block{page-break-inside:avoid}
-      @page{size:A3 landscape;margin:10mm}
+      /* Поле страницы 5 мм. Рамка листа: сверху, снизу и слева 5 мм от края
+         бумаги, справа 20 мм (так задано в проекте). Общий вид и листы
+         модулей — по одному на страницу A4, чертёж вписан в рамку. */
+      @page{size:A4 landscape;margin:5mm}
+      .dw-head,.dw-h-mod,.dw-h-ov{display:none}
+      .dw-printonly{display:block}
+      /* Ничто не должно быть шире страницы (287 мм): иначе Chrome сжимает ВСЕ
+         страницы при печати, и рамка уходит от краёв бумаги. Спецификация
+         деталей с несколькими колонками переносит текст по строкам. */
+      body{width:287mm}
+      .dw-legend.dw-wide{width:100%;max-width:287mm;table-layout:auto}
+      .dw-legend.dw-wide th,.dw-legend.dw-wide td{white-space:normal}
+      .dw-grid:has(.dw-modsheet),.dw-grid:has(.dw-overview){display:block}
+      .dw-modsheet,.dw-overview{position:relative;box-sizing:border-box;width:287mm;height:199mm;
+        margin:0;padding:0;border:0;border-radius:0;overflow:hidden;background:#fff;
+        break-before:page;break-after:page;break-inside:avoid}
+      .dw-modsheet::before,.dw-overview::before{content:"";position:absolute;left:0;top:0;right:15mm;
+        bottom:0;border:.8mm solid #000;pointer-events:none}
+      .dw-modsheet .dw-title,.dw-overview .dw-title{position:absolute;left:2mm;top:1.5mm;margin:0}
+      .dw-modsheet>svg,.dw-overview>svg{position:absolute;left:1.5mm;top:7mm;width:269mm!important;
+        height:190mm!important}
     </style></head><body>${html}</body></html>`);
   w.document.close();
   w.focus();
