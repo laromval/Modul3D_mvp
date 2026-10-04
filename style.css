@@ -1349,7 +1349,16 @@ input[type='text'] {
   font-size: var(--fs-md);
   transition: border-color var(--dur) var(--ease), box-shadow var(--dur) var(--ease);
 }
-input[type='number'] { font-family: var(--ff-mono); }
+input[type='number'] {
+  font-family: var(--ff-mono);
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+input[type='number']::-webkit-inner-spin-button,
+input[type='number']::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
 .field select, select {
   width: 100%;
   padding: 7px 10px;
