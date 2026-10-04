@@ -1325,6 +1325,7 @@ const DRILL_COLOR = {
   aluHingeSlot: 0x1f6fd1,
   // Разметка саморезов навески верхнего модуля (engine.js applyWallHanger)
   hangerScrew: 0x0a7d2c,
+  countertopScrew: 0x1f8f8f,
   // Сквозные вырезы (part.notches): выпил под монтажную шину в боковине
   // навесного модуля и вырез под крюк навески в задней стенке.
   railNotch: 0xc2410c,
@@ -1357,6 +1358,7 @@ const DRILL_TITLE = {
   aluHingeScrew: 'Петля алюм. рамки, саморез Ø5 (зенк. до Ø7)',
   aluHingeSlot: 'Петля алюм. рамки, паз под механизм',
   hangerScrew: 'Навеска, разметка самореза (не сверлить)',
+  countertopScrew: 'Крепление столешницы, сквозное Ø4 под шуруп 3,5',
   railNotch: 'Выпил под монтажную шину (насквозь)',
   hangerBackCut: 'Вырез под крюк навески (насквозь)',
 };

@@ -339,11 +339,17 @@ function buildSpecification(model) {
   let worktopScrewQty = 0, worktopGlueQty = 0;
   for (const m of mods) {
     if (!m.countertop || !m.countertop.enabled) continue;
-    if (m.topType === 'rails' || m.topType === 'railsEdge') {
+    if (m.topType === 'railsEdge') {
       worktopScrewQty += Math.max(2, Math.round(Number(m.width) / 400));
+    } else if (m.topType === 'rails') {
+      // планки плашмя: шурупы считаем по реальным сквозным отверстиям (ниже)
     } else if (!ctSkipsTopPanel(m)) {
       worktopGlueQty += 1;
     }
+  }
+  for (const r of parts) {
+    const n = (r.holes || []).filter((h) => h.kind === 'countertopScrew').length;
+    if (n) worktopScrewQty += n * (r.qty || 1);
   }
   if (worktopScrewQty) fasteners.push(fRow(FASTENER_PRICES.worktopScrew, worktopScrewQty));
   // Растикс боковина-столешница — считаем по РЕАЛЬНЫМ отверстиям

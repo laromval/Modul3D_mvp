@@ -1552,10 +1552,10 @@
     "categoryPathEdited": true
   },
   "worktopScrew": {
-    "name": "Шуруп 3.5×35 (крепление столешницы к планке)",
+    "name": "Шуруп 3.5×30 (крепление столешницы к планке)",
     "unit": "шт",
     "price": 0,
-    "article": "SCR-35-CTOP",
+    "article": "SCR-30-CTOP",
     "category": "fastener",
     "subcategory": "Без бренда",
     "categoryPath": [

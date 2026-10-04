@@ -284,6 +284,18 @@ function axisSize(b, ax) {
 }
 
 // Рисует детали в проекции; labels — куда собрать позиции для выносок
+// Стоячая панель (боковина, стойка): локальный x отверстия идёт ВВЕРХ по
+// высоте детали, y — по глубине, поэтому оси при проекции меняются местами.
+// Исключение — боковина ЯЩИКА: она тоже «панель», но её длина лежит вдоль
+// глубины (по горизонтали), x — вдоль неё, y — вверх; без этой проверки
+// присадка ящиков улетала над корпусом («отверстия в воздухе»). Длину детали
+// сравниваем с её размерами на виде: к которому ближе — вдоль того она и идёт.
+function panelLenVertical(row, hSize, vSize) {
+  const L = Number(row.length);
+  if (!(L > 0)) return true;
+  return Math.abs(L - vSize) <= Math.abs(L - hSize);
+}
+
 function drawParts(parts, sx, sy, hAxis, vAxis, labels, wire, noHoles) {
   let body = '';
   for (const row of parts) {
@@ -346,7 +358,7 @@ function drawParts(parts, sx, sy, hAxis, vAxis, labels, wire, noHoles) {
           // Присадка в торец на пласти не изображается — её место
           // в документации для ЧПУ (там указана сторона «в торец»).
           if (h0.side === 'edge') continue;
-          const h = (panel || (flat && turned))
+          const h = ((panel && panelLenVertical(row, sizeOf(face.h), sizeOf(face.v))) || (flat && turned))
             ? { x: h0.y, y: h0.x, d: h0.d } : h0;
           const cx = px(h.x), cy = py(h.y);
           const rr = Math.max(Math.abs(sx(h.d) - sx(0)) / 2, 1.1);
@@ -387,7 +399,8 @@ function resolveHoleScreen(row, hAxis, vAxis, sx, sy, holeIndex) {
   const sizeOf = (ax) => (ax === 'x' ? b.w : ax === 'z' ? b.d : b.h);
   const face = flat ? { h: 'x', v: 'z' } : panel ? { h: dw, v: 'y' } : { h: hw, v: 'y' };
   if (hAxis !== face.h || vAxis !== face.v) return null;
-  const h = (panel || (flat && turned)) ? { x: h0.y, y: h0.x } : { x: h0.x, y: h0.y };
+  const h = ((panel && panelLenVertical(row, sizeOf(face.h), sizeOf(face.v))) || (flat && turned))
+    ? { x: h0.y, y: h0.x } : { x: h0.x, y: h0.y };
   const wh = b[face.h] - sizeOf(face.h) / 2 + h.x;
   const wv = b[face.v] - sizeOf(face.v) / 2 + h.y;
   return { x: sx(wh), y: sy(wv), wh, wv };
