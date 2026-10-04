@@ -1695,16 +1695,17 @@ function aluCutMaterials() {
   };
   return _aluCutMats;
 }
-function aluDrillMat(kind) {
+function aluDrillMat(kind, dim) {
   const mats = aluCutMaterials();
-  if (!mats.drill[kind]) {
-    mats.drill[kind] = markShared(new THREE.MeshStandardMaterial({
+  const key = dim ? kind + '|dim' : kind;
+  if (!mats.drill[key]) {
+    mats.drill[key] = markShared(new THREE.MeshStandardMaterial({
       color: DRILL_COLOR[kind] || 0x555555, roughness: 0.35, metalness: 0.1,
       // как у остальных меток — поверх полупрозрачных деталей
-      depthTest: false, transparent: true, opacity: 0.98,
+      depthTest: false, transparent: true, opacity: dim ? 0.12 : 0.98,
     }));
   }
-  return mats.drill[kind];
+  return mats.drill[key];
 }
 //   g   — группа рамочного фасада (makeFramedFacade): центр — центр фасада,
 //         +Z — лицо, −Z — тыл; W/H/T — её размеры в метрах;
@@ -1734,13 +1735,14 @@ function addAluHingeCuts(g, row, W, H, T, drillCheck, drillOnly) {
     m.position.set(cx, cy, zBack);
     m.userData.aluCut = s.kind;
     g.add(m);
-    if (drillCheck && (!drillOnly || drillOnly === s.kind)) {
+    if (drillCheck) {
+      const dim = !!drillOnly && drillOnly !== s.kind;
       // метка паза: брусок на глубину стенки профиля (не меньше 4 мм — иначе
       // её не видно), от тыльной грани внутрь
       const dep = Math.max(wall(s.depth), 4) * MM;
-      const k = drillOnly ? 1.4 : 1;
+      const k = 1;
       const mk = new THREE.Mesh(aluCutGeo(`slotMk|${(sw * k).toFixed(5)}|${(sh * k).toFixed(5)}|${dep.toFixed(5)}`,
-        () => new THREE.BoxGeometry(sw * k, sh * k, dep)), aluDrillMat(s.kind));
+        () => new THREE.BoxGeometry(sw * k, sh * k, dep)), aluDrillMat(s.kind, dim));
       mk.position.set(cx, cy, -T / 2 + dep / 2);
       mk.renderOrder = 999;
       mk.userData.drill = s.kind;
@@ -1763,11 +1765,12 @@ function addAluHingeCuts(g, row, W, H, T, drillCheck, drillOnly) {
       ring.position.set(cx, cy, zBack);
       g.add(ring);
     }
-    if (drillCheck && (!drillOnly || drillOnly === h.kind)) {
+    if (drillCheck) {
+      const dim = !!drillOnly && drillOnly !== h.kind;
       const dep = Math.max(wall(h.depth), 4) * MM;
-      const rr = Math.max(h.d / 2, 1.2) * (drillOnly ? 2.2 : 1) * MM;
+      const rr = Math.max(h.d / 2, 1.2) * MM;
       const mk = new THREE.Mesh(aluCutGeo(`holeMk|${rr.toFixed(5)}|${dep.toFixed(5)}`,
-        () => new THREE.CylinderGeometry(rr, rr, dep, 14)), aluDrillMat(h.kind));
+        () => new THREE.CylinderGeometry(rr, rr, dep, 14)), aluDrillMat(h.kind, dim));
       mk.rotation.x = Math.PI / 2;               // ось цилиндра — по толщине фасада
       mk.position.set(cx, cy, -T / 2 + dep / 2);
       mk.renderOrder = 999;
@@ -4730,10 +4733,11 @@ class Viewer3D {
         // видно и присадку внутри детали, и с какой стороны она сделана.
         if (drillCheck && (row.holes || []).length) {
           for (const h of row.holes) {
-            if (drillOnly && h.kind !== drillOnly) continue;
+            // Фильтр по виду: остальные метки не прячем, а приглушаем.
+            const dim = !!drillOnly && h.kind !== drillOnly;
             const dep = h.through ? tSize : Math.max(h.depth || 6, 4);
-            // При включённом фильтре метку укрупняем — её ищут глазами.
-            const rr = Math.max(h.d / 2, 1.2) * (drillOnly ? 2.2 : 1) * MM;
+            // Размер метки всегда реальный (не укрупняем при выборе).
+            const rr = Math.max(h.d / 2, 1.2) * MM;
             const marker = new THREE.Mesh(
               new THREE.CylinderGeometry(rr, rr, dep * MM, 14),
               new THREE.MeshStandardMaterial({
@@ -4742,7 +4746,7 @@ class Viewer3D {
                 // Метка рисуется ПОВЕРХ полупрозрачных деталей: иначе мелкая
                 // присадка внутри корпуса (гнездо защёлки под ящиком, гнёзда
                 // в дне) тонет за несколькими слоями и её не видно.
-                depthTest: false, transparent: true, opacity: 0.98,
+                depthTest: false, transparent: true, opacity: dim ? 0.12 : 0.98,
               })
             );
             marker.renderOrder = 999;
