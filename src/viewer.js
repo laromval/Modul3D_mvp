@@ -4025,7 +4025,6 @@ class Viewer3D {
     // бирюзовая подсветка секции/детали/отсека) и не фурнитура (опоры/ручки
     // — их бокс сильно больше самой детали).
     const info = new Map();
-    const byAnchor = new Map();
     const occluders = [];
     const clear = this._mkClearRows;
     for (const row of this._mkRows) {
@@ -4037,7 +4036,6 @@ class Viewer3D {
       };
       if (![it.near, it.far, it.h0, it.h1, it.v0, it.v1].every(Number.isFinite)) continue;
       info.set(row, it);
-      if (row.moduleUid != null && row.anchorKey != null) byAnchor.set(row.moduleUid + '|' + row.anchorKey, it);
       const seeThrough = row.glass || row.hardware || (row.shape && row.shape !== 'box')
         || clear.has(row);
       if (!seeThrough) occluders.push(it);
@@ -4059,14 +4057,9 @@ class Viewer3D {
       const it = info.get(row);
       if (!it) return false;
       if (xray) {
-        // Прозрачный режим: ловится всё; вторая точка — только на детали,
-        // у которой с деталью первой точки общая плоскость: совпадают
-        // ближние грани ИЛИ дальние. Дальние нужны для утопленных деталей:
-        // у полок с разным отступом от фасада передние кромки в разных
-        // плоскостях, а задние (упор в заднюю стенку) — в одной.
-        if (!draftAnchor) return true;
-        const a = byAnchor.get(draftAnchor.moduleUid + '|' + draftAnchor.key);
-        return !a || Math.abs(a.near - it.near) <= MK_EPS || Math.abs(a.far - it.far) <= MK_EPS;
+        // Прозрачный режим: ловится любая точка в любой плоскости (решение
+        // пользователя 2026-10-04: ограничение «общая плоскость» снято).
+        return true;
       }
       // Обычный режим: точку не должна заслонять более близкая деталь,
       // чья проекция содержит её строго внутри (общие рёбра — не перекрытие).
@@ -4083,7 +4076,7 @@ class Viewer3D {
       rows: this._mkRows,
       // Центры отверстий — только при «Проверке присадки»; экранные
       // координаты считает drawings.resolveHoleScreen (ядро само его зовёт).
-      noHoles: !this._mkDrill,
+      noHoles: !(this._mkDrill || xray),
       pickFilter, depthOf,
       // Вынос размерной линии за габаритом деталей вида — в постоянных
       // экранных px от края габарита (зазор от края изделия не зависит от

@@ -453,7 +453,7 @@ function migrateSheet(sheetId) {
   if (sheets[sheetId] && sheets[sheetId].dataSheet) return false;
   let changed = false;
   for (const d of dims) {
-    if (!shownOn(d, sheetId) || d.orient === 'h' || d.orient === 'v') continue;
+    if (!shownOn(d, sheetId) || d.orient === 'h' || d.orient === 'v' || d.orient === 'dia') continue;
     const view = viewOf(sheetId, d.view);
     const pa = resolveAnchor(view, d.a), pb = resolveAnchor(view, d.b);
     if (!pa || !pb) continue;   // детали сейчас нет — мигрирует, когда появится
@@ -468,6 +468,7 @@ function migrateSheet(sheetId) {
 // Полная экранная геометрия размера или null (не рисуется). dispSheet — лист
 // отображения, по видам которого считать (по умолчанию — лист данных записи).
 function geom(d, dispSheet) {
+  if (d.orient === 'dia') return null;   // выноска диаметра — см. diaGeom
   const view = viewOf(dispSheet || sheetOf(d), d.view);
   if (!view) return null;
   const pa = resolveAnchor(view, d.a);
@@ -483,6 +484,26 @@ function geom(d, dispSheet) {
     ? [Math.min(pa.sx, pb.sx), Math.max(pa.sx, pb.sx)]
     : [Math.min(pa.sy, pb.sy), Math.max(pa.sy, pb.sy)];
   return { orientation: orient, pa, pb, line, span, lenMM, view };
+}
+
+// Выноска диаметра отверстия (запись orient 'dia': a — центр отверстия, b = a,
+// lh/lv — положение конца выноски в мм от центра вдоль осей вида). Ставится
+// вторым щелчком по тому же отверстию. Возвращает экранную геометрию или null.
+function diaGeom(d, dispSheet) {
+  const view = viewOf(dispSheet || sheetOf(d), d.view);
+  if (!view || !d.a || d.a.kind !== 'holeCenter') return null;
+  const pa = resolveAnchor(view, d.a);
+  const row = findRow(view, d.a);
+  if (!pa || !row) return null;
+  const idx = holeIndexFor(row, d.a.local);
+  const dia = idx >= 0 ? Number(row.holes[idx].d) : NaN;
+  if (!isFinite(dia) || dia <= 0) return null;
+  return diaGeomAt(view, pa, dia, Number(d.lh) || 0, Number(d.lv) || 0);
+}
+function diaGeomAt(view, pa, dia, lh, lv) {
+  const ex = view.sx(pa.wh + lh), ey = view.sy(pa.wv + lv);
+  const rs = Math.abs(view.sx(pa.wh + dia / 2) - view.sx(pa.wh));   // радиус на экране
+  return { pa, dia, ex, ey, rs, label: 'Ø' + String(Math.round(dia * 10) / 10) };
 }
 
 // ---------------------------------------------------------------------------
@@ -771,6 +792,35 @@ function dimSVG(g) {
   return s;
 }
 
+// Выноска диаметра: стрелка на кромке отверстия, линия к концу, полка с
+// подписью «Ø8». Возвращает { svg, hit } — рисунок и невидимая зона щелчка.
+function diaSVG(g) {
+  const A = arrowSize();
+  let dx = g.ex - g.pa.sx, dy = g.ey - g.pa.sy;
+  const len = Math.hypot(dx, dy);
+  if (len < 1e-6) { dx = 1; dy = -1; }
+  const L = Math.hypot(dx, dy), ux = dx / L, uy = dy / L;      // от центра к концу
+  const tx = g.pa.sx + ux * g.rs, ty = g.pa.sy + uy * g.rs;    // точка на кромке
+  const ex = len < g.rs + 1 ? g.pa.sx + ux * (g.rs + 12) : g.ex;
+  const ey = len < g.rs + 1 ? g.pa.sy + uy * (g.rs + 12) : g.ey;
+  const lw = g.label.length * fontScale * 0.62 + 4;
+  const dir = ex >= tx ? 1 : -1;                                // полка уходит от отверстия
+  const sx2 = ex + dir * lw;
+  let s = lineSVG(tx, ty, ex, ey, 'dw-dim');
+  s += lineSVG(ex, ey, sx2, ey, 'dw-dim');
+  // Стрелка остриём в кромку (от конца выноски к отверстию).
+  s += `<polygon class="dw-arrow" points="${r2(tx)},${r2(ty)} `
+    + `${r2(tx + ux * A - uy * 1.2)},${r2(ty + uy * A + ux * 1.2)} `
+    + `${r2(tx + ux * A + uy * 1.2)},${r2(ty + uy * A - ux * 1.2)}"/>`;
+  s += `<text x="${r2((ex + sx2) / 2)}" y="${r2(ey - 2.5)}" class="dw-dt" text-anchor="middle"${fontAttr()}>${escTxt(g.label)}</text>`;
+  const hit = `<polyline points="${r2(tx)},${r2(ty)} ${r2(ex)},${r2(ey)} ${r2(sx2)},${r2(ey)}" class="mk-hit" fill="none" style="cursor:pointer"/>`;
+  const x0 = Math.min(tx, ex, sx2), x1 = Math.max(tx, ex, sx2);
+  const y0 = Math.min(ty, ey) - fontScale - 3, y1 = Math.max(ty, ey) + 3;
+  const ext = `<rect x="${r2(x0 - 3)}" y="${r2(y0)}" width="${r2(x1 - x0 + 6)}" height="${r2(y1 - y0)}"`
+    + ` fill="none" stroke="none" pointer-events="none" class="mk-ext"/>`;
+  return { svg: s, hit, ext };
+}
+
 function hitLineSVG(g) {
   return g.orientation === 'h'
     ? `<line x1="${r2(g.span[0])}" y1="${r2(g.line)}" x2="${r2(g.span[1])}" y2="${r2(g.line)}" class="mk-hit"/>`
@@ -812,9 +862,16 @@ function renderFinishedGroup(sheetId) {
   let out = '';
   for (const d of dims) {
     if (!shownOn(d, sheetId)) continue;
+    const cls = 'mk-dim' + (d.id === selectedId ? ' mk-dim-sel' : '');
+    if (d.orient === 'dia') {
+      const dg = diaGeom(d, sheetId);
+      if (!dg) continue;
+      const ds = diaSVG(dg);
+      out += `<g class="${cls}" data-mk-id="${d.id}">${ds.svg}${ds.hit}${ds.ext}</g>`;
+      continue;
+    }
     const g = geom(d, sheetId);
     if (!g) continue;
-    const cls = 'mk-dim' + (d.id === selectedId ? ' mk-dim-sel' : '');
     out += `<g class="${cls}" data-mk-id="${d.id}">${dimSVG(g)}${hitLineSVG(g)}${extentRectSVG(g)}</g>`;
   }
   return out;
@@ -827,6 +884,25 @@ function liveTargetSheet() {
   if (draft) return draft.sheet;
   if (hoverCandidate) return hoverCandidate.sheet;
   return hoverSheet;
+}
+
+// Второй щелчок по тому же отверстию, что и первый — ставим выноску диаметра.
+function isDiaPick(a, b) {
+  return !!a && !!b && a.kind === 'holeCenter' && sameAnchor(a, b);
+}
+// Положение конца выноски (мм от центра) по курсору.
+function updateLeaderDraft(mx, my) {
+  const view = viewOf(draft.sheet, draft.view);
+  const pa = view && resolveAnchor(view, draft.a);
+  if (!pa) return;
+  const kx = view.sx(1) - view.sx(0), ky = view.sy(1) - view.sy(0);
+  if (!kx || !ky) return;
+  draft.lh = Math.round(((mx - pa.sx) / kx) * 10) / 10;
+  draft.lv = Math.round(((my - pa.sy) / ky) * 10) / 10;
+}
+function diaPreview() {
+  const rec = { sheet: draft.data, view: draft.view, a: draft.a, orient: 'dia', lh: draft.lh, lv: draft.lv };
+  return diaGeom(rec, draft.sheet);
 }
 
 function renderLiveSVG(sheetId) {
@@ -862,9 +938,17 @@ function renderLiveSVG(sheetId) {
       }
       if (hoverCandidate && pa) {
         const pb = resolveAnchor(view, hoverCandidate.anchor);
-        const ok = pb && !sameAnchor(draft.a, hoverCandidate.anchor) && pairUsable(pa, pb);
+        // Тот же центр отверстия — выноска диаметра (второй щелчок по нему).
+        const ok = pb && (isDiaPick(draft.a, hoverCandidate.anchor)
+          || (!sameAnchor(draft.a, hoverCandidate.anchor) && pairUsable(pa, pb)));
         out += markerSVG(ok ? 'mk-hl mk-hl-ok' : 'mk-hl mk-hl-bad', hoverCandidate.sx, hoverCandidate.sy);
       }
+      return out;
+    }
+
+    if (draft.phase === 'pickLeader') {
+      const g = diaPreview();
+      if (g) out += `<g class="mk-draft">${diaSVG(g).svg}</g>`;
       return out;
     }
 
@@ -1033,6 +1117,7 @@ function onMove(evt) {
     lastMouse = { sx: p.x, sy: p.y };
     if (dragState) updateDrag(p.x, p.y);
     else if (draft.phase === 'pickOffset') updateOffsetDraft(p.x, p.y);
+    else if (draft.phase === 'pickLeader') updateLeaderDraft(p.x, p.y);
     else updateHover(busySheet, p.x, p.y);
     refreshLive();
     return;
@@ -1113,7 +1198,7 @@ function onClick(evt) {
   // Фаза выноса: щелчок засчитывается где угодно в области чертежей (вынос
   // можно увести за регион вида и даже за SVG листа — он ограничится рамкой
   // листа), координаты — в листе, где начата постановка.
-  if (draft && draft.phase === 'pickOffset') {
+  if (draft && (draft.phase === 'pickOffset' || draft.phase === 'pickLeader')) {
     const svg = sheetSvg(draft.sheet);
     if (!svg) { draft = null; refreshLive(); return; }
     // Область листа: вкладка чертежей, окно редактора детали или любой
@@ -1122,11 +1207,19 @@ function onClick(evt) {
     if (!svg.contains(evt.target) && !(pane && pane.contains(evt.target))) return;
     const p = svgPoint(svg, evt);
     if (!p) return;
-    updateOffsetDraft(p.x, p.y);
-    if (!draft.orient) return;
-    const rec = { id: nextId++, sheet: dataKey(draft.sheet), view: draft.view,
-      a: draft.a, b: draft.b, orient: draft.orient, offset: draft.offset || 0 };
-    if (!geom(rec, draft.sheet)) { nextId--; return; }   // нулевой размер не создаём
+    let rec;
+    if (draft.phase === 'pickLeader') {
+      updateLeaderDraft(p.x, p.y);
+      rec = { id: nextId++, sheet: dataKey(draft.sheet), view: draft.view,
+        a: draft.a, b: draft.a, orient: 'dia', lh: draft.lh || 0, lv: draft.lv || 0 };
+      if (!diaGeom(rec, draft.sheet)) { nextId--; return; }
+    } else {
+      updateOffsetDraft(p.x, p.y);
+      if (!draft.orient) return;
+      rec = { id: nextId++, sheet: dataKey(draft.sheet), view: draft.view,
+        a: draft.a, b: draft.b, orient: draft.orient, offset: draft.offset || 0 };
+      if (!geom(rec, draft.sheet)) { nextId--; return; }   // нулевой размер не создаём
+    }
     const sheetId = draft.sheet;
     dims.push(rec);
     draft = null;
@@ -1180,6 +1273,15 @@ function onClick(evt) {
       cand = nearestCandidate(view, p.x, p.y, draft.a);
     }
     if (!cand) return;
+    if (isDiaPick(draft.a, cand.anchor)) {
+      // Повторный щелчок по тому же отверстию — выноска диаметра.
+      draft.phase = 'pickLeader';
+      draft.lh = 0; draft.lv = 0;
+      updateLeaderDraft(p.x, p.y);
+      hoverCandidate = null; shiftGuide = null;
+      refreshLive();
+      return;
+    }
     if (sameAnchor(draft.a, cand.anchor)) return;
     const pb = resolveAnchor(view, cand.anchor);
     if (!pb || !pairUsable(pa, pb)) return;
@@ -1334,7 +1436,14 @@ function setData(list) {
     if (id) used.add(id);
     const sheet = (typeof d.sheet === 'string' && d.sheet) ? d.sheet : OVERVIEW;
     const rec = { id, sheet, view: d.view, a, b };
-    if (d.orient === 'h' || d.orient === 'v') {
+    if (d.orient === 'dia') {
+      if (a.kind !== 'holeCenter') continue;
+      rec.orient = 'dia';
+      rec.b = a;
+      const lh = Number(d.lh), lv = Number(d.lv);
+      rec.lh = isFinite(lh) ? clamp(lh, -MAX_OFFSET_MM, MAX_OFFSET_MM) : 0;
+      rec.lv = isFinite(lv) ? clamp(lv, -MAX_OFFSET_MM, MAX_OFFSET_MM) : 0;
+    } else if (d.orient === 'h' || d.orient === 'v') {
       rec.orient = d.orient;
       const o = Number(d.offset);
       rec.offset = isFinite(o) ? clamp(o, -MAX_OFFSET_MM, MAX_OFFSET_MM) : 0;
@@ -1390,7 +1499,7 @@ function count() {
       // Отверстия на этом виде сейчас не рисуются — судить по нему нельзя.
       if (view.noHoles && (d.a.kind === 'holeCenter' || d.b.kind === 'holeCenter')) continue;
       covered = true;
-      if (geom(d, id)) { seen = true; break; }
+      if (d.orient === 'dia' ? diaGeom(d, id) : geom(d, id)) { seen = true; break; }
     }
     if (seen) { n++; continue; }
     if (covered) continue;
@@ -1542,6 +1651,7 @@ function refreshSheet(sheetId, opts) {
   if (active && lastMouse && !dragState) {
     if (draft && draft.sheet === sheetId) {
       if (draft.phase === 'pickOffset') updateOffsetDraft(lastMouse.sx, lastMouse.sy);
+      else if (draft.phase === 'pickLeader') updateLeaderDraft(lastMouse.sx, lastMouse.sy);
       else updateHover(sheetId, lastMouse.sx, lastMouse.sy);
     } else if (!draft && hoverSheet === sheetId) {
       updateHover(sheetId, lastMouse.sx, lastMouse.sy);
