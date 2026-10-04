@@ -2632,6 +2632,7 @@ class SimpleOrbitControl {
       const dx = e.clientX - this._lastX;
       const dy = e.clientY - this._lastY;
       this.moved += Math.abs(dx) + Math.abs(dy);
+      this.userMoved = true;
       this._lastX = e.clientX;
       this._lastY = e.clientY;
       if (this.mode === 'rotate') {
@@ -2663,6 +2664,7 @@ class SimpleOrbitControl {
     this.dom.addEventListener('wheel', (e) => {
       e.preventDefault();
       const k = 1 + e.deltaY * 0.001;
+      this.userMoved = true;
       const pt = this.zoomPointProvider ? this.zoomPointProvider(e) : null;
       this._zoomBy(k, pt);
       this.update();
@@ -2704,6 +2706,7 @@ class SimpleOrbitControl {
     // предыдущего кадра.
     this.pan(midX - this._pinchMidX, midY - this._pinchMidY);
 
+    this.userMoved = true;
     this.moved += Math.abs(dist - this._pinchDist) + Math.abs(midX - this._pinchMidX) + Math.abs(midY - this._pinchMidY);
     this._pinchDist = dist;
     this._pinchMidX = midX;
@@ -2713,6 +2716,7 @@ class SimpleOrbitControl {
 
   /** Общий шаг масштабирования (используется и колесом мыши, и pinch-зумом). */
   _zoomBy(k, pt) {
+    this.userMoved = true;
     const newR = Math.max(0.15, Math.min(60, this.radius * k));
     if (pt && k < 1) {
       // приближение — тянем цель к точке под курсором/пальцами пропорционально шагу
@@ -2729,6 +2733,7 @@ class SimpleOrbitControl {
    * считается по текущему зуму, чтобы модель шла ровно за курсором.
    */
   pan(dx, dy) {
+    this.userMoved = true;
     const cam = this.camera, el = this.dom;
     const h = el.clientHeight || 1;
     const worldPerPx = cam.isOrthographicCamera
@@ -3652,6 +3657,8 @@ class Viewer3D {
     if (!(v > 0)) v = 0;
     if (v === this._inset) return;
     this._inset = v;
+    // Кадр под лист поставил вьювер — дальше он остаётся на месте при любых правках модели.
+    this.controls.userMoved = true;
 
     // Закрытие листа (v = 0; сюда попадаем только после открытого, повторный 0
     // отсеян выше — без нижней панели событий нет): вписываем ВСЮ композицию в весь
@@ -4910,8 +4917,13 @@ class Viewer3D {
     this._markupSetScene(model, source, hideFacades, isolateModule, xray || drillCheck, drillCheck, mkClearRows);
     const key = `${W}|${H}|${D}`;
     if (key !== this._fitKey) {
+      const hadFit = this._fitKey != null;
       this._fitKey = key;
-      if (this._inset > 0) {
+      // Пользователь уже двигал камеру — смена габарита композиции (например,
+      // поворот модуля) её не сдвигает: камера остаётся на месте.
+      if (hadFit && this.controls.userMoved) {
+        // камеру не трогаем
+      } else if (this._inset > 0) {
         // Открыт нижний лист (телефон): новый габарит композиции подгоняем
         // под видимую над ним часть, углы обзора сохраняются.
         this._refitInset();

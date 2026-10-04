@@ -14,7 +14,7 @@
 (function () {
 // Версия сборки — показывается во вкладке браузера и в шапке.
 // При выпуске новой версии меняется только эта строка.
-const APP_VERSION = 'v346';
+const APP_VERSION = 'v347';
 
 // Номер версии выводим ПЕРВЫМ делом: если дальше что-то упадёт, по нему сразу
 // видно, какая сборка открыта.
@@ -14379,9 +14379,26 @@ const ROTATIONS = [
 function rotateModule(moduleName, deg) {
   const mod = state.modules.find((m) => m.name === moduleName);
   if (!mod) return;
+  const centerOf = () => {
+    const m = currentModel && (currentModel.modules || []).find((x) => x.name === moduleName);
+    return m && Number.isFinite(m.offsetX) && Number.isFinite(m.offsetZ) ? m : null;
+  };
+  const before = centerOf();
   mod.rotation = Number(deg) || 0;
   renderParamsPanel();
   recompute();
+  // Раскладка ряда центрируется по его длине, а поворот меняет габарит модуля
+  // — весь ряд сдвигается относительно сцены, и модуль «уезжает» из кадра.
+  // Сдвигаем цель камеры на тот же вектор: повёрнутый модуль остаётся на
+  // том же месте экрана, масштаб и углы обзора не меняются.
+  const after = centerOf();
+  const v = window.Modul3D && window.Modul3D.viewer && window.Modul3D.viewer.current;
+  const c = v && v.controls;
+  if (before && after && c && c.target) {
+    c.target.x += (after.offsetX - before.offsetX) / 1000;
+    c.target.z += (after.offsetZ - before.offsetZ) / 1000;
+    c.update();
+  }
 }
 
 // Поворот «на шаг» — одна кнопка в HUD (см. ui-shell.js) вместо трёх
