@@ -388,6 +388,10 @@ function resolveAnchor(view, anchor) {
     if (idx < 0) return null;
     const res = holeScreen(view, row, idx);
     if (!res) return null;
+    if (anchor.local.end) {            // дно отверстия (только 3D-оверлей)
+      const e = res.end;
+      return e ? { sx: e.x, sy: e.y, wh: e.wh, wv: e.wv } : null;
+    }
     return { sx: res.x, sy: res.y, wh: res.wh, wv: res.wv };
   }
   const fr = rowFrame(view, row);
@@ -520,6 +524,12 @@ function holeCandidates(view, row, fn) {
     // Диаметр кладём только если он есть: NaN в hd сломал бы поиск в holeIndexFor.
     if (isFinite(Number(h0.d))) local.hd = Number(h0.d);
     fn(anchorOf(row, 'holeCenter', local), pos.x, pos.y, row, pos.wh, pos.wv);
+    // Дно отверстия: на виде сбоку оно отдельная точка (глубина = устье → дно).
+    // Если отверстие смотрит на зрителя, дно проецируется в то же место — не дублируем.
+    const e = pos.end;
+    if (e && (Math.abs(e.wh - pos.wh) >= ALIGN_EPS || Math.abs(e.wv - pos.wv) >= ALIGN_EPS)) {
+      fn(anchorOf(row, 'holeCenter', Object.assign({ end: 1 }, local)), e.x, e.y, row, e.wh, e.wv);
+    }
   }
 }
 
@@ -888,7 +898,7 @@ function liveTargetSheet() {
 
 // Второй щелчок по тому же отверстию, что и первый — ставим выноску диаметра.
 function isDiaPick(a, b) {
-  return !!a && !!b && a.kind === 'holeCenter' && sameAnchor(a, b);
+  return !!a && !!b && a.kind === 'holeCenter' && !a.local.end && sameAnchor(a, b);
 }
 // Положение конца выноски (мм от центра) по курсору.
 function updateLeaderDraft(mx, my) {
@@ -1414,6 +1424,7 @@ function cleanAnchor(a) {
       const v = Number(a.local[k]);
       if (a.local[k] != null && isFinite(v)) local[k] = v;
     }
+    if (a.local.end) local.end = 1;
   } else {
     const h = Number(a.local.h), v = Number(a.local.v);
     if (!isFinite(h) || !isFinite(v)) return null;

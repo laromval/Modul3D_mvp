@@ -4127,6 +4127,18 @@ class Viewer3D {
       // Центры отверстий — только при «Проверке присадки»; экранные
       // координаты считает drawings.resolveHoleScreen (ядро само его зовёт).
       noHoles: !(this._mkDrill || xray),
+      // Отверстие на ЛЮБОМ ортогональном виде: устье (x, y, wh, wv) и дно
+      // (end) — проекция мировых точек из render(). На виде «в лицо» они
+      // совпадают, на виде сбоку — концы полоски отверстия.
+      holeScreen: (row, i) => {
+        const g = this._mkHoleGeo && this._mkHoleGeo.get(row);
+        const p = g && g[i];
+        if (!p) return null;
+        const pt = (q) => ({ x: sx(q[H]), y: sy(q[V]), wh: q[H], wv: q[V] });
+        const m = pt(p.m);
+        m.end = pt(p.e);
+        return m;
+      },
       pickFilter, depthOf,
       // Вынос размерной линии за габаритом деталей вида — в постоянных
       // экранных px от края габарита (зазор от края изделия не зависит от
@@ -4353,6 +4365,7 @@ class Viewer3D {
       if (!hasFacade) sectionHiBounds = this._computeSectionHiBounds(source, sectionHi, targetZoneIndex);
     }
     const mkClearRows = new Set();   // полупрозрачные детали — для _markupSetScene
+    const mkHoleGeo = new Map();     // деталь → [{устье, дно}] отверстий в мировых мм (разметка 3D)
     for (const row of source) {
       // «Скрыть фасады»: сам фасад остаётся, но становится полупрозрачным —
       // видно и наполнение корпуса, и присадку на фасаде. Ручки при этом
@@ -4781,6 +4794,43 @@ class Viewer3D {
           field.position.z = box.d / 2 * MM - depth / 2;   // утоплено внутрь
           mesh.add(field);
         }
+        // РАЗМЕТКА В 3D: устье и дно каждого отверстия в мировых мм — для
+        // привязки с любого ортогонального вида (на виде сбоку отверстие
+        // видно полоской: устье и дно — её концы). Формулы положения те же,
+        // что у меток присадки ниже. Считаем только для первого бокса детали
+        // (разметка работает по boxes[0]) и только в прозрачном режиме.
+        if ((xray || drillCheck) && box === row.boxes[0] && (row.holes || []).length) {
+          const cosR = Math.cos((rotDeg * Math.PI) / 180), sinR = Math.sin((rotDeg * Math.PI) / 180);
+          const geo = [];
+          for (const h of row.holes) {
+            const u = toU(h), v = toV(h);
+            const uc = u - uSize / 2, vc = v - vSize / 2;
+            let pm, pe;           // локальные точки устья и дна, мм
+            if (h.side === 'edge') {
+              const ed = edgeDrill(u, v, uSize, vSize, h.depth);
+              const sgn = ed.atStart ? 1 : -1;      // от кромки вглубь детали
+              const a0 = (ed.alongU ? (ed.atStart ? -uSize / 2 : uSize / 2) : (ed.atStart ? -vSize / 2 : vSize / 2));
+              const tzv = Number.isFinite(h.tz) ? h.tz : 0;
+              const loc = (p) => (planeIsX ? [tzv, p[1], p[0]] : (planeIsY ? [p[0], tzv, p[1]] : [p[0], p[1], tzv]));
+              pm = loc(ed.alongU ? [a0, ed.vPos] : [ed.uPos, a0]);
+              pe = loc(ed.alongU ? [a0 + sgn * ed.len, ed.vPos] : [ed.uPos, a0 + sgn * ed.len]);
+            } else {
+              const fromFront = h.side === 'back' ? !frontIsPlus : frontIsPlus;
+              const s = fromFront ? 1 : -1;
+              const dep = Math.min(h.through ? tSize : Math.max(h.depth || 6, 4), tSize);
+              const loc = (a) => (planeIsX ? [a, vc, uc] : (planeIsY ? [uc, a, vc] : [uc, vc, a]));
+              pm = loc(s * tSize / 2); pe = loc(s * (tSize / 2 - dep));
+            }
+            // локальная точка → мировая: поворот вокруг Y на rotDeg (как у mesh) + позиция бокса
+            const w = (p) => ({
+              x: box.x + p[0] * cosR + p[2] * sinR,
+              y: box.y + p[1],
+              z: box.z - p[0] * sinR + p[2] * cosR,
+            });
+            geo.push({ m: w(pm), e: w(pe) });
+          }
+          mkHoleGeo.set(row, geo);
+        }
         // РЕЖИМ ПРОВЕРКИ: в каждое отверстие вставляем цветной штырь по его
         // оси и на его глубину. Корпус при этом полупрозрачный, поэтому
         // видно и присадку внутри детали, и с какой стороны она сделана.
@@ -4958,6 +5008,7 @@ class Viewer3D {
     // Детали, реально нарисованные в сцене, — для разметки поверх плоских
     // видов (те же правила пропуска, что в цикле выше: изоляция, ручки при
     // «Скрыть фасады»). Оверлей перестроится на ближайшем кадре.
+    this._mkHoleGeo = mkHoleGeo;
     this._markupSetScene(model, source, hideFacades, isolateModule, xray || drillCheck, drillCheck, mkClearRows);
     // Число модулей в композиции изменилось (добавили/удалили модуль) — плавно
     // вписываем ВСЕ модули в кадр (отъезд при добавлении, приближение при
