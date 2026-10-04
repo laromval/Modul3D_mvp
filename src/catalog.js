@@ -119,7 +119,7 @@
   },
   {
     "code": "LINK-1790200284959",
-    "name": "8681 SM Белый бриллиант",
+    "name": "ЛДСП 8681 SM Белый бриллиант (16)",
     "unit": "м²",
     "image": "https://mobilier.md/image/cache/catalog/products/18991/8526b8dd515310160ceca6c00fb308ab-768x1090.png",
     "sheetH": 2070,
@@ -201,7 +201,7 @@
   },
   {
     "code": "LINK-1790623797766",
-    "name": "0110 SM Белый",
+    "name": "ЛДСП 0110 SM Белый (16)",
     "unit": "м²",
     "image": "https://mobilier.md/image/cache/catalog/products/24921/26476d5b2d8bf3739df02fd5e80d4b0c-1200x1800.png",
     "sheetH": 2070,
@@ -365,7 +365,7 @@
   },
   {
     "code": "LINK-1791048957049",
-    "name": "Дсп K351 RT Ржавый камень (18)",
+    "name": "Дсп K351 RT Ржавый камень",
     "unit": "м²",
     "image": "https://mobilier.md/image/cache/catalog/products/25044/093a159b2dffe79bf83bdc4b88a9c4e2-960x1440.png",
     "sheetH": 2070,
