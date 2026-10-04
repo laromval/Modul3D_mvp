@@ -979,13 +979,27 @@ for (const sys of ['ballBearing', 'quadro', 'tandembox', 'legrabox']) {
   const sb = side.boxes[0];
   const run = side.holes.filter((h) => h.kind === 'drawerRunner');
   const boxes = model.partsRaw.filter((p) => /Дно ящика/.test(p.name));
-  if (run.length !== boxes.length * 2) {
+  // Quadro и GTV сверлятся по таблице производителя (3–5 точек на короб),
+  // остальные системы — двумя точками 37 и 37+224
+  const perBox = (sys === 'ballBearing' || sys === 'quadro') ? run.length / boxes.length : 2;
+  if (!boxes.length || run.length !== boxes.length * perBox || perBox < 2) {
     problems.push(`направляющие ${sys}: отверстий ${run.length} на ${boxes.length} коробов`);
   }
-  // первое отверстие в 37 мм от переднего края, второе кратно 32 дальше
+  // первое отверстие в 37 мм от переднего края; шаг кратен 32, кроме
+  // Quadro NL250 (b1 = 142 по таблице Hettich)
   const fronts = [...new Set(run.map((h) => Math.round(sb.d - h.y)))].sort((a, b) => a - b);
   if (fronts[0] !== 37) problems.push(`направляющие ${sys}: первое отверстие в ${fronts[0]} мм вместо 37`);
-  if (fronts.some((f) => (f - 37) % 32 !== 0)) problems.push(`направляющие ${sys}: шаг не кратен 32`);
+  if (sys !== 'quadro' && fronts.some((f) => (f - 37) % 32 !== 0)) problems.push(`направляющие ${sys}: шаг не кратен 32`);
+  // точки по таблицам производителя (NL — длина боковины ящика)
+  if (sys === 'ballBearing' || sys === 'quadro') {
+    const cat = window.Modul3D.catalog;
+    const ds = cat.DRAWER_SYSTEMS[sys];
+    const sideBox = model.partsRaw.filter((p) => p.kind === 'drawerSide')[0];
+    const nlUsed = sideBox ? Math.round(sideBox.length) : 0;
+    const want = ds.cabinetHoles(nlUsed).filter((v) => sb.d - v >= 6);
+    const got = [...new Set(run.map((h) => Math.round(sb.d - h.y)))].sort((a, b) => a - b);
+    if (want.join() !== got.join()) problems.push(`направляющие ${sys}: точки ${got} вместо ${want} (NL ${nlUsed})`);
+  }
   // каждая отметка направляющей должна попадать в высоту своего короба
   const ys = [...new Set(run.map((h) => sb.y - sb.h / 2 + h.x))];
   for (const y of ys) {

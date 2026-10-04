@@ -568,6 +568,7 @@ function buildDrawerBoxes(o) {
     if (o.runnerYs) {
       o.runnerYs.push(round1(y + (sys.metal ? 20 : (hiddenRunner ? BOT / 2 : BOT + hh.h / 2))));
     }
+    if (o.runnerNLs) o.runnerNLs.push(NL);
 
     if (sys.metal) {
       const b = sys.bottom(o.sectionOpening, NL, sys, o.t);
@@ -648,8 +649,12 @@ function buildDrawerBoxes(o) {
         // нет вовсе: направляющая живёт под дном, и короб крепится к ней
         // снизу. У боковых (шариковых) планка идёт по боковине.
         if (!hiddenRunner) {
-          for (const rx of [37, 37 + 224].filter((v) => v < NL - 20)) {
-            holes.push({ x: round1(rx), y: runY, d: RUN_D, depth: RUN_DEPTH,
+          // Позиции — от ПЕРЕДНЕГО торца боковины ящика по схеме производителя
+          // (sys.boxHoles, GTV: 36 мм до первого, дальше шаг зависит от NL).
+          // Локальный x детали отсчитывается от ЗАДНЕГО торца, поэтому NL − pos.
+          const boxPos = sys.boxHoles ? sys.boxHoles(NL) : [36, 36 + 224];
+          for (const fp of boxPos.filter((v) => v < NL - 20)) {
+            holes.push({ x: round1(NL - fp), y: runY, d: RUN_D, depth: RUN_DEPTH,
                          through: false, side: 'back', kind: 'drawerRunner' });
           }
         }
@@ -3618,6 +3623,7 @@ function buildModuleParts(p) {
 
     // Детали самих ящиков по формулам выбранной системы
     const runnerYs = [];
+    const runnerNLs = [];
     const boxInfo = [];
     if (drawerHeights.length) {
       // Материал/толщина ящиков — по умолчанию проектные (drawerDecor/drawerT),
@@ -3636,7 +3642,7 @@ function buildModuleParts(p) {
         facadeBaseY: baseH, gap,
         drawerDecor: secDrawerDecor, drawerT: secDrawerT,
         baseY: drawerBaseY, innerTopY: innerBottomY + innerH,
-        runnerYs,
+        runnerYs, runnerNLs,
       });
       // Направляющие крепятся по фактическим отметкам построенных коробов:
       // если короб не построен (не влез), то и присадки под него быть не должно.
@@ -3653,10 +3659,12 @@ function buildModuleParts(p) {
             + `монтажный зазор EB и присадка Atira посчитаны по толщине корпуса ${t} мм — сверьте с каталогом Hettich.`);
         }
       }
-      for (const ry of runnerYs) {
-        drawerMounts.push({ y: ry, panels: [panelLX(i), panelRX(i)],
+      runnerYs.forEach((ry, ri) => {
+        drawerMounts.push({ y: ry, panels: [panelLX(i), panelRX(i)], cx: secCenterX,
+          nl: runnerNLs[ri], cabinetHoles: drawSys && drawSys.cabinetHoles,
+          altShift: drawSys && drawSys.altHoleShift,
           cabinetPin: drawSys && drawSys.cabinetPin });
-      }
+      });
       if (infoRowBox) infoRowBox.boxes = boxInfo;
     }
 
@@ -4232,19 +4240,40 @@ function buildModuleParts(p) {
   // Отступ первого отверстия от переднего края — 37 мм, второе на 224 мм
   // дальше (кратно 32 — система присадки 32 мм).
   const RUN_FRONT = 37, RUN_STEP = 224;
+  // Сторона сверления: пласть панели, обращённая К СВОЕЙ секции. 'front'
+  // у боковины/стойки — пласть к центру модуля (x=0), поэтому у левой
+  // половины секция справа от панели → 'front', слева → 'back'; у правой —
+  // наоборот. Раньше всегда 'front': на стойке между двумя секциями оба
+  // ряда ложились на одну пласть.
+  const runnerSide = (px, cx) => ((cx > px) === (px < 0) ? 'front' : 'back');
   for (const d of drawerMounts) {
+    // Точки крепления профиля — от переднего края панели. У Quadro и GTV они
+    // берутся из таблицы производителя (sys.cabinetHoles(NL)); у остальных —
+    // прежние две точки 37 и 37+224.
+    const pts = (d.cabinetHoles && Number.isFinite(d.nl)) ? d.cabinetHoles(d.nl)
+      : [RUN_FRONT, RUN_FRONT + RUN_STEP];
     for (const px of d.panels) {
       const panel = panelAt(px);
       if (!panel) continue;
       const localX = d.y - (panel.box.y - panel.box.h / 2);
       const frontY = panel.box.d;
-      drillPanel(px, localX, frontY - RUN_FRONT, { kind: 'drawerRunner' });
-      drillPanel(px, localX, frontY - RUN_FRONT - RUN_STEP, { kind: 'drawerRunner' });
+      const side = runnerSide(px, d.cx);
+      // СТОЙКА МЕЖДУ СЕКЦИЯМИ: ряды двух сторон не должны попасть в одни и те
+      // же точки (отверстия встретились бы в толще плиты). Секция справа от
+      // стойки сверлится в СОСЕДНИХ отверстиях профиля — сдвиг altHoleShift
+      // (Quadro: соседнее отверстие профиля, шаг 9 мм по чертежу Hettich; GTV: второе отверстие
+      // слота, 15 мм) назад по глубине.
+      const alt = panel.kind === 'divider' && d.cx > px;
+      const shift = (alt && d.altShift) || 0;
+      for (const fp of pts) {
+        if (frontY - fp - shift < 6) continue;
+        drillPanel(px, localX, frontY - fp - shift, { kind: 'drawerRunner', side });
+      }
       // Передний ШТИФТ направляющей: Ø6×11 в боковине корпуса, ось в 10 мм
       // от переднего края панели, на высоте профиля.
       if (d.cabinetPin) {
         drillPanel(px, localX, round1(frontY - d.cabinetPin.fromFront), {
-          d: d.cabinetPin.d, depth: d.cabinetPin.depth, kind: 'runnerPinCabinet',
+          d: d.cabinetPin.d, depth: d.cabinetPin.depth, kind: 'runnerPinCabinet', side,
         });
       }
     }
