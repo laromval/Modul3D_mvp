@@ -169,10 +169,10 @@ const PRESETS = [
         id: 'lower600',
         tier: 'lower',
         name: 'Нижний 600 с полкой',
-        note: '600×820×510 · корпус 720, опоры 100 с цоколем, дверь и полка',
+        note: '600×820×520 · корпус 720, опоры 100 с цоколем, дверь и полка',
         make: () => mod({
           family: 'kitchen',
-          name: 'Нижний 600', width: 600, height: 820, depth: 510,
+          name: 'Нижний 600', width: 600, height: 820, depth: 520,
           baseType: 'legsPlinth', legHeight: 100,
           leftSide: 'onBottom', rightSide: 'onBottom', topType: 'rails',
           sections: [sec({ handle: 'bow160', facade: 'doorLeft', shelves: 1 })],
@@ -182,10 +182,10 @@ const PRESETS = [
         id: 'lower600drawers',
         tier: 'lower',
         name: 'Нижний 600 с ящиками',
-        note: '600×820×510 · три ящика, опоры с цоколем',
+        note: '600×820×520 · три ящика, опоры с цоколем',
         make: () => mod({
           family: 'kitchen',
-          name: 'Нижний 600 ящики', width: 600, height: 820, depth: 510,
+          name: 'Нижний 600 ящики', width: 600, height: 820, depth: 520,
           baseType: 'legsPlinth', legHeight: 100,
           leftSide: 'onBottom', rightSide: 'onBottom', topType: 'rails',
           sections: [sec({ handle: 'bow160', facade: 'open', drawers: 3 })],
@@ -195,10 +195,10 @@ const PRESETS = [
         id: 'sink800',
         tier: 'lower',
         name: 'Нижний 800 под мойку',
-        note: '800×820×510 · две двери, без полок, опоры с цоколем',
+        note: '800×820×520 · две двери, без полок, опоры с цоколем',
         make: () => mod({
           family: 'kitchen',
-          name: 'Мойка 800', width: 800, height: 820, depth: 510,
+          name: 'Мойка 800', width: 800, height: 820, depth: 520,
           baseType: 'legsPlinth', legHeight: 100,
           leftSide: 'onBottom', rightSide: 'onBottom', topType: 'rails',
           sections: [sec({ handle: 'bow160', facade: 'doors2', shelves: 0 })],
@@ -208,14 +208,14 @@ const PRESETS = [
         id: 'cornerLower',
         tier: 'lower',
         name: 'Нижний угловой (поворот ряда)',
-        note: '1000×820×510 · фасад 400, опоры с цоколем, дальше ряд под 90°',
+        note: '1000×820×520 · фасад 400, опоры с цоколем, дальше ряд под 90°',
         // Стандартный угловой стык: корпус 1000 по стене, свободный фронт
         // 1000 − 560 = 440 мм под фасад 400, остальное закрывает боковина
         // первого модуля перпендикулярного ряда. Полку не ставим: пролёт
         // 966 мм из ЛДСП 16 мм прогибается, внутрь ставят карусель.
         make: () => mod({
           family: 'kitchen',
-          name: 'Угловой нижний', width: 1000, height: 820, depth: 510,
+          name: 'Угловой нижний', width: 1000, height: 820, depth: 520,
           baseType: 'legsPlinth', legHeight: 100,
           leftSide: 'onBottom', rightSide: 'onBottom', topType: 'rails', corner: true,
           sections: [sec({ handle: 'bow160', facade: 'doorLeft', facadeWidth: 400, shelves: 0 })],
@@ -225,11 +225,11 @@ const PRESETS = [
         id: 'cornerSink',
         tier: 'lower',
         name: 'Нижний угловой под мойку',
-        note: '984×820×510 · заглушка по глубине соседа, фасад по остатку, планки НА РЕБРО, без задней стенки — '
+        note: '984×820×520 · заглушка по глубине соседа, фасад по остатку, планки НА РЕБРО, без задней стенки — '
           + 'сверху встаёт мойка, сзади проходят коммуникации',
         make: () => mod({
           family: 'kitchen',
-          name: 'Угловой мойка', width: 984, height: 820, depth: 510,
+          name: 'Угловой мойка', width: 984, height: 820, depth: 520,
           baseType: 'legsPlinth', legHeight: 100,
           leftSide: 'onBottom', rightSide: 'onBottom',
           // Планки на ребро: плашмя они съедают 100 мм проёма и чаша мойки
@@ -246,10 +246,10 @@ const PRESETS = [
         // нижний ярус — по этой логике он в группе «нижние», а не отдельно.
         tier: 'lower',
         name: 'Пенал 600',
-        note: '600×2140×510 · во всю высоту гарнитура, четыре полки',
+        note: '600×2140×520 · во всю высоту гарнитура, четыре полки',
         make: () => mod({
           family: 'kitchen',
-          name: 'Пенал 600', width: 600, height: 2140, depth: 510,
+          name: 'Пенал 600', width: 600, height: 2140, depth: 520,
           baseType: 'legsPlinth', legHeight: 100,
           leftSide: 'onBottom', rightSide: 'onBottom',
           sections: [sec({ handle: 'bow160', facade: 'doorLeft', shelves: 4 })],

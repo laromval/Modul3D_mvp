@@ -2958,12 +2958,15 @@ for (const glass of [false, true]) {
     const bots = model.partsRaw.filter((p) => p.kind === 'drawerBottom').map((p) => p.boxes[0]);
     const sides = model.partsRaw.filter((p) => p.kind === 'drawerSide').map((p) => p.boxes[0]);
     if (!runY.length) { problems.push(`${sys}: нет присадки направляющей в боковине корпуса`); continue; }
+    // Quadro: ось шурупа первого ящика — 42 мм над внутренним дном корпуса
+    // (37 от низа профиля + 5 мм зазор), дальше — вместе с ящиками
+    const floorBox = model.partsRaw.filter((p) => p.kind === 'bottom')[0].boxes[0];
+    const floorTop = floorBox.y + floorBox.h / 2;
+    if (where === 'bottom' && Math.abs(Math.min.apply(null, runY) - floorTop - 42) > 0.6) {
+      problems.push(`quadro: первый шуруп направляющей на ${Math.round(Math.min.apply(null, runY) - floorTop)} мм над дном корпуса вместо 42`);
+    }
     for (const ry of runY) {
-      const nearBottom = bots.some((b) => Math.abs(ry - b.y) < 20);
       const nearSideMid = sides.some((b) => Math.abs(ry - b.y) < 25);
-      if (where === 'bottom' && !nearBottom) {
-        problems.push(`quadro: профиль направляющей на высоте ${Math.round(ry)} — не под дном короба`);
-      }
       if (where === 'side' && !nearSideMid) {
         problems.push(`${sys}: профиль направляющей не по середине боковины короба`);
       }
@@ -3354,15 +3357,10 @@ for (const glass of [false, true]) {
         }
       }
     }
-    // Передний штифт направляющей — Ø6×11 в боковине КОРПУСА, 10 мм от края
+    // В боковине корпуса штифта нет: Ø6 сверлится в торец дна ящика (runnerPinRear)
     const cabSide = model.partsRaw.filter((p) => p.kind === 'side')[0];
-    const cp = (cabSide.holes || []).filter((h) => h.kind === 'runnerPinCabinet');
-    if (!cp.length) problems.push('надвижной Quadro: в боковине корпуса нет Ø6×11 под штифт');
-    for (const h of cp) {
-      if (h.d !== 6 || h.depth !== 11) problems.push(`штифт в боковине Ø${h.d}×${h.depth} вместо Ø6×11`);
-      if (Math.abs((cabSide.width - h.y) - 10) > 0.6) {
-        problems.push(`штифт в боковине: ${cabSide.width - h.y} мм от переднего края вместо 10`);
-      }
+    if ((cabSide.holes || []).some((h) => h.kind === 'runnerPinCabinet')) {
+      problems.push('надвижной Quadro: в боковине корпуса не должно быть штифта Ø6');
     }
     // ПЕРЕДНИЙ ФИКСАТОР крепится К ДНУ СНИЗУ: 2 шурупа 2,5×12 на сторону,
     // оси 26 и 48 мм от ПЕРЕДНЕГО края дна.
@@ -3398,6 +3396,10 @@ for (const glass of [false, true]) {
       if (h.side !== 'edge') problems.push('надвижной Quadro: зацеп сверлится не в торец дна');
       if (Math.abs(Math.min(h.y, bot.width - h.y) - 7) > 0.6) {
         problems.push(`надвижной Quadro: зацеп в ${h.y} мм от кромки вместо 7`);
+      }
+      // ось — в 11 мм от НИЖНЕЙ грани дна (tz считается от середины толщины вверх)
+      if (Math.abs((h.tz + bot.thickness / 2) - 11) > 0.1) {
+        problems.push(`надвижной Quadro: ось зацепа в ${h.tz + bot.thickness / 2} мм от низа дна вместо 11`);
       }
     }
 

@@ -463,6 +463,13 @@ function buildDrawerBoxes(o) {
   const botChip = sys.bottom === 'chipboard';
   const botMat = botChip ? o.drawerDecor : o.back;
   const BOT = sys.metal ? o.drawerT : (botChip ? o.drawerT : o.backT);
+  // ВЫСОТА КОРОБА над его нижней отметкой. У обычного короба дно лежит ПОД
+  // стенками, и полная высота = дно + стенка. У надвижного (boxStyle 'ledge')
+  // боковины опущены ниже дна и дно стоит МЕЖДУ ними — полная высота равна
+  // самой боковине, дно в неё входит. Раньше дно прибавлялось всегда, и у
+  // Quadro надвижного короб выходил на 16 мм ниже, чем помещается (верхний
+  // ящик 150 вместо 160 при просвете до планок 38 мм).
+  const BOT_ABOVE = sys.boxStyle === 'ledge' ? 0 : BOT;
 
   // Короб прилегает передней плоскостью к фасаду: он не «висит» посреди
   // корпуса, а придвинут вперёд — именно так фасад к нему и крепится.
@@ -511,17 +518,17 @@ function buildDrawerBoxes(o) {
         o.warnings.push(`${o.secName}, ящик ${i + 1}: для царги ${picked.code} нужен фасад `
           + `не ниже ${picked.minFront} мм, а он ${Math.round(frontH)} мм.`);
       }
-      if (BOT + picked.h > availTop) {
+      if (BOT_ABOVE + picked.h > availTop) {
         o.warnings.push(`${o.secName}, ящик ${i + 1}: короб ${picked.code} не помещается `
-          + `по высоте — не хватает ${Math.round(BOT + picked.h - availTop)} мм.`);
+          + `по высоте — не хватает ${Math.round(BOT_ABOVE + picked.h - availTop)} мм.`);
       }
-      if (BOT + picked.h > maxBoxTotal) {
+      if (BOT_ABOVE + picked.h > maxBoxTotal) {
         o.warnings.push(`${o.secName}, ящик ${i + 1}: короб ${picked.code} выше фасада `
           + `меньше чем на ${BELOW_FRONT} мм — фасад должен перекрывать короб сверху.`);
       }
     } else if (sys.metal) {
       const fit = sys.heights.filter((h) => h.minFront <= frontH
-        && BOT + h.h <= availTop && BOT + h.h <= maxBoxTotal);
+        && BOT_ABOVE + h.h <= availTop && BOT_ABOVE + h.h <= maxBoxTotal);
       if (!fit.length) {
         // Фасад ниже минимума системы — такой ящик собрать нельзя: царга
         // выше шага фасадов и упирается в соседний ящик. Короб НЕ строим,
@@ -539,7 +546,7 @@ function buildDrawerBoxes(o) {
       // может быть выше шага фасадов, иначе упрётся в соседний ящик.
       const MIN_BOX = 70;
       // минус собственное дно и технологический зазор
-      const maxByPitch = Math.min(maxBoxTotal - BOT, availTop - BOT);
+      const maxByPitch = Math.min(maxBoxTotal - BOT_ABOVE, availTop - BOT_ABOVE);
       // Высоту берём из СТАНДАРТНОГО ряда системы — самую большую, что влезает.
       // Раньше считалось «фасад минус 60», и короб выходил неоправданно высоким.
       const fitList = sys.heights.filter((x) => x.minFront <= frontH && x.h <= maxByPitch);
@@ -565,8 +572,15 @@ function buildDrawerBoxes(o) {
     //     по середине боковины;
     //   • шариковые боковые — по середине боковины короба, там и профиль.
     const hiddenRunner = !sys.metal && sys.bottom === 'chipboard';
+    // Скрытые направляющие Quadro: ось шурупа в боковине корпуса — на 42 мм
+    // над ВНУТРЕННИМ дном корпуса (37 мм по чертежу Hettich от низа профиля
+    // + 5 мм зазор профиля над дном; решение пользователя 2026-10-04). Для
+    // следующих ящиков отметка растёт вместе с их положением (y − baseY).
+    const runnerFromFloor = (hiddenRunner && sys.runnerFromFloor && Number.isFinite(o.innerBottomY))
+      ? o.innerBottomY + sys.runnerFromFloor + (y - o.baseY) : null;
     if (o.runnerYs) {
-      o.runnerYs.push(round1(y + (sys.metal ? 20 : (hiddenRunner ? BOT / 2 : BOT + hh.h / 2))));
+      o.runnerYs.push(round1(runnerFromFloor != null ? runnerFromFloor
+        : y + (sys.metal ? 20 : (hiddenRunner ? BOT / 2 : BOT + hh.h / 2))));
     }
     if (o.runnerNLs) o.runnerNLs.push(NL);
 
@@ -795,8 +809,11 @@ function buildDrawerBoxes(o) {
         const bp = sys.bottomPin;
         for (const yLoc of [round1(bp.fromSide), round1(botW - bp.fromSide)]) {
           if (yLoc <= 3 || yLoc >= botW - 3) continue;
+          // Ось — в bp.overBottom мм от нижней плоскости дна (Hettich: 11), а не
+          // по середине толщины: tz считается от центра дна вверх.
           botHoles.push({ x: 0, y: yLoc, d: bp.d, depth: bp.depth,
-                          through: false, side: 'edge', kind: 'runnerPinRear' });
+                          through: false, side: 'edge', kind: 'runnerPinRear',
+                          tz: round1(bp.overBottom - BOT / 2) });
         }
       }
       // ГНЁЗДА В ДНЕ (посадочные Ø6×4 и защёлка Ø6×11) НЕ сверлим: они
@@ -954,7 +971,7 @@ function buildDrawerBoxes(o) {
         }
       }
     }
-    maxTop = Math.max(maxTop, y + BOT + hh.h);
+    maxTop = Math.max(maxTop, y + BOT_ABOVE + hh.h);
     y += frontH;
   }
 
@@ -3642,7 +3659,7 @@ function buildModuleParts(p) {
         facadeBaseY: baseH, gap,
         drawerDecor: secDrawerDecor, drawerT: secDrawerT,
         baseY: drawerBaseY, innerTopY: innerBottomY + innerH,
-        runnerYs, runnerNLs,
+        runnerYs, runnerNLs, innerBottomY,
       });
       // Направляющие крепятся по фактическим отметкам построенных коробов:
       // если короб не построен (не влез), то и присадки под него быть не должно.
@@ -3662,8 +3679,7 @@ function buildModuleParts(p) {
       runnerYs.forEach((ry, ri) => {
         drawerMounts.push({ y: ry, panels: [panelLX(i), panelRX(i)], cx: secCenterX,
           nl: runnerNLs[ri], cabinetHoles: drawSys && drawSys.cabinetHoles,
-          altShift: drawSys && drawSys.altHoleShift,
-          cabinetPin: drawSys && drawSys.cabinetPin });
+          altShift: drawSys && drawSys.altHoleShift });
       });
       if (infoRowBox) infoRowBox.boxes = boxInfo;
     }
@@ -4268,13 +4284,6 @@ function buildModuleParts(p) {
       for (const fp of pts) {
         if (frontY - fp - shift < 6) continue;
         drillPanel(px, localX, frontY - fp - shift, { kind: 'drawerRunner', side });
-      }
-      // Передний ШТИФТ направляющей: Ø6×11 в боковине корпуса, ось в 10 мм
-      // от переднего края панели, на высоте профиля.
-      if (d.cabinetPin) {
-        drillPanel(px, localX, round1(frontY - d.cabinetPin.fromFront), {
-          d: d.cabinetPin.d, depth: d.cabinetPin.depth, kind: 'runnerPinCabinet', side,
-        });
       }
     }
   }

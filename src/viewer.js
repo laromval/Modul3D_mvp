@@ -1026,9 +1026,12 @@ function buildSlabGeometry(spec) {
       if (edgeCuts.some((c) => cx > c.x0 && cx < c.x1)) continue;
       h.r = r;
       h.len = Math.min(Math.max(h.len, 0), (h.alongU ? U : V));
-      h.ring = ringPoints(cx, ht, r, h.N);
-      h.cx = cx; h.cy = ht; h.side = sd;
-      circles.push({ x: cx, y: ht, r, cell: r * 4, ring: h.ring });
+      // Центр по толщине: середина плюс смещение tOff, но так, чтобы круг
+      // целиком лежал в детали.
+      const cy = Math.min(Math.max(ht + (h.tOff || 0), r), sd.H - r);
+      h.ring = ringPoints(cx, cy, r, h.N);
+      h.cx = cx; h.cy = cy; h.side = sd;
+      circles.push({ x: cx, y: cy, r, cell: r * 4, ring: h.ring });
     }
     // Паз, выходящий на эту кромку, оставляет в ней прямоугольную выемку.
     const bands = [];
@@ -1216,9 +1219,15 @@ function slabCutsForPart(row, locW, locD) {
       // поперёк пласти. edgeDrill() — та же функция, что рисует и метку
       // ниже, чтобы вырез и метка совпадали по оси/позиции/глубине.
       const ed = edgeDrill(u, v, uSize, vSize, h.depth);
+      // h.tz — смещение оси от СЕРЕДИНЫ толщины детали вдоль мировой оси
+      // толщины (у дна/полки — вверх). Нужно, когда производитель задаёт высоту
+      // оси от нижней плоскости (Quadro: Ø6 в торце дна — 11 мм от низа).
+      // В локальном Z детали знак обратный мировому — тот же zSign.
+      const tz = Number.isFinite(h.tz) ? h.tz : 0;
       edgeHoles.push({
         alongU: ed.alongU, atStart: ed.atStart,
         uPos: ed.uPos, vPos: ed.vPos, len: ed.len, r, N,
+        tOff: zSign * tz, tz,
       });
       continue;
     }
@@ -4871,9 +4880,10 @@ class Viewer3D {
               if (axis === 'x') marker.rotation.z = Math.PI / 2;
               else if (axis === 'z') marker.rotation.x = Math.PI / 2;
               marker.scale.set(1, dLen / Math.max(dep, 0.001), 1);
-              if (planeIsX) marker.position.set(0, vPos * MM, uPos * MM);
-              else if (planeIsY) marker.position.set(uPos * MM, 0, vPos * MM);
-              else marker.position.set(uPos * MM, vPos * MM, 0);
+              const tzm = (Number.isFinite(h.tz) ? h.tz : 0) * MM;
+              if (planeIsX) marker.position.set(tzm, vPos * MM, uPos * MM);
+              else if (planeIsY) marker.position.set(uPos * MM, tzm, vPos * MM);
+              else marker.position.set(uPos * MM, vPos * MM, tzm);
             } else if (planeIsX) {
               marker.rotation.z = Math.PI / 2;
               marker.position.set(off, vc, uc);

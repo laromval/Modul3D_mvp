@@ -293,7 +293,7 @@ function drilledParts(model) {
 function buildDrillCsv(model) {
   const rows = [['Поз.', 'Модуль', 'Деталь', 'Секция', 'Материал', 'Толщина',
                  'Длина', 'Ширина', 'Кол-во', 'X', 'Y', 'Диаметр', 'Глубина',
-                 'Сторона', 'Назначение']];
+                 'Сторона', 'Назначение', 'Ось от низа, мм']];
   for (const p of drilledParts(model)) {
     for (const h of (p.holes || [])) {
       rows.push([
@@ -314,6 +314,9 @@ function buildDrillCsv(model) {
               : (p.kind === 'top' ? 'сверху'
                 : p.kind === 'drawerSide' || p.kind === 'drawerBack' ? 'изнутри ящика' : 'с лица')),
         PURPOSE[h.kind] || h.kind || '',
+        // Отверстие в торец с заданной высотой оси (Ø6 зацепа в торце дна
+        // Quadro): расстояние от нижней пласти. h.tz — от середины толщины.
+        Number.isFinite(h.tz) ? Math.round((h.tz + p.thickness / 2) * 10) / 10 : '',
       ]);
     }
     // ПАЗЫ. Формат тот же: X/Y — начало оси паза, дальше конец, ширина и
@@ -325,6 +328,7 @@ function buildDrillCsv(model) {
         g.x0, g.y0, `паз ${g.w} мм`, g.depth,
         `до ${g.x1};${g.y1}`,
         (g.note || 'паз') + (g.side === 'inner' ? ', с внутренней стороны' : ''),
+        '',
       ]);
     }
     // СКВОЗНЫЕ ВЫРЕЗЫ (выпил под шину, вырез под крюк навески): X/Y — угол
@@ -338,6 +342,7 @@ function buildDrillCsv(model) {
         n.x0, n.y0, `вырез ${w}×${h} мм`, p.thickness,
         `вырез ${n.x0};${n.y0}–${n.x1};${n.y1} насквозь`,
         [NOTCH_PURPOSE[n.kind] || 'Вырез', n.note].filter(Boolean).join(': '),
+        '',
       ]);
     }
   }
@@ -408,7 +413,7 @@ function buildDrillDxf(model) {
       // Слой несёт диаметр и операцию: сквозное, с изнанки или в торец.
       // Точка разметки (h.mark) — не сверление: свой слой MARK_<назначение>.
       const layer = h.mark ? `MARK_${String(h.kind || 'POINT').toUpperCase()}`
-        : h.side === 'edge' ? `DRILL_D${h.d}_EDGE`
+        : h.side === 'edge' ? `DRILL_D${h.d}_EDGE${Number.isFinite(h.tz) ? `_Z${Math.round((h.tz + p.thickness / 2) * 10) / 10}` : ''}`
         : (h.through ? `DRILL_D${h.d}_THROUGH` : `DRILL_D${h.d}_BACK`);
       out.push.apply(out, dxfCircle(h.x, cursorY + h.y, h.d / 2, layer));
     }

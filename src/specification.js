@@ -639,8 +639,6 @@ function buildDrawerPassport(systemId) {
     `${sys.boxRearPin.overBottom} мм над дном, ${sys.boxRearPin.fromEnd} от торца`);
   if (sys.bottomPin) add('Зацеп направляющей', `Ø${sys.bottomPin.d}×${sys.bottomPin.depth} в торец дна`,
     `ось ${sys.bottomPin.overBottom} мм от низа короба, ${sys.bottomPin.fromSide} мм от боковины`);
-  if (sys.cabinetPin) add('Штифт в боковине корпуса', `Ø${sys.cabinetPin.d}×${sys.cabinetPin.depth}`,
-    `${sys.cabinetPin.fromFront} мм от переднего края панели`);
   if (sys.bracketScrew) add('Отверстия для фиксатора', `Ø${sys.bracketScrew.d}×${sys.bracketScrew.depth}`,
     `${(sys.bracketScrew.fromSide || []).join(' и ')} мм от боковины, `
     + `${sys.bracketScrew.fromFront} мм от переднего края дна`);
