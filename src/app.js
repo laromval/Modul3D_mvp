@@ -14,7 +14,7 @@
 (function () {
 // Версия сборки — показывается во вкладке браузера и в шапке.
 // При выпуске новой версии меняется только эта строка.
-const APP_VERSION = 'v341';
+const APP_VERSION = 'v342';
 
 // Номер версии выводим ПЕРВЫМ делом: если дальше что-то упадёт, по нему сразу
 // видно, какая сборка открыта.
@@ -4644,12 +4644,29 @@ function libSheetShortName(it) {
 // collapsed переключатель: показывает, с какого сайта добавлена цена
 // позиции (libSourceSiteLabel). Добавлена ПОСЛЕ «Цены», перед колонкой
 // «Выбрать» — как и её <td> в libRowHtml.
+// «Наименование» — фиксированная ширина во ВСЕХ сочетаниях тумблеров
+// («Характеристики», «Поставщики», «Выбрать»): таблица получает суммарную
+// ширину колонок в px (libTableStyle), а при нехватке места скроллится
+// внутри обёртки .lib-table-scroll, но не сжимает название.
+const LIB_NAME_COL_W = 163;
+const LIB_HW_NAME_COL_W = LIB_NAME_COL_W;
+function libTableStyle(nameW, midW, pickMode, suppliersVisible) {
+  const total = nameW + midW + (suppliersVisible ? 63 : 0) + (pickMode ? 76 : 0);
+  return `table-layout:fixed;width:100%;min-width:${total}px`;
+}
 function libColgroup(pickMode, collapsed, suppliersVisible) {
-  const charCols = collapsed ? '' : `<col class="lib-char-col" style="width:76px"><col class="lib-char-col" style="width:76px"><col class="lib-char-col" style="width:76px">`;
-  const supplierCol = suppliersVisible ? `<col class="lib-supplier-col" style="width:92px">` : '';
-  return `<colgroup><col><col style="width:72px">`
-    + charCols
-    + `<col style="width:82px">`
+  // Кроме «Наименования» и «Выбрать» ширины не заданы: таблица на всю ширину
+  // панели, лишнее место делят поровну остальные колонки (min-width таблицы —
+  // libTableStyle — не даёт им стать уже нужного).
+  const charCols = collapsed ? '' : `<col class="lib-char-col"><col class="lib-char-col"><col class="lib-char-col">`;
+  // «Поставщик» без явной ширины делит остаток поровну с «Ценой» (collapsed);
+  // в режиме «Характеристики» — узкая фиксированная.
+  const supplierCol = suppliersVisible ? `<col class="lib-supplier-col"${collapsed ? '' : ' style="width:63px"'}>` : '';
+  // Образец+Цена (при свёрнутых характеристиках) и Длина/Ширина/Толщина
+  // (при развёрнутых) подменяют друг друга и в сумме занимают по 228px, поэтому
+  // «Наименование» не меняет ширину при переключении тумблера.
+  return `<colgroup><col style="width:${LIB_NAME_COL_W}px">`
+    + (collapsed ? (suppliersVisible ? `<col>` : `<col style="width:54px"><col>`) : charCols)
     + supplierCol
     + `${pickMode ? '<col style="width:76px">' : ''}</colgroup>`;
 }
@@ -4680,9 +4697,9 @@ function libTableHead(pickMode, collapsed, tableKey, suppliersVisible) {
   return `<thead>
     <tr>
       <th class="lib-th-filter"><span class="dth-label">Наименование</span>${filterBtn(0)}</th>
-      <th>Образец</th>
+      ${collapsed && !suppliersVisible ? '<th class="lib-sample-col">Образец</th>' : ''}
       ${charsHeadCells}
-      <th class="lib-th-filter"><span class="dth-label">${libPriceUnitHeaderHtml(tableKey)}</span>${filterBtn(4)}</th>
+      ${collapsed ? `<th class="lib-th-filter"><span class="dth-label">${libPriceUnitHeaderHtml(tableKey)}</span>${filterBtn(4)}</th>` : ''}
       ${supplierHeadCell}
       ${pickMode ? '<th></th>' : ''}
     </tr>
@@ -4787,11 +4804,11 @@ function libRowHtml(entry, opts) {
         data-row-idx="${opts.rowIdx != null ? opts.rowIdx : ''}"
         class="${isSelected ? 'lib-row-selected' : ''}">
       ${nameCell}
-      <td>${libSwatchHtml(group, key, it.image, it.sourceUrl)}</td>
+      ${collapsed && !suppliersVisible ? `<td>${libSwatchHtml(group, key, it.image, it.sourceUrl)}</td>` : ''}
       ${lengthCell}
       ${widthCell}
       ${thicknessCell}
-      ${priceCell}
+      ${collapsed ? priceCell : ''}
       ${supplierCell}
       ${pickCell}
     </tr>`;
@@ -4832,7 +4849,8 @@ function libLeafTableHtml(topCode, path, entries, opts) {
   libFilterRowsCache[charsKey] = [];
   const rowsHtml = entries.map((e, i) => libRowHtml(e, { pickMode, collapsed, suppliersVisible, tableKey: charsKey, rowIdx: i, moveTop: topCode, topCode })).join('');
   const items = entries.map((e) => e.item);
-  const colCount = (collapsed ? 3 : 6) + (pickMode ? 1 : 0) + (suppliersVisible ? 1 : 0);
+  // Образец прячется при «Поставщики» (вместо него колонка «Поставщик») — число колонок то же
+  const colCount = (collapsed ? 3 : (suppliersVisible ? 5 : 4)) + (pickMode ? 1 : 0);
   const emptyRow = entries.length ? '' : `<tr><td colspan="${colCount}" class="hint">Пока нет позиций</td></tr>`;
   const addGroup = topCode === 'edge' ? 'edge' : ((opts.addGroupMap && opts.addGroupMap[path[0]]) || opts.addDefaultGroup || topCode);
   // data-add-top — сам topCode (а не addGroup, который для СВОИХ категорий
@@ -4891,7 +4909,7 @@ function libLeafTableHtml(topCode, path, entries, opts) {
       ${charsToggleHtml}
       ${suppliersToggleHtml}
       ${libPriceNoteHtml(items)}
-      <table class="lib-table${collapsed ? ' chars-collapsed' : ''}" style="table-layout:fixed" data-chars-key="${esc(charsKey)}">${libColgroup(pickMode, collapsed, suppliersVisible)}${libTableHead(pickMode, collapsed, charsKey, suppliersVisible)}<tbody>${rowsHtml}${emptyRow}</tbody></table>
+      <div class="lib-table-scroll"><table class="lib-table${collapsed ? ' chars-collapsed' : ''}" style="${libTableStyle(LIB_NAME_COL_W, collapsed ? (suppliersVisible ? 60 : 114) : (suppliersVisible ? 148 : 164), pickMode, suppliersVisible)}" data-chars-key="${esc(charsKey)}">${libColgroup(pickMode, collapsed, suppliersVisible)}${libTableHead(pickMode, collapsed, charsKey, suppliersVisible)}<tbody>${rowsHtml}${emptyRow}</tbody></table></div>
       ${actionsHtml}
     </div>`;
 }
@@ -5133,9 +5151,8 @@ function libHardwareLeafTableHtml(topCode, path, entries, opts) {
       <tr data-search="${esc(searchText)}" data-row-group="${esc(group)}" data-row-key="${esc(key)}"
           data-row-idx="${i}" class="${isSelected ? 'lib-row-selected' : ''}">
         ${libEditCell(group, key, 'name', 'text', it.name, { afterHtml: moveIc, extraClass: 'lib-name-cell' })}
-        <td>${libSwatchHtml(group, key, it.image, it.sourceUrl)}</td>
-        ${hwCharsVisible ? `<td>${libDrawingSwatchHtml(group, key, it.drawing, it.drawingFull, it.name)}</td>` : ''}
-        ${libHwPriceCellHtml(group, key, it, unit)}
+        ${suppliersVisible ? '' : `<td>${libSwatchHtml(group, key, it.image, it.sourceUrl)}</td>`}
+        ${hwCharsVisible ? `<td>${it.drawing ? libDrawingSwatchHtml(group, key, it.drawing, it.drawingFull, it.name) : '—'}</td>` : libHwPriceCellHtml(group, key, it, unit)}
         ${suppliersVisible ? `<td class="lib-supplier-col" title="${esc(supplierDisplay)}">${esc(supplierDisplay)}</td>` : ''}
         ${pickCell}
       </tr>`;
@@ -5144,7 +5161,7 @@ function libHardwareLeafTableHtml(topCode, path, entries, opts) {
   // Выбрать, каждый только если его тумблер/режим сейчас включён (см.
   // suppliersVisible/hwCharsVisible/pickMode выше) — тот же приём, что и
   // colCount у материалов (см. libLeafTableHtml).
-  const colCount = 3 + (suppliersVisible ? 1 : 0) + (hwCharsVisible ? 1 : 0) + (pickMode ? 1 : 0);
+  const colCount = 3 + (pickMode ? 1 : 0);
   const emptyRow = entries.length ? '' : `<tr><td colspan="${colCount}" class="hint">Пока нет позиций</td></tr>`;
   // data-add-path — тот же путь листа/ветки, что и у материалов (см.
   // libLeafTableHtml/libAddRow): позволяет новой позиции сразу попасть в ту
@@ -5184,7 +5201,7 @@ function libHardwareLeafTableHtml(topCode, path, entries, opts) {
   // историческое (у материалов ключ заодно обслуживает тумблер
   // «Характеристики материала»), у фурнитуры характеристик нет — это просто
   // ключ таблицы, других значений он не несёт.
-  const supplierColHtml = suppliersVisible ? '<col class="lib-supplier-col" style="width:92px">' : '';
+  const supplierColHtml = suppliersVisible ? '<col class="lib-supplier-col">' : '';
   const supplierHeadHtml = suppliersVisible
     ? `<th class="lib-supplier-col lib-th-filter"><span class="dth-label">Поставщик</span>${filterBtn(3)}</th>`
     : '';
@@ -5192,7 +5209,7 @@ function libHardwareLeafTableHtml(topCode, path, entries, opts) {
   // тот же приём, что и «Поставщик»: своя <col>/<th>, рисуются только когда
   // тумблер включён. Без кнопки-фильтра (.dth-filter-btn) — по аналогии с
   // «Образцом», фильтровать по картинке нечего.
-  const drawingColHtml = hwCharsVisible ? '<col style="width:72px">' : '';
+  const drawingColHtml = hwCharsVisible ? '<col>' : '';
   const drawingHeadHtml = hwCharsVisible ? '<th>Чертёж</th>' : '';
   // Колонка «Выбрать» (см. pickMode выше) — без заголовка и без фильтра, как
   // и «Образец», просто пустая шапка над кнопками строк.
@@ -5212,18 +5229,17 @@ function libHardwareLeafTableHtml(topCode, path, entries, opts) {
       ${hwCharsToggleHtml}
       ${suppliersToggleHtml}
       ${libPriceNoteHtml(items)}
-      <table class="lib-table" style="table-layout:fixed" data-chars-key="${esc(tableKey)}">
-        <colgroup><col><col style="width:72px">${drawingColHtml}<col style="width:82px">${supplierColHtml}${pickColHtml}</colgroup>
+      <div class="lib-table-scroll"><table class="lib-table" style="${libTableStyle(LIB_HW_NAME_COL_W, suppliersVisible ? 58 : 112, pickMode, suppliersVisible)}" data-chars-key="${esc(tableKey)}">
+        <colgroup><col style="width:${LIB_HW_NAME_COL_W}px">${suppliersVisible ? '' : '<col style="width:54px">'}${hwCharsVisible ? drawingColHtml : '<col>'}${supplierColHtml}${pickColHtml}</colgroup>
         <thead><tr>
           <th class="lib-th-filter"><span class="dth-label">Наименование</span>${filterBtn(0)}</th>
-          <th>Образец</th>
-          ${drawingHeadHtml}
-          <th class="lib-th-filter"><span class="dth-label">${libHwPriceUnitHeaderHtml(items, topCode)}</span>${filterBtn(2)}</th>
+          ${suppliersVisible ? '' : '<th class="lib-sample-col">Образец</th>'}
+          ${hwCharsVisible ? drawingHeadHtml : `<th class="lib-th-filter"><span class="dth-label">${libHwPriceUnitHeaderHtml(items, topCode)}</span>${filterBtn(2)}</th>`}
           ${supplierHeadHtml}
           ${pickHeadHtml}
         </tr></thead>
         <tbody>${rowsHtml}${emptyRow}</tbody>
-      </table>
+      </table></div>
       ${actionsHtml}
     </div>`;
 }
@@ -9719,9 +9735,10 @@ function renderLibraryPanel() {
   // ширине панели.
   const drawer = document.getElementById('drawer-library');
   if (drawer) {
-    const wide = state.libraryTab === 'materials' || state.libraryTab === 'hardware' || state.libraryTab === 'facades';
-    drawer.classList.toggle('lib-wide', wide);
-    drawer.classList.toggle('lib-chars-collapsed', wide && !!state.libCharsCollapsed);
+    // Ширина панели постоянная (640px, см. .lib-wide) — не зависит от тумблеров
+    // «Характеристики»/«Поставщики».
+    drawer.classList.remove('lib-chars-collapsed');
+    drawer.classList.add('lib-wide');
   }
   // Приводим дерево категорий к инварианту ДО построения разметки (см.
   // libNormalizeOwnEntries): позиции узла, у которого есть подкатегории,
