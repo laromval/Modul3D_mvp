@@ -14,7 +14,7 @@
 (function () {
 // Версия сборки — показывается во вкладке браузера и в шапке.
 // При выпуске новой версии меняется только эта строка.
-const APP_VERSION = 'v342';
+const APP_VERSION = 'v344';
 
 // Номер версии выводим ПЕРВЫМ делом: если дальше что-то упадёт, по нему сразу
 // видно, какая сборка открыта.
@@ -385,16 +385,15 @@ const state = {
   "sheet": {
     "": [
       "ДСП",
-      "МДФ-плита",
+      "МДФ панели",
       "ХДФ/ДВП"
     ],
     "ДСП": [
       "Egger",
       "Kronospan"
     ],
-    "МДФ-плита": [
-      "Фасадные панели МДФ",
-      "Шпонированные плиты"
+    "МДФ панели": [
+      "Фасадные панели МДФ"
     ]
   },
   "hw:hinge": {
@@ -1539,6 +1538,10 @@ function offerAutosaveRestore() {
 }
 
 // Удаление активного модуля — и кнопкой, и из контекстного меню.
+// Пользователь сам выбрал материал корпуса в этой сессии (Библиотека/ИИ-эскиз) —
+// первая кухня его не заменяет белым (addPresetToProject). Не сохраняется в
+// файл: после перезагрузки в пустой проект белый корпус ставится снова.
+let carcassPickedByUser = false;
 function deleteModule(idx) {
   if (!state.modules[idx]) return;
   // Удаляется любой модуль — не только изолированный: проще и надёжнее
@@ -1546,6 +1549,9 @@ function deleteModule(idx) {
   // именно изолированный модуль.
   exitIsolation();
   state.modules.splice(idx, 1);
+  // Удалили последний модуль — проект начат заново, прежний ручной выбор
+  // корпуса больше не защищает его от белого корпуса первой кухни.
+  if (!state.modules.length) carcassPickedByUser = false;
   renumberModules();
   state.activeModule = Math.min(state.activeModule, state.modules.length - 1);
   if (state.activeModule < 0) state.activeModule = 0;
@@ -1892,7 +1898,7 @@ function libModThumbDataUrl(groupId, it) {
   try {
     const m = it.make();
     const isKitchen = (m.family || 'custom') === 'kitchen';
-    const kitchenThumbDecor = isKitchen ? (DECORS.find((d) => d.code === 'H3450ST22') || null) : null;
+    const kitchenThumbDecor = isKitchen ? kitchenDrawerDecorObj() : null;
     // Столешница нижнего яруса кухни на миниатюре — тоже только для наглядности
     // превью (owner: «почему модули кухни без столешницы»). Задаётся ОТДЕЛЬНЫМ
     // полем модуля p.countertop (см. engine.js countertopMat()/ctEnabled) —
@@ -8340,6 +8346,7 @@ function libPickMaterial(rowGroup, code) {
   }
   if (target.role === 'decor') {
     state.decorCode = finalCode;
+    carcassPickedByUser = true;
     // Поле «Толщина ЛДСП» убрано (2026-09-28) — толщина корпуса всегда
     // берётся из самого выбранного материала, как и у толщины задней
     // стенки ниже.
@@ -14306,24 +14313,19 @@ function addPresetToProject(catId, presetId, placementId) {
       || (anyFloor && anyFloor.depth);
     if (neighborDepth) m.depth = neighborDepth;
   }
-  // Первый кухонный модуль задаёт материалы «как на производстве»:
-  // корпус белый, фасад в декоре. Дальше пользователь меняет вручную.
-  if (m.family === 'kitchen' && !state.modules.length) {
-    const white = DECORS.filter((d) => /бел/i.test(d.name))[0];
-    if (white) {
-      // Декор, который стоял на корпусе, уезжает на ФАСАД, а корпус и
-      // ящики становятся белыми. Если корпус уже белый — фасадный декор
-      // не трогаем, иначе кухня получится целиком белой.
-      // Декор уходит и в «Материал фасада» (ЛДСП-фасады), и в «Видимую
-      // боковину» — поля независимы (2026-09-26), здесь просто оба
-      // получают прежний декор корпуса.
-      if (state.decorCode !== white.code) {
-        state.facadeDecorCode = state.decorCode;
-        state.facadeMatCode = state.decorCode;
-        // Толщина фасада наследует толщину прежнего декора корпуса — та же
-        // синхронизация, что и при ручном выборе материала в Библиотеке.
-        state.facadeThickness = state.bodyThickness;
-      }
+  // Первый кухонный модуль (нижний или верхний) задаёт материалы «как на
+  // производстве»: корпус (боковины, дно, крышка, полки) — «0110 SM Белый»
+  // (kitchenDrawerDecorObj), фасад и видимая боковина остаются в декоре.
+  // Если пользователь уже выбрал корпус сам — не перезаписываем. Дальше он
+  // меняет вручную.
+  if (m.family === 'kitchen' && !state.modules.length && !carcassPickedByUser) {
+    const white = kitchenDrawerDecorObj();
+    if (white && white.code !== state.decorCode) {
+      // «Видимая боковина» и «Материал фасада» в новом проекте уже равны
+      // декору корпуса (дерево) и такими остаются — меняется только корпус.
+      // Если пользователь успел выбрать их сам, они и подавно не трогаются.
+      // Толщина фасада остаётся толщиной прежнего декора корпуса — та же
+      // синхронизация, что и при ручном выборе материала в Библиотеке.
       state.decorCode = white.code;
       if (white.thickness) state.bodyThickness = white.thickness;
       // Материал ящиков кухни сюда не пишем: пустой sec.drawerDecorCode у
@@ -17576,6 +17578,7 @@ function initSketchPanel() {
       const decorCode = guessDecorCode(r.decorHint);
       if (decorCode) {
         state.decorCode = decorCode;
+        carcassPickedByUser = true;
         // Поле «Толщина ЛДСП» убрано (2026-09-28) — толщина корпуса берётся
         // из найденного материала, а не из «сырого» числа, распознанного ИИ
         // по эскизу (иначе толщина молча разойдётся с реальным декором).

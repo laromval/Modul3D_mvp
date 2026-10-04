@@ -79,7 +79,7 @@
   },
   {
     "code": "LINK-1790014004794",
-    "name": "«0110 SM Белый» (16 мм",
+    "name": "ЛДСП H1145 ST10 Дуб Бардолино натуральный (EG)",
     "unit": "м²",
     "image": "https://mobilier.md/image/cache/catalog/products/24750/6390e2cc89e9a4392f1f31ffd03bb28a-768x1089.png",
     "sheetH": 2070,
@@ -111,7 +111,7 @@
     "sourceName": "МДФ U399 PM/ST9 Гранатовый красный (19) 2800x2070 (EG) PerfectSense",
     "verifiedAt": "2026-09-24T17:35:55.811Z",
     "categoryPath": [
-      "МДФ-плита",
+      "МДФ панели",
       "Фасадные панели МДФ"
     ],
     "sourceSiteId": "mobilierMd",
@@ -172,31 +172,12 @@
     "sourceName": "МДФ F128 PA/U999 ST9 Гранитная атмосфера черная (19) 2800x2070 (EG) PerfectSense",
     "verifiedAt": "2026-09-25T08:30:08.827Z",
     "categoryPath": [
-      "МДФ-плита",
+      "МДФ панели",
       "Фасадные панели МДФ"
     ],
     "sourceSiteId": "mobilierMd",
     "sourceArticle": "",
     "categoryPathEdited": true
-  },
-  {
-    "code": "LINK-1790623210595",
-    "name": "0110 SM Белый",
-    "unit": "м²",
-    "image": "https://mobilier.md/image/cache/catalog/products/24882/26476d5b2d8bf3739df02fd5e80d4b0c-1200x1800.png",
-    "sheetH": 2070,
-    "sheetW": 2800,
-    "article": "",
-    "sourceUrl": "https://mobilier.md/ru/plitnye-materialy/dsp/kronospan/dsp-laminirovannyy-0110-sm-belyy-10-2800x2070-ku.html",
-    "thickness": 16,
-    "sheetPrice": 1031.69,
-    "sourceName": "Дсп ламинированный 0110 SM Белый (10) 2800x2070 (KU)",
-    "verifiedAt": "2026-09-28T19:20:10.595Z",
-    "categoryPath": [
-      "Kronospan"
-    ],
-    "sourceSiteId": "mobilierMd",
-    "sourceArticle": ""
   },
   {
     "code": "LINK-1790703582470",
@@ -269,11 +250,165 @@
     "textureUrl": "https://www.egger.com/en/furniture-interior-design/decors/F187_9?country=AU",
     "verifiedAt": "2026-10-03T18:23:58.016Z",
     "categoryPath": [
-      "Плитные материалы / ДСП / EGGER"
+      "ДСП",
+      "Egger"
     ],
     "sourceSiteId": "mobilierMd",
     "sourceArticle": "",
-    "textureSiteId": "egger"
+    "textureSiteId": "egger",
+    "categoryPathEdited": true
+  },
+  {
+    "code": "LINK-1790623210595",
+    "name": "0110 SM Белый",
+    "unit": "м²",
+    "image": "https://mobilier.md/image/cache/catalog/products/24882/26476d5b2d8bf3739df02fd5e80d4b0c-1200x1800.png",
+    "sheetH": 2070,
+    "sheetW": 2800,
+    "article": "",
+    "sourceUrl": "https://mobilier.md/ru/plitnye-materialy/dsp/kronospan/dsp-laminirovannyy-0110-sm-belyy-10-2800x2070-ku.html",
+    "thickness": 16,
+    "sheetPrice": 1031.69,
+    "sourceName": "Дсп ламинированный 0110 SM Белый (10) 2800x2070 (KU)",
+    "verifiedAt": "2026-09-28T19:20:10.595Z",
+    "categoryPath": [
+      "Kronospan"
+    ],
+    "sourceSiteId": "mobilierMd",
+    "sourceArticle": ""
+  },
+  {
+    "code": "LINK-1791034137833",
+    "name": "F685 ST10 Acapulco",
+    "unit": "м²",
+    "image": "https://mobilier.md/image/cache/catalog/products/24425/ee22cb9886983c579385c52719d932f8-768x1087.png",
+    "sheetH": 2070,
+    "sheetW": 2800,
+    "article": "F685ST10",
+    "sourceUrl": "https://mobilier.md/index.php?route=product/product&path=287_315&product_id=24425",
+    "thickness": 18,
+    "sheetPrice": 2295.22,
+    "sourceName": "F685 ST10 Acapulco 2800x2070x18 (EG) Pal melaminat",
+    "textureUrl": "https://www.egger.com/en/furniture-interior-design/decors/F685_10?country=AU",
+    "verifiedAt": "2026-10-03T13:28:57.833Z",
+    "categoryPath": [
+      "ДСП",
+      "Egger"
+    ],
+    "sourceSiteId": "mobilierMd",
+    "sourceArticle": "F685ST10",
+    "textureSiteId": "egger",
+    "categoryPathEdited": true
+  },
+  {
+    "code": "LINK-1791037664817",
+    "name": "2739 PW Дуб Кремона Канноло (18) 2800x2070 (KU)",
+    "unit": "м²",
+    "image": "https://mobilier.md/image/cache/catalog/products/32269/f76c1ac72021a44deca731423df37b24-915x1372.png",
+    "sheetH": 2070,
+    "sheetW": 2800,
+    "article": "",
+    "sourceUrl": "https://mobilier.md/ru/plitnye-materialy/dsp/kronospan/dsp-laminirovannyy-2739-pw-dub-kremona-kannolo-18-2800x2070-ku.html",
+    "thickness": 18,
+    "sheetPrice": 1054.87,
+    "sourceName": "Дсп ламинированный 2739 PW Дуб Кремона Канноло (18) 2800x2070 (KU)",
+    "textureUrl": "https://kronospan.com/en_EN/decors/view/kronodesign/cremona-oak/K2739/",
+    "verifiedAt": "2026-10-03T14:27:44.817Z",
+    "categoryPath": [
+      "ДСП",
+      "Kronospan"
+    ],
+    "sourceSiteId": "mobilierMd",
+    "sourceArticle": "",
+    "textureSiteId": "kronospan",
+    "textureFragmentMM": 1950
+  },
+  {
+    "code": "LINK-1791041399187",
+    "name": "Дсп K110 SM Белый (16) ",
+    "unit": "м²",
+    "image": "https://mobilier.md/image/cache/catalog/products/25823/c395e6c215140ccd7929275d06faab4c-553x1200.png",
+    "sheetH": 2070,
+    "sheetW": 2800,
+    "article": "",
+    "sourceUrl": "https://mobilier.md/ru/plitnye-materialy/dsp/swiss-krono/dsp-laminirovannyy-k110-sm-belyy-16-2800x2070-su.html",
+    "thickness": 0,
+    "sheetPrice": 1043.28,
+    "sourceName": "Дсп ламинированный K110 SM Белый (16) 2800x2070 (SU)",
+    "verifiedAt": "2026-10-03T15:29:59.187Z",
+    "categoryPath": [
+      "ДСП",
+      "SWISS Krono"
+    ],
+    "sourceSiteId": "mobilierMd",
+    "sourceArticle": "",
+    "categoryPathEdited": true
+  },
+  {
+    "code": "H1180ST37",
+    "name": "ЛДСП Egger H1180 ST37 Дуб Халифакс натуральный",
+    "unit": "м²",
+    "image": "https://mobilier.md/image/cache/catalog/products/23949/37de281fd09df8ce907afbcf155ae164-520x350.png",
+    "sheetH": 2070,
+    "sheetW": 2800,
+    "sourceUrl": "https://mobilier.md/ru/plitnye-materialy/dsp/dsp_egger/h1180-st37-dub-galifaks-naturalnyy-2800x2070x186-eg-dsp-laminirovannyy.html",
+    "thickness": 18.6,
+    "sheetPrice": 3535.56,
+    "sourceName": "H1180 ST37 Дуб Галифакс натуральный 2800x2070x18.6 (EG) Дсп ламинированный",
+    "verifiedAt": "2026-09-24T17:35:55.811Z",
+    "categoryPath": [
+      "ДСП",
+      "Egger"
+    ],
+    "sourceSiteId": "mobilierMd",
+    "categoryPathEdited": true
+  },
+  {
+    "code": "LINK-1791048957049",
+    "name": "Дсп K351 RT Ржавый камень (18)",
+    "unit": "м²",
+    "image": "https://mobilier.md/image/cache/catalog/products/25044/093a159b2dffe79bf83bdc4b88a9c4e2-960x1440.png",
+    "sheetH": 2070,
+    "sheetW": 2800,
+    "article": "",
+    "sourceUrl": "https://mobilier.md/ru/plitnye-materialy/dsp/kronospan/dsp-laminirovannyy-k351-rt-rzhavyy-kamen-18-2800x2070-ku.html",
+    "thickness": 18,
+    "sheetPrice": 1547.53,
+    "sourceName": "Дсп ламинированный K351 RT Ржавый камень (18) 2800x2070 (KU)",
+    "textureUrl": "https://kronospan.com/en_EN/decors/view/kronodesign/contempo/K351/",
+    "verifiedAt": "2026-10-03T17:35:57.049Z",
+    "categoryPath": [
+      "ДСП",
+      "Kronospan"
+    ],
+    "sourceSiteId": "mobilierMd",
+    "sourceArticle": "",
+    "textureSiteId": "kronospan",
+    "textureFragmentMM": 1950,
+    "categoryPathEdited": true
+  },
+  {
+    "code": "LINK-1791049438521",
+    "name": "Дсп 0244 PD Бензин",
+    "unit": "м²",
+    "image": "https://mobilier.md/image/cache/catalog/products/33305/ae81177b07c7c6ba7a905d9dad8b6fd2-1200x1800.png",
+    "sheetH": 2070,
+    "sheetW": 2800,
+    "article": "",
+    "sourceUrl": "https://mobilier.md/ru/plitnye-materialy/dsp/kronospan/dsp-laminirovannyy-0244-pd-benzin-18-2800x2070-ku.html",
+    "thickness": 18,
+    "sheetPrice": 1547.53,
+    "sourceName": "Дсп ламинированный 0244 PD Бензин (18) 2800x2070 (KU)",
+    "textureUrl": "https://kronospan.com/en_EN/decors/view/kronodesign/color/0244/",
+    "verifiedAt": "2026-10-03T17:43:58.521Z",
+    "categoryPath": [
+      "ДСП",
+      "Kronospan"
+    ],
+    "sourceSiteId": "mobilierMd",
+    "sourceArticle": "",
+    "textureSiteId": "kronospan",
+    "textureFragmentMM": 1950
   }
 ];
 
@@ -476,6 +611,66 @@
     "verifiedAt": "2026-09-24T17:35:55.812Z",
     "sourceSiteId": "mobilierMd",
     "pricePerMeter": 2248
+  },
+  {
+    "code": "CTOP-LINK-1791052480902",
+    "name": "Кухонная столешница F206 ST9 Черный серый камень (38) 4100x600 (EG)",
+    "unit": "пог.м",
+    "brand": "Новый бренд",
+    "depth": 600,
+    "image": "https://mobilier.md/image/cache/catalog/products/25595/a7f38e75dad98898267ccfb0d189a275-768x1087.png",
+    "article": "",
+    "maxLength": 4100,
+    "sourceUrl": "https://mobilier.md/ru/stoleshnicy-i-sten-paneli/stoleshnicy-postforming/egger-1/kuhonnaya-stoleshnitsa-f206-st9-chernyy-seryy-kamen-38-4100x600-eg.html",
+    "thickness": 38,
+    "materialId": "ldsp38",
+    "sourceName": "Кухонная столешница F206 ST9 Черный серый камень (38) 4100x600 (EG)",
+    "textureUrl": "https://www.egger.com/en/furniture-interior-design/decors/F206_9?country=AU",
+    "verifiedAt": "2026-10-03T18:34:40.902Z",
+    "sourceSiteId": "mobilierMd",
+    "pricePerMeter": 714,
+    "sourceArticle": "",
+    "textureSiteId": "egger"
+  },
+  {
+    "code": "CTOP-LINK-1791054176333",
+    "name": "Столешница F676 ST75 Песочно-серый Кальвия Камень (38) (EG)",
+    "unit": "пог.м",
+    "brand": "Egger",
+    "depth": 600,
+    "image": "https://mobilier.md/image/cache/catalog/products/31452/5978d7887650621dbef7be716ecf69d7-768x1087.png",
+    "article": "",
+    "maxLength": 4100,
+    "sourceUrl": "https://mobilier.md/ru/stoleshnicy-i-sten-paneli/stoleshnicy-postforming/egger-1/kuhonnaya-stoleshnitsa-f676-st75-pesochno-seryy-kalviya-kamen-38-4100x600-eg.html",
+    "thickness": 38,
+    "materialId": "ldsp38",
+    "sourceName": "Столешница F676 ST75 Песочно-серый Кальвия Камень (38) (EG)",
+    "textureUrl": "https://www.egger.com/en/furniture-interior-design/decors/F676_75?country=AU",
+    "verifiedAt": "2026-10-03T19:02:56.333Z",
+    "sourceSiteId": "mobilierMd",
+    "pricePerMeter": 714,
+    "sourceArticle": "",
+    "textureSiteId": "egger"
+  },
+  {
+    "code": "CTOP-LINK-1791054542080",
+    "name": "Столешница F021 ST75 Серый Триестино Терраццо (38)",
+    "unit": "пог.м",
+    "brand": "Egger",
+    "depth": 600,
+    "image": "https://mobilier.md/image/cache/catalog/products/25542/2fec71083c1a86485274a82e5f9be19c-768x1655.png",
+    "article": "",
+    "maxLength": 4100,
+    "sourceUrl": "https://mobilier.md/ru/stoleshnicy-i-sten-paneli/stoleshnicy-postforming/egger-1/kuhonnaya-stoleshnitsa-f021-st75-seryy-triestino-terratstso-38-4100x600.html",
+    "thickness": 38,
+    "materialId": "ldsp38",
+    "sourceName": "Столешница F021 ST75 Серый Триестино Терраццо (38)",
+    "textureUrl": "https://www.egger.com/en/furniture-interior-design/decors/F021_75?country=AU",
+    "verifiedAt": "2026-10-03T19:09:02.080Z",
+    "sourceSiteId": "mobilierMd",
+    "pricePerMeter": 714,
+    "sourceArticle": "",
+    "textureSiteId": "egger"
   }
 ];
 
@@ -539,7 +734,7 @@
     "sourceName": "МДФ U250 PM/ST9 Бежевая карамель (19) 2800x2070 (EG) PerfectSense",
     "verifiedAt": "2026-09-24T17:35:55.811Z",
     "categoryPath": [
-      "МДФ-плита",
+      "МДФ панели",
       "Фасадные панели МДФ"
     ],
     "sourceSiteId": "mobilierMd",
@@ -591,8 +786,8 @@
     "sourceName": "МДФ Шпон Дуб Натур (19) 2800X2070 (MK) АВСТРИЯ",
     "verifiedAt": "2026-09-24T17:35:55.811Z",
     "categoryPath": [
-      "МДФ-плита",
-      "Шпонированные плиты"
+      "МДФ панели",
+      "Шпонированные панели МДФ"
     ],
     "sourceSiteId": "mobilierMd",
     "categoryPathEdited": true
@@ -639,11 +834,12 @@
     "sourceName": "МДФ Шпон Ясень Элегант (19) 2800X2070 (MK) АВСТРИЯ",
     "verifiedAt": "2026-09-24T17:35:55.812Z",
     "categoryPath": [
-      "МДФ-плита",
-      "Шпонированные плиты"
+      "МДФ панели",
+      "Шпонированные панели МДФ"
     ],
     "sourceSiteId": "mobilierMd",
-    "sourceArticle": ""
+    "sourceArticle": "",
+    "categoryPathEdited": true
   },
   "FAC-LINK-1790202592343": {
     "code": "FAC-LINK-1790202592343",
@@ -659,11 +855,12 @@
     "sourceName": "МДФ Шпон Ясень Натур (19) 2800X2070 (MK) АВСТРИЯ",
     "verifiedAt": "2026-09-24T17:35:55.812Z",
     "categoryPath": [
-      "МДФ-плита",
-      "Шпонированные плиты"
+      "МДФ панели",
+      "Шпонированные панели МДФ"
     ],
     "sourceSiteId": "mobilierMd",
-    "sourceArticle": ""
+    "sourceArticle": "",
+    "categoryPathEdited": true
   }
 };
 
@@ -910,6 +1107,24 @@
       "ПВХ"
     ],
     "sourceSiteId": "mobilierMd"
+  },
+  "АБС кромка F685 ST10": {
+    "unit": "пог.м",
+    "image": "https://mobilier.md/image/cache/catalog/products/33260/c65c206c35f575de0e6406f5796aab77-900x300.png",
+    "price": 19,
+    "width": 23,
+    "article": "",
+    "sourceUrl": "https://mobilier.md/ru/plitnye-materialy/kromka/egger/abs-kromka-f685-st10-23x20.html",
+    "thickness": 2,
+    "sourceName": "АБС кромка F685 ST10 23x2.0",
+    "verifiedAt": "2026-10-03T15:18:18.822Z",
+    "categoryPath": [
+      "ABS",
+      "EGGER"
+    ],
+    "sourceSiteId": "mobilierMd",
+    "sourceArticle": "",
+    "categoryPathEdited": true
   }
 };
 

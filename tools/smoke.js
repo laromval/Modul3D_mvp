@@ -1688,8 +1688,11 @@ for (const el of document.querySelectorAll('.tab-btn')) {
       if (!d) break;
       d.click();
     }
+    // Удаление последнего модуля = проект начат заново: ручной выбор корпуса
+    // из ранних проверок первую кухню уже не защищает.
     toggleModGroup(kitchen);
     const item = modGridItems('kitchen').filter((b) => b.dataset.preset === 'lower600drawers')[0];
+    if (!item) fails.push('кухня: нет пресета lower600drawers в Библиотеке');
     if (item) {
       item.click();
       // Код «белого» декора не хардкодим (раньше тут был /U702|бел/i под
@@ -1698,7 +1701,7 @@ for (const el of document.querySelectorAll('.tab-btn')) {
       // H3450ST22 «Флитвуд белый»). Берём ту же логику, что и app.js
       // (см. «Первый кухонный модуль...» — DECORS.filter(/бел/i.test(name))[0]),
       // чтобы тест не рассыпался при следующей смене каталога.
-      const whiteDecor = (sandbox.Modul3D.catalog.DECORS || []).filter((d) => /бел/i.test(d.name))[0];
+      const whiteDecor = sandbox.Modul3D.catalog.defaultKitchenDrawerDecor();
       const isWhite = (v) => !!whiteDecor && String(v || '') === whiteDecor.code;
       // Материалы корпуса/фасада — экран «Материалы» (см. #materialsLinkBtn).
       const mb = document.getElementById('materialsLinkBtn');
