@@ -191,7 +191,8 @@ check('фильтр присадки оставляет один вид', () => 
   viewer.render(model, { drillCheck: true, drillFilter: anyKind });
   const kinds = new Set();
   viewer.group.children.forEach((o) => o.traverse((c) => {
-    if (c.userData && c.userData.drill) kinds.add(c.userData.drill);
+    // Остальные виды не прячутся, а приглушаются (прозрачность ≤0,12) — считаем только яркие.
+    if (c.userData && c.userData.drill && !(c.material && c.material.opacity < 0.5)) kinds.add(c.userData.drill);
   }));
   if (!kinds.size) { fails.push('фильтр убрал вообще все метки'); return false; }
   if (kinds.size !== 1 || !kinds.has(anyKind)) {

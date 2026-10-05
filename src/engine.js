@@ -1343,12 +1343,27 @@ function facadeTypeOf(sec, decor, t, facadeMat, facadeThickness) {
 // Умолчание: ldsp — проектный «Материал фасада» (facadeMat), mdf — FAC-MDF, glass4 — GLASS-4.
 // ---------------------------------------------------------------------------
 const FACADE_MATERIAL_KINDS = { ldsp: 'ldsp', mdf: 'mdf', glass4: 'glass' };
+// Тип листа ('mdf'|'veneer'|'ldsp'|null) по самой позиции: любой сегмент пути,
+// название, источник. Используется ТОЛЬКО чтобы один раз проставить
+// item.matKind (см. app.js libStampMatKinds) — дальше тип хранится в позиции
+// и от названия раздела не зависит (раздел можно назвать хоть «1»).
+function inferMatKind(m) {
+  if (!m) return null;
+  const cp = Array.isArray(m.categoryPath) ? m.categoryPath : [];
+  const txt = cp.join(' ') + ' ' + (m.name || '') + ' ' + (m.sourceName || '') + ' ' + (m.sourceUrl || '');
+  if (cp[0] === 'Стекло' || /^GLASS/i.test(String(m.code || ''))) return 'glass';
+  if (cp[0] === 'Алюминий' || m.code === 'FAC-ALU') return 'alu';
+  if (/шпон|veneer/i.test(txt)) return 'veneer';
+  if (/мдф|mdf/i.test(txt)) return 'mdf';
+  if (cp[0] === 'ДСП' || /дсп|dsp/i.test(txt)) return 'ldsp';
+  return null;
+}
 function facadeMaterialKind(m) {
   if (!m) return null;
   if (isGlassMaterial(m)) return 'glass';
-  const cp = Array.isArray(m.categoryPath) ? m.categoryPath : [];
-  if (cp[0] === 'МДФ-плита') return 'mdf';
-  if (cp[0] === 'ДСП') return 'ldsp';
+  const mk = m.matKind || inferMatKind(m);
+  if (mk === 'mdf' || mk === 'veneer') return 'mdf';
+  if (mk === 'ldsp') return 'ldsp';
   return null;
 }
 // Для UI: [{ code, name, thickness }] — допустимые материалы вида фасада
@@ -1563,8 +1578,8 @@ function aluFillMaterial(code) {
 // Стекло ли материал: категория «Стекло» Библиотеки или код GLASS-*.
 function isGlassMaterial(m) {
   if (!m) return false;
-  const cp = Array.isArray(m.categoryPath) ? m.categoryPath : [];
-  return cp[0] === 'Стекло' || /^GLASS/i.test(String(m.code || ''));
+  if (m.matKind) return m.matKind === 'glass';   // тип хранится в позиции (app.js libStampMatKinds)
+  return inferMatKind(m) === 'glass';
 }
 
 function aluFacadeOf(sec) {
@@ -6614,7 +6629,7 @@ window.Modul3D.engine = {
   // поле «Толщина ЛДСП ящиков» не расходилось с реальным расчётом.
   effectiveDrawerThickness,
   // Правило умолчания ЛДСП-фасада (миграция старых проектов в app.js).
-  facadeMaterialKind, ldspFacadeDefault,
+  facadeMaterialKind, inferMatKind, isGlassMaterial, ldspFacadeDefault,
   // «Видимая боковина» (проектный facadeDecor): ЛДСП/ДСП + фасадные МДФ-панели.
   visibleSideMaterialOptions,
   // Экран «Деталь»: чем можно заменить материал ОДНОЙ детали вида kind.

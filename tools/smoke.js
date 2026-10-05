@@ -538,7 +538,7 @@ check('материалы по умолчанию: корпус/боковина
   check('материалы: видимая боковина — выбор МДФ-панели, без копии в каталог', () => {
     const cat = sandbox.Modul3D.catalog;
     const allowed = sandbox.Modul3D.engine.visibleSideMaterialOptions().map((o) => o.code);
-    const mdf = cat.DECORS.filter((m) => (m.categoryPath || [])[0] === 'МДФ-плита'
+    const mdf = cat.DECORS.filter((m) => /мдф/i.test((m.categoryPath || [])[0])
       && allowed.indexOf(m.code) !== -1)[0];
     if (!mdf) return false;
     // Подбор открыт на листе «ДСП» (фокус листа) — клик по строке раздела
@@ -1491,7 +1491,7 @@ for (const id of ['hideFacades', 'addModule', 'saveProjectBtn', 'openProjectBtn'
     const l = sideOf(m, name, 'left'), rr = sideOf(m, name, 'right');
     return l && rr ? (rr.box.x + rr.box.w / 2) - (l.box.x - l.box.w / 2) : NaN;
   };
-  const mdf = Object.values(cat.FACADE_MATERIALS).filter((m) => (m.categoryPath || [])[0] === 'МДФ-плита'
+  const mdf = Object.values(cat.FACADE_MATERIALS).filter((m) => /мдф/i.test((m.categoryPath || [])[0])
     && eng.partMaterialOptions('side').some((o) => o.code === m.code))[0];
   let before = null, left0 = null;
   check('фокус/деталь: вход в редактор левой боковины', () => {

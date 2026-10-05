@@ -202,7 +202,7 @@ for (const sys of DRAWER_SYSTEM_ORDER) for (const D of [350, 600]) {
 // (дно, крыша, стойки, полки, ящики, задняя стенка, опоры, цоколь) обязаны
 // подогнаться без пересечений. Две секции — чтобы проверить и стойку.
 {
-  const mdfVis = Object.values(FACADE_MATERIALS).filter((m) => (m.categoryPath || [])[0] === 'МДФ-плита'
+  const mdfVis = Object.values(FACADE_MATERIALS).filter((m) => /мдф/i.test((m.categoryPath || [])[0])
     && Number(m.thickness) > 0 && Number(m.thickness) !== base.bodyThickness)[0];
   if (mdfVis) {
     for (const L of SIDES) for (const R of SIDES)
@@ -1420,6 +1420,26 @@ for (const sd of ['floor', 'besideBottom']) {
     if (!side || side.material !== DECORS[0].code) bad(`видимая боковина не в проектном декоре: ${side && side.material}`);
     if (!(buildSpecification(m).sheetMaterials || []).some((r) => r.code === otherDecor.code)) bad('ldsp: декор секции не в смете');
   }
+  // Переименование раздела каталога не должно ломать выбор МДФ-плиты фасада
+  {
+    const fm = cat.FACADE_MATERIALS['FAC-MDF'];
+    const old = fm.categoryPath;
+    for (const nm of [['МДФ-плита'], ['Фасадные панели'], ['Плиты МДФ', 'Egger']]) {
+      fm.categoryPath = nm;
+      if (!eng.facadeMaterialOptions('mdf').some((o) => o.code === 'FAC-MDF'))
+        bad('раздел «' + nm.join(' > ') + '»: FAC-MDF пропал из списка МДФ-плит');
+    }
+    // раздел назван «1», в названии/источнике МДФ нет — тип держится в item.matKind
+    const sv = { n: fm.name, sn: fm.sourceName, su: fm.sourceUrl, mk: fm.matKind };
+    fm.categoryPath = ['1']; fm.name = 'Плита 7'; fm.sourceName = ''; fm.sourceUrl = ''; fm.matKind = 'mdf';
+    if (!eng.facadeMaterialOptions('mdf').some((o) => o.code === 'FAC-MDF')) bad('раздел «1» с matKind=mdf: FAC-MDF пропал');
+    fm.name = sv.n; fm.sourceName = sv.sn; fm.sourceUrl = sv.su;
+    if (sv.mk === undefined) delete fm.matKind; else fm.matKind = sv.mk;
+    // стекло/алюминий: раздел назван «2», код без GLASS — тип держится в item.matKind
+    if (!eng.isGlassMaterial({ code: 'X-1', categoryPath: ['2'], matKind: 'glass' })) bad('стекло с matKind=glass не распознано');
+    if (eng.isGlassMaterial({ code: 'X-1', categoryPath: ['Стекло'], matKind: 'mdf' })) bad('matKind=mdf распознан как стекло');
+    fm.categoryPath = old;
+  }
   // mdf с выбранной МДФ-плитой — толщина из материала (временная плита 16 мм)
   {
     cat.FACADE_MATERIALS['TEST-MDF-16'] = { code: 'TEST-MDF-16', name: 'МДФ тест 16', unit: 'м²',
@@ -2455,7 +2475,7 @@ for (const glass of [false, true]) {
   const ldsp = DECORS.filter((d) => (d.categoryPath || [])[0] === 'ДСП');
   const white = DECORS.filter((d) => /бел/i.test(d.name))[0] || DECORS[1];
   const [fm1, vis1, vis2] = ldsp.filter((d) => d.code !== white.code);
-  const mdfPanel = Object.values(FACADE_MATERIALS).filter((m) => (m.categoryPath || [])[0] === 'МДФ-плита'
+  const mdfPanel = Object.values(FACADE_MATERIALS).filter((m) => /мдф/i.test((m.categoryPath || [])[0])
     && Number(m.thickness) > 0)[0];
   const mk = (fdec, fmat, sec) => buildModel(Object.assign({}, base, {
     decor: white, facadeDecor: fdec, facadeMat: fmat,
@@ -2500,7 +2520,7 @@ for (const glass of [false, true]) {
   const eng = window.Modul3D.engine;
   const white = DECORS.filter((d) => /бел/i.test(d.name))[0] || DECORS[1];
   const oak = DECORS[0];
-  const mdfPanel = Object.values(FACADE_MATERIALS).filter((m) => (m.categoryPath || [])[0] === 'МДФ-плита'
+  const mdfPanel = Object.values(FACADE_MATERIALS).filter((m) => /мдф/i.test((m.categoryPath || [])[0])
     && Number(m.thickness) > 0)[0];
   const mk = (side, facadeType, fdec, extra) => buildModel(Object.assign({}, base, {
     decor: white, facadeDecor: fdec || oak,
@@ -3610,6 +3630,7 @@ for (const glass of [false, true]) {
 //     столешницу дальше корпуса, чтобы обязательно совпасть с глубиной
 //     листа, неверно — свес сзади по умолчанию должен остаться 0.
 {
+  let kitchenForDrawings;
   const mk = (family) => buildModel(Object.assign({}, base, {
     facadeThickness: 18,
     modules: [{
@@ -3621,6 +3642,23 @@ for (const glass of [false, true]) {
     }],
   }));
 
+  // Столешница на чертежах не рисуется (общий вид, лист модуля и его таблица
+  // деталей) — она только в спецификации/деталировке. Масштабы у общего вида
+  // и модулей свои, а все листы одного формата.
+  {
+    const html = String(buildDrawings(kitchenForDrawings = mk('kitchen'), true));
+    const sheets = html.slice(0, html.indexOf('Фасады'));
+    if (/Столешница|CTOP-LDSP|СТОП-/.test(sheets)) problems.push('чертежи: столешница попала на общий вид или лист модуля');
+    if (!kitchenForDrawings.parts.some((p) => p.kind === 'countertop')) problems.push('чертежи: у проверочной тумбы нет столешницы в модели');
+    const sizes = [];
+    const reS = /<svg width="[\d.]+" height="[\d.]+" viewBox="-?[\d.]+ -?[\d.]+ ([\d.]+) ([\d.]+)"/g;
+    let ms;
+    const secEnd = html.indexOf('Фасады');
+    const chunk = html.slice(html.indexOf('Общий вид'), secEnd === -1 ? undefined : secEnd);
+    while ((ms = reS.exec(chunk))) sizes.push(`${ms[1]}×${ms[2]}`);
+    if (sizes.length < 2 || sizes.some((z) => z !== sizes[0])) problems.push(`чертежи: общий вид и листы модулей не одного размера (${sizes.join(', ')})`);
+    cases += 1;
+  }
   const kitchen = mk('kitchen');
   inspect(kitchen, 'столешница: свес сзади — кухня, авто-догон до листа');
   const kTop = kitchen.parts.filter((p) => p.kind === 'countertop')[0];

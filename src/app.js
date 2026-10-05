@@ -2983,12 +2983,13 @@ const LIB_OWN_ENTRIES_ALLOWED = true;
 // объект своего ключа не знает).
 function libTopEntries(topCode) {
   const cat = window.Modul3D.catalog;
+  libStampMatKinds();
   if (topCode === 'sheet') {
     // Позиции своей категории (item.customRoot, см. libAddMaterialCategory/
     // libAddRow) сюда не входят — иначе одна и та же позиция задвоилась бы
     // и под «Листовыми материалами», и под своей категорией.
     const facadeAll = Object.values(cat.FACADE_MATERIALS);
-    const facadeSheet = facadeAll.filter((it) => SHEET_FACADE_SUBCATS.indexOf((it.categoryPath || [])[0]) >= 0 && !it.customRoot);
+    const facadeSheet = facadeAll.filter((it) => isSheetItem(it) && !it.customRoot);
     return []
       .concat(DECORS.filter((it) => !it.customRoot).map((it) => ({ group: 'decors', item: it })))
       .concat(facadeSheet.map((it) => ({ group: 'facade', item: it })))
@@ -2999,7 +3000,7 @@ function libTopEntries(topCode) {
     // «Дверей» (item.customRoot, см. libAddFacadeCategory) сюда не входит.
     const facadeAll = Object.values(cat.FACADE_MATERIALS);
     return facadeAll
-      .filter((it) => SHEET_FACADE_SUBCATS.indexOf((it.categoryPath || [])[0]) < 0 && !it.customRoot)
+      .filter((it) => !isSheetItem(it) && !it.customRoot)
       .map((it) => ({ group: 'facade', item: it }));
   }
   // 'matcustom-<timestamp>'/'faccustom-<timestamp>' — своя корневая
@@ -3554,6 +3555,7 @@ function libRepathNode(topCode, oldPath, newPath) {
 // libFacCatLabels) — сам ключ категории, от которого у фурнитуры зависит
 // подбор в расчёте (item.category), остаётся прежним.
 function libRenameNode(topCode, path, newName) {
+  libStampMatKinds();
   newName = libCleanNodeName(newName);
   if (!newName) return;
   if (!path.length) {
@@ -3727,8 +3729,8 @@ function libMoveTargets(topCode, path) {
   // уедут с «Материалов» на вкладку «Двери». Корневым сегментом результата
   // у переноса «в корень раздела» становится имя самого узла, у переноса
   // внутрь цели — первый сегмент цели.
-  const lockSheetFacade = libSubtreeHasSheetFacade(topCode, path);
-  const rootAllowed = (rootSeg) => !lockSheetFacade || SHEET_FACADE_SUBCATS.indexOf(rootSeg) >= 0;
+  const lockSheetFacade = false;   // вкладку определяет item.matKind, не название раздела
+  const rootAllowed = (rootSeg) => true;
   const targets = (parentKey === '' || !rootAllowed(name)) ? [] : [[]];
   libTreeAllNodePaths(topCode).forEach((p) => {
     const key = p.join('::');
@@ -3848,7 +3850,7 @@ function libRowMoveTargetsIn(topCode, entry, isCurrent) {
   const curKey = isCurrent ? ((entry.item && entry.item.categoryPath) || []).join('::') : null;
   const lock = libRowSheetFacadeLock(topCode, entry);
   const rootAllowed = (rootSeg) => {
-    const isSheetSeg = SHEET_FACADE_SUBCATS.indexOf(rootSeg) >= 0;
+    const isSheetSeg = false;
     if (lock === 'sheet') return isSheetSeg;
     if (lock === 'facade') return !isSheetSeg;
     return true;
@@ -3894,9 +3896,7 @@ function libRowMoveTargetsIn(topCode, entry, isCurrent) {
 //              categoryPath[0], отдельного поля «вкладка» у неё нет);
 //   ''       — ограничений нет.
 function libRowSheetFacadeLock(topCode, entry) {
-  if (topCode === 'sheet' && entry.group === 'facade') return 'sheet';
-  if (topCode === 'facade') return 'facade';
-  return '';
+  return '';   // вкладку определяет item.matKind, переносы по названию не ограничиваем
 }
 
 // «Плитные» корневые сегменты списком для подсказок меню переноса. Собираем
@@ -3919,7 +3919,7 @@ function libRowMoveHintHtml(topCode, entry) {
   // На «Дверях» ограничение действует всегда, но сказать о нём есть смысл,
   // только если такие категории там реально заведены: иначе подсказка висела
   // бы в КАЖДОМ меню, объясняя отсутствие целей, которых и так нет.
-  const hasSheetNamedNode = libTreeAllNodePaths(topCode).some((p) => SHEET_FACADE_SUBCATS.indexOf(p[0]) >= 0);
+  const hasSheetNamedNode = false;
   if (lock === 'facade' && hasSheetNamedNode) {
     return `<div class="lib-move-hint">Категории ${list} здесь недоступны: по такому названию материал относят к «Листовым материалам», и позиция ушла бы с «Дверей» туда.</div>`;
   }
@@ -4592,6 +4592,7 @@ function libCountertopShortName(it) {
 const SHEET_TYPE_NAME_ALIASES = {
   'ДСП': ['лдсп', 'дсп'],
   'МДФ-плита': ['мдф'],
+  'МДФ панели': ['мдф'],
   'Шпонированные плиты': ['мдф шпонированный', 'шпонированные плиты', 'шпон'],
   'ХДФ/ДВП': ['хдф', 'двп'],
   'Массив': ['массив'],
@@ -5556,7 +5557,7 @@ Object.keys(COUNTERTOP_MATERIAL_LABEL).forEach((id) => { COUNTERTOP_MATERIAL_LAB
 // «Листовые материалы» вместе с decors/back (см. libTopEntries выше);
 // «Массив»/«Алюминий»/«Стекло» — не плитные материалы, остаются в
 // «Виды фасадов» (вкладка «Двери», см. libraryFacadesBlock).
-const SHEET_FACADE_SUBCATS = ['ДСП', 'МДФ-плита', 'Шпонированные плиты'];
+const SHEET_FACADE_SUBCATS = ['ДСП', 'МДФ-плита', 'МДФ панели', 'Шпонированные плиты'];
 
 // Новая позиция листа объединённой категории «Листовые материалы» кладётся
 // в ОДИН конкретный исходный массив каталога по умолчанию — по первому
@@ -5568,7 +5569,38 @@ const SHEET_FACADE_SUBCATS = ['ДСП', 'МДФ-плита', 'Шпонирова
 // libLeafTableHtml) — decors, тот же самый частый случай. Категорию
 // «Виды фасадов» это не касается — там addGroupMap не передаётся, всегда
 // FACADE_MATERIALS (см. libAddRow: group === 'facade').
-const SHEET_ADD_GROUP_MAP = { 'ДСП': 'decors', 'МДФ-плита': 'facade', 'Шпонированные плиты': 'facade', 'ХДФ/ДВП': 'back' };
+const SHEET_ADD_GROUP_MAP = { 'ДСП': 'decors', 'МДФ-плита': 'facade', 'МДФ панели': 'facade', 'Шпонированные плиты': 'facade', 'ХДФ/ДВП': 'back' };
+
+// Принадлежность позиции вкладке «Материалы» хранится в самой позиции
+// (item.matKind: 'ldsp'|'mdf'|'veneer'), а не выводится из названия раздела —
+// раздел можно переименовать как угодно. matKind проставляется один раз
+// (libStampMatKinds) по признакам позиции и при создании.
+const SHEET_MAT_KINDS = ['ldsp', 'mdf', 'veneer'];
+function isSheetItem(it) {
+  return !!it && SHEET_MAT_KINDS.indexOf(it.matKind) >= 0;
+}
+function libStampMatKinds() {
+  const cat = window.Modul3D.catalog, eng = window.Modul3D.engine;
+  if (!eng || typeof eng.inferMatKind !== 'function') return;
+  const stamp = (it, def) => {
+    if (!it || it.matKind) return;
+    const mk = eng.inferMatKind(it) || ((it.categoryPath || [])[0] && SHEET_FACADE_SUBCATS.indexOf(it.categoryPath[0]) >= 0 ? 'mdf' : null) || def;
+    if (mk) it.matKind = mk;
+  };
+  (cat.DECORS || []).forEach((it) => stamp(it, 'ldsp'));
+  Object.values(cat.FACADE_MATERIALS || {}).forEach((it) => stamp(it, null));
+  stamp(cat.GLASS, null);
+}
+// В какой массив класть новую позицию «Листовых материалов» под разделом seg:
+// по известным названиям, а иначе — по позициям, уже лежащим в этом разделе.
+function sheetAddGroup(seg) {
+  if (SHEET_ADD_GROUP_MAP[seg]) return SHEET_ADD_GROUP_MAP[seg];
+  const cat = window.Modul3D.catalog;
+  const inSeg = (it) => ((it.categoryPath || [])[0] === seg);
+  if (Object.values(cat.FACADE_MATERIALS || {}).some((it) => isSheetItem(it) && inSeg(it))) return 'facade';
+  if ((cat.BACK_MATERIALS || []).some(inSeg)) return 'back';
+  return null;
+}
 
 // ---------------------------------------------------------------------------
 // Корневые категории вкладки «Библиотеки» («Листовые материалы»/«Кромка»/…,
@@ -7641,7 +7673,7 @@ function libLinkSaveMaterial(form, values, categoryPath) {
   // ждут роль-специфичные подборы материала (декор корпуса/фасада/задней
   // стенки). Для facade/edge/countertop такой неоднозначности нет — там
   // group всегда однозначно равна top.
-  const group = form.top === 'sheet' ? (SHEET_ADD_GROUP_MAP[categoryPath[0]] || form.group || 'decors') : form.group;
+  const group = form.top === 'sheet' ? (sheetAddGroup(categoryPath[0]) || form.group || 'decors') : form.group;
   const name = values.name.trim();
   const price = Number(values.price);
   const unit = values.unit || 'м²';
@@ -7669,6 +7701,7 @@ function libLinkSaveMaterial(form, values, categoryPath) {
   if (variant) common.variant = variant;
   // Позиция своей категории «Материалов»/«Дверей» — как в libAddRow.
   if (/^(matcustom|faccustom)-/.test(form.top || '')) common.customRoot = form.top;
+  if (form.top === 'sheet' && group === 'facade') common.matKind = (window.Modul3D.engine.inferMatKind({ categoryPath, name, sourceName: common.sourceName, sourceUrl: common.sourceUrl }) || 'mdf');
   // Текстура листа (необязательный блок формы): в материал уходят только адрес
   // страницы декора и сайт; сама картинка — в IndexedDB этого компьютера
   // (см. libTexAfterSave). Для кромки текстуры нет.
@@ -8498,6 +8531,7 @@ function libAddRow(group, path, topCode) {
     const code = 'FAC-NEW-' + Date.now();
     const item = { code, name: 'Новый материал фасада', sheetPrice: 0, sheetW: 2750, sheetH: 1830, unit: 'лист', image: null, categoryPath: path.slice() };
     if (isFacCustom) item.customRoot = topCode;
+    else if (topCode === 'sheet') item.matKind = (window.Modul3D.engine.inferMatKind(item) || 'mdf');
     cat.FACADE_MATERIALS[code] = item;
   } else if (group === 'edge') {
     const name = (window.prompt('Название новой кромки:') || '').trim();
@@ -11951,7 +11985,7 @@ function matPickPlashkaHtml(role, id, code, fallbackName, extraAttrs) {
   const it = code ? (findAnyMaterialByCode(code) || ((aluCat().GLASS || {}).code === code ? aluCat().GLASS : null)) : null;
   const name = (it && it.name) || fallbackName || code || 'Не выбрано';
   const img = it && typeof it.image === 'string' && it.image ? it.image : '';
-  const isGlass = !!(it && ((Array.isArray(it.categoryPath) && it.categoryPath[0] === 'Стекло') || /^GLASS/i.test(it.code || '')));
+  const isGlass = !!(it && window.Modul3D.engine.isGlassMaterial(it));
   const swCls = img ? '' : (isGlass ? ' alu-fill-sw-glass' : ' alu-fill-sw-sheet');
   const swStyle = img ? ` style="background-image:url('${esc(img)}')"` : '';
   return `<button type="button" class="alu-fill-pick mat-pick"${id ? ` id="${esc(id)}"` : ''}${role ? ` data-mat-pick="${esc(role)}"` : ''} data-code="${esc(code || '')}"${extraAttrs || ''}
@@ -12392,7 +12426,7 @@ function libLocateMaterial(code) {
   if (fac) {
     if (fac.customRoot) return { topCode: fac.customRoot, path: cpOf(fac) };
     const cp = cpOf(fac);
-    return { topCode: SHEET_FACADE_SUBCATS.indexOf(cp[0]) >= 0 ? 'sheet' : 'facade', path: cp };
+    return { topCode: isSheetItem(fac) ? 'sheet' : 'facade', path: cp };
   }
   if (cat.GLASS && cat.GLASS.code === code) return { topCode: 'glass', path: cpOf(cat.GLASS) };
   return null;
@@ -13318,8 +13352,8 @@ function aluFillOptions(prof) {
     arr.push({ code: it.code, name: it.name || it.code });
   };
   const fac = Object.values(cat.FACADE_MATERIALS || {});
-  const isGlass = (it) => (Array.isArray(it.categoryPath) && it.categoryPath[0] === 'Стекло') || /^GLASS/i.test(it.code || '');
-  const isAlu = (it) => it.code === 'FAC-ALU' || (Array.isArray(it.categoryPath) && it.categoryPath[0] === 'Алюминий');
+  const isGlass = (it) => window.Modul3D.engine.isGlassMaterial(it);
+  const isAlu = (it) => (it.matKind || window.Modul3D.engine.inferMatKind(it)) === 'alu';
   // Толщина заполнения из паспорта профиля (у Tehmob — 4 мм с уплотнителем):
   // стекло другой толщины в такой профиль не встаёт — в выбор не пускаем
   // (то же правило в engine.aluFacadeOf).
