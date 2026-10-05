@@ -3657,6 +3657,7 @@ function buildModuleParts(p) {
     const runnerYs = [];
     const runnerNLs = [];
     const boxInfo = [];
+    const boxPartsStart = parts.length;
     if (drawerHeights.length) {
       // Материал/толщина ящиков — по умолчанию проектные (drawerDecor/drawerT),
       // но секция может переопределить их своими sec.drawerDecorCode/
@@ -3773,10 +3774,37 @@ function buildModuleParts(p) {
     const infoRow = secInfo[secInfo.length - 1];
     if (infoRow) infoRow.shelfYs = shelfYs.slice();
     shelfPanelX[i] = [panelLX(i), panelRX(i)];
+    // ЖЁСТКАЯ ПОЛКА НАД ЯЩИКАМИ (решение пользователя 2026-10-05): если над
+    // ящиками есть свободное место — несъёмная полка на Rastex во всю
+    // глубину корпуса. Над ней дверь (или первая зона отсека) — центр полки
+    // в зазоре между фасадом ящика и дверью. Над ящиками нет фасада (открытый
+    // отсек, ниша под духовку/СВЧ) — верхняя пласть полки на 2 мм выше
+    // верхней кромки фасада ящика. Нет места над ящиками (столешница прямо
+    // на них) — полка не нужна. В shelfYs не попадает: ни штанга, ни петли,
+    // ни полкодержатели её не учитывают.
+    if (drawerZoneH > 0 && shelfZoneH >= t + 40) {
+      const zone0 = multiZone ? (sec.doorZones[0] || {}) : {};
+      const zone0Facade = multiZone ? (zone0.facade || 'doorLeft') : sec.facade;
+      const facadeAbove = zone0Facade !== 'open'
+        && !applianceNicheOnly(multiZone ? (zone0.appliance || 'none') : 'none');
+      const drawerFacadeTopY = baseH + drawerZoneH - gap;
+      // Короб ящика (особенно Quadro) бывает почти вровень с фасадом — нижняя
+      // пласть полки не должна заходить в него: тогда полка поднимается до
+      // верха самого высокого короба (физически иначе полка встала бы в ящик).
+      const boxTopY = parts.slice(boxPartsStart)
+        .filter((q) => /^drawer/.test(q.kind) && q.kind !== 'drawerFront' && q.box)
+        .reduce((m, q) => Math.max(m, q.box.y + q.box.h / 2), -Infinity);
+      shelfEntries.push({
+        y: Math.max(facadeAbove ? baseH + drawerZoneH : drawerFacadeTopY + 2 - t / 2,
+          boxTopY + t / 2 + 0.6),
+        fixed: true, drawerTop: true,
+      });
+    }
     for (let si = 0; si < shelfEntries.length; si++) {
       const y = shelfEntries[si].y;
       const isFixed = shelfEntries[si].fixed;
-      if (y < innerBottomY + drawerZoneH - 1 || y > innerBottomY + innerH + 1) {
+      if (!shelfEntries[si].drawerTop
+        && (y < innerBottomY + drawerZoneH - 1 || y > innerBottomY + innerH + 1)) {
         warnings.push(`${secName}: полка на высоте ${Math.round(y - innerBottomY)} мм выходит за пределы секции.`);
         continue;
       }
@@ -3804,11 +3832,13 @@ function buildModuleParts(p) {
         name: glassShelf ? 'Полка стеклянная' : 'Полка', section: secName,
         material: glassShelf ? GL.code : decor.code,
         thickness: glassShelf ? GL.thickness : t,
-        length: secW - 2, width, qty: 1, kind: 'shelf',
+        length: isFixed ? secW : secW - 2, width, qty: 1, kind: 'shelf',
         glass: glassShelf, fixed: isFixed,
         note: glassShelf
           ? 'Стекло 6 мм, на полкодержателях с силиконовой пяткой'
-          : (isFixed
+          : (shelfEntries[si].drawerTop
+            ? 'Несъёмная, над ящиками, во всю глубину корпуса, крепится минификсами Rastex к боковинам'
+            : isFixed
             ? 'Несъёмная, во всю глубину корпуса, крепится минификсами Rastex к боковинам — '
               + 'на стыке фасадов, для жёсткости пенала'
             : 'Съёмная, на полкодержателях'),
@@ -3816,7 +3846,7 @@ function buildModuleParts(p) {
           ? { long1: null, long2: null, short1: null, short2: null }
           : { long1: shelfFrontHidden ? EDGE_BACK : EDGE_FRONT, long2: EDGE_BACK, short1: EDGE_BACK, short2: EDGE_BACK },
         x: secCenterX, y, z: isFixed ? 0 : (D / 2 - SHELF_SETBACK) - shelfDepth / 2,
-        dims: { w: secW - 2, h: glassShelf ? GL.thickness : t, d: width },
+        dims: { w: isFixed ? secW : secW - 2, h: glassShelf ? GL.thickness : t, d: width },
       }));
     }
 
@@ -4195,6 +4225,38 @@ function buildModuleParts(p) {
         });
       }
     }
+
+    // НЕСЪЁМНАЯ ПОЛКА МЕЖДУ СТОЙКАМИ: цикл выше обходит только наружные
+    // боковины, поэтому торцы, которыми жёсткая полка (в т.ч. над ящиками)
+    // упирается во внутреннюю стойку, оставались без крепежа. Здесь тот же
+    // минификс Rastex 15: гнездо и болт — в торце полки, дюбель — в стойке.
+    // Полка стоит вплотную к стойке (ширина = внутренний размер секции).
+    for (const hp of parts.filter((q) => q.kind === 'shelf' && q.fixed)) {
+      for (const dv of parts.filter((q) => q.kind === 'divider')) {
+        if (Math.abs(Math.abs(dv.box.x - hp.box.x) - (hp.box.w / 2 + dv.box.w / 2)) > 1.5) continue;
+        if (Math.abs(dv.box.y - hp.box.y) > dv.box.h / 2) continue;
+        const dvBottom = dv.box.y - dv.box.h / 2;
+        const dvBackZ = dv.box.z - dv.box.d / 2;
+        const atLeftD = dv.box.x < hp.box.x;
+        const xEdgeD = atLeftD ? 0 : hp.length;
+        const camXD = atLeftD ? RASTEX.camSetback : hp.length - RASTEX.camSetback;
+        const ptsD = jointPoints(hp.box.d);
+        for (const py of ptsD) {
+          const yOnDv = (hp.box.z - hp.box.d / 2) + py - dvBackZ;
+          hp.holes.push({ x: round1(camXD), y: round1(py), d: RASTEX.camD,
+                          depth: RASTEX.camDepthFor(hp.thickness),
+                          through: false, side: 'back', kind: 'minifixCam' });
+          hp.holes.push({ x: round1(xEdgeD), y: round1(py), d: RASTEX.boltD,
+                          depth: RASTEX.boltDepth,
+                          through: false, side: 'edge', kind: 'minifixBolt' });
+          // Дюбель — в пласть стойки, обращённую к секции этой полки.
+          dv.holes.push({ x: round1(hp.box.y - dvBottom), y: round1(yOnDv),
+                          d: RASTEX.dowelD, depth: RASTEX.dowelDepth, through: false,
+                          side: atLeftD ? 'back' : 'front', kind: 'minifixDowel' });
+        }
+        jointRows.push({ joint: 'minifix', qty: ptsD.length });
+      }
+    }
   }
 
   // ПРАВИЛО ПРОЕКТА: под каждую единицу фурнитуры в модели обязана быть
@@ -4216,14 +4278,28 @@ function buildModuleParts(p) {
   // Полкодержатели: по два отверстия на каждую сторону полки, отступ 37 мм
   // от переднего и заднего краёв полки — так стоит стандартный штифт Ø5.
   const SUP_SETBACK = 37;
+  // Высота оси отверстия под полку на высоте sy (None — несъёмная полка без
+  // полкодержателей). Нужна и для самой присадки, и чтобы найти пары полок
+  // соседних секций на одной высоте на общей стойке.
+  const pinShelfPart = (sy) => parts.filter((p) => p.kind === 'shelf'
+    && Math.abs(p.box.y - sy) < 1)[0];
+  const pinYOf = (sy) => {
+    const sp = pinShelfPart(sy);
+    if (sp && sp.fixed) return null;
+    return sy - (sp ? sp.box.h : t) / 2 - 2.5;
+  };
   for (const row of secInfo) {
     const bounds = shelfPanelX[row.index];
     if (!bounds) continue;
+    const rowCx = (bounds[0] + bounds[1]) / 2;
+    // Полки соседней секции СЛЕВА (с ней общая стойка bounds[0]).
+    const leftRow = secInfo.filter((r) => r.index === row.index - 1)[0];
+    const leftPinYs = leftRow
+      ? (leftRow.shelfYs || []).map(pinYOf).filter((v) => v !== null) : [];
     for (const sy of (row.shelfYs || [])) {
       // Полка ЛЕЖИТ на штифте, значит отверстие идёт НИЖЕ полки — по её
       // нижней плоскости, а не по середине толщины.
-      const shelfPart = parts.filter((p) => p.kind === 'shelf'
-        && Math.abs(p.box.y - sy) < 1)[0];
+      const shelfPart = pinShelfPart(sy);
       // Несъёмная полка-перегородка (fixed) уже прикреплена к боковинам
       // минификсами Rastex — тем же узлом, что дно/крыша (см. блок
       // «ПРИСАДКА КРЕПЕЖА КОРПУСА» выше, фильтр horiz). Штифты-полкодержатели
@@ -4248,8 +4324,19 @@ function buildModuleParts(p) {
         const backY = round1(shBack - panelBack);
         const frontY = round1(shFront - panelBack);
         const glassPin = !!(shelfPart && shelfPart.glass);
-        for (const ly of [backY + SUP_SETBACK, frontY - SUP_SETBACK]) {
-          drillPanel(px, localX, ly, { kind: 'shelfSupport' });
+        // Пласть, обращённая К СВОЕЙ секции (на общей стойке у правой секции —
+        // «back», у левой — «front»; раньше всегда «front» и отверстия правой
+        // секции оказывались во второй).
+        const pinSide = (rowCx > px) === (px < 0) ? 'front' : 'back';
+        // Общая стойка: если полка соседа слева на той же высоте, отверстия
+        // двух сторон встретились бы в толще плиты — эту сторону сдвигаем
+        // назад по глубине на 10 мм. На разной высоте сдвига нет.
+        const sameHeight = panel.kind === 'divider' && Math.abs(px - bounds[0]) < 1.5
+          && leftPinYs.some((v) => Math.abs(v - pinY) < 6);
+        const pinShift = sameHeight ? 10 : 0;
+        for (const ly0 of [backY + SUP_SETBACK, frontY - SUP_SETBACK]) {
+          const ly = ly0 - pinShift;
+          drillPanel(px, localX, ly, { kind: 'shelfSupport', side: pinSide });
           // Сам полкодержатель — фурнитура: виден в 3D, в деталировку не идёт
           const zAbs = (panel.box.z - panel.box.d / 2) + ly;
           parts.push(makePart({
@@ -4258,7 +4345,7 @@ function buildModuleParts(p) {
             length: 16, width: 5, qty: 1, kind: 'shelfPin',
             note: glassPin ? 'Штифт Ø5 с силиконовой пяткой' : 'Штифт Ø5',
             edging: { long1: null, long2: null, short1: null, short2: null },
-            x: px + (px < 0 ? 8 : -8), y: pinY, z: zAbs,
+            x: px + (pinSide === 'front' ? (px < 0 ? 8 : -8) : (px < 0 ? -8 : 8)), y: pinY, z: zAbs,
             dims: { w: 16, h: 5, d: 5 },
             shape: 'pin', hardware: true,
           }));
