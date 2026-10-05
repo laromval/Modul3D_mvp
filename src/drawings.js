@@ -1804,7 +1804,8 @@ function commonPartN(model) {
     for (const g of partGroupsOf(model, pick)) {
       const p = g.part, hg = holeGroups(p);
       const lay = partLayout(p, hg, partTblSize(p, g, hg), Infinity);
-      items.push({ n: stdN(lay.scale), len: p.length });
+      // «Длинная» — по бОльшей стороне: дверь 597×2037 хранится как length=597.
+      items.push({ n: stdN(lay.scale), len: Math.max(p.length, p.width) });
     }
   }
   if (!items.length) return 1;
