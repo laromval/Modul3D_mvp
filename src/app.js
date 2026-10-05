@@ -14,7 +14,7 @@
 (function () {
 // Версия сборки — показывается во вкладке браузера и в шапке.
 // При выпуске новой версии меняется только эта строка.
-const APP_VERSION = 'v373';
+const APP_VERSION = 'v374';
 
 // Номер версии выводим ПЕРВЫМ делом: если дальше что-то упадёт, по нему сразу
 // видно, какая сборка открыта.
@@ -14181,8 +14181,18 @@ function renderSectionsList() {
     const rodBlock = mod.family === 'kitchen' ? '' : `
       <div class="sub">
         <label class="checkbox-inline"><input type="checkbox" data-field="rod" data-idx="${i}" ${sec.rod ? 'checked' : ''}> Штанга для одежды</label>
-        ${sec.rod ? `<label class="mt6">Высота штанги от дна секции, мм</label>
-        <div class="mini-row"><input type="number" step="10" min="300" value="${sec.rodHeight || 1900}" data-field="rodHeight" data-idx="${i}"></div>` : ''}
+        ${sec.rod ? `<label class="mt6">Высота штанги от дна секции, мм (0 — авто: 50 мм от трубы до полки сверху)</label>
+        <div class="mini-row"><input type="number" step="10" min="0" value="${Number.isFinite(Number(sec.rodHeight)) ? Number(sec.rodHeight) : 1900}" data-field="rodHeight" data-idx="${i}"></div>
+        <label class="mt6">Что вешаем (проверка высоты)</label>
+        <div class="mini-row"><select data-field="rodClothes" data-idx="${i}">
+          <option value=""${!sec.rodClothes ? ' selected' : ''}>Не проверять</option>
+          <option value="long"${sec.rodClothes === 'long' ? ' selected' : ''}>Длинная (от 1500 мм)</option>
+          <option value="mid"${sec.rodClothes === 'mid' ? ' selected' : ''}>Средняя (от 1300 мм)</option>
+          <option value="short"${sec.rodClothes === 'short' ? ' selected' : ''}>Короткая (от 1000 мм)</option>
+        </select></div>
+        <label class="checkbox-inline mt6"><input type="checkbox" data-field="rod2" data-idx="${i}" ${sec.rod2 ? 'checked' : ''}> Вторая штанга ниже (для коротких вещей)</label>
+        ${sec.rod2 ? `<label class="mt6">Высота нижней штанги от дна секции, мм (не менее 1000 мм до верхней)</label>
+        <div class="mini-row"><input type="number" step="10" min="0" value="${Number(sec.rod2Height) > 0 ? Number(sec.rod2Height) : 1000}" data-field="rod2Height" data-idx="${i}"></div>` : ''}` : ''}
       </div>`;
 
     // Вертикальные отсеки фасада (пенал под встроенную технику): деление на
@@ -14339,7 +14349,7 @@ function renderSectionsList() {
       sec[f] = (f === 'facade' || f === 'shelfMode'
                 || f === 'widthMode'
                 || f === 'handle' || f === 'lift' || f === 'handleOrient'
-                || f === 'facadeType')
+                || f === 'facadeType' || f === 'rodClothes')
         ? e.target.value
         : (e.target.type === 'checkbox' ? e.target.checked : Number(e.target.value));
       // Вид фасада задан явно — старый флажок sec.glass (ранние сохранения)

@@ -180,7 +180,13 @@ function getDrawerHeights(sec, drawerUnitH, avail, warn, secName) {
 
   if (!isManual) {
     const hasDoor = sectionHasAnyFacade(sec);
-    if (!hasDoor) {
+    // Решение пользователя 2026-10-05: ящики растягиваются на весь фронт только
+    // в секции, где больше ничего нет. Если над ящиками есть штанга или полки —
+    // это отдельный отсек, ящики остаются типовой высоты, а содержимое отсека
+    // не двигается (раньше после удаления фасада ящики раздувались на всю секцию).
+    const hasOtherContent = !!sec.rod || Number(sec.shelves) > 0
+      || (Array.isArray(sec.doorZones) && sec.doorZones.some((z) => z && (z.rod || Number(z.shelves) > 0)));
+    if (!hasDoor && !hasOtherContent) {
       // Ящики занимают весь фронт: делим поровну, кратно 10, остаток —
       // нижнему ящику, чтобы верх стопки был заподлицо с крышкой.
       const base = Math.max(STEP, Math.floor(usable / n / STEP) * STEP);
@@ -3859,7 +3865,10 @@ function buildModuleParts(p) {
     //   • держатели (фланцы) крепятся к боковинам двумя саморезами.
     if (sec.rod) {
       const ROD_D = 25;
-      const ROD_TOP_GAP = 60;      // просвет до полки/крыши над штангой, мм
+      const ROD_TOP_GAP = 50;      // просвет от ВЕРХНЕЙ КРОМКИ трубы до полки/крыши, мм (подтверждено 2026-10-05)
+      // Минимальная высота оси штанги от дна секции по типу одежды (из правил пользователя).
+      const ROD_CLOTHES_MIN = { long: 1500, mid: 1300, short: 1000 };
+      const ROD_CLOTHES_NAME = { long: 'длинной одежды', mid: 'средней одежды', short: 'коротких вещей' };
       const ROD_BACK_MIN = 300;    // минимум от задней стенки до оси, мм
 
       // По глубине: ось по центру внутреннего пространства, но не ближе
@@ -3883,47 +3892,93 @@ function buildModuleParts(p) {
       const ceiling = above.length ? Math.min.apply(null, above) - t / 2 : innerBottomY + innerH;
       const wanted = Number(sec.rodHeight);
       const manual = Number.isFinite(wanted) && wanted > 0;
-      let rodY = manual ? innerBottomY + wanted : ceiling - ROD_TOP_GAP;
+      let rodY = manual ? innerBottomY + wanted : ceiling - ROD_TOP_GAP - ROD_D / 2;
       const topLimit = ceiling - ROD_D / 2 - 10;
       if (rodY > topLimit) {
         warnings.push(`${secName}: штанга на ${Math.round(rodY - innerBottomY)} мм упирается в полку — `
           + `опущена до ${Math.round(topLimit - innerBottomY)} мм.`);
         rodY = topLimit;
       }
-      if (manual && ceiling - rodY < 50) {
-        warnings.push(`${secName}: просвет над штангой ${Math.round(ceiling - rodY)} мм — `
-          + `для плечиков нужно 50–60 мм.`);
+      const topGap = ceiling - rodY - ROD_D / 2;
+      if (manual && topGap < ROD_TOP_GAP - 0.5) {
+        warnings.push(`${secName}: просвет от трубы до полки сверху ${Math.round(topGap)} мм — `
+          + `для плечиков нужно не менее ${ROD_TOP_GAP} мм.`);
+      }
+      const clothesMin = ROD_CLOTHES_MIN[sec.rodClothes];
+      if (clothesMin && rodY - innerBottomY < clothesMin) {
+        warnings.push(`${secName}: штанга на ${Math.round(rodY - innerBottomY)} мм от дна — `
+          + `для ${ROD_CLOTHES_NAME[sec.rodClothes]} нужно не ниже ${clothesMin} мм.`);
+      }
+      if (rodY - innerBottomY > 2100) {
+        warnings.push(`${secName}: штанга выше 2100 мм от дна недоступна рукой — `
+          + `нужен лифт-пантограф или опустите штангу.`);
       }
 
       const rodLen = secW - 2;
-      parts.push(makePart({
-        name: 'Штанга для одежды', section: secName, material: 'ROD-D25', thickness: 0,
-        length: rodLen, width: ROD_D, qty: 1, kind: 'rod',
-        note: `Ø${ROD_D} мм, ${Math.round(rodY - innerBottomY)} мм от дна секции, `
-          + `просвет сверху ${Math.round(ceiling - rodY)} мм, от задней стенки ${Math.round(backClear)} мм`,
-        edging: { long1: null, long2: null, short1: null, short2: null },
-        x: secCenterX, y: rodY, z: rodZ,
-        dims: { w: rodLen, h: ROD_D, d: ROD_D },
-        shape: 'cylinderX',
-        hardware: true,
-      }));
-
-      // Фланцы на обеих ограничивающих панелях + присадка под их саморезы
-      for (const sgn of [-1, 1]) {
-        // Фланец стоит ВНУТРИ проёма, прижатый к панели: так он не «утоплен»
-        // в боковину. Штанга входит в него — это нормально, они одно целое.
-        const px = secCenterX + sgn * (secW / 2 - 3);
+      const emitRod = (y, noteExtra) => {
         parts.push(makePart({
-          name: 'Держатель штанги (фланец)', section: secName, material: 'ROD-H25', thickness: 0,
-          length: 40, width: 40, qty: 1, kind: 'rodFlange',
-          note: 'Крепится к панели двумя саморезами',
+          name: 'Штанга для одежды', section: secName, material: 'ROD-D25', thickness: 0,
+          length: rodLen, width: ROD_D, qty: 1, kind: 'rod',
+          note: `Ø${ROD_D} мм, ${Math.round(y - innerBottomY)} мм от дна секции, `
+            + noteExtra + `от задней стенки ${Math.round(backClear)} мм`,
           edging: { long1: null, long2: null, short1: null, short2: null },
-          x: px, y: rodY, z: rodZ,
-          dims: { w: 6, h: 40, d: 40 },
-          shape: 'flange',
+          x: secCenterX, y, z: rodZ,
+          dims: { w: rodLen, h: ROD_D, d: ROD_D },
+          shape: 'cylinderX',
           hardware: true,
         }));
-        rodFlanges.push({ panelX: sgn < 0 ? panelLX(i) : panelRX(i), y: rodY, z: rodZ, secName });
+
+        // Фланцы на обеих ограничивающих панелях + присадка под их саморезы
+        for (const sgn of [-1, 1]) {
+          // Фланец стоит ВНУТРИ проёма, прижатый к панели: так он не «утоплен»
+          // в боковину. Штанга входит в него — это нормально, они одно целое.
+          const px = secCenterX + sgn * (secW / 2 - 3);
+          parts.push(makePart({
+            name: 'Держатель штанги (фланец)', section: secName, material: 'ROD-H25', thickness: 0,
+            length: 40, width: 40, qty: 1, kind: 'rodFlange',
+            note: 'Крепится к панели двумя саморезами',
+            edging: { long1: null, long2: null, short1: null, short2: null },
+            x: px, y, z: rodZ,
+            dims: { w: 6, h: 40, d: 40 },
+            shape: 'flange',
+            hardware: true,
+          }));
+          rodFlanges.push({ panelX: sgn < 0 ? panelLX(i) : panelRX(i), y, z: rodZ, secName });
+        }
+      };
+      emitRod(rodY, `просвет от трубы до полки сверху ${Math.round(ceiling - rodY - ROD_D / 2)} мм, `);
+
+      // Вторая (нижняя) штанга — двухъярусная схема: верхняя для длинного,
+      // нижняя для коротких вещей. Расстояние между осями — не менее
+      // ROD_PAIR_MIN (минимум для коротких вещей, подтверждено 2026-10-05).
+      // Полки между штангами нет, правило 50 мм до полки к нижней не относится.
+      if (sec.rod2) {
+        const ROD_PAIR_MIN = 1000;
+        const w2 = Number(sec.rod2Height);
+        const rod2Y = innerBottomY + (Number.isFinite(w2) && w2 > 0 ? w2 : 1000);
+        if (rodY - rod2Y < ROD_PAIR_MIN - 0.5) {
+          warnings.push(`${secName}: расстояние между штангами ${Math.round(rodY - rod2Y)} мм — `
+            + `для коротких вещей нужно не менее ${ROD_PAIR_MIN} мм.`);
+        }
+        emitRod(rod2Y, `нижняя штанга, до верхней ${Math.round(rodY - rod2Y)} мм, `);
+
+        // Две штанги в секции делят её на два отсека: между ними несъёмная
+        // жёсткая полка на Rastex во всю глубину (решение пользователя
+        // 2026-10-05). Над нижней трубой — те же 50 мм до полки.
+        const midShelfY = rod2Y + ROD_D / 2 + ROD_TOP_GAP + t / 2;
+        const midHidden = sectionFrontHidden(sec, decor, t, facadeMat, p.facadeThickness);
+        if (midShelfY + t / 2 > rodY - ROD_D / 2) {
+          warnings.push(`${secName}: между штангами нет места для жёсткой полки — раздвиньте штанги.`);
+        } else {
+          parts.push(makePart({
+            name: 'Полка', section: secName, material: decor.code, thickness: t,
+            length: secW, width: D, qty: 1, kind: 'shelf', glass: false, fixed: true,
+            note: 'Несъёмная, между двумя штангами, во всю глубину корпуса, крепится минификсами Rastex к боковинам',
+            edging: { long1: midHidden ? EDGE_BACK : EDGE_FRONT, long2: EDGE_BACK, short1: EDGE_BACK, short2: EDGE_BACK },
+            x: secCenterX, y: midShelfY, z: 0,
+            dims: { w: secW, h: t, d: D },
+          }));
+        }
       }
     }
   }
