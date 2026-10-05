@@ -23,6 +23,9 @@
 (function () {
 
 const FACADE_KINDS = { door: 1, drawerFront: 1 };
+// Столешница на чертежах не рисуется (общий вид, чертежи модулей, таблица деталей
+// листа модуля) — она только в спецификации и деталировке.
+const NOT_DRAWN = { countertop: 1 };
 const IN_DRAWER = { drawerBottom: 1, drawerBack: 1, drawerSide: 1 };
 // Всё, что не видно снаружи при закрытых фасадах
 const INTERIOR_KINDS = { shelf: 1, divider: 1, back: 1, drawerBottom: 1, drawerBack: 1, drawerSide: 1 };
@@ -573,7 +576,7 @@ function materialTitle(code) {
 }
 
 function contentExtent(model) {
-  const outer = model.partsRaw.filter(p => !INTERIOR_KINDS[p.kind] && !p.hardware);
+  const outer = model.partsRaw.filter(p => !INTERIOR_KINDS[p.kind] && !p.hardware && !NOT_DRAWN[p.kind]);
   let xMin = Infinity, xMax = -Infinity, yMin = Infinity, yMax = -Infinity,
       zMin = Infinity, zMax = -Infinity;
   for (const row of outer) for (const b of row.boxes) {
@@ -601,6 +604,33 @@ function unifyBlocks(html) {
   });
 }
 
+// Общий вид и листы модулей — листы ОДНОГО формата (альбомного, в пропорции
+// рамки печатного листа 269×190, как у листов модулей, см. buildModuleDrawing).
+// На экране style.css растягивает их до одной ширины (.dw-overview /
+// .dw-modsheet), поэтому у них должна совпадать и натуральная ширина, иначе
+// масштаб на экране расходится. Размер общего листа — по самому большому из
+// чертежей, остальные дополняются полями (содержимое по центру).
+const SHEET_RATIO = 269 / 190;
+const SVG_HEAD_RE = /<svg width="([\d.]+)" height="([\d.]+)" viewBox="(-?[\d.]+) (-?[\d.]+) ([\d.]+) ([\d.]+)"/g;
+function maxSvgSize(html) {
+  const re = new RegExp(SVG_HEAD_RE.source, 'g');
+  let m, w = 0, h = 0;
+  while ((m = re.exec(html))) { w = Math.max(w, +m[5]); h = Math.max(h, +m[6]); }
+  return { w, h };
+}
+// Поля добавляются поровну со всех сторон, а элементы в группе .dw-corner-br
+// (таблица деталей модуля) сдвигаются на ту же половину поля — таблица остаётся
+// строго в правом нижнем углу листа, а не уезжает к центру.
+function padSvgTo(html, W, H) {
+  const re = new RegExp(SVG_HEAD_RE.source + /([^>]*>)([\s\S]*?<\/svg>)/.source, 'g');
+  return html.replace(re, (all, w, h, vx, vy, vw, vh, rest, inner) => {
+    const dx = (W - +vw) / 2, dy = (H - +vh) / 2;
+    const nx = +vx - dx, ny = +vy - dy;
+    const body = inner.replace('<g class="dw-corner-br">', `<g class="dw-corner-br" transform="translate(${r(dx)} ${r(dy)})">`);
+    return `<svg width="${r(+w * W / +vw)}" height="${r(+h * H / +vh)}" viewBox="${r(nx)} ${r(ny)} ${r(W)} ${r(H)}"${rest}${body}`;
+  });
+}
+
 function buildOverview(model, scale, headText) {
   const d = model.dims;
   // Снаружи видно корпус и фасады. Полки и стойки тоже берём: закрыты ли они
@@ -610,7 +640,7 @@ function buildOverview(model, scale, headText) {
   // показываем, как и раньше (контур задней стенки спереди всё равно за
   // корпусом, ящики закрыты своими фасадами).
   const OVERVIEW_OPEN = { shelf: 1, divider: 1 };
-  const outer = model.partsRaw.filter(p => !INTERIOR_KINDS[p.kind] || OVERVIEW_OPEN[p.kind]);
+  const outer = model.partsRaw.filter(p => (!INTERIOR_KINDS[p.kind] || OVERVIEW_OPEN[p.kind]) && !NOT_DRAWN[p.kind]);
   const mods = model.modules;
 
   // РАМКА СЧИТАЕТСЯ ПО ФАКТИЧЕСКОМУ СОДЕРЖИМОМУ, а не по габариту изделия.
@@ -728,7 +758,7 @@ function buildOverview(model, scale, headText) {
 function buildViewSVG(model, view, maxW, maxH) {
   const d = model.dims;
   const showFacades = view === 'front';
-  const parts = model.partsRaw.filter(p => (view === 'front' ? !INTERIOR_KINDS[p.kind] : !FACADE_KINDS[p.kind]));
+  const parts = model.partsRaw.filter(p => (view === 'front' ? !INTERIOR_KINDS[p.kind] : !FACADE_KINDS[p.kind]) && !NOT_DRAWN[p.kind]);
 
   const hSize = (view === 'side') ? d.D : d.W;
   const vSize = (view === 'top') ? d.D : d.H;
@@ -799,7 +829,7 @@ function buildModuleDrawing(model, mod, scale) {
   // модель не трогаем, габариты md.* и так в координатах модуля.
   const oy = Number(mod.offsetY) || 0;
   const parts = model.partsRaw.filter(p => belongs(p) && !FACADE_KINDS[p.kind]
-    && !p.hardware && !runWide(p))
+    && !p.hardware && !runWide(p) && !NOT_DRAWN[p.kind])
     .map((p) => (oy ? Object.assign({}, p, {
       boxes: p.boxes.map((b) => Object.assign({}, b, { y: b.y - oy })),
     }) : p));
@@ -959,9 +989,11 @@ function buildModuleDrawing(model, mod, scale) {
     const nh = sheetW / SHEET_ASPECT;
     ty += nh - sheetH; sheetH = nh;
   }
-  body += svgTable(tx, ty, [30, 170, 250, 80, 36, 34],
+  // .dw-corner-br — метка для padSvgTo: при дополнении листа полями таблица
+  // сдвигается в новый правый нижний угол
+  body += '<g class="dw-corner-br">' + svgTable(tx, ty, [30, 170, 250, 80, 36, 34],
     ['Поз.', 'Деталь', 'Материал', 'Размер, мм', 'Толщ.', 'Кол.'],
-    rows.map((x) => [String(x.num), x.name, materialTitle(x.material), x.size, String(x.th), String(x.qty)])).svg;
+    rows.map((x) => [String(x.num), x.name, materialTitle(x.material), x.size, String(x.th), String(x.qty)])).svg + '</g>';
 
   return `<div class="dw-block dw-modsheet">
     <div class="dw-title">${esc(mod.name)} — каркас без фасадов</div>
@@ -2100,48 +2132,66 @@ function buildDrawings(model, showFacades) {
   const exW = ex.xMax - ex.xMin, exH = ex.yMax - ex.yMin, exD = ex.zMax - ex.zMin;
   const needW = exW + GAP + exD + 130;
   const needH = exH + GAP + exD + 130;
-  const scale = Math.min(SHEET_W / Math.max(needW, 1), SHEET_H / Math.max(needH, 1));
+  // fitScale — наибольший масштаб, при котором общий вид влезает в лист.
+  const fitScale = Math.min(SHEET_W / Math.max(needW, 1), SHEET_H / Math.max(needH, 1));
+
+  // У общего вида и чертежей модулей СВОИ масштабы.
+  // · Общий вид — fitScale: наибольший, при котором весь проект влезает в лист
+  //   (чем больше модулей, тем он мельче).
+  // · Чертежи модулей — ОДИН масштаб на все модули, не зависящий от числа
+  //   модулей и от общего вида: подбирается так, чтобы САМЫЙ БОЛЬШОЙ лист
+  //   модуля занял лист (по высоте — чтобы лист с таблицей помещался на
+  //   печатной странице A4, по ширине — в пропорции листа), но не крупнее
+  //   MOD_SCALE_CAP (иначе у одного маленького модуля чертёж раздулся бы).
+  const scale = fitScale;
+  const MOD_SHEET_MAX_H = 880, MOD_SHEET_MAX_W = MOD_SHEET_MAX_H * SHEET_RATIO;
+  const MOD_SCALE_CAP = 0.5;
+  let modScale = 0.3;
+  const buildMods = () => {
+    let out = '';
+    for (const mod of model.modules) out += buildModuleDrawing(model, mod, modScale);
+    return out;
+  };
+  let modHtml = buildMods();
+  for (let pass = 0; pass < 5; pass++) {
+    const sz = maxSvgSize(modHtml);
+    if (!sz.w || !sz.h) break;
+    const k = Math.min(MOD_SHEET_MAX_H / sz.h, MOD_SHEET_MAX_W / sz.w) * 0.995;
+    if (k >= 0.985 && k <= 1.005) break;                 // уже вплотную
+    if (k > 1 && modScale >= MOD_SCALE_CAP) break;       // расти некуда
+    modScale = Math.min(modScale * k, MOD_SCALE_CAP);
+    modHtml = buildMods();
+  }
   const denom = Math.max(1, Math.round(1 / scale));
+  const modDenom = Math.max(1, Math.round(1 / modScale));
 
   const headText = `Габарит проекта ${Math.round(d.W)}×${Math.round(d.H)}×${Math.round(d.D)} мм · `
-    + `модулей: ${model.modules.length} · единый масштаб 1:${denom} · `
+    + `модулей: ${model.modules.length} · масштаб общего вида 1:${denom}, модулей 1:${modDenom} · `
     + `все размеры в мм · номера в кружках — позиции деталировки`;
   let html = `<div class="dw-head">`
     + `Габарит проекта ${Math.round(d.W)}×${Math.round(d.H)}×${Math.round(d.D)} мм · `
-    + `модулей: ${model.modules.length} · единый масштаб 1:${denom} · `
+    + `модулей: ${model.modules.length} · масштаб общего вида 1:${denom}, модулей 1:${modDenom} · `
     + `все размеры в мм · номера в кружках — позиции деталировки</div>`;
 
-  html += `<h4 class="dw-h dw-h-ov">Общий вид</h4><div class="dw-grid">${buildOverview(model, scale, headText)}</div>`;
-
-  // Чертежи модулей и фасадов крупнее общего вида: они рабочие, по ним
-  // читают размеры в цеху, и мелкий масштаб там мешает.
-  const DETAIL_ZOOM = 1.15;
-  // Фасады — самые простые чертежи, места на листе у них много: их можно
-  // увеличить сильнее, чтобы читались межосевые и присадка под петли.
-  const FACADE_ZOOM = 1.4;
-  // Лист модуля (чертёж + таблица деталей справа) должен целиком помещаться
-  // на печатной странице A4: если самый высокий чертёж выше, уменьшаем масштаб.
-  const MOD_SHEET_MAX_H = 880;
-  let modScale = scale * DETAIL_ZOOM;
-  let modHtml = '';
-  for (let pass = 0; pass < 3; pass++) {
-    modHtml = '';
-    for (const mod of model.modules) modHtml += buildModuleDrawing(model, mod, modScale);
-    const re = /<svg width="[\d.]+" height="[\d.]+" viewBox="-?[\d.]+ -?[\d.]+ [\d.]+ ([\d.]+)"/g;
-    let mm, maxH = 0;
-    while ((mm = re.exec(modHtml))) maxH = Math.max(maxH, +mm[1]);
-    if (maxH <= MOD_SHEET_MAX_H) break;
-    modScale *= MOD_SHEET_MAX_H / maxH * 0.98;
-  }
+  let ovHtml = buildOverview(model, scale, headText);
+  const so = maxSvgSize(ovHtml), sm = maxSvgSize(modHtml);
+  let sheetW = Math.max(so.w, sm.w), sheetH = Math.max(so.h, sm.h);
+  if (sheetW / sheetH < SHEET_RATIO) sheetW = sheetH * SHEET_RATIO; else sheetH = sheetW / SHEET_RATIO;
+  if (so.w) { ovHtml = padSvgTo(ovHtml, sheetW, sheetH); modHtml = padSvgTo(modHtml, sheetW, sheetH); }
+  html += `<h4 class="dw-h dw-h-ov">Общий вид</h4><div class="dw-grid">${ovHtml}</div>`;
   html += `<h4 class="dw-h dw-h-mod">Чертежи модулей (каркас)</h4><div class="dw-grid">${modHtml}</div>`;
 
+  // Фасады — самые простые чертежи, места на листе у них много: их можно
+  // увеличить сильнее (от наибольшего масштаба общего вида, а не от общего
+  // единого), чтобы читались межосевые и присадка под петли.
+  const FACADE_ZOOM = 1.4;
   if (showFacades) {
-    const facHtml = buildFacadeDrawings(model, scale * FACADE_ZOOM);
+    const facHtml = buildFacadeDrawings(model, fitScale * FACADE_ZOOM);
     html += `<h4 class="dw-h">Фасады</h4><div class="dw-grid">${facHtml}</div>`;
   }
   // Детали с присадкой — каждая своим чертежом: по ним сверлят, и координаты
   // отверстий должны быть видны, а не тонуть в общем чертеже модуля.
-  const drilledHtml = buildDrilledPartDrawings(model, scale * FACADE_ZOOM);
+  const drilledHtml = buildDrilledPartDrawings(model, fitScale * FACADE_ZOOM);
   html += `<h4 class="dw-h">Детали с присадкой</h4><div class="dw-grid">${drilledHtml}</div>`;
   // Спецификация деталей — в самый низ, после всех чертежей.
   html += `<h4 class="dw-h">Спецификация деталей</h4>${buildPartsTable(model)}`;

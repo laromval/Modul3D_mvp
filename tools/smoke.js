@@ -88,8 +88,7 @@ class El {
   // приложение убрало за собой временный элемент (например, «призрак»
   // перетаскивания), было нечем.
   appendChild(c) { this.children.push(c); if (c) c._parent = this; if (c && c.id) registry.set(c.id, c); return c; }
-  // С v308 рейка по умолчанию живёт в шапке (data-rail-pos="header-end"):
-  // ui-shell.js: placeRailDom переносит её туда через insertBefore.
+  // insertBefore нужен переносу панели режимов 3D в шапку (ui-shell.js: placeVtDom).
   insertBefore(c, ref) {
     if (c && c._parent) c._parent.children = c._parent.children.filter((x) => x !== c);
     const i = ref ? this.children.indexOf(ref) : -1;
@@ -136,6 +135,8 @@ class El {
   }
   setAttribute(k, v) { this.attrs[k] = v; }
   getAttribute(k) { return this.attrs[k]; }
+  hasAttribute(k) { return Object.prototype.hasOwnProperty.call(this.attrs, k); }
+  removeAttribute(k) { delete this.attrs[k]; }
   insertAdjacentHTML(_pos, html) { this._html += html; harvest(html); }
 }
 
@@ -1906,10 +1907,14 @@ for (const el of document.querySelectorAll('.tab-btn')) {
     hDefault === Math.min(Math.round(900 * 0.62), 560));
   check('компьютер: «Документы» → отступ для 3D не меньше высоты панели', () =>
     shell.getDrawerInset() >= hDefault && lastInset() === shell.getDrawerInset());
-  document.documentElement.setAttribute('data-rail-pos', 'bottom-left');
-  check('компьютер: рейка слева снизу поднимает панель — отступ больше', () =>
-    shell.getDrawerInset() > hDefault + 60);
-  document.documentElement.setAttribute('data-rail-pos', 'header-end');
+  // рейка всегда слева снизу (с v361 положение не настраивается); у открытых
+  // панелей она поднимается в их верхнюю строку (data-rail-up)
+  check('компьютер: у «Документов» рейка в верхней строке панели (data-rail-up="docs")', () =>
+    document.documentElement.getAttribute('data-rail-up') === 'docs');
+  shell.openDrawer('library');
+  check('компьютер: боковая панель — рейка над ней (data-rail-up="side")', () =>
+    document.documentElement.getAttribute('data-rail-up') === 'side');
+  shell.openDrawer('docs');
 
   const grip = {
     _l: {},

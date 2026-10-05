@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="ru" data-theme="light" data-rail-pos="header-end" data-vt-pos="bottom-center">
+<html lang="ru" data-theme="light" data-rail-pos="bottom-left" data-vt-pos="bottom-center">
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
@@ -7,48 +7,31 @@
 <title>Modul3D — параметрический конструктор корпусной мебели</title>
 
 <link rel="icon" type="image/svg+xml" href="favicon.svg" />
-<link rel="stylesheet" href="style.css?v360" />
+<link rel="stylesheet" href="style.css?v369" />
 
-<!-- Положение рейки панелей (data-rail-pos на <html>: left | header-start |
-     header-end | top-right | bottom-left; по умолчанию header-end — в шапке
-     после логотипа) ставим ДО первой отрисовки — иначе при сохранённом
-     положении рейка на миг мелькала бы в чужом месте. Перенос самой рейки в
-     шапку — второй короткий скрипт сразу после </nav>. Ключ localStorage,
-     список значений, умолчание и миграция старого 'bottom-right' → 'bottom-left'
-     дублируют ui-shell.js (RAIL_POS_KEY, RAIL_POSITIONS, loadRailPos): там
-     настоящая логика (перетаскивание, переключатель в настройках), здесь только
-     раннее чтение. -->
-<script>
-(function () {
-  try {
-    var p = localStorage.getItem('modul3d.railPos');
-    // положения «справа снизу» больше нет (там гизма видов) — теперь «слева снизу»
-    if (p === 'bottom-right') { p = 'bottom-left'; localStorage.setItem('modul3d.railPos', p); }
-    if (p === 'left' || p === 'header-start' || p === 'header-end' || p === 'top-right' || p === 'bottom-left') document.documentElement.setAttribute('data-rail-pos', p);
-  } catch (e) { /* приватный режим — остаётся header-end из разметки */ }
-})();
-</script>
 <!-- Положение панели режимов 3D-вида (#viewToolbar; data-vt-pos на <html>:
-     bottom-center — по умолчанию | bottom-left | bottom-right | header) —
-     так же рано, как и рейка. Ключ, значения и правило «в шапке не
-     помещается — внизу по центру» дублируют ui-shell.js (VT_POS_KEY,
-     VT_POSITIONS, effectiveVtPos) — менять вместе. -->
+     bottom-center — по умолчанию | bottom-left | header-start (в шапке после
+     логотипа) | header (в шапке справа)) ставим ДО первой отрисовки. Рейка
+     панелей всегда внизу слева (data-rail-pos="bottom-left"), её положение не
+     настраивается. Ключ, значения и правило «в шапке не помещается — внизу по
+     центру» дублируют ui-shell.js (VT_POS_KEY, VT_POSITIONS, effectiveVtPos) —
+     менять вместе. -->
 <script>
 (function () {
   try {
     var p = localStorage.getItem('modul3d.viewToolbarPos');
-    if (p !== 'bottom-center' && p !== 'bottom-left' && p !== 'bottom-right' && p !== 'header') return;
-    if (p === 'header') {
+    if (p === 'bottom-right') p = 'bottom-center';   // «внизу справа» удалено — там гизма видов
+    if (p !== 'bottom-center' && p !== 'bottom-left' && p !== 'header-start' && p !== 'header') return;
+    if (p === 'header' || p === 'header-start') {
       var w = document.documentElement.clientWidth || window.innerWidth;
-      var rp = document.documentElement.getAttribute('data-rail-pos') || '';
-      if (w <= 820 || (rp.indexOf('header-') === 0 && w <= 1000)) p = 'bottom-center';
+      if (w <= 900) p = 'bottom-center';   // как VT_HEADER_MIN_W в ui-shell.js
     }
     document.documentElement.setAttribute('data-vt-pos', p);
   } catch (e) { /* приватный режим — остаётся bottom-center из разметки */ }
 })();
 </script>
 
-<script src="src/errorBanner.js?v360"></script>
+<script src="src/errorBanner.js?v369"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <!-- Paddle.js — оверлей оплаты подписки (см. app.js: requestCheckout/initPaddle).
      Обычный скрипт без defer, как остальные CDN-подключения выше. -->
@@ -130,73 +113,9 @@
           <span class="settings-row-label">Тема</span>
         </div>
 
-        <!-- Положение рейки панелей, сеткой 3+2: верхний ряд — места вверху
-             окна (в шапке перед логотипом / в шапке после логотипа — по
-             умолчанию / справа сверху), нижний — у левого края (слева /
-             слева снизу). Иконки — схема окна с полоской рейки на нужном
-             месте (у шапочных — верхняя полоса окна и квадратик-логотип).
-             Кнопка «Шапка, после лого» заодно «вернуть на место». См.
-             ui-shell.js: initRailPosition. На мобильном блок скрыт стилем
-             (.rail-pos-block). Блок сворачиваемый по образцу валюты:
-             строка-кнопка #railPosCollapseToggle показывает текущий вариант
-             (схема + название копируются из активной миниатюры, см.
-             ui-shell.js: syncRailPosButtons), сетка #railPosSeg — под ней. -->
-        <div class="settings-block rail-pos-block">
-          <div class="settings-row-label rail-pos-label" id="railPosLabel">Положение панели разделов</div>
-          <button type="button" class="currency-collapse-toggle rail-pos-collapse-toggle" id="railPosCollapseToggle"
-                  aria-expanded="false" aria-controls="railPosSeg" aria-labelledby="railPosLabel railPosCollapseLabel">
-            <span class="rail-pos-current">
-              <span class="rail-pos-current-icon" id="railPosCurrentIcon" aria-hidden="true"></span>
-              <span id="railPosCollapseLabel">Шапка, после лого</span>
-            </span>
-            <span class="currency-collapse-arrow" aria-hidden="true">▾</span>
-          </button>
-          <div class="rail-pos-seg" id="railPosSeg" role="radiogroup" aria-labelledby="railPosLabel" style="display:none">
-            <button type="button" class="rail-pos-opt" data-rail-set="header-start" role="radio" aria-checked="false" aria-label="Панель в шапке перед логотипом">
-              <svg viewBox="0 0 28 20" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true">
-                <rect x="1" y="1" width="26" height="18" rx="2.5" opacity=".55"/>
-                <path d="M1.7 7h24.6" opacity=".55"/>
-                <rect x="3.5" y="2.8" width="8" height="2.6" rx="1.1" fill="currentColor" stroke="none"/>
-                <rect x="13.2" y="2.8" width="2.6" height="2.6" rx=".6" fill="currentColor" stroke="none" opacity=".5"/>
-              </svg>
-              <span>Шапка, слева</span>
-            </button>
-            <button type="button" class="rail-pos-opt" data-rail-set="header-end" role="radio" aria-checked="true" aria-label="Панель в шапке после логотипа">
-              <svg viewBox="0 0 28 20" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true">
-                <rect x="1" y="1" width="26" height="18" rx="2.5" opacity=".55"/>
-                <path d="M1.7 7h24.6" opacity=".55"/>
-                <rect x="3.5" y="2.8" width="2.6" height="2.6" rx=".6" fill="currentColor" stroke="none" opacity=".5"/>
-                <rect x="7.5" y="2.8" width="8" height="2.6" rx="1.1" fill="currentColor" stroke="none"/>
-              </svg>
-              <span>Шапка, после лого</span>
-            </button>
-            <button type="button" class="rail-pos-opt" data-rail-set="top-right" role="radio" aria-checked="false" aria-label="Панель справа сверху">
-              <svg viewBox="0 0 28 20" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true">
-                <rect x="1" y="1" width="26" height="18" rx="2.5" opacity=".55"/>
-                <rect x="15" y="4" width="9" height="3" rx="1.2" fill="currentColor" stroke="none"/>
-              </svg>
-              <span>Справа сверху</span>
-            </button>
-            <button type="button" class="rail-pos-opt" data-rail-set="left" role="radio" aria-checked="false" aria-label="Панель слева">
-              <svg viewBox="0 0 28 20" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true">
-                <rect x="1" y="1" width="26" height="18" rx="2.5" opacity=".55"/>
-                <rect x="4" y="5.5" width="3" height="9" rx="1.2" fill="currentColor" stroke="none"/>
-              </svg>
-              <span>Слева</span>
-            </button>
-            <button type="button" class="rail-pos-opt" data-rail-set="bottom-left" role="radio" aria-checked="false" aria-label="Панель слева снизу">
-              <svg viewBox="0 0 28 20" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true">
-                <rect x="1" y="1" width="26" height="18" rx="2.5" opacity=".55"/>
-                <rect x="4" y="13" width="9" height="3" rx="1.2" fill="currentColor" stroke="none"/>
-              </svg>
-              <span>Слева снизу</span>
-            </button>
-          </div>
-        </div>
-
         <!-- Положение панели режимов 3D-вида (#viewToolbar: прозрачный режим /
              скрыть фасады / проверка присадки) — тот же сворачиваемый блок,
-             что у рейки выше (те же классы .rail-pos-*), сетка 2×2. См.
+             (те же классы .rail-pos-*, что у остальных блоков настроек), сетка 2×2. См.
              ui-shell.js: initViewToolbarPosition / syncVtPosButtons. На
              мобильном скрыт (.vt-pos-block): там у панели одно место. -->
         <div class="settings-block rail-pos-block vt-pos-block">
@@ -224,7 +143,16 @@
                 <rect x="3.5" y="2.8" width="2.6" height="2.6" rx=".6" fill="currentColor" stroke="none" opacity=".5"/>
                 <rect x="14" y="2.8" width="8" height="2.6" rx="1.1" fill="currentColor" stroke="none"/>
               </svg>
-              <span>В шапке</span>
+              <span>В шапке справа</span>
+            </button>
+            <button type="button" class="rail-pos-opt" data-vt-set="header-start" role="radio" aria-checked="false" aria-label="Панель режимов в шапке слева, после логотипа">
+              <svg viewBox="0 0 28 20" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true">
+                <rect x="1" y="1" width="26" height="18" rx="2.5" opacity=".55"/>
+                <path d="M1.7 7h24.6" opacity=".55"/>
+                <rect x="3.5" y="2.8" width="2.6" height="2.6" rx=".6" fill="currentColor" stroke="none" opacity=".5"/>
+                <rect x="7.5" y="2.8" width="8" height="2.6" rx="1.1" fill="currentColor" stroke="none"/>
+              </svg>
+              <span>В шапке слева</span>
             </button>
             <button type="button" class="rail-pos-opt" data-vt-set="bottom-left" role="radio" aria-checked="false" aria-label="Панель режимов внизу слева">
               <svg viewBox="0 0 28 20" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true">
@@ -232,14 +160,6 @@
                 <rect x="4" y="13" width="9" height="3" rx="1.2" fill="currentColor" stroke="none"/>
               </svg>
               <span>Внизу слева</span>
-            </button>
-            <button type="button" class="rail-pos-opt" data-vt-set="bottom-right" role="radio" aria-checked="false" aria-label="Панель режимов внизу справа">
-              <svg viewBox="0 0 28 20" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true">
-                <rect x="1" y="1" width="26" height="18" rx="2.5" opacity=".55"/>
-                <rect x="11" y="13" width="9" height="3" rx="1.2" fill="currentColor" stroke="none"/>
-                <circle cx="23" cy="14.5" r="2" opacity=".5"/>
-              </svg>
-              <span>Внизу справа</span>
             </button>
           </div>
         </div>
@@ -452,6 +372,17 @@
 
   <!-- Рейка триггеров: панели прячутся за экран, на холсте только иконки -->
   <nav class="rail" id="rail" aria-label="Панели">
+    <!-- Шесть точек: сворачивает рейку в угол и разворачивает обратно (ui-shell.js:
+         initRail). Первая в DOM — у самого угла, остаётся видна в свёрнутом виде. -->
+    <button class="rail-grip tip" id="railGrip" type="button" aria-expanded="true" aria-controls="rail"
+            data-tip="Свернуть панель" aria-label="Свернуть панель">
+      <svg viewBox="0 0 24 24" fill="currentColor" stroke="none">
+        <circle cx="9" cy="6" r="1.6"/><circle cx="15" cy="6" r="1.6"/>
+        <circle cx="9" cy="12" r="1.6"/><circle cx="15" cy="12" r="1.6"/>
+        <circle cx="9" cy="18" r="1.6"/><circle cx="15" cy="18" r="1.6"/>
+      </svg>
+    </button>
+    <div class="rail-sep rail-sep-grip"></div>
     <button class="rail-btn tip" type="button" data-panel="library" data-tip="Библиотека" aria-label="Библиотека">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round">
         <rect x="4" y="7" width="4" height="12.5"/><rect x="9" y="4" width="4" height="15.5"/><path d="M16 19.5 14.6 7.2l4-.6L20 19.5z"/><path d="M3 21.5h18" stroke-linecap="round"/>
@@ -492,36 +423,7 @@
       </svg>
     </button>
 
-    <!-- Ручка перетаскивания рейки (ui-shell.js: initRailPosition). Намеренно
-         последняя в DOM: в горизонтальной строке это дальний от угла конец
-         (справа сверху — row-reverse, левый; слева снизу — правый), в
-         столбике и в шапке её ставит в начало CSS (order). Не кнопка
-         и без data-panel: клик по ней ничего не открывает, двойной клик —
-         вернуть рейку на место (в шапку после логотипа); с клавиатуры
-         положение меняют в настройках. -->
-    <div class="rail-sep rail-sep-grip"></div>
-    <div class="rail-grip tip" id="railGrip" data-tip="Перетащить панель (двойной клик — вернуть в шапку)" aria-hidden="true">
-      <svg viewBox="0 0 24 24" fill="currentColor" stroke="none">
-        <circle cx="9" cy="6" r="1.6"/><circle cx="15" cy="6" r="1.6"/>
-        <circle cx="9" cy="12" r="1.6"/><circle cx="15" cy="12" r="1.6"/>
-        <circle cx="9" cy="18" r="1.6"/><circle cx="15" cy="18" r="1.6"/>
-      </svg>
-    </div>
   </nav>
-  <!-- Рейка «в шапке» (header-start — перед логотипом, header-end — после
-       него) физически живёт в #topbar. Переносим её здесь, сразу как она
-       разобрана, — до первой отрисовки, чтобы не мигала на сцене. Та же
-       логика — ui-shell.js: placeRailDom (менять вместе). -->
-  <script>
-  (function () {
-    var p = document.documentElement.getAttribute('data-rail-pos');
-    if (p !== 'header-start' && p !== 'header-end') return;
-    var rail = document.getElementById('rail');
-    var bar = document.getElementById('topbar');
-    var brand = bar && bar.querySelector('.brand');
-    if (rail && brand) bar.insertBefore(rail, p === 'header-start' ? brand : brand.nextElementSibling);
-  })();
-  </script>
 
   <!-- Виды камеры переключает навигационная гизма в правом нижнем углу
        3D-сцены: её создаёт viewer.js (canvas.view-gizmo рядом с #viewer3d, в .stage). -->
@@ -728,14 +630,19 @@
       </svg>
     </button>
   </div>
-  <!-- «В шапке» — переносим сразу, до первой отрисовки (как рейку выше). -->
+  <!-- «В шапке» — переносим сразу, до первой отрисовки. Та же логика —
+       ui-shell.js: placeVtDom (менять вместе). header-start — после логотипа,
+       header — перед кнопками справа. -->
   <script>
   (function () {
-    if (document.documentElement.getAttribute('data-vt-pos') !== 'header') return;
+    var p = document.documentElement.getAttribute('data-vt-pos');
+    if (p !== 'header' && p !== 'header-start') return;
     var tb = document.getElementById('viewToolbar');
     var bar = document.getElementById('topbar');
-    var act = bar && bar.querySelector('.header-actions');
-    if (tb && act) bar.insertBefore(tb, act);
+    var ref = bar && (p === 'header-start'
+      ? (bar.querySelector('.brand') || {}).nextElementSibling
+      : bar.querySelector('.header-actions'));
+    if (tb && bar && ref) bar.insertBefore(tb, ref);
   })();
   </script>
 
@@ -825,16 +732,16 @@
 
 </main>
 
-<script src="src/catalog.js?v360"></script>
-<script src="src/presets.js?v360"></script>
-<script src="src/engine.js?v360"></script>
-<script src="src/specification.js?v360"></script>
-<script src="src/legMeshes.js?v360"></script>
-<script src="src/csg.js?v360"></script>
-<script src="src/decorTiles.js?v360"></script>
-<script src="src/userTextures.js?v360"></script>
-<script src="src/viewer.js?v360"></script>
-<script src="src/ui-shell.js?v360"></script>
+<script src="src/catalog.js?v369"></script>
+<script src="src/presets.js?v369"></script>
+<script src="src/engine.js?v369"></script>
+<script src="src/specification.js?v369"></script>
+<script src="src/legMeshes.js?v369"></script>
+<script src="src/csg.js?v369"></script>
+<script src="src/decorTiles.js?v369"></script>
+<script src="src/userTextures.js?v369"></script>
+<script src="src/viewer.js?v369"></script>
+<script src="src/ui-shell.js?v369"></script>
 <!-- markup.js ДОЛЖЕН грузиться раньше app.js: он вешает свой document
      keydown-обработчик (Delete/Escape по ручной разметке) СРАЗУ при загрузке
      файла, и stopImmediatePropagation() там останавливает только слушатели,
@@ -842,15 +749,15 @@
      тегов. Переставишь эту строку после app.js — Delete по выделенному
      ручному размеру снова начнёт заодно удалять активный 3D-модуль
      (см. app.js: обработчик Delete рядом с deleteModule). -->
-<script src="src/markup.js?v360"></script>
-<script src="src/drawings.js?v360"></script>
-<script src="src/export.js?v360"></script>
-<script src="src/cnc.js?v360"></script>
-<script src="src/sketchAI.js?v360"></script>
+<script src="src/markup.js?v369"></script>
+<script src="src/drawings.js?v369"></script>
+<script src="src/export.js?v369"></script>
+<script src="src/cnc.js?v369"></script>
+<script src="src/sketchAI.js?v369"></script>
 <!-- app.js — ПОСЛЕ markup.js (см. пометку у markup.js выше): его глобальный
      keydown на Delete (удаление активного модуля) не должен получить событие
      раньше markup.js — иначе перехват Delete ручной разметкой не работает. -->
-<script src="src/app.js?v360"></script>
+<script src="src/app.js?v369"></script>
 <script>if (window.Modul3D && window.Modul3D.uiShell) window.Modul3D.uiShell.start();</script>
 </body>
 </html>
