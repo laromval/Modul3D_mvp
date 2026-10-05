@@ -331,6 +331,10 @@ function initTouchScheme() {
   var saved = null;
   try { saved = localStorage.getItem(TOUCH_SCHEME_KEY); } catch (e) { /* нет доступа */ }
   setTouchScheme(saved, false);
+  var tgl = document.getElementById('touchSchemeToggle');
+  if (tgl) tgl.addEventListener('click', function () {
+    setPosSegExpanded('touchSchemeSeg', 'touchSchemeToggle', tgl.getAttribute('aria-expanded') !== 'true');
+  });
   var btns = document.querySelectorAll('button[data-touch-scheme]');
   for (var i = 0; i < btns.length; i++) {
     btns[i].addEventListener('click', function (e) {
