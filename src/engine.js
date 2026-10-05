@@ -5374,7 +5374,7 @@ function buildModel(project) {
     const cw = (dirRot === 90 || dirRot === 270) ? c.d : c.w;
     const cd = (dirRot === 90 || dirRot === 270) ? c.w : c.d;
     placed.push({ x0: gcx - cw / 2, x1: gcx + cw / 2, z0: gcz - cd / 2, z1: gcz + cd / 2,
-      top: mountBottom + Number(m.height || 0) });
+      top: mountBottom + Number(m.height || 0), bottom: mountBottom });
 
     modules.push({
       name, offsetX: gcx, offsetZ: gcz, rotation: (dirRot + manualRot) % 360,
@@ -5480,10 +5480,14 @@ function buildModel(project) {
   // в UI), независимо от того, совпадает ли материал сейчас.
   const countertopSegmentsRaw = allParts
     .filter((p) => p.kind === 'countertop')
-    .map((p) => ({ module: p.module, box: Object.assign({}, p.box) }));
+    .map((p) => ({ module: p.module, box: Object.assign({}, p.box), topY: countertopTopY(p) }));
 
+  // Высокий модуль в ряду (пенал, колонка): столешницы с обеих сторон
+  // упираются в его боковины и заканчиваются на внешней грани, свеса и
+  // «сшивки» через него нет.
+  clipCountertopsAtTall(allParts, placed);
   mergeCountertops(allParts);
-  const countertopJoints = joinCountertopSeams(allParts, proj, warnings);
+  const countertopJoints = joinCountertopSeams(allParts, proj, warnings, placed);
 
   // Одинаковые предупреждения схлопываем — иначе список превращается в простыню
   // ШИНА МОНТАЖНАЯ под навесные модули: по каждому НЕПРЕРЫВНОМУ участку
@@ -5556,7 +5560,7 @@ function buildModel(project) {
     // в UI, чтобы при смене материала столешницы одной тумбы автоматически
     // применить его ко всей цепочке стыкующихся тумб, но не ко всем модулям
     // проекта (отдельно стоящая секция/остров со своим швом — не в цепочке).
-    countertopChains: computeCountertopChains(countertopSegmentsRaw),
+    countertopChains: computeCountertopChains(countertopSegmentsRaw, placed),
   };
 }
 
@@ -6004,6 +6008,53 @@ function countertopSetPhysSize(p, ax, v) {
 // координаты). Настоящие стыки, что остаются после этого прохода,
 // обрабатывает joinCountertopSeams() ниже — она их не сливает, только
 // считает крепёж и подрезает угловые.
+// Верх столешницы детали p (мм от пола).
+function countertopTopY(p) { return p.box.y + p.thickness / 2; }
+
+// Высокие напольные модули (корпус пересекает уровень столешницы и
+// поднимается выше неё), у которых нет столешницы: пенал, колонка.
+function tallModulesAt(placed, topY) {
+  const EPS = 1;
+  return (placed || []).filter((m) => m.bottom < topY - EPS && m.top > topY + EPS);
+}
+
+// Обнуляет свес торца столешницы, которым она упирается в высокий модуль:
+// столешница идёт ровно до внешней грани его боковины.
+function clipCountertopsAtTall(parts, placed) {
+  const EPS = 1;
+  for (const p of parts) {
+    if (p.kind !== 'countertop') continue;
+    const talls = tallModulesAt(placed, countertopTopY(p));
+    if (!talls.length) continue;
+    const ax = countertopAxisOf(p);
+    const lo = p.box[ax] - countertopSizeOn(p, ax) / 2;
+    const hi = p.box[ax] + countertopSizeOn(p, ax) / 2;
+    const cLo = (ax === 'x' ? p.box.z - p.box.d / 2 : p.box.x - p.box.w / 2);
+    const cHi = (ax === 'x' ? p.box.z + p.box.d / 2 : p.box.x + p.box.w / 2);
+    for (const t of talls) {
+      const tLo = ax === 'x' ? t.x0 : t.z0, tHi = ax === 'x' ? t.x1 : t.z1;
+      const crossLo = ax === 'x' ? t.z0 : t.x0, crossHi = ax === 'x' ? t.z1 : t.x1;
+      if (Math.min(cHi, crossHi) - Math.max(cLo, crossLo) <= EPS) continue;
+      if (Math.abs(tLo - hi) <= EPS) p.ctOverhangRight = 0;
+      if (Math.abs(tHi - lo) <= EPS) p.ctOverhangLeft = 0;
+    }
+  }
+}
+
+// Есть ли высокий модуль в щели между двумя столешницами A и B.
+function countertopGapHasTall(A, B, ov, placed) {
+  const EPS = 1;
+  const talls = tallModulesAt(placed, countertopTopY(A));
+  if (!talls.length) return false;
+  const span = (aLo, aHi, bLo, bHi) => (Math.min(aHi, bHi) - Math.max(aLo, bLo) > 0
+    ? [Math.max(aLo, bLo), Math.min(aHi, bHi)]
+    : [Math.min(aHi, bHi), Math.max(aLo, bLo)]);
+  const [gx0, gx1] = span(ov.aLoX, ov.aHiX, ov.bLoX, ov.bHiX);
+  const [gz0, gz1] = span(ov.aLoZ, ov.aHiZ, ov.bLoZ, ov.bHiZ);
+  return talls.some((t) => Math.min(gx1, t.x1) - Math.max(gx0, t.x0) > EPS
+    && Math.min(gz1, t.z1) - Math.max(gz0, t.z0) > EPS);
+}
+
 function mergeCountertops(parts) {
   const EPS = 1;
   const tops = parts.filter((p) => p.kind === 'countertop');
@@ -6109,7 +6160,7 @@ function mergeCountertops(parts) {
 // угловой Г-образный стык двух перпендикулярных прогонов). Расставляет
 // крепёж стыка и в угловом 90° стыке подрезает «вторичный» прямоугольник по
 // грани «основного» (тот, что построен раньше — с меньшим индексом модуля).
-function joinCountertopSeams(parts, proj, warnings) {
+function joinCountertopSeams(parts, proj, warnings, placed) {
   const EPS = 1;
   // Максимальный шаг между стяжками стыка, мм — по данным профильной
   // статьи о безпланочном угловом соединении столешниц (еврозапил + стяжки):
@@ -6320,6 +6371,9 @@ function joinCountertopSeams(parts, proj, warnings) {
         const looksCorner = (ov.xOverlap > EPS && zGap > EPS && zGap < Math.max(A.box.d, B.box.d))
                           || (ov.zOverlap > EPS && xGap > EPS && xGap < Math.max(A.box.w, B.box.w));
         if (!looksCorner) continue;
+        // Между столешницами стоит высокий модуль — это два отдельных
+        // участка, а не угол: растягивать одну навстречу другой нельзя.
+        if (countertopGapHasTall(A, B, ov, placed)) continue;
         // Зазор реален и его величина точно известна — растягиваем B
         // (secondary) навстречу A на эту величину, а не просим пользователя
         // подобрать свес вручную (величина уже посчитана, придумывать её
@@ -6387,7 +6441,7 @@ function joinCountertopSeams(parts, proj, warnings) {
 //      невставленного углового модуля (тест looksCorner: одна ось
 //      перекрывается существенно, по другой — зазор меньше максимальной
 //      глубины/ширины сегмента).
-function computeCountertopChains(segments) {
+function computeCountertopChains(segments, placed) {
   const EPS = 1;
   const n = segments.length;
   const parent = segments.map((_, i) => i);
@@ -6436,7 +6490,11 @@ function computeCountertopChains(segments) {
       const xGap = xOverlap < -EPS ? -xOverlap : 0;
       const looksCorner = (xOverlap > EPS && zGap > EPS && zGap < Math.max(A.box.d, B.box.d))
                         || (zOverlap > EPS && xGap > EPS && xGap < Math.max(A.box.w, B.box.w));
-      if (looksCorner) union(i, j);
+      // Высокий модуль в щели между столешницами — это два отдельных участка.
+      if (looksCorner && !countertopGapHasTall(
+        { box: A.box, thickness: 2 * (A.topY - A.box.y) },
+        null,
+        { aLoX, aHiX, bLoX, bHiX, aLoZ, aHiZ, bLoZ, bHiZ }, placed)) union(i, j);
     }
   }
 

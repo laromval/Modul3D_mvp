@@ -3735,6 +3735,36 @@ for (const glass of [false, true]) {
   const shortJoints = (shortModel.hardwareContext.countertopJoints || []).filter((j) => j.type === 'straight');
   if (shortJoints.length !== 0) problems.push(`столешница: короткий ряд — стыков ${shortJoints.length} вместо 0 (влезает в один лист, крепёж стыка не нужен)`);
 
+  // Пенал (выше столешницы) в середине ряда: два отдельных участка столешницы,
+  // каждый заканчивается ровно на внешней грани боковины пенала — без зазора,
+  // без захода внутрь пенала и без «сшивки» через него.
+  {
+    const mods = modWidths([800, 600, 600, 800]);
+    mods.splice(2, 0, {
+      name: 'Пенал', family: 'kitchen', width: 600, height: 2100, depth: 560,
+      leftSide: 'floor', rightSide: 'floor', topType: 'rails',
+      base: { type: 'legsPlinth', legHeight: 100 },
+      sections: [{ shelves: 3, drawers: 0, facade: 'doorLeft', drawerSystem: 'ballBearing' }],
+    });
+    const tallModel = buildModel(Object.assign({}, base, { modules: mods }));
+    inspect(tallModel, 'столешница: пенал в середине ряда');
+    const pen = tallModel.parts.filter((p) => p.name === 'Боковина' && p.module === 'Пенал');
+    const penX = tallModel.modules.find((mm) => mm.name === 'Пенал').offsetX;
+    const tTops = tallModel.partsRaw.filter((p) => p.kind === 'countertop')
+      .map((p) => [p.box.x - p.box.w / 2, p.box.x + p.box.w / 2]);
+    void pen;
+    // слитая деталь с qty:2 — две одинаковые, поэтому смотрим по модулям
+    const tcs = tallModel.countertopChains || [];
+    if (tcs.some((g) => g.indexOf('Пенал') !== -1 && g.length > 1)) problems.push('столешница: пенал попал в цепочку столешниц');
+    if (tcs.some((g) => g.indexOf('Тумба 1') !== -1 && g.indexOf('Тумба 4') !== -1)) problems.push('столешница: столешницы по разные стороны пенала склеены в одну цепочку');
+    const spans = tTops.map((s) => s.map(Math.round));
+    const penLo = Math.round(penX - 300), penHi = Math.round(penX + 300);
+    const leftOk = spans.some((s) => s[1] === penLo), rightOk = spans.some((s) => s[0] === penHi);
+    if (!leftOk) problems.push(`столешница: слева столешница не упирается в боковину пенала (концы ${JSON.stringify(spans)}, грань пенала ${penLo})`);
+    if (!rightOk) problems.push(`столешница: справа столешница не упирается в боковину пенала (концы ${JSON.stringify(spans)}, грань пенала ${penHi})`);
+    if (spans.some((s) => s[0] < penHi && s[1] > penLo)) problems.push('столешница: заходит внутрь пенала');
+  }
+
   // 5×900=4500 мм — превышает 4100: должно получиться 2 детали (4 тумбы
   // слито в 3600 мм + 1 тумба отдельно 900 мм), стык РОВНО на границе
   // 4-й и 5-й тумбы, с эксцентриковой стяжкой (глубина 560 мм &lt; шага 600 → 2 шт).
