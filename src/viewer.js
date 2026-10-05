@@ -2557,7 +2557,10 @@ class SimpleOrbitControl {
           // Первый палец: если попал на саму модель — вращаем сцену вокруг
           // цели, если мимо (пустое место/сетка) — панорамируем. Без
           // provider (hitTestProvider не задан) — как раньше, всегда rotate.
-          const onObject = this.hitTestProvider ? this.hitTestProvider(e) : true;
+          // Схема «стандартная» (настройка в шестерёнке, только телефон; ui-shell.js
+          // ставит data-touch-scheme на <html>): один палец вращает где угодно.
+          const standard = document.documentElement.getAttribute('data-touch-scheme') === 'standard';
+          const onObject = standard ? true : (this.hitTestProvider ? this.hitTestProvider(e) : true);
           this._dragging = true;
           this.mode = onObject ? 'rotate' : 'pan';
           this._lastX = e.clientX;

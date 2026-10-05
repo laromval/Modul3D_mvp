@@ -7,7 +7,7 @@
 <title>Modul3D — параметрический конструктор корпусной мебели</title>
 
 <link rel="icon" type="image/svg+xml" href="favicon.svg" />
-<link rel="stylesheet" href="style.css?v356" />
+<link rel="stylesheet" href="style.css?v357" />
 
 <!-- Положение рейки панелей (data-rail-pos на <html>: left | header-start |
      header-end | top-right | bottom-left; по умолчанию header-end — в шапке
@@ -48,7 +48,7 @@
 })();
 </script>
 
-<script src="src/errorBanner.js?v356"></script>
+<script src="src/errorBanner.js?v357"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <!-- Paddle.js — оверлей оплаты подписки (см. app.js: requestCheckout/initPaddle).
      Обычный скрипт без defer, как остальные CDN-подключения выше. -->
@@ -240,6 +240,23 @@
                 <circle cx="23" cy="14.5" r="2" opacity=".5"/>
               </svg>
               <span>Внизу справа</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Управление камерой пальцами — только на телефоне (.touch-scheme-block,
+             см. style.css). Запоминается: ui-shell.js: initTouchScheme (ключ
+             modul3d.touchScheme), читает viewer.js через data-touch-scheme. -->
+        <div class="settings-block touch-scheme-block">
+          <div class="settings-row-label rail-pos-label" id="touchSchemeLabel">Управление пальцами</div>
+          <div class="rail-pos-seg touch-scheme-seg" role="radiogroup" aria-labelledby="touchSchemeLabel">
+            <button type="button" class="rail-pos-opt" data-touch-scheme="classic" role="radio" aria-checked="true">
+              <span>Как сейчас</span>
+              <span class="touch-scheme-hint">1 палец: по модели — вращение, по пустому — сдвиг</span>
+            </button>
+            <button type="button" class="rail-pos-opt" data-touch-scheme="standard" role="radio" aria-checked="false">
+              <span>Стандартное</span>
+              <span class="touch-scheme-hint">1 палец — вращение везде, 2 пальца — сдвиг и зум</span>
             </button>
           </div>
         </div>
@@ -806,16 +823,16 @@
 
 </main>
 
-<script src="src/catalog.js?v356"></script>
-<script src="src/presets.js?v356"></script>
-<script src="src/engine.js?v356"></script>
-<script src="src/specification.js?v356"></script>
-<script src="src/legMeshes.js?v356"></script>
-<script src="src/csg.js?v356"></script>
-<script src="src/decorTiles.js?v356"></script>
-<script src="src/userTextures.js?v356"></script>
-<script src="src/viewer.js?v356"></script>
-<script src="src/ui-shell.js?v356"></script>
+<script src="src/catalog.js?v357"></script>
+<script src="src/presets.js?v357"></script>
+<script src="src/engine.js?v357"></script>
+<script src="src/specification.js?v357"></script>
+<script src="src/legMeshes.js?v357"></script>
+<script src="src/csg.js?v357"></script>
+<script src="src/decorTiles.js?v357"></script>
+<script src="src/userTextures.js?v357"></script>
+<script src="src/viewer.js?v357"></script>
+<script src="src/ui-shell.js?v357"></script>
 <!-- markup.js ДОЛЖЕН грузиться раньше app.js: он вешает свой document
      keydown-обработчик (Delete/Escape по ручной разметке) СРАЗУ при загрузке
      файла, и stopImmediatePropagation() там останавливает только слушатели,
@@ -823,15 +840,15 @@
      тегов. Переставишь эту строку после app.js — Delete по выделенному
      ручному размеру снова начнёт заодно удалять активный 3D-модуль
      (см. app.js: обработчик Delete рядом с deleteModule). -->
-<script src="src/markup.js?v356"></script>
-<script src="src/drawings.js?v356"></script>
-<script src="src/export.js?v356"></script>
-<script src="src/cnc.js?v356"></script>
-<script src="src/sketchAI.js?v356"></script>
+<script src="src/markup.js?v357"></script>
+<script src="src/drawings.js?v357"></script>
+<script src="src/export.js?v357"></script>
+<script src="src/cnc.js?v357"></script>
+<script src="src/sketchAI.js?v357"></script>
 <!-- app.js — ПОСЛЕ markup.js (см. пометку у markup.js выше): его глобальный
      keydown на Delete (удаление активного модуля) не должен получить событие
      раньше markup.js — иначе перехват Delete ручной разметкой не работает. -->
-<script src="src/app.js?v356"></script>
+<script src="src/app.js?v357"></script>
 <script>if (window.Modul3D && window.Modul3D.uiShell) window.Modul3D.uiShell.start();</script>
 </body>
 </html>

@@ -2464,6 +2464,22 @@ body.lib-dragging .drawer-body { touch-action: none; }
 /* на телефоне рейки нет (см. мобильный блок ниже) — настройка ни на что не
    влияет, не показываем её */
 @media (max-width: 820px) { .rail-pos-block { display: none; } }
+/* управление пальцами — наоборот, только на телефоне */
+.touch-scheme-block { display: none; }
+@media (max-width: 820px) { .touch-scheme-block { display: block; } }
+.touch-scheme-seg { grid-template-columns: repeat(2, 1fr); }
+.touch-scheme-seg .rail-pos-opt { padding: 9px 6px; }
+.touch-scheme-hint { font-weight: 400; font-size: 11px; opacity: .8; }
+
+/* постоянная кнопка выхода из режима фокуса на деталях (см. app.js:
+   syncFocusExitBtn) — меню по тапу на деталь пропадает, а выйти нужно всегда */
+.focus-exit-btn {
+  position: fixed; top: 10px; left: 50%; transform: translateX(-50%); z-index: 60;
+  padding: 8px 14px; border-radius: 999px; border: 1px solid var(--accent);
+  background: var(--surface-solid); color: var(--accent);
+  font-family: inherit; font-size: var(--fs-sm); font-weight: 600; cursor: pointer;
+  box-shadow: 0 2px 10px rgba(0,0,0,.25);
+}
 
 /* ---------- 15б. АККАУНТ (вход/регистрация, токены, подписка) ------------ */
 

@@ -310,6 +310,35 @@ function initMarkupFont() {
   if (range) range.addEventListener('input', function () { applyMarkupFont(range.value, true); });
 }
 
+// Управление камерой пальцами (только телефон — блок виден лишь ≤820px):
+// 'classic' — один палец по модели вращает, по пустому двигает; 'standard' —
+// один палец вращает везде. Значение кладём на <html> (data-touch-scheme),
+// его читает SimpleOrbitControl в viewer.js.
+var TOUCH_SCHEME_KEY = 'modul3d.touchScheme';
+function setTouchScheme(v, save) {
+  v = v === 'standard' ? 'standard' : 'classic';
+  document.documentElement.setAttribute('data-touch-scheme', v);
+  var btns = document.querySelectorAll('[data-touch-scheme]');
+  for (var i = 0; i < btns.length; i++) {
+    if (btns[i].tagName !== 'BUTTON') continue;
+    var on = btns[i].getAttribute('data-touch-scheme') === v;
+    btns[i].classList.toggle('active', on);
+    btns[i].setAttribute('aria-checked', on ? 'true' : 'false');
+  }
+  if (save) { try { localStorage.setItem(TOUCH_SCHEME_KEY, v); } catch (e) { /* нет доступа */ } }
+}
+function initTouchScheme() {
+  var saved = null;
+  try { saved = localStorage.getItem(TOUCH_SCHEME_KEY); } catch (e) { /* нет доступа */ }
+  setTouchScheme(saved, false);
+  var btns = document.querySelectorAll('button[data-touch-scheme]');
+  for (var i = 0; i < btns.length; i++) {
+    btns[i].addEventListener('click', function (e) {
+      setTouchScheme(e.currentTarget.getAttribute('data-touch-scheme'), true);
+    });
+  }
+}
+
 function initTheme() {
   var saved = null;
   try { saved = localStorage.getItem(THEME_KEY); } catch (e) { /* нет доступа */ }
@@ -2859,6 +2888,7 @@ function escapeHtml(s) {
 --------------------------------------------------------------------------- */
 function start() {
   initTheme();
+  initTouchScheme();
   initCurrency();
   initMarkupFont();
   initDrawers();

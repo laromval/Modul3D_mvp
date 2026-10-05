@@ -14,7 +14,7 @@
 (function () {
 // Версия сборки — показывается во вкладке браузера и в шапке.
 // При выпуске новой версии меняется только эта строка.
-const APP_VERSION = 'v356';
+const APP_VERSION = 'v357';
 
 // Номер версии выводим ПЕРВЫМ делом: если дальше что-то упадёт, по нему сразу
 // видно, какая сборка открыта.
@@ -1246,8 +1246,25 @@ function restoreCatalogFrom(blob) {
 // модуль, обязано вызвать этот helper — иначе isolatedModule/selectedPart
 // могут указывать на модуль, которого больше нет (или уже другой), и вьюер
 // притушит всю сцену, ни с чем не совпав по имени.
+// Постоянная кнопка «Выйти из фокуса» — видна, пока модуль изолирован. Меню
+// по тапу на деталь (showFocusMenu) закрывается тапом мимо, и на телефоне
+// выхода из фокуса не оставалось.
+function syncFocusExitBtn() {
+  let b = document.getElementById('focusExitBtn');
+  if (!state.isolatedModule) { if (b) b.remove(); return; }
+  if (b) return;
+  b = document.createElement('button');
+  b.id = 'focusExitBtn';
+  b.type = 'button';
+  b.className = 'focus-exit-btn';
+  b.textContent = '✕ Выйти из фокуса';
+  b.addEventListener('click', () => { closeFocusMenu(); exitFocusMode(); });
+  document.body.appendChild(b);
+}
+
 function exitIsolation() {
   state.isolatedModule = null;
+  syncFocusExitBtn();
   state.selectedPart = null;
   // Панель «Ящики» открыта для конкретной секции конкретного модуля — та же
   // защита: если модуль/секция пропадает (удаление, undo/redo, открытие
@@ -16528,6 +16545,7 @@ function initHeaderControls() {
       if (!name) return;
       selectModuleByName(name);
       state.isolatedModule = name;
+      syncFocusExitBtn();
       state.selectedPart = null;
       state.panelView = 'part';
       renderParamsPanel();
