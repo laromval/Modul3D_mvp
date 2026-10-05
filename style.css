@@ -2466,7 +2466,7 @@ body.lib-dragging .drawer-body { touch-action: none; }
 @media (max-width: 820px) { .rail-pos-block { display: none; } }
 /* управление пальцами — наоборот, только на телефоне */
 .touch-scheme-block { display: none; }
-@media (max-width: 820px) { .touch-scheme-block { display: block; } }
+@media (max-width: 820px), (pointer: coarse), (hover: none) { .touch-scheme-block { display: block; } }
 .touch-scheme-seg { grid-template-columns: repeat(2, 1fr); }
 .touch-scheme-seg .rail-pos-opt { padding: 9px 6px; }
 .touch-scheme-hint { font-weight: 400; font-size: 11px; opacity: .8; }
