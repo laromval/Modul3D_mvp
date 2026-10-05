@@ -3765,6 +3765,29 @@ for (const glass of [false, true]) {
     if (spans.some((s) => s[0] < penHi && s[1] > penLo)) problems.push('столешница: заходит внутрь пенала');
   }
 
+  // Верхний (навесной) модуль не встаёт над высоким напольным (пенал): курсор
+  // верхнего ряда уходит за правую грань пенала, а над невысокими тумбами
+  // верхние остаются на месте.
+  {
+    const sec = [{ shelves: 1, drawers: 0, facade: 'doorLeft', drawerSystem: 'ballBearing' }];
+    const pen = { name: 'Пенал', family: 'kitchen', width: 600, height: 2100, depth: 510,
+      topType: 'rails', leftSide: 'floor', rightSide: 'floor',
+      base: { type: 'legsPlinth', legHeight: 100 }, sections: sec };
+    const upper = (n) => ({ name: n, family: 'kitchen', wallHung: true, width: 600, height: 720, depth: 300,
+      topType: 'none', base: { type: 'none', legHeight: 0 }, leftSide: 'onBottom', rightSide: 'onBottom', sections: sec });
+    const um = buildModel(Object.assign({}, base, { modules: [pen, upper('В1')] }));
+    inspect(um, 'верхний модуль рядом с пеналом');
+    const mp = um.modules.find((mm) => mm.name === 'Пенал'), mu = um.modules.find((mm) => mm.name === 'В1');
+    if (!mp || !mu || Math.abs((mu.offsetX - mu.dims.W / 2) - (mp.offsetX + mp.dims.W / 2)) > 1) {
+      problems.push('верхний модуль: не встал вплотную справа от пенала (врезается в него)');
+    }
+    const um2 = buildModel(Object.assign({}, base, { modules: modWidths([800, 600]).concat([upper('В1')]) }));
+    const t1 = um2.modules.find((mm) => mm.name === 'Тумба 1'), v1 = um2.modules.find((mm) => mm.name === 'В1');
+    if (!t1 || !v1 || Math.abs((v1.offsetX - v1.dims.W / 2) - (t1.offsetX - t1.dims.W / 2)) > 1) {
+      problems.push('верхний модуль: над невысокими тумбами должен стоять над первой тумбой, как раньше');
+    }
+  }
+
   // 5×900=4500 мм — превышает 4100: должно получиться 2 детали (4 тумбы
   // слито в 3600 мм + 1 тумба отдельно 900 мм), стык РОВНО на границе
   // 4-й и 5-й тумбы, с эксцентриковой стяжкой (глубина 560 мм &lt; шага 600 → 2 шт).

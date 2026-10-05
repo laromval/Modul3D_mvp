@@ -5085,9 +5085,33 @@ function buildModel(project) {
         ? fl.cornerU - ((originX - fl.originX) * U[0] + (originZ - fl.originZ) * U[1])
         : null;
 
+      // Высокие напольные модули этого же прогона (пенал, колонка): они
+      // занимают место и в верхнем ряду, поэтому верхний модуль не может
+      // встать над ними — курсор уходит за их правую грань. Отрезки — в
+      // сквозной координате вдоль прогона (начало прогонов нижнего и верхнего
+      // рядов может различаться).
+      const wallG = originX * U[0] + originZ * U[1];
+      const talls = (wall && fl && fl.dir === dir && floorRuns[k])
+        ? floorRuns[k].filter((i) => place[i]).map((i) => {
+          const fg = fl.originX * U[0] + fl.originZ * U[1];
+          return { top: Number(mods[i].height || 0), g0: fg + place[i].u0, g1: fg + place[i].u1 };
+        }).sort((a, b) => a.g0 - b.g0)
+        : [];
+
       run.forEach((idx) => {
         const m = mods[idx];
         const e = extent(m);                       // габарит в системе прогона
+        if (talls.length && !isCorner(m)) {
+          const mt = Number(m.mountTop) > 0 ? Number(m.mountTop) : WALL_MOUNT_TOP_DEFAULT;
+          const bottom = Math.max(0, mt - Number(m.height || 0));
+          const w = e.x1 - e.x0;
+          for (const t of talls) {
+            if (t.top <= bottom + 0.5) continue;      // ниже навесного — не мешает
+            if (wallG + cursor < t.g1 - 0.5 && wallG + cursor + w > t.g0 + 0.5) {
+              cursor = t.g1 - wallG;
+            }
+          }
+        }
         if (wall && isCorner(m) && wallCornerU != null) {
           const snap = wallCornerU - (e.x1 - e.x0);
           if (snap >= cursor - 0.5) cursor = snap;
