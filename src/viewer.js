@@ -2675,7 +2675,7 @@ class SimpleOrbitControl {
       const k = 1 + e.deltaY * 0.001;
       this.userMoved = true;
       const pt = this.zoomPointProvider ? this.zoomPointProvider(e) : null;
-      this._zoomBy(k, pt);
+      this._zoomBy(k, pt, e);
       this.update();
     }, { passive: false });
   }
@@ -2709,7 +2709,7 @@ class SimpleOrbitControl {
     const pt = this.zoomPointProvider
       ? this.zoomPointProvider({ clientX: midX, clientY: midY })
       : null;
-    this._zoomBy(k, pt);
+    this._zoomBy(k, pt, { clientX: midX, clientY: midY });
 
     // Панорамирование — сдвиг средней точки между пальцами со времени
     // предыдущего кадра.
@@ -2724,16 +2724,17 @@ class SimpleOrbitControl {
   }
 
   /** Общий шаг масштабирования (используется и колесом мыши, и pinch-зумом). */
-  _zoomBy(k, pt) {
+  _zoomBy(k, pt, scr) {
     this.userMoved = true;
     const newR = Math.max(0.15, Math.min(60, this.radius * k));
-    if (pt && k < 1) {
+    // В ортографическом виде фокус считает onZoom по экранной точке (точно).
+    if (pt && k < 1 && !this.camera.isOrthographicCamera) {
       // приближение — тянем цель к точке под курсором/пальцами пропорционально шагу
       const f = 1 - newR / this.radius;
       this.target.lerp(pt, Math.min(0.9, Math.max(0, f)));
     }
     this.radius = newR;
-    if (this.onZoom) this.onZoom(k, pt);
+    if (this.onZoom) this.onZoom(k, pt, scr);
   }
 
   /**
@@ -3126,11 +3127,17 @@ class Viewer3D {
     this.renderer.domElement.addEventListener('pointerdown', () => this._finishCamTween(), true);
     this.renderer.domElement.addEventListener('wheel', () => this._finishCamTween(), { capture: true, passive: true });
 
-    this.controls.onZoom = (k, pt) => {
+    this.controls.onZoom = (k, pt, scr) => {
       if (!this.isOrtho) return;
+      // Точный зум в точку под курсором/между пальцами: точка плоскости цели,
+      // лежащая под экранной точкой, до и после смены масштаба должна остаться
+      // на месте — сдвигаем цель на разницу. Без лучей по модели (попал/мимо
+      // давало скачки влево-вправо при щипке на телефоне).
+      const before = scr ? this._ortoPlanePoint(scr) : null;
       this._orthoZoom = Math.max(0.2, Math.min(12, this._orthoZoom / k));
-      if (pt && k < 1) this.controls.target.lerp(pt, 0.25);  // фокус к курсору
       this._fitOrtho();
+      const after = before ? this._ortoPlanePoint(scr) : null;
+      if (before && after) this.controls.target.add(before.sub(after));
     };
 
     // Точка модели под курсором — для зума с фокусом в курсоре
@@ -3185,6 +3192,23 @@ class Viewer3D {
     this._initMarkupOverlay();
 
     this._animate();
+  }
+
+  // Точка плоскости, проходящей через цель камеры перпендикулярно взгляду,
+  // под экранной точкой e (clientX/clientY) — для зума ортокамеры в точку.
+  _ortoPlanePoint(e) {
+    const rect = this.renderer.domElement.getBoundingClientRect();
+    if (!rect.width || !rect.height) return null;
+    const ndc = new THREE.Vector2(
+      ((e.clientX - rect.left) / rect.width) * 2 - 1,
+      -((e.clientY - rect.top) / rect.height) * 2 + 1
+    );
+    const cam = this.camera;
+    cam.updateMatrixWorld();
+    this._raycaster.setFromCamera(ndc, cam);
+    const r = this._raycaster.ray;
+    const t = this.controls.target.clone().sub(r.origin).dot(r.direction);
+    return r.origin.clone().addScaledVector(r.direction, t);
   }
 
   /**
