@@ -310,13 +310,13 @@ function initMarkupFont() {
   if (range) range.addEventListener('input', function () { applyMarkupFont(range.value, true); });
 }
 
-// Управление камерой пальцами (только телефон — блок виден лишь ≤820px):
+// Управление камерой пальцами (по умолчанию 'standard'; только телефон — блок виден лишь ≤820px):
 // 'classic' — один палец по модели вращает, по пустому двигает; 'standard' —
 // один палец вращает везде. Значение кладём на <html> (data-touch-scheme),
 // его читает SimpleOrbitControl в viewer.js.
 var TOUCH_SCHEME_KEY = 'modul3d.touchScheme';
 function setTouchScheme(v, save) {
-  v = v === 'standard' ? 'standard' : 'classic';
+  v = v === 'classic' ? 'classic' : 'standard';   // по умолчанию — стандартное
   document.documentElement.setAttribute('data-touch-scheme', v);
   var btns = document.querySelectorAll('[data-touch-scheme]');
   for (var i = 0; i < btns.length; i++) {

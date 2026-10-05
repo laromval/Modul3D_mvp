@@ -2559,7 +2559,7 @@ class SimpleOrbitControl {
           // provider (hitTestProvider не задан) — как раньше, всегда rotate.
           // Схема «стандартная» (настройка в шестерёнке, только телефон; ui-shell.js
           // ставит data-touch-scheme на <html>): один палец вращает где угодно.
-          const standard = document.documentElement.getAttribute('data-touch-scheme') === 'standard';
+          const standard = document.documentElement.getAttribute('data-touch-scheme') !== 'classic';
           const onObject = standard ? true : (this.hitTestProvider ? this.hitTestProvider(e) : true);
           this._dragging = true;
           this.mode = onObject ? 'rotate' : 'pan';
