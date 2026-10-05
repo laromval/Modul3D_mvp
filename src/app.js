@@ -575,6 +575,7 @@ const state = {
   },
   "kitchen::tall600": {
     "group": "kitchen",
+    "removed": true,
     "categoryPath": [
       "Нижний модуль"
     ],
@@ -729,6 +730,59 @@ const state = {
     "categoryPath": [
       "Камоды"
     ]
+  },
+  {
+    "id": "modplace-1791188112702-mizp28",
+    "name": "Пенал 2400*600*520",
+    "group": "kitchen",
+    "params": {
+      "uid": "mmuuz4ft5i6qq0h",
+      "name": "Модуль 1",
+      "depth": 520,
+      "width": 600,
+      "corner": false,
+      "family": "kitchen",
+      "height": 2400,
+      "topType": "panel",
+      "baseType": "legsPlinth",
+      "leftSide": "onBottom",
+      "rotation": 0,
+      "sections": [
+        {
+          "rod": false,
+          "lift": "aventosHK",
+          "width": 400,
+          "facade": "doorLeft",
+          "handle": "bow160",
+          "drawers": 0,
+          "shelves": 4,
+          "handleCC": 160,
+          "rodHeight": 1900,
+          "shelfMode": "auto",
+          "widthMode": "auto",
+          "drawerMode": "auto",
+          "pushToOpen": false,
+          "drawerOffset": 10,
+          "drawerPinned": [],
+          "handleOrient": "vertical",
+          "shelfHeights": [],
+          "drawerHeights": []
+        }
+      ],
+      "legHeight": 100,
+      "railWidth": 100,
+      "rightSide": "onBottom",
+      "plinthHeight": 100
+    },
+    "categoryPath": [
+      "Нижний модуль"
+    ],
+    "materialSnapshot": {
+      "backCode": "HDF-3",
+      "decorCode": "LINK-1790623797766",
+      "facadeMatCode": "LINK-1790014004794",
+      "facadeDecorCode": "LINK-1790014004794"
+    }
   }
 ],
   // Режим подбора материала в Библиотеке (плашки экрана «Материалы», см.
