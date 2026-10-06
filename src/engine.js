@@ -1099,24 +1099,48 @@ function hingeHoles(W, H, hingeSide, shelves, warn, secName, glassDoor, railBott
 // ВЫРАВНИВАНИЕ РУЧЕК БОЛЬШИХ ДВЕРЕЙ ПО СЕКЦИИ С ОТСЕКАМИ (решение
 // пользователя 2026-10-06). Ручка большой (неделёной) двери может стоять на
 // высоте 850–1000 мм от пола (центр ручки). Если в модуле есть секция, поделённая
-// на отсеки, и центр ручки одного из её отсеков попадает в этот диапазон,
-// ручки больших дверей модуля встают на ту же высоту (из нескольких отсеков —
-// ближайшая к 1000 мм). Нет подходящего отсека — высота прежняя (1000 мм).
+// на отсеки, ручки больших дверей встают на высоту ручки её отсека. Кандидаты:
+//   • ручка отсека у своего места, если её центр уже в диапазоне 850–1000;
+//   • иначе ручку отсека, примыкающего к этому уровню, поднимают к верхнему
+//     краю фасада (верхнее отверстие в edge мм от края, как у нижнего отсека),
+//     если центр после подъёма попадает в диапазон.
+// Из кандидатов берётся ближайший к 1000 мм. Нет подходящих — всё как было.
 const HANDLE_ALIGN_MIN = 850, HANDLE_ALIGN_MAX = 1000;
-function registerDoorHandle(reg, dh, zoneCount, wallHung, floorY, H, hStart, hEnd) {
+function registerDoorHandle(reg, dh, zoneCount, wallHung, floorY, H, hStart, hEnd, edge) {
   if (!dh.count || !dh.mounts.length) return;
   const m0 = dh.mounts[0];
   const cy = dh.mounts.reduce((a, m) => a + m.cy, 0) / dh.mounts.length;
-  if (zoneCount > 1) { reg.divided.push(floorY + cy); return; }
+  const rec = { floorY, H, hStart, hEnd, doorIdx: hEnd, cy };
+  if (zoneCount > 1) {
+    if (!wallHung && Number.isFinite(floorY) && m0.cc && m0.vertical && dh.mounts.length === 1) {
+      rec.altCy = H - edge - m0.cc / 2;       // ручка у верхнего края фасада
+    }
+    reg.divided.push(rec);
+    return;
+  }
   // «Уровень руки» — те же условия, что в handleLevel; горизонтальную скобу не трогаем
   if (wallHung || !Number.isFinite(floorY) || floorY + H <= 1100 || floorY >= 1200) return;
   if (m0.cc && !m0.vertical) return;
-  reg.big.push({ floorY, H, hStart, hEnd, doorIdx: hEnd, cy });
+  reg.big.push(rec);
+}
+function shiftHandle(parts, b, delta) {
+  const door = parts[b.doorIdx];
+  if (!door || door.kind !== 'door') return;
+  (door.holes || []).filter((h) => h.kind === 'handle').forEach((h) => { h.y = round1(h.y + delta); });
+  for (let k = b.hStart; k < b.hEnd; k++) parts[k].box.y = round1(parts[k].box.y + delta);
 }
 function alignBigDoorHandles(reg, parts) {
-  const ok = reg.divided.filter((c) => c >= HANDLE_ALIGN_MIN && c <= HANDLE_ALIGN_MAX);
-  if (!ok.length || !reg.big.length) return;
-  const target = Math.max.apply(null, ok);
+  const inRange = (c) => c >= HANDLE_ALIGN_MIN && c <= HANDLE_ALIGN_MAX;
+  const cands = [];
+  for (const d of reg.divided) {
+    if (inRange(d.floorY + d.cy)) cands.push({ c: d.floorY + d.cy, d, lift: false });
+    else if (d.altCy !== undefined && inRange(d.floorY + d.altCy)) cands.push({ c: d.floorY + d.altCy, d, lift: true });
+  }
+  if (!cands.length || !reg.big.length) return;
+  const target = Math.max.apply(null, cands.map((x) => x.c));
+  // отсек(ы) с поднятой ручкой (у двустворчатой — обе створки)
+  cands.filter((x) => x.lift && Math.abs(x.c - target) < 0.5)
+    .forEach((x) => shiftHandle(parts, x.d, x.d.altCy - x.d.cy));
   for (const b of reg.big) {
     const door = parts[b.doorIdx];
     if (!door || door.kind !== 'door') continue;
@@ -1126,9 +1150,7 @@ function alignBigDoorHandles(reg, parts) {
     const hi = Math.max.apply(null, hh.map((h) => h.y));
     const EDGE = 30;                   // отверстие не ближе 30 мм к торцу двери
     const delta = Math.min(Math.max(target - (b.floorY + b.cy), EDGE - lo), b.H - EDGE - hi);
-    if (Math.abs(delta) < 0.05) continue;
-    hh.forEach((h) => { h.y = round1(h.y + delta); });
-    for (let k = b.hStart; k < b.hEnd; k++) parts[k].box.y = round1(parts[k].box.y + delta);
+    if (Math.abs(delta) >= 0.05) shiftHandle(parts, b, delta);
   }
 }
 
@@ -5004,7 +5026,8 @@ function buildModuleParts(p) {
           faceX: fX, faceY: doorY, faceW: facadeW, faceH: doorZoneH,
           faceZ: D / 2 + ft.thickness / 2, t: ft.thickness });
         registerDoorHandle(handleAlign, dh, zonesRaw.length, isWallHung(p),
-          (Number(p.mountBottom) || 0) + doorY - doorZoneH / 2, doorZoneH, hStart, parts.length);
+          (Number(p.mountBottom) || 0) + doorY - doorZoneH / 2, doorZoneH, hStart, parts.length,
+          doorHandleEdge(ft.frame));
         const doorNoteParts = [`Накладная, ${hingeSide}` + (dh.count ? `, ручка ${dh.handle.name}` : '')];
         if (skipHinge) doorNoteParts.push(applianceHingeNote(zone.appliance));
         else if (aluNoCup) doorNoteParts.push(ALU_HINGE_NOTE);
@@ -5165,7 +5188,8 @@ function buildModuleParts(p) {
             faceX: leafX, faceY: doorY, faceW: leafW, faceH: doorZoneH,
             faceZ: D / 2 + ft.thickness / 2, t: ft.thickness });
           registerDoorHandle(handleAlign, dh, zonesRaw.length, isWallHung(p),
-            (Number(p.mountBottom) || 0) + doorY - doorZoneH / 2, doorZoneH, hStart, parts.length);
+            (Number(p.mountBottom) || 0) + doorY - doorZoneH / 2, doorZoneH, hStart, parts.length,
+          doorHandleEdge(ft.frame));
           parts.push(makePart({
             name: `Дверь-створка (${ft.name.replace('Фасад ', '')})`,
             section: zoneSecName, sectionIndex: i, zoneIndex: zi, material: ft.material, thickness: ft.thickness,
