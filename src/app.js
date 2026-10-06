@@ -14,7 +14,7 @@
 (function () {
 // Версия сборки — показывается во вкладке браузера и в шапке.
 // При выпуске новой версии меняется только эта строка.
-const APP_VERSION = 'v378';
+const APP_VERSION = 'v379';
 
 // Номер версии выводим ПЕРВЫМ делом: если дальше что-то упадёт, по нему сразу
 // видно, какая сборка открыта.
@@ -2188,6 +2188,7 @@ function libModProjectModuleOf(m) {
     mountTop: m.mountTop,
     blindPanel: !!m.blindPanel, blindStrip: m.blindStrip,
     leftSide: m.leftSide, rightSide: m.rightSide,
+    sideUserSet: m.sideUserSet,
     base: m.baseType === 'plinth'
       ? { type: 'plinth', plinthHeight: m.plinthHeight }
       : { type: m.baseType, legHeight: m.legHeight },
@@ -11553,11 +11554,11 @@ function moduleFieldsBlock(mod) {
     <div class="field-row">
       <div class="field">
         <label>Левая боковина</label>
-        <select id="m-leftSide">${sideOptions(mod.leftSide, moduleIsWallHung(mod))}</select>
+        <select id="m-leftSide">${sideOptions(sideShown(mod, "left"), moduleIsWallHung(mod))}</select>
       </div>
       <div class="field">
         <label>Правая боковина</label>
-        <select id="m-rightSide">${sideOptions(mod.rightSide, moduleIsWallHung(mod))}</select>
+        <select id="m-rightSide">${sideOptions(sideShown(mod, "right"), moduleIsWallHung(mod))}</select>
       </div>
     </div>
     <div class="field-row">
@@ -11638,6 +11639,20 @@ function backGrooveOf(mod) {
 // поле wallHung главнее, без него — кухонный на «цоколе» нулевой высоты.
 // Здесь только для UI (текст подсказки, поле «Верх модуля от пола»), в
 // расчёт не идёт — движок решает сам по тем же полям.
+// Тип боковины, который показываем в списке: реально применённый движком
+// (видимая боковина на опорах без ручного выбора подменяется на «до пола»,
+// см. engine.js effSideFor) — иначе список врёт «на дно», а боковина стоит
+// до пола. Нет модели/модуля — то, что хранится в самом модуле.
+function sideShown(mod, key) {
+  const declared = key === 'left' ? mod.leftSide : mod.rightSide;
+  try {
+    const i = state.modules.indexOf(mod);
+    const eff = currentModel && currentModel.modules[i] && currentModel.modules[i].effSides;
+    if (eff && eff[key] && !moduleIsWallHung(mod)) return eff[key];
+  } catch (e) { /* модель ещё не построена */ }
+  return declared;
+}
+
 function moduleIsWallHung(mod) {
   if (mod.wallHung === true || mod.wallHung === false) return mod.wallHung;
   return mod.family === 'kitchen' && mod.baseType === 'plinth' && !(Number(mod.plinthHeight) > 0);
@@ -11905,7 +11920,6 @@ function partBlock(mod) {
   if (kind === 'side') {
     const isLeft = sp.side === 'left';
     const label = isLeft ? 'левая' : 'правая';
-    const cur = isLeft ? mod.leftSide : mod.rightSide;
     const selectId = isLeft ? 'm-leftSide' : 'm-rightSide';
     // «Видимая» боковина читается из уже ПОСЧИТАННОЙ модели, а не
     // пересчитывается здесь заново — единый источник истины остаётся
@@ -11916,7 +11930,7 @@ function partBlock(mod) {
     <h3>Боковина ${label}</h3>
     <div class="field">
       <label>Конструктив</label>
-      <select id="${selectId}">${sideOptions(cur, moduleIsWallHung(mod))}</select>
+      <select id="${selectId}">${sideOptions(sideShown(mod, isLeft ? "left" : "right"), moduleIsWallHung(mod))}</select>
     </div>
     ${visible && !ov.materialOverride ? `
     <div class="hint">Эта боковина видимая — режется из материала «Видимая боковина» проекта.
@@ -15182,8 +15196,20 @@ function bindPanelEvents() {
   on('m-width', 'change', (e) => { mod.width = Number(e.target.value); recompute(); });
   on('m-height', 'change', (e) => { mod.height = Number(e.target.value); recompute(); });
   on('m-depth', 'change', (e) => { mod.depth = Number(e.target.value); recompute(); });
-  on('m-leftSide', 'change', (e) => { mod.leftSide = e.target.value; recompute(); });
-  on('m-rightSide', 'change', (e) => { mod.rightSide = e.target.value; recompute(); });
+  // sideUserSet — «боковину выбрали руками»: движок тогда не подменяет
+  // видимую боковину на опорах на «до пола» (engine.js, effSideFor).
+  on('m-leftSide', 'change', (e) => {
+    mod.leftSide = e.target.value;
+    mod.sideUserSet = Object.assign({}, mod.sideUserSet, { left: true });
+    recompute();
+    renderParamsPanel();
+  });
+  on('m-rightSide', 'change', (e) => {
+    mod.rightSide = e.target.value;
+    mod.sideUserSet = Object.assign({}, mod.sideUserSet, { right: true });
+    recompute();
+    renderParamsPanel();
+  });
   // Отметка верха навесного модуля (mountTopBlock). Пустое/неположительное —
   // возвращаем прежнее значение; история отмены — через recompute().
   on('m-mountTop', 'change', (e) => {
@@ -15616,6 +15642,7 @@ function recompute(isRetry) {
       mountTop: m.mountTop,
       blindPanel: !!m.blindPanel, blindStrip: m.blindStrip,
       leftSide: m.leftSide, rightSide: m.rightSide,
+      sideUserSet: m.sideUserSet,
       base: m.baseType === 'plinth'
         ? { type: 'plinth', plinthHeight: m.plinthHeight }
         : { type: m.baseType, legHeight: m.legHeight },
@@ -16059,8 +16086,25 @@ function renderDrillLegend() {
   });
 }
 
+// Скрытые пользователем предупреждения (кнопка ×) — по тексту, до перезагрузки
+// страницы. Изменился текст (другой модуль/сторона) — предупреждение вернётся.
+const dismissedWarnings = new Set();
+let lastWarnings = [];
 function renderWarnings(warnings) {
-  document.getElementById('warnings').innerHTML = warnings.map(w => `⚠ ${esc(w)}`).join('<br>');
+  lastWarnings = warnings;
+  const el = document.getElementById('warnings');
+  el.innerHTML = warnings.map((w, i) => dismissedWarnings.has(w) ? '' :
+    `<div class="warn-row">⚠ ${esc(w)}<button type="button" class="warn-x" data-warn="${i}" title="Скрыть предупреждение" aria-label="Скрыть предупреждение">×</button></div>`).join('');
+  if (!el._dismissBound) {
+    el._dismissBound = true;
+    el.addEventListener('click', (e) => {
+      const b = e.target.closest && e.target.closest('.warn-x');
+      if (!b) return;
+      const w = lastWarnings[Number(b.dataset.warn)];
+      if (w) dismissedWarnings.add(w);
+      renderWarnings(lastWarnings);
+    });
+  }
 }
 
 // «Сырая» разметка чертежей — ровно то, что вернул buildDrawings, БЕЗ обёртки

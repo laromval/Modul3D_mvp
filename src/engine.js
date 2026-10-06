@@ -2647,6 +2647,17 @@ function buildModuleParts(p) {
     else vis = byType || !cov[key];
     sideVisible[key] = vis;
   }
+  // РУЧНОЙ «на дно» (решение пользователя 2026-10-06): стен в проекте нет,
+  // движок не знает, какая боковина у стены, поэтому ручной выбор «на дно»
+  // делает боковину невидимой — корпусной материал, задняя стенка накладная
+  // (как у закрытой соседом). Раньше видимость исходного положения нужна
+  // только для предупреждения про опору (sideWasVisible).
+  const sideWasVisible = { left: sideVisible.left, right: sideVisible.right };
+  for (const key of ['left', 'right']) {
+    if (!hungModule && p.sideUserSet && p.sideUserSet[key] && sides[key] === 'onBottom') {
+      sideVisible[key] = false;
+    }
+  }
   // НАВЕСНОЙ: боковина, полностью закрытая соседом вплотную (невидимая),
   // становится «на дно» — задняя стенка у неё накладная, паза и выпила под
   // шину нет, остаётся только вырез в задней стенке под навес (решение
@@ -2670,12 +2681,28 @@ function buildModuleParts(p) {
   // «Цоколь» (plinth, БЕЗ опор) не трогаем — там нет ножки, которая могла бы
   // торчать, цокольная планка и так закрывает весь низ сама по себе.
   // Навесные модули не трогаем — там видимость вообще не про пол.
+  // С v379 (решение пользователя 2026-10-06): если боковину выбрали руками
+  // (p.sideUserSet[key], ставит интерфейс при смене списка) — её тип
+  // действует и у видимой боковины, а не подменяется; вместо подмены —
+  // предупреждение, что опора останется на виду сбоку (скрывается кнопкой ×,
+  // см. renderWarnings). Без ручного выбора (пресеты, старые проекты, где
+  // «на дно» стоит по умолчанию) — прежняя подмена, чтобы они не поменялись.
+  const userSide = (key) => !!(p.sideUserSet && p.sideUserSet[key]);
   const effSideFor = (key) => {
-    if (hungModule || !sideVisible[key]) return sides[key];
+    if (hungModule || !sideVisible[key] || userSide(key)) return sides[key];
     if (p.base.type === 'legs') return p.legType === 'metal' ? 'besideBottom' : 'floor';
     if (p.base.type === 'legsPlinth') return 'floor';
     return sides[key];
   };
+  if (!hungModule && (p.base.type === 'legs' || p.base.type === 'legsPlinth')) {
+    for (const key of ['left', 'right']) {
+      // «Сбоку дна» у металлических опор — декоративный вариант, не предупреждаем.
+      const decorative = sides[key] === 'besideBottom' && p.base.type === 'legs' && p.legType === 'metal';
+      if (sideWasVisible[key] && userSide(key) && sides[key] !== 'floor' && !decorative) {
+        warnings.push(`${key === 'left' ? 'левая' : 'правая'} боковина «${SIDE_LABEL[sides[key]]}» у края модуля — опора будет видна сбоку.`);
+      }
+    }
+  }
   const effLeft = effSideFor('left');
   const effRight = effSideFor('right');
 
@@ -5007,6 +5034,8 @@ function buildModuleParts(p) {
   return {
     params: p,
     sides,
+    // Тип боковин, реально применённый к деталям (с подменой видимой на опорах).
+    effSides: { left: effLeft, right: effRight },
     sidesLabel: sidesLabel(sides),
     dims: {
       W, H, D, innerH, baseH, Wi, sectionOpening, t, tb, gap, innerBottomY, n,
@@ -5483,6 +5512,7 @@ function buildModel(project) {
       backMaterial: proj.backMaterial,
       drawerDecor: proj.drawerDecor, drawerThickness: proj.drawerThickness,
       base: m.base, legType: m.legType, leftSide: m.leftSide, rightSide: m.rightSide,
+      sideUserSet: m.sideUserSet,
       topType: m.topType, railWidth: m.railWidth, noBack: !!m.noBack,
       // Задняя стенка: накладная / в паз (см. resolveBackMount) и признак
       // навесного модуля. Нет полей — 'auto' и правило по умолчанию.
@@ -5604,7 +5634,7 @@ function buildModel(project) {
       // строится рабочий чертёж модуля.
       dims: Object.assign({}, built.dims, { W: cw, D: cd }),
       dimsOwn: Object.assign({}, built.dims, { W: c.w, D: c.d }),
-      sides: built.sides, sidesLabel: built.sidesLabel,
+      sides: built.sides, sidesLabel: built.sidesLabel, effSides: built.effSides,
       params: built.params,
     });
 
