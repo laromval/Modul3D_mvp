@@ -14,7 +14,7 @@
 (function () {
 // Версия сборки — показывается во вкладке браузера и в шапке.
 // При выпуске новой версии меняется только эта строка.
-const APP_VERSION = 'v382';
+const APP_VERSION = 'v383';
 
 // Номер версии выводим ПЕРВЫМ делом: если дальше что-то упадёт, по нему сразу
 // видно, какая сборка открыта.
@@ -14071,6 +14071,7 @@ function bindZoneFieldEvents(container, mod, refresh) {
       const sec = mod.sections[Number(e.target.dataset.idx)];
       const zi = Number(e.target.dataset.zoneshelfmode);
       ensureZone(sec, zi).shelfMode = e.target.value;
+      if (e.target.value === 'manual') fillManualShelfHeights(mod, Number(e.target.dataset.idx), zi);
       refreshScreen();
       recompute();
     });
@@ -14105,6 +14106,25 @@ function shelfModeSelect(sec, i) {
       <option value="auto" ${sec.shelfMode !== 'manual' ? 'selected' : ''}>Равномерно</option>
       <option value="manual" ${sec.shelfMode === 'manual' ? 'selected' : ''}>Вручную</option>
     </select>`;
+}
+
+// При переключении на «Вручную» записываем в модель высоты, на которых полки
+// стоят сейчас в авторежиме (из посчитанной модели) — поля показывают реальные
+// размеры, а 3D не «прыгает». zi — номер зоны фасада (undefined — вся секция).
+function fillManualShelfHeights(mod, secIndex, zi) {
+  const m = currentModel && currentModel.modules
+    && currentModel.modules.find((q) => q.name === mod.name);
+  const info = m && m.dims && m.dims.sections && m.dims.sections[secIndex];
+  const sec = mod.sections[secIndex];
+  if (!info || !sec) return;
+  if (zi === undefined) {
+    const hs = info.shelfManualHeights || [];
+    if (hs.length === Number(sec.shelves)) sec.shelfHeights = hs.slice();
+  } else {
+    const hs = (info.zoneShelfManualHeights || {})[zi] || [];
+    const zone = sec.doorZones && sec.doorZones[zi];
+    if (zone && hs.length === Number(zone.shelves)) zone.shelfHeights = hs.slice();
+  }
 }
 
 function shelfHeightsInputs(sec, i) {
@@ -14157,6 +14177,7 @@ function bindShelfFieldEvents(container, mod, refresh) {
     el.addEventListener('change', (e) => {
       const sec = mod.sections[Number(e.target.dataset.idx)];
       sec.shelfMode = e.target.value;
+      if (sec.shelfMode === 'manual') fillManualShelfHeights(mod, Number(e.target.dataset.idx));
       refreshScreen();
       recompute();
     });
@@ -15225,6 +15246,9 @@ function renderSectionsList() {
       if (f === 'shelves') {
         sec.shelfMode = 'auto';
         sec.shelfHeights = [];
+      }
+      if (f === 'shelfMode' && sec.shelfMode === 'manual') {
+        fillManualShelfHeights(mod, Number(e.target.dataset.idx));
       }
       // менялось количество/режим — перерисовываем блок, чтобы поля появились
       renderSectionsList();

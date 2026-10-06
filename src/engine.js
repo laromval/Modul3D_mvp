@@ -3834,7 +3834,7 @@ function buildModuleParts(p) {
         const zoneYs = getShelfYs(
           { shelves: dz.shelves, shelfMode: dz.shelfMode, shelfHeights: dz.shelfHeights },
           zBottom, zHeight, t, zBottom, null);
-        for (const y of zoneYs) shelfEntries.push({ y, fixed: false, zi });
+        for (const y of zoneYs) shelfEntries.push({ y, fixed: false, zi, zb: zBottom });
       }
       shelfEntries.sort((a, b) => a.y - b.y);
     } else {
@@ -3868,6 +3868,21 @@ function buildModuleParts(p) {
     // и ставятся полкодержатели.
     const infoRow = secInfo[secInfo.length - 1];
     if (infoRow) infoRow.shelfYs = shelfYs.slice();
+    // Высоты НИЖНЕЙ плоскости полок так, как их вводят в режиме «Вручную»:
+    // секция — от дна секции, зона фасада — от низа её ниши. UI подставляет их
+    // в поля при переключении на «Вручную», чтобы 3D не «прыгал».
+    if (infoRow) {
+      infoRow.shelfManualHeights = multiZone ? []
+        : shelfYs.map((y) => Math.round(y - t / 2 - innerBottomY));
+      infoRow.zoneShelfManualHeights = {};
+      if (multiZone) {
+        for (const e of shelfEntries) {
+          if (e.fixed || e.zi === undefined) continue;
+          (infoRow.zoneShelfManualHeights[e.zi] = infoRow.zoneShelfManualHeights[e.zi] || [])
+            .push(Math.round(e.y - t / 2 - e.zb));
+        }
+      }
+    }
     shelfPanelX[i] = [panelLX(i), panelRX(i)];
     // ЖЁСТКАЯ ПОЛКА НАД ЯЩИКАМИ (решение пользователя 2026-10-05): если над
     // ящиками есть свободное место — несъёмная полка на Rastex во всю
