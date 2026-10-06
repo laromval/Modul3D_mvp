@@ -3823,7 +3823,7 @@ function buildModuleParts(p) {
       }
       const azLayout = layoutDoorZones(azZones, azSlotTop - azSlotBot, gap, t, null, secName);
       for (const off of azLayout.partitions) {
-        shelfEntries.push({ y: azSlotBot + off, fixed: true });
+        shelfEntries.push({ y: azSlotBot + off, fixed: true, fullDepth: true });
       }
       // Ниша под технику (appliance !== 'none') не получает съёмных полок —
       // sec.doorZones[zi].shelves для неё в интерфейсе не показывается и
@@ -3912,7 +3912,7 @@ function buildModuleParts(p) {
       shelfEntries.push({
         y: Math.max(facadeAbove ? baseH + drawerZoneH : drawerFacadeTopY + 2 - t / 2,
           boxTopY + t / 2 + 0.6),
-        fixed: true, drawerTop: true,
+        fixed: true, fullDepth: true, drawerTop: true,
       });
     }
     for (let si = 0; si < shelfEntries.length; si++) {
@@ -3923,7 +3923,11 @@ function buildModuleParts(p) {
         warnings.push(`${secName}: полка на высоте ${Math.round(y - innerBottomY)} мм выходит за пределы секции.`);
         continue;
       }
-      const width = isFixed ? D : shelfDepth;
+      // Во всю глубину корпуса — только полка-перегородка на стыке отсеков (фасады
+      // упираются в неё) и полка над ящиками; жёсткая полка, заданная вручную,
+      // по глубине как съёмная (решение пользователя 2026-10-06).
+      const fullDepth = isFixed && !!shelfEntries[si].fullDepth;
+      const width = fullDepth ? D : shelfDepth;
       if (secW - 2 > 900 && t <= 16) {
         warnings.push(`${secName}: полка ${Math.round(secW - 2)} мм из ЛДСП ${t} мм прогнётся — добавьте стойку (раздел «Секции») или возьмите материал толще.`);
       }
@@ -3953,6 +3957,8 @@ function buildModuleParts(p) {
           ? 'Стекло 6 мм, на полкодержателях с силиконовой пяткой'
           : (shelfEntries[si].drawerTop
             ? 'Несъёмная, над ящиками, во всю глубину корпуса, крепится минификсами Rastex к боковинам'
+            : isFixed && !fullDepth
+            ? 'Жёсткая (несъёмная), глубина как у съёмной, крепится минификсами Rastex к боковинам и стойкам'
             : isFixed
             ? 'Несъёмная, во всю глубину корпуса, крепится минификсами Rastex к боковинам — '
               + 'на стыке фасадов, для жёсткости пенала'
@@ -3960,7 +3966,7 @@ function buildModuleParts(p) {
         edging: glassShelf
           ? { long1: null, long2: null, short1: null, short2: null }
           : { long1: shelfFrontHidden ? EDGE_BACK : EDGE_FRONT, long2: EDGE_BACK, short1: EDGE_BACK, short2: EDGE_BACK },
-        x: secCenterX, y, z: isFixed ? 0 : (D / 2 - SHELF_SETBACK) - shelfDepth / 2,
+        x: secCenterX, y, z: fullDepth ? 0 : (D / 2 - SHELF_SETBACK) - shelfDepth / 2,
         dims: { w: isFixed ? secW : secW - 2, h: glassShelf ? GL.thickness : t, d: width },
       }));
     }
