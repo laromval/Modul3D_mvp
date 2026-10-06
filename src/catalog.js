@@ -777,6 +777,21 @@
       "Стекло"
     ]
   },
+  "MIRROR-4": {
+    "code": "MIRROR-4",
+    "name": "Зеркало 4 мм",
+    "unit": "м²",
+    "image": null,
+    "matKind": "glass",
+    "mirror": true,
+    "priceNote": "цена уточняется — запрос в RADEVA и DETA отправлен 2026-10-05",
+    "thickness": 4,
+    "sheetPrice": null,
+    "customOrder": true,
+    "categoryPath": [
+      "Стекло"
+    ]
+  },
   "FAC-LDSP": {
     "code": "FAC-LDSP",
     "name": "W1000 ST9 Белый Премиум",
@@ -1038,7 +1053,7 @@
           { from: [45, 7.2], to: [45, 21], label: '13.8', side: 'right', at: 49.5 },
         ] } },
   };
-  const ALU_PROFILE_ORDER = ['ALU-LXD3080', 'ALU-LXD-1203', 'ALU-LXD-1204'];
+  const ALU_PROFILE_ORDER = ['ALU-LXD-1204', 'ALU-LXD-1203', 'ALU-LXD3080'];
 
   const ALU_FRAME_EXTRAS = {
     corner: { code: 'ALU-CORNER-AF04', name: 'Уголок монтажный рамочный', article: 'AF 04', supplier: 'Tehmob',
@@ -1074,6 +1089,11 @@
     // за пог.м у молдавских стекольщиков нет (проверено 2026-09-26) — цена null.
     glassEdge: { code: 'ALU-GLASS-EDGE', name: 'Полировка кромки стекла по периметру', price: null, unit: 'пог.м',
                  priceNote: 'уточняйте у стекольщика (RADEVA +373 68 111 020, Geam Ess Sistem +373 60 004 489)' },
+    // Полировка кромки зеркала — когда кромка зеркала открыта: зеркало как
+    // самостоятельный фасад (всегда) и вставка в открытый профиль (решение
+    // пользователя 2026-10-05; в закрытом профиле рама охватывает кромку — не нужна).
+    mirrorEdge: { code: 'GLASS-MIRROR-EDGE', name: 'Полировка кромки зеркала', price: null, unit: 'пог.м',
+                  priceNote: 'цена уточняется — запрос в RADEVA и DETA отправлен 2026-10-05' },
     labour: { code: 'ALU-LABOUR', name: 'Сборка алюминиевого фасада', price: null, unit: 'шт', priceNote: 'укажите свою стоимость работы' },
   };
 

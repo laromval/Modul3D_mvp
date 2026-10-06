@@ -14,7 +14,7 @@
 (function () {
 // Версия сборки — показывается во вкладке браузера и в шапке.
 // При выпуске новой версии меняется только эта строка.
-const APP_VERSION = 'v382';
+const APP_VERSION = 'v380';
 
 // Номер версии выводим ПЕРВЫМ делом: если дальше что-то упадёт, по нему сразу
 // видно, какая сборка открыта.
@@ -1648,6 +1648,15 @@ function deleteModule(idx) {
   // всегда снимать изоляцию/выбор детали, чем определять, задело ли удаление
   // именно изолированный модуль.
   exitIsolation();
+  {
+    // Удаляем начало группы — следующий модуль той же группы становится её началом.
+    const del = state.modules[idx], nxt = state.modules[idx + 1];
+    if (nxt && !nxt.groupStart && (del.groupStart || del.gx || del.gz)) {
+      if (del.groupStart) nxt.groupStart = true;
+      if (del.gx) nxt.gx = del.gx;
+      if (del.gz) nxt.gz = del.gz;
+    }
+  }
   state.modules.splice(idx, 1);
   // Удалили последний модуль — проект начат заново, прежний ручной выбор
   // корпуса больше не защищает его от белого корпуса первой кухни.
@@ -1703,6 +1712,140 @@ function renumberModules() {
 
 // Новый модуль встаёт СРАЗУ ЗА выделенным, а не в конец ряда: правее стоящие
 // модули сдвигаются дальше. Так добавляют модуль в середину гарнитура.
+// Габарит проекта на полу, мм ({x0,x1,z0,z1}) — по корпусам модулей из
+// последнего расчёта. Нужен, чтобы поставить остров перед имеющейся мебелью.
+function modelBoundsMm() {
+  const mods = (currentModel && currentModel.modules) || [];
+  if (!mods.length) return null;
+  const b = { x0: Infinity, x1: -Infinity, z0: Infinity, z1: -Infinity };
+  mods.forEach((q) => {
+    b.x0 = Math.min(b.x0, q.offsetX - q.dims.W / 2); b.x1 = Math.max(b.x1, q.offsetX + q.dims.W / 2);
+    b.z0 = Math.min(b.z0, q.offsetZ - q.dims.D / 2); b.z1 = Math.max(b.z1, q.offsetZ + q.dims.D / 2);
+  });
+  return b;
+}
+
+// Куда вставить новые модули (по переключателю «Добавлять: слева / справа /
+// отдельно»). Возвращает индекс в state.modules и выставляет у первого из
+// `list` флаги группы: «слева» от начала группы передаёт новому её начало и
+// смещение, «отдельно» — начинает новую группу (остров) в конце списка.
+// Перетаскивание острова мышью по полу (viewer.js, _initModuleDrag). Остров —
+// группа модулей (currentModel.moduleGroup > 0); основную группу тащим только с
+// Shift. Магнит: края и середины острова слегка притягиваются к краям и
+// серединам чужих модулей, у кухни — по краю столешницы (порог SNAP_MM) — «напротив» и «вровень», но на любом
+// расстоянии; Alt отключает. Наложение корпусов запрещено (красный контур).
+function bindIslandDrag() {
+  const SNAP_MM = 80;
+  const rectsOf = (pred) => {
+    const mods = (currentModel && currentModel.modules) || [];
+    return mods.map((q, i) => ({ i, x0: q.offsetX - q.dims.W / 2, x1: q.offsetX + q.dims.W / 2,
+      z0: q.offsetZ - q.dims.D / 2, z1: q.offsetZ + q.dims.D / 2 })).filter((r) => pred(r.i));
+  };
+  const unite = (rs) => rs.reduce((u, r) => ({ x0: Math.min(u.x0, r.x0), x1: Math.max(u.x1, r.x1),
+    z0: Math.min(u.z0, r.z0), z1: Math.max(u.z1, r.z1) }),
+    { x0: Infinity, x1: -Infinity, z0: Infinity, z1: -Infinity });
+  viewer.moduleDragProvider = (name, e) => {
+    if (!currentModel || !currentModel.moduleGroup) return null;
+    const idx = currentModel.modules.findIndex((q) => q.name === name);
+    if (idx < 0) return null;
+    const g = currentModel.moduleGroup[idx];
+    if (g === 0 && !(e && e.shiftKey)) return null;
+    const indices = [];
+    currentModel.moduleGroup.forEach((gg, i) => { if (gg === g) indices.push(i); });
+    return { group: g, indices, names: indices.map((i) => currentModel.modules[i].name),
+      head: indices[0] };
+  };
+  viewer.moduleDragMove = (info, dx, dz, e) => {
+    const inGroup = new Set(info.indices);
+    const carc = rectsOf(() => true);
+    const ownCarc = carc.filter((r) => inGroup.has(r.i));
+    const othCarc = carc.filter((r) => !inGroup.has(r.i));
+    // Столешницы: остров выравнивается по КРАЮ СТОЛЕШНИЦЫ основной кухни (а не
+    // по корпусу под ней) — особенно когда он повёрнут на 90°. Деталь
+    // столешницы знает свою группу (p.ctGroup, engine.js).
+    const tops = ((currentModel && (currentModel.partsRaw || currentModel.parts)) || []).filter((p) => p.kind === 'countertop')
+      .map((p) => ({ g: p.ctGroup || 0, x0: p.box.x - p.box.w / 2, x1: p.box.x + p.box.w / 2,
+        z0: p.box.z - p.box.d / 2, z1: p.box.z + p.box.d / 2 }));
+    const ownTops = tops.filter((t) => t.g === info.group);
+    const othTops = tops.filter((t) => t.g !== info.group);
+    const own = ownCarc.concat(ownTops);          // всё, что занимает место острова
+    const others = othCarc.concat(othTops);       // и чужое
+    const u = unite(own);                         // габарит острова с его столешницей
+    // Цели магнита: край столешницы к краю столешницы; нет столешниц — корпуса.
+    const targets = (ownTops.length && othTops.length) ? othTops : othCarc;
+    const guides = [];
+    if (!(e && e.altKey) && targets.length) {
+      const best = (lo, hi, key) => {
+        const sh = key === 'x' ? dx : dz;
+        const mine = [u[lo] + sh, (u[lo] + u[hi]) / 2 + sh, u[hi] + sh];
+        let res = null;
+        targets.forEach((o) => {
+          [o[lo], (o[lo] + o[hi]) / 2, o[hi]].forEach((t) => mine.forEach((m) => {
+            const d = t - m;
+            if (Math.abs(d) <= SNAP_MM && (!res || Math.abs(d) < Math.abs(res.d))) res = { d, at: t, o };
+          }));
+        });
+        return res;
+      };
+      const bx = best('x0', 'x1', 'x'), bz = best('z0', 'z1', 'z');
+      if (bx) dx += bx.d;
+      if (bz) dz += bz.d;
+      const sh = { x0: u.x0 + dx, x1: u.x1 + dx, z0: u.z0 + dz, z1: u.z1 + dz };
+      if (bx) guides.push({ x0: bx.at, x1: bx.at, z0: Math.min(sh.z0, bx.o.z0) - 300, z1: Math.max(sh.z1, bx.o.z1) + 300 });
+      if (bz) guides.push({ z0: bz.at, z1: bz.at, x0: Math.min(sh.x0, bz.o.x0) - 300, x1: Math.max(sh.x1, bz.o.x1) + 300 });
+    }
+    dx = Math.round(dx); dz = Math.round(dz);
+    const collide = own.some((a) => others.some((o) =>
+      a.x0 + dx < o.x1 - 0.5 && a.x1 + dx > o.x0 + 0.5 && a.z0 + dz < o.z1 - 0.5 && a.z1 + dz > o.z0 + 0.5));
+    return { dx, dz, collide, guides,
+      rect: { x0: u.x0 + dx, x1: u.x1 + dx, z0: u.z0 + dz, z1: u.z1 + dz } };
+  };
+  viewer.moduleDragEnd = (info, dx, dz, commit) => {
+    if (!commit) { showToastSafe('Остров нельзя поставить поверх другого модуля'); return; }
+    const head = state.modules[info.head];
+    if (!head) return;
+    head.gx = Math.round((Number(head.gx) || 0) + dx);
+    head.gz = Math.round((Number(head.gz) || 0) + dz);
+    recompute();
+    const gxEl = document.getElementById('islandGx'), gzEl = document.getElementById('islandGz');
+    if (gxEl && state.modules[groupHeadIndex(state.activeModule)] === head) { gxEl.value = head.gx; gzEl.value = head.gz; }
+  };
+}
+function showToastSafe(msg) {
+  try {
+    if (typeof showToast === 'function') showToast(msg);
+    else console.warn(msg);
+  } catch (_) { console.warn(msg); }
+}
+
+function placementIndexFor(list) {
+  list.forEach((m) => { delete m.groupStart; delete m.gx; delete m.gz; });
+  const n = state.modules.length;
+  const mode = state.addMode || 'right';
+  if (!n) return 0;
+  if (mode === 'island') {
+    const b = modelBoundsMm();
+    const D = Number(list[0].depth) || 600;
+    list[0].groupStart = true;
+    // Перед имеющейся мебелью, через проход ~900 мм, по центру композиции.
+    list[0].gx = b ? Math.round((b.x0 + b.x1) / 2) : 0;
+    list[0].gz = b ? Math.round(b.z1 + 900 + D / 2) : 0;
+    return n;
+  }
+  if (mode === 'left') {
+    const at = Math.min(state.activeModule, n - 1);
+    const head = state.modules[at];
+    if (head && (head.groupStart || at === 0)) {
+      if (head.groupStart) list[0].groupStart = true;
+      if (head.gx) list[0].gx = head.gx;
+      if (head.gz) list[0].gz = head.gz;
+      delete head.groupStart; delete head.gx; delete head.gz;
+    }
+    return at;
+  }
+  return Math.min(state.activeModule + 1, n);
+}
+
 function insertModule(m) {
   // Вставка сдвигает и может переименовать соседние модули (renumberModules
   // ниже) — изоляция всё равно не имеет смысла в момент добавления нового
@@ -1736,7 +1879,7 @@ function insertModule(m) {
   // Вставленный модуль — всегда НОВЫЙ: клон из пресета/библиотеки/комплекта
   // мог принести uid эталона (или другого модуля проекта), см. newModuleUid.
   m.uid = newModuleUid();
-  const at = Math.min(state.activeModule + 1, state.modules.length);
+  const at = placementIndexFor([m]);
   state.modules.splice(at, 0, m);
   renumberModules();
   state.activeModule = at;
@@ -1779,7 +1922,7 @@ function insertModulesBatch(mods) {
     }
   });
   mods.forEach((m) => { m.uid = newModuleUid(); });   // см. insertModule
-  const at = Math.min(state.activeModule + 1, state.modules.length);
+  const at = placementIndexFor(mods);
   state.modules.splice(at, 0, ...mods);
   renumberModules();
   state.activeModule = at;
@@ -2074,6 +2217,7 @@ function libModProjectModuleOf(m) {
     mountTop: m.mountTop,
     blindPanel: !!m.blindPanel, blindStrip: m.blindStrip,
     leftSide: m.leftSide, rightSide: m.rightSide,
+    sideUserSet: m.sideUserSet,
     base: m.baseType === 'plinth'
       ? { type: 'plinth', plinthHeight: m.plinthHeight }
       : { type: m.baseType, legHeight: m.legHeight },
@@ -2178,6 +2322,18 @@ function libModLeafGridHtml(topCode, path, entries) {
   return `<div class="lib-leaf-body"><div class="lib-grid">${tiles}${empty}</div></div>`;
 }
 
+// Переключатель «Добавлять: слева / справа / отдельно» — стоит в «Базе модулей»,
+// откуда модуль и добавляется; действует на все способы добавления.
+function addModeRowHtml() {
+  return `
+    <div class="add-mode" id="addModeRow">
+      <span class="add-mode-label">Добавлять:</span>
+      ${[['left', '← Слева'], ['right', 'Справа →'], ['island', 'Отдельно']].map(([k, t]) =>
+        `<button type="button" class="add-mode-btn ${(state.addMode || 'right') === k ? 'active' : ''}" data-addmode="${k}"
+                 title="${k === 'left' ? 'Новый модуль встанет слева от выбранного' : k === 'right' ? 'Новый модуль встанет справа от выбранного' : 'Новый модуль встанет отдельно от остальных (остров); его можно тащить мышью по полу'}">${t}</button>`).join('')}
+    </div>`;
+}
+
 function libraryBlock() {
   const catsHtml = libTabRootCodes('modules')
     .map((code) => libTopCategoryTreeHtml('modules', code, 0))
@@ -2186,6 +2342,7 @@ function libraryBlock() {
   // дублировал название активной вкладки .lib-tabs прямо над ним (то же на
   // «Материалах»/«Фурнитуре»/«Дверях») и съедал место на телефоне.
   return `
+    ${addModeRowHtml()}
     <div class="lib-link-refresh-bar">
       <button type="button" class="btn" data-lib-save-project="1" title="Сохранить текущий проект в «Базу модулей»">Сохранить в базу</button>
       ${libAddCatTileHtml('modules')}
@@ -3064,6 +3221,10 @@ const LIB_OWN_ENTRIES_ALLOWED = true;
 // категория, где каталог хранит позиции объектом {имя → цена}, а не
 // массивом: оборачиваем в тот же вид записи, it.key — имя-ключ объекта (сам
 // объект своего ключа не знает).
+// Стекло/зеркало фасада: позиция FACADE_MATERIALS из категории «Стекло».
+function isGlassFacadeItem(it) {
+  return !!it && Array.isArray(it.categoryPath) && it.categoryPath[0] === 'Стекло';
+}
 function libTopEntries(topCode) {
   const cat = window.Modul3D.catalog;
   libStampMatKinds();
@@ -3082,8 +3243,10 @@ function libTopEntries(topCode) {
     // Та же защита от задвоения, что и у 'sheet' выше — своя категория
     // «Дверей» (item.customRoot, см. libAddFacadeCategory) сюда не входит.
     const facadeAll = Object.values(cat.FACADE_MATERIALS);
+    // Стёкла и зеркало (categoryPath[0] === 'Стекло') показываются только в
+    // «Материалы → Стекло» (см. ниже) — те же объекты, второй показ не нужен.
     return facadeAll
-      .filter((it) => !isSheetItem(it) && !it.customRoot)
+      .filter((it) => !isSheetItem(it) && !it.customRoot && !isGlassFacadeItem(it))
       .map((it) => ({ group: 'facade', item: it }));
   }
   // 'matcustom-<timestamp>'/'faccustom-<timestamp>' — своя корневая
@@ -3105,7 +3268,15 @@ function libTopEntries(topCode) {
   if (topCode === 'edge') {
     return Object.keys(cat.EDGE_PRICES).map((name) => ({ group: 'edge', item: Object.assign({ key: name }, cat.EDGE_PRICES[name]) }));
   }
-  if (topCode === 'glass') return [{ group: 'glass', item: cat.GLASS }];
+  if (topCode === 'glass') {
+    // «Стекло» полок (cat.GLASS, group 'glass') + стёкла/зеркало фасадов из
+    // FACADE_MATERIALS (group 'facade' — правки и сохранение идут тем же
+    // путём, что и раньше, объекты общие с «Видами фасадов» и сметой).
+    return [{ group: 'glass', item: cat.GLASS }]
+      .concat(Object.values(cat.FACADE_MATERIALS)
+        .filter((it) => isGlassFacadeItem(it) && !it.customRoot)
+        .map((it) => ({ group: 'facade', item: it })));
+  }
   if (topCode === 'countertop') {
     // COUNTERTOP_MATERIALS (catalog.js) не имеет поля categoryPath — в
     // отличие от decors/back/facade/edge/glass, здесь дерево строится не по
@@ -8675,9 +8846,23 @@ function libPickMaterial(rowGroup, code) {
     // копии в другой массив.
     const info = facadeTargetInfo(target);
     if (!info) { state.libPickTarget = null; renderLibraryPanel(); return; }
+    if (target.drawers) {
+      // Фасады ящиков секции (Focus Mode): материал — в sec.drawerFacadeMaterial,
+      // допустимые — по эффективному ВИДУ ящиков (drawerPickTypeId). Если свой
+      // вид ещё не задан (ящики повторяют секцию) — закрепляем его, иначе
+      // ядро материал ящиков не прочтёт.
+      const dId = drawerPickTypeId(info.sec);
+      if (!dId || !facadeMaterialOptionsOf(dId).some((o) => o.code === code)) return;
+      if (!info.sec.drawerFacadeType) info.sec.drawerFacadeType = dId;
+      info.sec.drawerFacadeMaterial = code;
+      libPickReturnToParams(target, info);
+      return;
+    }
     if (!facadeMaterialOptionsOf(info.ftId).some((o) => o.code === code)) return;
     const store = info.zi == null ? info.sec : ensureDoorZone(info.sec, info.zi);
     if (!store) { state.libPickTarget = null; renderLibraryPanel(); return; }
+    // Запись на уровень секции с экрана «Деталь» — ящики остаются как были.
+    if (target.pinDrawers && info.zi == null) pinDrawerFacade(info.sec);
     store.facadeMaterial = code;
     libPickReturnToParams(target, info);
     return;
@@ -8856,7 +9041,7 @@ function libPickReturnToParams(target, info) {
   if (target.returnTo === 'materials') {
     el = info ? document.getElementById('matFacadeField') : document.querySelector(`#paramsPanel [data-mat-pick="${target.role}"]`);
   } else if (target.returnTo === 'part') {
-    el = document.getElementById('partMaterial');
+    el = document.getElementById('partMaterial') || document.getElementById('partFacadeField');
   } else if (target.returnTo === 'module' && info) {
     el = document.querySelector(`[data-alu-open="${target.secIdx}"]`)
       || document.querySelector(`[data-sec-facade-pick="${target.secIdx}"]`);
@@ -11676,11 +11861,46 @@ function moduleTabsBlock(mod) {
         ${state.modules.map((m, i) =>
           `<button class="mod-tab tip tip-down ${i === state.activeModule ? 'active' : ''}" data-mod="${i}"
                    data-search="${esc(m.name.toLowerCase())}" type="button"
-                   data-tip="ПКМ: переименование">${esc(m.name)}${m.rotation ? ` ↻${m.rotation}°` : ''}</button>`
+                   data-tip="ПКМ: переименование${m.groupStart && i > 0 ? '. ◆ — начало острова' : ''}">${m.groupStart && i > 0 ? '◆ ' : ''}${esc(m.name)}${m.rotation ? ` ↻${m.rotation}°` : ''}</button>`
         ).join('')}
       </div>
       <button class="mod-add tip tip-down" id="addModule" type="button" data-tip="Добавить модуль" aria-label="Добавить модуль">+</button>
-    </div>`;
+    </div>
+    ${islandPositionBlock()}`;
+}
+
+// Положение острова (группы, к которой относится выбранный модуль) — для
+// точной правки числами; мышью остров тащится прямо по полу в 3D.
+function groupHeadIndex(i) {
+  let h = i;
+  while (h > 0 && !state.modules[h].groupStart) h--;
+  return h;
+}
+function islandPositionBlock() {
+  const h = groupHeadIndex(state.activeModule);
+  const head = state.modules[h];
+  if (!head || (h === 0 && !head.gx && !head.gz)) return '';
+  return `<div class="island-pos">${h > 0 ? 'Остров' : 'Группа'}: X <input type="number" id="islandGx" step="10" value="${Math.round(head.gx || 0)}"> мм,
+    Z <input type="number" id="islandGz" step="10" value="${Math.round(head.gz || 0)}"> мм</div>`;
+}
+function bindAddMode() {
+  document.querySelectorAll('[data-addmode]').forEach((b) => {
+    b.addEventListener('click', () => {
+      state.addMode = b.dataset.addmode;
+      document.querySelectorAll('[data-addmode]').forEach((x) =>
+        x.classList.toggle('active', x === b));
+    });
+  });
+  ['islandGx', 'islandGz'].forEach((id) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.addEventListener('change', () => {
+      const head = state.modules[groupHeadIndex(state.activeModule)];
+      if (!head) return;
+      head[id === 'islandGx' ? 'gx' : 'gz'] = Number(el.value) || 0;
+      recompute();
+    });
+  });
 }
 
 // Фильтр строки поиска над вкладками модулей — та же логика, что и
@@ -11747,11 +11967,11 @@ function moduleFieldsBlock(mod) {
     <div class="field-row">
       <div class="field">
         <label>Левая боковина</label>
-        <select id="m-leftSide">${sideOptions(mod.leftSide, moduleIsWallHung(mod))}</select>
+        <select id="m-leftSide">${sideOptions(sideShown(mod, "left"), moduleIsWallHung(mod))}</select>
       </div>
       <div class="field">
         <label>Правая боковина</label>
-        <select id="m-rightSide">${sideOptions(mod.rightSide, moduleIsWallHung(mod))}</select>
+        <select id="m-rightSide">${sideOptions(sideShown(mod, "right"), moduleIsWallHung(mod))}</select>
       </div>
     </div>
     <div class="field-row">
@@ -11832,6 +12052,20 @@ function backGrooveOf(mod) {
 // поле wallHung главнее, без него — кухонный на «цоколе» нулевой высоты.
 // Здесь только для UI (текст подсказки, поле «Верх модуля от пола»), в
 // расчёт не идёт — движок решает сам по тем же полям.
+// Тип боковины, который показываем в списке: реально применённый движком
+// (видимая боковина на опорах без ручного выбора подменяется на «до пола»,
+// см. engine.js effSideFor) — иначе список врёт «на дно», а боковина стоит
+// до пола. Нет модели/модуля — то, что хранится в самом модуле.
+function sideShown(mod, key) {
+  const declared = key === 'left' ? mod.leftSide : mod.rightSide;
+  try {
+    const i = state.modules.indexOf(mod);
+    const eff = currentModel && currentModel.modules[i] && currentModel.modules[i].effSides;
+    if (eff && eff[key] && !moduleIsWallHung(mod)) return eff[key];
+  } catch (e) { /* модель ещё не построена */ }
+  return declared;
+}
+
 function moduleIsWallHung(mod) {
   if (mod.wallHung === true || mod.wallHung === false) return mod.wallHung;
   return mod.family === 'kitchen' && mod.baseType === 'plinth' && !(Number(mod.plinthHeight) > 0);
@@ -12099,7 +12333,6 @@ function partBlock(mod) {
   if (kind === 'side') {
     const isLeft = sp.side === 'left';
     const label = isLeft ? 'левая' : 'правая';
-    const cur = isLeft ? mod.leftSide : mod.rightSide;
     const selectId = isLeft ? 'm-leftSide' : 'm-rightSide';
     // «Видимая» боковина читается из уже ПОСЧИТАННОЙ модели, а не
     // пересчитывается здесь заново — единый источник истины остаётся
@@ -12110,7 +12343,7 @@ function partBlock(mod) {
     <h3>Боковина ${label}</h3>
     <div class="field">
       <label>Конструктив</label>
-      <select id="${selectId}">${sideOptions(cur, moduleIsWallHung(mod))}</select>
+      <select id="${selectId}">${sideOptions(sideShown(mod, isLeft ? "left" : "right"), moduleIsWallHung(mod))}</select>
     </div>
     ${visible && !ov.materialOverride ? `
     <div class="hint">Эта боковина видимая — режется из материала «Видимая боковина» проекта.
@@ -12213,10 +12446,15 @@ function partKindPlaceholderBlock(mod) {
     <h3>Деталь</h3>
     <div class="hint">Редактор для этого вида детали (${esc(kindTitle)}) появится отдельным этапом.</div>`;
   }
+  // Фасады: выбор вида/материала прямо здесь (только Focus Mode, экран «Деталь»).
+  const sp = state.selectedPart;
+  const facadeFields = kind === 'door' && sp.asPart ? partDoorFacadeBlock(mod)
+    : (kind === 'drawerFront' ? partDrawerFacadeBlock(mod) : '');
   return `
     ${backLinkBlock()}
     <h3>${esc(chosen.part.name || kindTitle)}</h3>
     ${partPickerBlock(candidates, chosenIdx, kindTitle)}
+    ${facadeFields}
     ${partGrainField(chosen.part)}
     <div class="hint">Остальные поля (толщина, материал, присадка) для этого вида
     детали появятся отдельным этапом.</div>`;
@@ -12656,10 +12894,10 @@ function matFacadeFieldHtml() {
 // Клик по плашке «Фасад»: alu — конструктор в Библиотеке, прочие виды с
 // выбором материала — нужная категория Библиотеки в режиме подбора (роль
 // 'facadeMaterial'), где «Выбрать» есть только у допустимых материалов.
-function openFacadeMaterialPicker(t, returnTo) {
+function openFacadeMaterialPicker(t, returnTo, extra) {
   const info = facadeTargetInfo(t);
   if (!info) return;
-  const target = { role: 'facadeMaterial', moduleIdx: t.moduleIdx, moduleName: info.mod.name, secIdx: t.secIdx, zoneIdx: info.zi, returnTo: returnTo || 'materials' };
+  const target = Object.assign({ role: 'facadeMaterial', moduleIdx: t.moduleIdx, moduleName: info.mod.name, secIdx: t.secIdx, zoneIdx: info.zi, returnTo: returnTo || 'materials' }, extra || {});
   if (info.ftId === 'alu') { openAluConstructor(target); return; }
   const opts = facadeMaterialOptionsOf(info.ftId);
   if (!opts.length) return;
@@ -12668,6 +12906,154 @@ function openFacadeMaterialPicker(t, returnTo) {
   const code = cur && opts.some((o) => o.code === cur.code) ? cur.code : opts[0].code;
   const loc = libLocateMaterial(code) || { topCode: 'sheet', path: [] };
   state.libPickTarget = target;
+  libOpenPickLocation(loc.topCode, loc.path);
+}
+
+// Фасады ящиков секции, как их строит ядро (engine.drawerFacadeTypeOf —
+// единый источник): { id, material, ... } или null.
+function drawerFacadeInfo(sec) {
+  const engine = window.Modul3D.engine;
+  if (!sec || !engine || typeof engine.drawerFacadeTypeOf !== 'function') return null;
+  try {
+    return engine.drawerFacadeTypeOf(sec, state.decorCode, state.bodyThickness, state.facadeMatCode, state.facadeThickness);
+  } catch (err) { return null; }
+}
+// Виды фасада, допустимые ящикам (из ядра; запасной список — старый engine.js).
+function drawerFacadeAllowedTypes() {
+  const engine = window.Modul3D.engine;
+  return engine && Array.isArray(engine.DRAWER_FACADE_TYPES) ? engine.DRAWER_FACADE_TYPES : ['ldsp', 'mdf', 'wood'];
+}
+// Эффективный вид фасада ящиков, если он допустим для ящиков; иначе '' (ящики
+// повторяют, например, алюминиевый фасад секции — выбрать материал нельзя).
+function drawerPickTypeId(sec) {
+  const d = drawerFacadeInfo(sec);
+  return d && drawerFacadeAllowedTypes().indexOf(d.id) >= 0 ? d.id : '';
+}
+// «Закрепляет» фасады ящиков секции, пока они повторяют фасад секции: перед
+// записью вида/материала/alu-настроек на уровень секции (экран «Деталь»,
+// Focus Mode) ящики должны остаться как были, а не стать алюминиевыми.
+// Вид — текущий эффективный (если допустим ящикам, иначе ЛДСП), материал —
+// текущий эффективный у ЛДСП/МДФ. Для записи в отсек не нужна: ящики отсеков
+// не читают.
+function pinDrawerFacade(sec) {
+  const engine = window.Modul3D.engine;
+  if (!sec || !(Number(sec.drawers) > 0) || sec.drawerFacadeType) return;
+  const cur = effFacadeTypeId(sec);
+  const id = drawerFacadeAllowedTypes().indexOf(cur) >= 0 ? cur : 'ldsp';
+  sec.drawerFacadeType = id;
+  delete sec.drawerFacadeMaterial;
+  if ((id === 'ldsp' || id === 'mdf') && id === cur && engine && typeof engine.facadeMaterialOf === 'function') {
+    try {
+      const fm = engine.facadeMaterialOf(sec, matFacadeProj());
+      if (fm && fm.code) sec.drawerFacadeMaterial = fm.code;
+    } catch (err) { /* останется умолчание вида */ }
+  }
+}
+
+// Цель выбора фасада ДВЕРИ на экране «Деталь» (Focus Mode): секция и (если
+// секция делится на отсеки) отсек выбранной детали — НЕ активная секция
+// панели «Материалы». pinDrawers — запись на уровень секции сначала
+// закрепляет ящики (pinDrawerFacade).
+function partFacadeTarget(mod) {
+  const sp = state.selectedPart;
+  if (!mod || !sp || !Number.isInteger(sp.sectionIndex)) return null;
+  const sec = mod.sections && mod.sections[sp.sectionIndex];
+  if (!sec) return null;
+  const zc = secZoneCount(sec);
+  const zi = zc > 1 && Number.isInteger(sp.zoneIndex) && sp.zoneIndex >= 0 && sp.zoneIndex < zc ? sp.zoneIndex : null;
+  return { moduleIdx: state.modules.indexOf(mod), moduleName: mod.name, secIdx: sp.sectionIndex, zoneIdx: zi };
+}
+
+// Поля «Вид фасада»/«Материал фасада» ТОЛЬКО выбранной двери (экран «Деталь»,
+// Focus Mode). Те же данные, что в matFacadeFieldHtml, но цель — выбранная
+// деталь; кнопки «на весь проект» здесь нет.
+function partDoorFacadeBlock(mod) {
+  const t = partFacadeTarget(mod);
+  const info = facadeTargetInfo(t);
+  if (!info) return '';
+  const secFt = effFacadeTypeId(info.sec);
+  let typeHtml;
+  if (info.zi != null) {
+    const zone = (info.sec.doorZones || [])[info.zi] || {};
+    const own = zone.facadeType && FACADE_TYPES[zone.facadeType] ? zone.facadeType : '';
+    typeHtml = `
+      <select id="partFacadeType">
+        <option value="" ${own ? '' : 'selected'}>как у секции (${esc((FACADE_TYPES[secFt] || FACADE_TYPES.ldsp).name)})</option>
+        ${FACADE_TYPE_ORDER.map((id) => `<option value="${id}" ${own === id ? 'selected' : ''}>${esc(FACADE_TYPES[id].name)}</option>`).join('')}
+      </select>`;
+  } else {
+    typeHtml = `
+      <select id="partFacadeType">
+        ${FACADE_TYPE_ORDER.map((id) => `<option value="${id}" ${secFt === id ? 'selected' : ''}>${esc(FACADE_TYPES[id].name)}</option>`).join('')}
+      </select>`;
+  }
+  let matHtml;
+  if (info.ftId === 'alu') {
+    matHtml = `<label class="mt6">Алюминиевый фасад</label>${aluSummaryPlashkaHtml(info.eff, ' data-mat-pick="partFacade"')}`;
+  } else if (!facadeMaterialOptionsOf(info.ftId).length) {
+    matHtml = '<div class="hint">Материал для этого вида фасада — доработаем позже.</div>';
+  } else {
+    let fm = null;
+    try { fm = window.Modul3D.engine.facadeMaterialOf(info.eff, matFacadeProj()); } catch (err) { fm = null; }
+    matHtml = `<label class="mt6">Материал фасада</label>${matPickPlashkaHtml('partFacade', '', fm && fm.code, fm && fm.name)}
+      ${fm && fm.thickness ? `<div class="hint">Толщина фасада ${esc(fm.thickness)} мм</div>` : ''}`;
+  }
+  return `
+    <div class="field" id="partFacadeField">
+      <label>Вид фасада${info.zi != null ? ' отсека' : ''}</label>
+      ${typeHtml}
+      ${matHtml}
+      <div class="hint">Меняется только этот фасад; ящики секции остаются как были.</div>
+    </div>`;
+}
+
+// Поля «Вид»/«Материал» фасадов ящиков секции выбранного фасада ящика
+// (экран «Деталь», Focus Mode). Один выбор на ВСЕ ящики секции. Допустимы
+// только ЛДСП, МДФ и дерево (engine.DRAWER_FACADE_TYPES).
+function partDrawerFacadeBlock(mod) {
+  const t = partFacadeTarget(mod);
+  const sec = t && mod.sections[t.secIdx];
+  if (!sec) return '';
+  const allowed = drawerFacadeAllowedTypes();
+  const d = drawerFacadeInfo(sec);
+  const curId = d && allowed.indexOf(d.id) >= 0 ? d.id : '';
+  const warn = !curId ? `<div class="hint">Ящики сейчас повторяют фасад секции (${esc(((FACADE_TYPES[effFacadeTypeId(sec)] || FACADE_TYPES.ldsp)).name)}) — выберите ЛДСП, МДФ или дерево.</div>` : '';
+  let matHtml = '';
+  if (curId) {
+    if (facadeMaterialOptionsOf(curId).length) {
+      matHtml = `<label class="mt6">Материал</label>${matPickPlashkaHtml('partDrawerFacade', '', d && d.material)}
+        ${d && d.thickness ? `<div class="hint">Толщина фасада ${esc(d.thickness)} мм</div>` : ''}`;
+    } else {
+      matHtml = '<div class="hint">У этого вида фасада выбора материала нет.</div>';
+    }
+  }
+  return `
+    <div class="field" id="partFacadeField">
+      <label>Фасады ящиков · Секция ${t.secIdx + 1}</label>
+      <div class="hint">Меняется сразу у всех ящиков секции.</div>
+      ${warn}
+      <label class="mt6" for="partDrawerFacadeType">Вид</label>
+      <select id="partDrawerFacadeType">
+        ${curId ? '' : '<option value="" selected></option>'}
+        ${allowed.map((id) => `<option value="${id}" ${curId === id ? 'selected' : ''}>${esc((FACADE_TYPES[id] || {}).name || id)}</option>`).join('')}
+      </select>
+      ${matHtml}
+    </div>`;
+}
+// Клик по плашке материала фасада ящиков: Библиотека в режиме подбора с
+// допустимыми материалами вида ящиков (libPickMaterial/libPickRowAllowed,
+// флаг drawers).
+function openDrawerFacadeMaterialPicker(t) {
+  const info = facadeTargetInfo(t);
+  if (!info) return;
+  const dId = drawerPickTypeId(info.sec);
+  const opts = dId ? facadeMaterialOptionsOf(dId) : [];
+  if (!opts.length) return;
+  const d = drawerFacadeInfo(info.sec);
+  const code = d && opts.some((o) => o.code === d.material) ? d.material : opts[0].code;
+  const loc = libLocateMaterial(code) || { topCode: 'sheet', path: [] };
+  state.libPickTarget = { role: 'facadeMaterial', drawers: true, moduleIdx: t.moduleIdx, moduleName: info.mod.name,
+    secIdx: t.secIdx, zoneIdx: null, returnTo: 'part' };
   libOpenPickLocation(loc.topCode, loc.path);
 }
 
@@ -12893,6 +13279,7 @@ function libLocateMaterial(code) {
   if (fac) {
     if (fac.customRoot) return { topCode: fac.customRoot, path: cpOf(fac) };
     const cp = cpOf(fac);
+    if (isGlassFacadeItem(fac)) return { topCode: 'glass', path: cp };
     return { topCode: isSheetItem(fac) ? 'sheet' : 'facade', path: cp };
   }
   if (cat.GLASS && cat.GLASS.code === code) return { topCode: 'glass', path: cpOf(cat.GLASS) };
@@ -12971,6 +13358,10 @@ function libPickRowAllowed(topCode, entry) {
   }
   if (t.role === 'facadeMaterial') {
     const info = facadeTargetInfo(t);
+    if (info && t.drawers) {
+      const dId = drawerPickTypeId(info.sec);
+      return !!dId && facadeMaterialOptionsOf(dId).some((o) => o.code === code);
+    }
     return !!info && facadeMaterialOptionsOf(info.ftId).some((o) => o.code === code);
   }
   return false;
@@ -14185,6 +14576,8 @@ function libAluPickProfile(code) {
 // setAlu; без неё — свободная цель (активная секция).
 function openAluConstructorFromLibrary() {
   const t = state.libPickTarget;
+  // Подбор фасада ящиков: алюминий ящикам недопустим — конструктор не открываем.
+  if (t && t.role === 'facadeMaterial' && t.drawers) return;
   if (t && t.role === 'facadeMaterial' && facadeTargetInfo(t)) {
     openAluConstructor(Object.assign({}, t, { setAlu: true }));
     return;
@@ -14251,7 +14644,7 @@ function openAluFillPicker() {
   let path = [];
   if (toDoorsGlass) {
     const f0 = (aluCat().FACADE_MATERIALS || {})[glassOpts[0].code];
-    topCode = 'facade';
+    topCode = isGlassFacadeItem(f0) ? 'glass' : 'facade';
     path = f0 && Array.isArray(f0.categoryPath) ? f0.categoryPath : [];
   } else if (toGlass) {
     topCode = 'glass';
@@ -14454,6 +14847,8 @@ function libAluDraftApply() {
     return;
   }
   aluDraftNormalize();
+  // Запись на уровень секции с экрана «Деталь» — ящики остаются как были.
+  if (outer && outer.pinDrawers && info.zi == null) pinDrawerFacade(info.sec);
   if (setAlu && info.ftId !== 'alu') {
     store.facadeType = 'alu';
     if (info.zi == null) delete store.glass;   // старый флажок не спорит с видом
@@ -14594,14 +14989,24 @@ function renderSectionsList() {
     const rodBlock = mod.family === 'kitchen' ? '' : `
       <div class="sub">
         <label class="checkbox-inline"><input type="checkbox" data-field="rod" data-idx="${i}" ${sec.rod ? 'checked' : ''}> Штанга для одежды</label>
-        ${sec.rod ? `<label class="mt6">Высота штанги от дна секции, мм</label>
-        <div class="mini-row"><input type="number" step="10" min="300" value="${sec.rodHeight || ''}" placeholder="${sec.pantograph ? 'авто — 1300 мм от пола, но ниже механизма пантографа' : 'авто — 1600 мм от пола'}" data-field="rodHeight" data-idx="${i}"></div>` : ''}
+        ${sec.rod ? `<label class="mt6">Высота штанги от дна секции, мм (пусто — авто)</label>
+        <div class="mini-row"><input type="number" step="10" min="0" value="${Number(sec.rodHeight) > 0 ? Number(sec.rodHeight) : ''}" placeholder="${sec.pantograph ? 'авто — 1300 мм от пола, но ниже механизма пантографа' : (sec.rod2 ? 'авто — 2050 мм от пола' : 'авто — 1600 мм от пола')}" data-field="rodHeight" data-idx="${i}"></div>
+        <label class="mt6">Что вешаем (проверка высоты)</label>
+        <div class="mini-row"><select data-field="rodClothes" data-idx="${i}">
+          <option value=""${!sec.rodClothes ? ' selected' : ''}>Не проверять</option>
+          <option value="long"${sec.rodClothes === 'long' ? ' selected' : ''}>Длинная (от 1500 мм)</option>
+          <option value="mid"${sec.rodClothes === 'mid' ? ' selected' : ''}>Средняя (от 1300 мм)</option>
+          <option value="short"${sec.rodClothes === 'short' ? ' selected' : ''}>Короткая (от 1000 мм)</option>
+        </select></div>
+        ${sec.pantograph ? '' : `<label class="checkbox-inline mt6"><input type="checkbox" data-field="rod2" data-idx="${i}" ${sec.rod2 ? 'checked' : ''}> Вторая штанга ниже (для коротких вещей)</label>
+        ${sec.rod2 ? `<label class="mt6">Высота нижней штанги от дна секции, мм (пусто — авто: 1000 мм от пола; не менее 1000 мм до верхней)</label>
+        <div class="mini-row"><input type="number" step="10" min="0" value="${Number(sec.rod2Height) > 0 ? Number(sec.rod2Height) : ''}" placeholder="авто — 1000 мм от пола" data-field="rod2Height" data-idx="${i}"></div>` : ''}`}` : ''}
         <label class="checkbox-inline mt6" title="Штанга опускается вниз ручкой (GTV PG-ST, 8 кг). Ставится вверху секции; штанга выше 2100 мм от дна без пантографа недоступна рукой."><input type="checkbox" data-field="pantograph" data-idx="${i}" ${sec.pantograph ? 'checked' : ''}> Пантограф (опускается ручкой)</label>
         ${sec.pantograph ? `<label class="mt6">Высота оси трубы пантографа от дна секции, мм</label>
         <div class="mini-row"><input type="number" step="10" min="300" value="${sec.pantographHeight || ''}" placeholder="авто — под крышей/полкой" data-field="pantographHeight" data-idx="${i}"></div>
         <label class="mt6">Цвет пантографа</label>
         <div class="mini-row">${pantographColorSelectHtml(sec, i)}</div>
-        <div class="hint">GTV PG-ST: от оси трубы до низа механизма 836 мм, ширина секции 545–1200 мм, вынос вперёд при опускании 710 мм. Пусто — максимально высоко (30 мм до крыши/полки). Штангу ставьте ниже механизма.</div>` : ''}
+        <div class="hint">GTV PG-ST: от оси трубы до низа механизма 836 мм, ширина секции 545–1200 мм, вынос вперёд при опускании 710 мм. Пусто — максимально высоко (30 мм до крыши/полки). Штангу ставьте ниже механизма; вторая штанга вместе с пантографом недоступна.</div>` : ''}
       </div>`;
 
     // Вертикальные отсеки фасада (пенал под встроенную технику): деление на
@@ -14758,7 +15163,7 @@ function renderSectionsList() {
       sec[f] = (f === 'facade' || f === 'shelfMode'
                 || f === 'widthMode'
                 || f === 'handle' || f === 'lift' || f === 'handleOrient'
-                || f === 'facadeType' || f === 'pantographColor')
+                || f === 'facadeType' || f === 'rodClothes' || f === 'pantographColor')
         ? e.target.value
         : (e.target.type === 'checkbox' ? e.target.checked : Number(e.target.value));
       // Вид фасада задан явно — старый флажок sec.glass (ранние сохранения)
@@ -15113,6 +15518,7 @@ function exitFocusMode() {
 // как…», см. большой комментарий над state.libModPlacements) его нет, левый
 // клик по ним идёт отдельным путём (addLibModCardToProject).
 function bindLibraryEvents() {
+  bindAddMode();
   document.querySelectorAll('.lib-item').forEach((b) => {
     b.addEventListener('click', () => {
       // Клик, которым браузер завершает перетаскивание миниатюры (см.
@@ -15177,6 +15583,7 @@ function bindPanelEvents() {
   // вкладках модулей — остальные поля не отрисованы, обращаться к ним нельзя.
   if (!mod) {
     on('addModule', 'click', () => insertModule(newModule()));
+    bindAddMode();
     updateHistoryButtons();
     return;
   }
@@ -15205,13 +15612,26 @@ function bindPanelEvents() {
     });
   });
   on('addModule', 'click', () => insertModule(newModule()));
+  bindAddMode();
   updateHistoryButtons();
 
   on('m-width', 'change', (e) => { mod.width = Number(e.target.value); recompute(); });
   on('m-height', 'change', (e) => { mod.height = Number(e.target.value); recompute(); });
   on('m-depth', 'change', (e) => { mod.depth = Number(e.target.value); recompute(); });
-  on('m-leftSide', 'change', (e) => { mod.leftSide = e.target.value; recompute(); });
-  on('m-rightSide', 'change', (e) => { mod.rightSide = e.target.value; recompute(); });
+  // sideUserSet — «боковину выбрали руками»: движок тогда не подменяет
+  // видимую боковину на опорах на «до пола» (engine.js, effSideFor).
+  on('m-leftSide', 'change', (e) => {
+    mod.leftSide = e.target.value;
+    mod.sideUserSet = Object.assign({}, mod.sideUserSet, { left: true });
+    recompute();
+    renderParamsPanel();
+  });
+  on('m-rightSide', 'change', (e) => {
+    mod.rightSide = e.target.value;
+    mod.sideUserSet = Object.assign({}, mod.sideUserSet, { right: true });
+    recompute();
+    renderParamsPanel();
+  });
   // Отметка верха навесного модуля (mountTopBlock). Пустое/неположительное —
   // возвращаем прежнее значение; история отмены — через recompute().
   on('m-mountTop', 'change', (e) => {
@@ -15312,6 +15732,8 @@ function bindPanelEvents() {
         const role = btn.dataset.matPick;
         if (role === 'facade') openFacadeMaterialPicker(matFacadeTarget(), 'materials');
         else if (role === 'part') openPartMaterialPicker();
+        else if (role === 'partFacade') openFacadeMaterialPicker(partFacadeTarget(mod), 'part', { pinDrawers: true });
+        else if (role === 'partDrawerFacade') openDrawerFacadeMaterialPicker(partFacadeTarget(mod));
         else if (role === 'hangerSystem') openHangerSystemPicker();
         else openMaterialPicker(role);
       });
@@ -15358,6 +15780,41 @@ function bindPanelEvents() {
     if (fld && fld.scrollIntoView) fld.scrollIntoView({ block: 'center' });
   });
   on('p-facadeApplyAll', 'click', applyFacadeToWholeProject);
+
+  // Экран «Деталь» (Focus Mode): вид фасада ТОЛЬКО выбранной двери — отсека
+  // (пусто = как у секции) или секции. Запись на уровень секции сначала
+  // закрепляет ящики (pinDrawerFacade), чтобы они не сменились вместе с дверью.
+  on('partFacadeType', 'change', (e) => {
+    const t = partFacadeTarget(mod);
+    const info = facadeTargetInfo(t);
+    if (!info) return;
+    const v = e.target.value;
+    if (info.zi != null) {
+      const zone = ensureDoorZone(info.sec, info.zi);
+      if (!zone) return;
+      if (v && FACADE_TYPES[v]) zone.facadeType = v; else delete zone.facadeType;
+      delete zone.facadeMaterial;
+    } else {
+      if (!FACADE_TYPES[v]) return;
+      pinDrawerFacade(info.sec);
+      info.sec.facadeType = v;
+      delete info.sec.glass;
+    }
+    recompute();
+    renderParamsPanel();
+  });
+  // Вид фасадов ящиков секции (ЛДСП/МДФ/дерево) — один на все ящики секции.
+  // Материал прежнего вида не переносим — он станет умолчанием нового.
+  on('partDrawerFacadeType', 'change', (e) => {
+    const t = partFacadeTarget(mod);
+    const sec = t && mod.sections[t.secIdx];
+    const v = e.target.value;
+    if (!sec || drawerFacadeAllowedTypes().indexOf(v) < 0) return;
+    sec.drawerFacadeType = v;
+    delete sec.drawerFacadeMaterial;
+    recompute();
+    renderParamsPanel();
+  });
 
   // Добавление секции переехало в ряд вкладок секций (кнопка «+» рядом с
   // ними) — обработчик делегирован внутри renderSectionsList() на
@@ -15598,12 +16055,16 @@ function recompute(isRetry) {
       uid: m.uid,
       name: m.name, width: m.width, height: m.height, depth: m.depth,
       rotation: m.rotation || 0, corner: !!m.corner, family: m.family || 'custom',
+      // Остров: groupStart — модуль начинает отдельную группу, gx/gz — её
+      // смещение по полу, мм (engine.js, раскладка по группам).
+      groupStart: !!m.groupStart, gx: Number(m.gx) || 0, gz: Number(m.gz) || 0,
       topType: m.topType, railWidth: m.railWidth, noBack: !!m.noBack,
       backMount: m.backMount, backGroove: m.backGroove, wallHung: m.wallHung,
       // Отметка верха навесного модуля от пола (engine.js, mountBottom).
       mountTop: m.mountTop,
       blindPanel: !!m.blindPanel, blindStrip: m.blindStrip,
       leftSide: m.leftSide, rightSide: m.rightSide,
+      sideUserSet: m.sideUserSet,
       base: m.baseType === 'plinth'
         ? { type: 'plinth', plinthHeight: m.plinthHeight }
         : { type: m.baseType, legHeight: m.legHeight },
@@ -16047,8 +16508,25 @@ function renderDrillLegend() {
   });
 }
 
+// Скрытые пользователем предупреждения (кнопка ×) — по тексту, до перезагрузки
+// страницы. Изменился текст (другой модуль/сторона) — предупреждение вернётся.
+const dismissedWarnings = new Set();
+let lastWarnings = [];
 function renderWarnings(warnings) {
-  document.getElementById('warnings').innerHTML = warnings.map(w => `⚠ ${esc(w)}`).join('<br>');
+  lastWarnings = warnings;
+  const el = document.getElementById('warnings');
+  el.innerHTML = warnings.map((w, i) => dismissedWarnings.has(w) ? '' :
+    `<div class="warn-row">⚠ ${esc(w)}<button type="button" class="warn-x" data-warn="${i}" title="Скрыть предупреждение" aria-label="Скрыть предупреждение">×</button></div>`).join('');
+  if (!el._dismissBound) {
+    el._dismissBound = true;
+    el.addEventListener('click', (e) => {
+      const b = e.target.closest && e.target.closest('.warn-x');
+      if (!b) return;
+      const w = lastWarnings[Number(b.dataset.warn)];
+      if (w) dismissedWarnings.add(w);
+      renderWarnings(lastWarnings);
+    });
+  }
 }
 
 // «Сырая» разметка чертежей — ровно то, что вернул buildDrawings, БЕЗ обёртки
@@ -16462,17 +16940,17 @@ function renderSpecTable(spec) {
     <table><thead><tr>${cols.map(c => `<th>${c}</th>`).join('')}</tr></thead>
     <tbody>${rows}</tbody></table>`;
 
+  const money = (v) => (v === null || v === undefined ? '—' : v);
+  const noteHtml = (r) => (r && r.note ? `<div class="spec-note">${esc(r.note)}</div>` : '');
   const sheetRows = spec.sheetMaterials.map((m, i) =>
     // sheets === null — изделие под заказ (стекло, фасад из массива, см.
     // catalog.js: customOrder), считается по площади, а не по листам.
-    `<tr><td>${i + 1}</td><td>${esc(m.name)}</td><td>${esc(m.code)}</td><td>${m.area_m2} м²</td><td>${m.sheets == null ? '—' : m.sheets}</td><td>${m.price}</td><td>${m.sum}</td></tr>`).join('');
+    `<tr><td>${i + 1}</td><td>${esc(m.name)}${noteHtml(m)}</td><td>${esc(m.code)}</td><td>${m.area_m2} м²</td><td>${m.sheets == null ? '—' : m.sheets}</td><td>${money(m.price)}</td><td>${money(m.sum)}</td></tr>`).join('');
   const edgeRows = spec.edging.map((e, i) =>
     `<tr><td>${i + 1}</td><td>Кромка ${esc(e.type)}</td><td>${e.length_m} пог.м</td><td>${e.price_per_m}</td><td>${e.sum}</td></tr>`).join('');
   // Цена/сумма может быть null — «цену уточняйте» (петли для алюм. рамки,
   // строки алюминиевых фасадов, см. specification.js): показываем «—» и
   // пометку row.note, 0 не подставляем.
-  const money = (v) => (v === null || v === undefined ? '—' : v);
-  const noteHtml = (r) => (r && r.note ? `<div class="spec-note">${esc(r.note)}</div>` : '');
   const hwRows = spec.hardware.map((h, i) =>
     `<tr><td>${i + 1}</td><td>${esc(h.name)}${noteHtml(h)}</td><td>${esc(h.article || '')}</td><td>${h.qty} ${esc(h.unit || '')}</td><td>${money(h.price)}</td><td>${money(h.sum)}</td></tr>`).join('');
   const aluRows = (spec.aluFacades || []).map((r, i) => {
@@ -16988,6 +17466,7 @@ function initHeaderControls() {
     viewer.onCameraFit = () => {
       if (state.view !== 'iso') renderViewOverlay();
     };
+    bindIslandDrag();
   }
 
   // Оверлей размеров пересчитываем при любом движении камеры

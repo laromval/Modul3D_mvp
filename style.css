@@ -416,6 +416,12 @@ select:focus-visible {
   transition: opacity var(--dur-slow) var(--ease);
 }
 .warnings:empty { display: none; }
+.warn-row { display: flex; align-items: flex-start; gap: 10px; }
+.warn-x {
+  margin-left: auto; flex: none; background: none; border: 0; cursor: pointer;
+  color: inherit; font-size: 18px; line-height: 1; padding: 0 2px; opacity: .7;
+}
+.warn-x:hover { opacity: 1; }
 
 /* гейт доступа (401/402 при экспорте, "нужна подписка") — плашка того же
    типа, что и .warnings выше, но акцентная, а не «опасная»: это призыв к
@@ -2912,3 +2918,10 @@ body.is-focus .scrim { opacity: 0 !important; }
 .lib-var-url { margin-top: var(--sp-2); }
 .lib-var-url .lib-var-field { margin-bottom: var(--sp-1); }
 .lib-var-seed, .lib-link-allvars { display: flex; gap: var(--sp-2); align-items: flex-start; font-size: var(--fs-sm); margin: var(--sp-2) 0; }
+/* Переключатель «Добавлять: слева / справа / отдельно» и положение острова */
+.add-mode { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; margin: 0 0 var(--sp-2); font-size: 12px; }
+.add-mode-label { color: var(--muted, #888); margin-right: 2px; }
+.add-mode-btn { padding: 3px 8px; border: 1px solid var(--border, #c9c9c9); border-radius: 6px; background: transparent; color: inherit; cursor: pointer; font-size: 12px; }
+.add-mode-btn.active { background: var(--accent, #2e7d32); border-color: var(--accent, #2e7d32); color: #fff; }
+.island-pos { font-size: 12px; margin: 0 0 var(--sp-2); }
+.island-pos input { width: 64px; }

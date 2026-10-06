@@ -180,7 +180,13 @@ function getDrawerHeights(sec, drawerUnitH, avail, warn, secName) {
 
   if (!isManual) {
     const hasDoor = sectionHasAnyFacade(sec);
-    if (!hasDoor) {
+    // Решение пользователя 2026-10-05: ящики растягиваются на весь фронт только
+    // в секции, где больше ничего нет. Если над ящиками есть штанга или полки —
+    // это отдельный отсек, ящики остаются типовой высоты, а содержимое отсека
+    // не двигается (раньше после удаления фасада ящики раздувались на всю секцию).
+    const hasOtherContent = !!sec.rod || Number(sec.shelves) > 0
+      || (Array.isArray(sec.doorZones) && sec.doorZones.some((z) => z && (z.rod || Number(z.shelves) > 0)));
+    if (!hasDoor && !hasOtherContent) {
       // Ящики занимают весь фронт: делим поровну, кратно 10, остаток —
       // нижнему ящику, чтобы верх стопки был заподлицо с крышкой.
       const base = Math.max(STEP, Math.floor(usable / n / STEP) * STEP);
@@ -1329,6 +1335,21 @@ function facadeTypeOf(sec, decor, t, facadeMat, facadeThickness) {
     edged: ft.render === 'panel',
     alu,
   };
+}
+
+// Фасады ящиков секции (решение владельца 2026-10-05, Focus Mode): у ящиков
+// СВОЙ вид и материал — sec.drawerFacadeType / sec.drawerFacadeMaterial, один
+// на все ящики секции. Допустимы только ЛДСП, МДФ и деревянный фасад (алюминий,
+// стекло и фрезерованный МДФ для ящиков не годятся). Не задано (или вид не из
+// списка) — фасады ящиков, как и раньше, повторяют вид секции (обратная
+// совместимость старых проектов и «обычного» режима).
+const DRAWER_FACADE_TYPES = ['ldsp', 'mdf', 'wood'];
+function drawerFacadeTypeOf(sec, decor, t, facadeMat, facadeThickness) {
+  const own = sec && sec.drawerFacadeType;
+  if (!own || DRAWER_FACADE_TYPES.indexOf(own) < 0) return facadeTypeOf(sec, decor, t, facadeMat, facadeThickness);
+  const eff = Object.assign({}, sec, { facadeType: own, facadeMaterial: sec.drawerFacadeMaterial });
+  delete eff.glass;
+  return facadeTypeOf(eff, decor, t, facadeMat, facadeThickness);
 }
 
 // ---------------------------------------------------------------------------
@@ -2627,6 +2648,17 @@ function buildModuleParts(p) {
     else vis = byType || !cov[key];
     sideVisible[key] = vis;
   }
+  // РУЧНОЙ «на дно» (решение пользователя 2026-10-06): стен в проекте нет,
+  // движок не знает, какая боковина у стены, поэтому ручной выбор «на дно»
+  // делает боковину невидимой — корпусной материал, задняя стенка накладная
+  // (как у закрытой соседом). Раньше видимость исходного положения нужна
+  // только для предупреждения про опору (sideWasVisible).
+  const sideWasVisible = { left: sideVisible.left, right: sideVisible.right };
+  for (const key of ['left', 'right']) {
+    if (!hungModule && p.sideUserSet && p.sideUserSet[key] && sides[key] === 'onBottom') {
+      sideVisible[key] = false;
+    }
+  }
   // НАВЕСНОЙ: боковина, полностью закрытая соседом вплотную (невидимая),
   // становится «на дно» — задняя стенка у неё накладная, паза и выпила под
   // шину нет, остаётся только вырез в задней стенке под навес (решение
@@ -2650,12 +2682,28 @@ function buildModuleParts(p) {
   // «Цоколь» (plinth, БЕЗ опор) не трогаем — там нет ножки, которая могла бы
   // торчать, цокольная планка и так закрывает весь низ сама по себе.
   // Навесные модули не трогаем — там видимость вообще не про пол.
+  // С v379 (решение пользователя 2026-10-06): если боковину выбрали руками
+  // (p.sideUserSet[key], ставит интерфейс при смене списка) — её тип
+  // действует и у видимой боковины, а не подменяется; вместо подмены —
+  // предупреждение, что опора останется на виду сбоку (скрывается кнопкой ×,
+  // см. renderWarnings). Без ручного выбора (пресеты, старые проекты, где
+  // «на дно» стоит по умолчанию) — прежняя подмена, чтобы они не поменялись.
+  const userSide = (key) => !!(p.sideUserSet && p.sideUserSet[key]);
   const effSideFor = (key) => {
-    if (hungModule || !sideVisible[key]) return sides[key];
+    if (hungModule || !sideVisible[key] || userSide(key)) return sides[key];
     if (p.base.type === 'legs') return p.legType === 'metal' ? 'besideBottom' : 'floor';
     if (p.base.type === 'legsPlinth') return 'floor';
     return sides[key];
   };
+  if (!hungModule && (p.base.type === 'legs' || p.base.type === 'legsPlinth')) {
+    for (const key of ['left', 'right']) {
+      // «Сбоку дна» у металлических опор — декоративный вариант, не предупреждаем.
+      const decorative = sides[key] === 'besideBottom' && p.base.type === 'legs' && p.legType === 'metal';
+      if (sideWasVisible[key] && userSide(key) && sides[key] !== 'floor' && !decorative) {
+        warnings.push(`${key === 'left' ? 'левая' : 'правая'} боковина «${SIDE_LABEL[sides[key]]}» у края модуля — опора будет видна сбоку.`);
+      }
+    }
+  }
   const effLeft = effSideFor('left');
   const effRight = effSideFor('right');
 
@@ -3856,7 +3904,10 @@ function buildModuleParts(p) {
     // пантограф сверху, штанга ниже), у каждого своя высота от дна секции.
     if (sec.rod || sec.pantograph) {
       const ROD_D = 25;
-      const ROD_TOP_GAP = 60;      // просвет до полки/крыши над штангой, мм
+      const ROD_TOP_GAP = 50;      // просвет от ВЕРХНЕЙ КРОМКИ трубы до полки/крыши, мм (подтверждено 2026-10-05)
+      // Минимальная высота оси штанги от дна секции по типу одежды
+      const ROD_CLOTHES_MIN = { long: 1500, mid: 1300, short: 1000 };
+      const ROD_CLOTHES_NAME = { long: 'длинной одежды', mid: 'средней одежды', short: 'коротких вещей' };
       const ROD_BACK_MIN = 300;    // минимум от задней стенки до оси, мм
 
       // По высоте: под ближайшей полкой сверху (или под крышей).
@@ -3967,8 +4018,8 @@ function buildModuleParts(p) {
 
       // ----- Штанга для одежды -----
       // Нормы установки (см. README):
-      //   • просвет от штанги до полки над ней — 50–60 мм, иначе плечики
-      //     не проходят; при отсутствии полки отсчёт от крыши;
+      //   • просвет от верхней кромки штанги до полки над ней — 50 мм; при отсутствии
+      //     полки отсчёт от крыши;
       //   • от задней стенки до оси штанги — не менее 300 мм: плечики висят
       //     поперёк корпуса и упираются в заднюю стенку;
       //   • держатели (фланцы) крепятся к боковинам двумя саморезами.
@@ -3987,22 +4038,32 @@ function buildModuleParts(p) {
         }
         const wanted = Number(sec.rodHeight);
         const manual = Number.isFinite(wanted) && wanted > 0;
-        // По умолчанию от пола: 1300 мм, если в секции есть пантограф (штанга под ним), иначе 1600 мм;
-        // не выше, чем позволяет крыша/полка.
-        // Под пантографом штанга не выше низа его механизма (иначе держатели встают на рычаги).
-        // Ось штанги по умолчанию — высота ОТ ПОЛА (y в модели отсчитывается от пола).
-        const rodDefaultY = pgZone ? Math.min(1300, pgZone.bottom - 30) : 1600;
-        let rodY = manual ? innerBottomY + wanted : Math.min(rodDefaultY, ceiling - ROD_TOP_GAP);
+        // Авто-высота оси штанги — ОТ ПОЛА (y в модели от пола): 1600 мм одна штанга без
+        // пантографа; 2050 мм верхняя при двух штангах (нижняя 1000, зазор между трубами
+        // 1000 мм + толщина труб); 1300 мм под пантографом, но не ниже механизма.
+        const rodDefaultY = pgZone ? Math.min(1300, pgZone.bottom - 30) : (sec.rod2 ? 2050 : 1600);
+        let rodY = manual ? innerBottomY + wanted : Math.min(rodDefaultY, ceiling - ROD_TOP_GAP - ROD_D / 2);
         const topLimit = ceiling - ROD_D / 2 - 10;
         if (rodY > topLimit) {
           warnings.push(`${secName}: штанга на ${Math.round(rodY - innerBottomY)} мм упирается в полку — `
             + `опущена до ${Math.round(topLimit - innerBottomY)} мм.`);
           rodY = topLimit;
         }
-        if (manual && ceiling - rodY < 50) {
-          warnings.push(`${secName}: просвет над штангой ${Math.round(ceiling - rodY)} мм — `
-            + `для плечиков нужно 50–60 мм.`);
+        const topGap = ceiling - rodY - ROD_D / 2;
+        if (manual && topGap < ROD_TOP_GAP - 0.5) {
+          warnings.push(`${secName}: просвет от трубы до полки сверху ${Math.round(topGap)} мм — `
+            + `для плечиков нужно не менее ${ROD_TOP_GAP} мм.`);
         }
+        const clothesMin = ROD_CLOTHES_MIN[sec.rodClothes];
+        if (clothesMin && rodY - innerBottomY < clothesMin) {
+          warnings.push(`${secName}: штанга на ${Math.round(rodY - innerBottomY)} мм от дна — `
+            + `для ${ROD_CLOTHES_NAME[sec.rodClothes]} нужно не ниже ${clothesMin} мм.`);
+        }
+        if (!sec.pantograph && rodY - innerBottomY > 2100) {
+          warnings.push(`${secName}: штанга выше 2100 мм от дна недоступна рукой — `
+            + `нужен лифт-пантограф или опустите штангу.`);
+        }
+
         // Штанга и пантограф в одной секции: держатели штанги не должны стоять
         // на корпусе механизма пантографа (он занимает 836 мм вниз от его трубы).
         if (pgZone && rodY + 20 > pgZone.bottom && rodY - 20 < pgZone.top) {
@@ -4012,34 +4073,70 @@ function buildModuleParts(p) {
         }
 
         const rodLen = secW - 2;
-        parts.push(makePart({
-          name: 'Штанга для одежды', section: secName, material: 'ROD-D25', thickness: 0,
-          length: rodLen, width: ROD_D, qty: 1, kind: 'rod',
-          note: `Ø${ROD_D} мм, ${Math.round(rodY - innerBottomY)} мм от дна секции, `
-            + `просвет сверху ${Math.round(ceiling - rodY)} мм, от задней стенки ${Math.round(backClear)} мм`,
-          edging: { long1: null, long2: null, short1: null, short2: null },
-          x: secCenterX, y: rodY, z: rodZ,
-          dims: { w: rodLen, h: ROD_D, d: ROD_D },
-          shape: 'cylinderX',
-          hardware: true,
-        }));
-
-        // Фланцы на обеих ограничивающих панелях + присадка под их саморезы
-        for (const sgn of [-1, 1]) {
-          // Фланец стоит ВНУТРИ проёма, прижатый к панели: так он не «утоплен»
-          // в боковину. Штанга входит в него — это нормально, они одно целое.
-          const px = secCenterX + sgn * (secW / 2 - 3);
+        const emitRod = (y, noteExtra) => {
           parts.push(makePart({
-            name: 'Держатель штанги (фланец)', section: secName, material: 'ROD-H25', thickness: 0,
-            length: 40, width: 40, qty: 1, kind: 'rodFlange',
-            note: 'Крепится к панели двумя саморезами',
+            name: 'Штанга для одежды', section: secName, material: 'ROD-D25', thickness: 0,
+            length: rodLen, width: ROD_D, qty: 1, kind: 'rod',
+            note: `Ø${ROD_D} мм, ${Math.round(y - innerBottomY)} мм от дна секции, `
+              + noteExtra + `от задней стенки ${Math.round(backClear)} мм`,
             edging: { long1: null, long2: null, short1: null, short2: null },
-            x: px, y: rodY, z: rodZ,
-            dims: { w: 6, h: 40, d: 40 },
-            shape: 'flange',
+            x: secCenterX, y, z: rodZ,
+            dims: { w: rodLen, h: ROD_D, d: ROD_D },
+            shape: 'cylinderX',
             hardware: true,
           }));
-          rodFlanges.push({ panelX: sgn < 0 ? panelLX(i) : panelRX(i), y: rodY, z: rodZ, secName });
+
+          // Фланцы на обеих ограничивающих панелях + присадка под их саморезы
+          for (const sgn of [-1, 1]) {
+            // Фланец стоит ВНУТРИ проёма, прижатый к панели: так он не «утоплен»
+            // в боковину. Штанга входит в него — это нормально, они одно целое.
+            const px = secCenterX + sgn * (secW / 2 - 3);
+            parts.push(makePart({
+              name: 'Держатель штанги (фланец)', section: secName, material: 'ROD-H25', thickness: 0,
+              length: 40, width: 40, qty: 1, kind: 'rodFlange',
+              note: 'Крепится к панели двумя саморезами',
+              edging: { long1: null, long2: null, short1: null, short2: null },
+              x: px, y, z: rodZ,
+              dims: { w: 6, h: 40, d: 40 },
+              shape: 'flange',
+              hardware: true,
+            }));
+            rodFlanges.push({ panelX: sgn < 0 ? panelLX(i) : panelRX(i), y, z: rodZ, secName });
+          }
+        };
+        emitRod(rodY, `просвет от трубы до полки сверху ${Math.round(ceiling - rodY - ROD_D / 2)} мм, `);
+
+        // Вторая (нижняя) штанга — двухъярусная схема: верхняя для длинного,
+        // нижняя для коротких вещей. Расстояние между осями — не менее
+        // ROD_PAIR_MIN (минимум для коротких вещей, подтверждено 2026-10-05).
+        // Полки между штангами нет, правило 50 мм до полки к нижней не относится.
+        if (sec.rod2 && !sec.pantograph) {
+          const ROD_PAIR_MIN = 1000;
+          const w2 = Number(sec.rod2Height);
+          const rod2Y = Number.isFinite(w2) && w2 > 0 ? innerBottomY + w2 : 1000;   // авто — 1000 мм от пола
+          if (rodY - rod2Y < ROD_PAIR_MIN - 0.5) {
+            warnings.push(`${secName}: расстояние между штангами ${Math.round(rodY - rod2Y)} мм — `
+              + `для коротких вещей нужно не менее ${ROD_PAIR_MIN} мм.`);
+          }
+          emitRod(rod2Y, `нижняя штанга, до верхней ${Math.round(rodY - rod2Y)} мм, `);
+
+          // Две штанги в секции делят её на два отсека: между ними несъёмная
+          // жёсткая полка на Rastex во всю глубину (решение пользователя
+          // 2026-10-05). Над нижней трубой — те же 50 мм до полки.
+          const midShelfY = rod2Y + ROD_D / 2 + ROD_TOP_GAP + t / 2;
+          const midHidden = sectionFrontHidden(sec, decor, t, facadeMat, p.facadeThickness);
+          if (midShelfY + t / 2 > rodY - ROD_D / 2) {
+            warnings.push(`${secName}: между штангами нет места для жёсткой полки — раздвиньте штанги.`);
+          } else {
+            parts.push(makePart({
+              name: 'Полка', section: secName, material: decor.code, thickness: t,
+              length: secW, width: D, qty: 1, kind: 'shelf', glass: false, fixed: true,
+              note: 'Несъёмная, между двумя штангами, во всю глубину корпуса, крепится минификсами Rastex к боковинам',
+              edging: { long1: midHidden ? EDGE_BACK : EDGE_FRONT, long2: EDGE_BACK, short1: EDGE_BACK, short2: EDGE_BACK },
+              x: secCenterX, y: midShelfY, z: 0,
+              dims: { w: secW, h: t, d: D },
+            }));
+          }
         }
       }
     }
@@ -4618,6 +4715,8 @@ function buildModuleParts(p) {
 
     const ft = facadeTypeOf(sec, decor, t, facadeMat, p.facadeThickness);
     const ftSec = ft;
+    // Фасады ящиков — свой вид/материал секции (sec.drawerFacadeType), иначе = ft.
+    const dft = drawerFacadeTypeOf(sec, decor, t, facadeMat, p.facadeThickness);
     // Алюминиевая рамка на петле «для алюминиевой рамки» (profile.hinge ===
     // 'aluFrame'): чашку Ø35 не сверлим — вместо неё паз и 2 отверстия под
     // саморезы по паспорту Blum 71T950A (aluHingeCuts, 2026-09-26).
@@ -4685,17 +4784,17 @@ function buildModuleParts(p) {
       if (dh.badCC) warnings.push(`${secName}: у ручки не задано межосевое расстояние — укажите его в секции.`);
       pushHandleParts({ parts, mounts: dh.mounts, secName, handleName: dh.handle.name,
         faceX: fX, faceY: dy + dHeights[d] / 2, faceW: facadeW, faceH: fH,
-      faceZ: D / 2 + ft.thickness / 2, t: ft.thickness });
+      faceZ: D / 2 + dft.thickness / 2, t: dft.thickness });
       parts.push(makePart({
         name: `Фасад ящика ${d + 1}`, section: secName, sectionIndex: i,
-        material: ft.material, thickness: ft.thickness,
-        facadeType: ft.id, ...facadePartFields(ft, facadeW, fH),
+        material: dft.material, thickness: dft.thickness,
+        facadeType: dft.id, ...facadePartFields(dft, facadeW, fH),
         length: facadeW, width: fH, qty: 1, kind: 'drawerFront', grain: true,
         holes: dh.holes.concat(fixHoles),
         note: 'Накладной' + (dh.count ? `, ручка ${dh.handle.name}` : ''),
-        edging: { long1: facadeEdgeType(ft), long2: facadeEdgeType(ft), short1: facadeEdgeType(ft), short2: facadeEdgeType(ft) },
-        x: fX, y: dy + dHeights[d] / 2, z: D / 2 + ft.thickness / 2,
-        dims: { w: facadeW, h: fH, d: ft.thickness },
+        edging: { long1: facadeEdgeType(dft), long2: facadeEdgeType(dft), short1: facadeEdgeType(dft), short2: facadeEdgeType(dft) },
+        x: fX, y: dy + dHeights[d] / 2, z: D / 2 + dft.thickness / 2,
+        dims: { w: facadeW, h: fH, d: dft.thickness },
       }));
       drawerHardware.push({ section: secName, width: secWi, depth: D, system: sec.drawerSystem || 'ballBearing', pushToOpen: !!sec.pushToOpen });
       dy += dHeights[d];
@@ -5074,6 +5173,8 @@ function buildModuleParts(p) {
   return {
     params: p,
     sides,
+    // Тип боковин, реально применённый к деталям (с подменой видимой на опорах).
+    effSides: { left: effLeft, right: effRight },
     sidesLabel: sidesLabel(sides),
     dims: {
       W, H, D, innerH, baseH, Wi, sectionOpening, t, tb, gap, innerBottomY, n,
@@ -5160,7 +5261,8 @@ function buildModel(project) {
   // Сосед ищется в том же ряду (напольный / навесной): верхний и нижний
   // ряды раскладываются независимо, см. «НАВЕСНЫЕ модули» ниже.
   const nextDepthOf = (m) => {
-    const same = mods.filter((x) => isWallHung(x) === isWallHung(m));
+    const gm = groupOfMod(m);
+    const same = mods.filter((x) => isWallHung(x) === isWallHung(m) && groupOfMod(x) === gm);
     const i = same.indexOf(m);
     const nxt = i >= 0 ? same[i + 1] : null;
     const d = nxt ? Number(nxt.depth || 0) : 0;
@@ -5225,8 +5327,19 @@ function buildModel(project) {
   // встаёт над первым нижним), а по глубине прижимается ЗАДНЕЙ стороной к
   // стене (v = 0 — та же плоскость, что задняя грань самого глубокого нижнего
   // модуля), а не выравнивается по фасадам нижних. Напольные — как раньше.
-  const floorIdx = [], wallIdx = [];
-  mods.forEach((m, i) => (isWallHung(m) ? wallIdx : floorIdx).push(i));
+  // ГРУППЫ (остров и т.п.): модуль с флагом groupStart начинает НОВУЮ группу —
+  // самостоятельную раскладку со своим началом, не примыкающую к предыдущей.
+  // Смещение группы по полу — поля gx/gz (мм) её первого модуля. Без флагов
+  // группа одна — раскладка как раньше.
+  const groupOf = new Array(mods.length);
+  const groupStarts = [];
+  mods.forEach((m, i) => {
+    if (i === 0 || m.groupStart) groupStarts.push(i);
+    groupOf[i] = groupStarts.length - 1;
+  });
+  const groupOfMod = (m) => groupOf[mods.indexOf(m)];
+  const groups = groupStarts.map(() => ({ floorIdx: [], wallIdx: [] }));
+  mods.forEach((m, i) => (isWallHung(m) ? groups[groupOf[i]].wallIdx : groups[groupOf[i]].floorIdx).push(i));
   // Разбиваем ряд на прогоны: угловой модуль — последний в своём прогоне.
   const splitRuns = (idxs) => {
     const out = [];
@@ -5238,24 +5351,43 @@ function buildModel(project) {
     if (cur.length) out.push(cur);
     return out;
   };
-  const floorRuns = splitRuns(floorIdx);
-  const wallRuns = splitRuns(wallIdx);
-  // Начало раскладки задаёт нижний ряд (если он есть), верхний — от него же.
-  const primaryRuns = floorRuns.length ? floorRuns : wallRuns;
-
-  // Первый прогон центрируем по X, как раньше, чтобы одиночный шкаф стоял в нуле
-  const firstRunLen = (primaryRuns[0] || []).reduce((sum, i) => {
-    const e = extent(mods[i]); return sum + (e.x1 - e.x0);
-  }, 0);
-  const originX0 = -firstRunLen / 2;
-  // По глубине первый прогон центрируем так же, как раньше стоял одиночный
-  // модуль (корпус вокруг нуля), — иначе сдвинулись бы все виды на чертежах.
-  // originZ0 — плоскость стены (задняя грань самого глубокого модуля).
-  const firstRunDepth = Math.max.apply(null, (primaryRuns[0] || [0]).map((i) => {
-    const e = extent(mods[i]); return e.z1 - e.z0;
-  }));
-  const firstRunFront = Math.max.apply(null, (primaryRuns[0] || [0]).map((i) => extent(mods[i]).z1));
-  const originZ0 = firstRunFront - firstRunDepth;
+  groups.forEach((g, gi) => {
+    g.floorRuns = splitRuns(g.floorIdx);
+    g.wallRuns = splitRuns(g.wallIdx);
+    // Начало раскладки задаёт нижний ряд (если он есть), верхний — от него же.
+    const primary = g.floorRuns.length ? g.floorRuns : g.wallRuns;
+    // Первый прогон центрируем по X, как раньше, чтобы одиночный шкаф стоял в нуле
+    const firstRunLen = (primary[0] || []).reduce((sum, i) => {
+      const e = extent(mods[i]); return sum + (e.x1 - e.x0);
+    }, 0);
+    // По глубине первый прогон центрируем так же, как раньше стоял одиночный
+    // модуль (корпус вокруг нуля), — иначе сдвинулись бы все виды на чертежах.
+    // originZ0 — плоскость стены (задняя грань самого глубокого модуля).
+    const firstRunDepth = Math.max.apply(null, (primary[0] || [0]).map((i) => {
+      const e = extent(mods[i]); return e.z1 - e.z0;
+    }));
+    const firstRunFront = Math.max.apply(null, (primary[0] || [0]).map((i) => extent(mods[i]).z1));
+    const head = mods[groupStarts[gi]] || {};
+    g.originX0 = -firstRunLen / 2 + (Number(head.gx) || 0);
+    g.originZ0 = firstRunFront - firstRunDepth + (Number(head.gz) || 0);
+  });
+  // Общие списки прогонов по всем группам (k — номер прогона внутри группы).
+  const floorRuns = [], wallRuns = [];
+  groups.forEach((g) => {
+    g.floorRuns.forEach((r, k) => { r.k = k; floorRuns.push(r); });
+    g.wallRuns.forEach((r, k) => { r.k = k; wallRuns.push(r); });
+  });
+  const floorIdx = groups.length ? groups[0].floorIdx : [];
+  // Глубины столешницы связок — по каждой группе отдельно: соседство по
+  // массиву в пределах группы и есть физическое (см. resolveCountertopChainDepths).
+  const chainDepthsAll = () => {
+    const out = [];
+    groups.forEach((g) => {
+      const r = resolveCountertopChainDepths(mods, g.floorIdx);
+      g.floorIdx.forEach((i) => { out[i] = r[i]; });
+    });
+    return out;
+  };
 
   // Раскладка каждого модуля (по индексу в mods): начало и направление его
   // прогона, смещение в системе прогона, данные угловой фальш-планки.
@@ -5267,7 +5399,7 @@ function buildModel(project) {
   // buildModuleParts: ручной overhangBack, иначе (кухня) глубина листа
   // минус корпус, фасад и свес спереди. Нет столешниц — 0, как раньше.
   const floorWallGap = (() => {
-    const wallDepths = resolveCountertopChainDepths(mods, floorIdx);
+    const wallDepths = chainDepthsAll();
     let gap = 0;
     floorIdx.forEach((i) => {
       const m = mods[i], ct = m.countertop;
@@ -5284,10 +5416,12 @@ function buildModel(project) {
   })();
   // frames[k] — начало k-го прогона ряда и положение его угла (u конца
   // углового модуля = стена следующего, перпендикулярного прогона).
-  const layoutLayer = (runs, wall, floorFrames) => {
+  const layoutLayer = (g, gi, wall, floorFrames) => {
+    const runs = wall ? g.wallRuns : g.floorRuns;
+    const gapHere = gi === 0 ? floorWallGap : 0;   // стена — только у основной группы
     const frames = [];
     let dir = 0;
-    let originX = originX0, originZ = originZ0;
+    let originX = g.originX0, originZ = g.originZ0;
     runs.forEach((run, k) => {
       const U = DIR_U[dir], V = DIR_V[dir];
       const dirRot = DIR_ROT[dir];
@@ -5317,8 +5451,8 @@ function buildModel(project) {
       // сквозной координате вдоль прогона (начало прогонов нижнего и верхнего
       // рядов может различаться).
       const wallG = originX * U[0] + originZ * U[1];
-      const talls = (wall && fl && fl.dir === dir && floorRuns[k])
-        ? floorRuns[k].filter((i) => place[i]).map((i) => {
+      const talls = (wall && fl && fl.dir === dir && g.floorRuns[k])
+        ? g.floorRuns[k].filter((i) => place[i]).map((i) => {
           const fg = fl.originX * U[0] + fl.originZ * U[1];
           return { top: Number(mods[i].height || 0), g0: fg + place[i].u0, g1: fg + place[i].u1 };
         }).sort((a, b) => a.g0 - b.g0)
@@ -5349,7 +5483,7 @@ function buildModel(project) {
         }
         const offU = cursor - e.x0;                // левый край встаёт на курсор
         const offV = wall
-          ? -e.z0 - floorWallGap                   // задняя сторона — по стене
+          ? -e.z0 - gapHere                         // задняя сторона — по стене
           : runDepth - e.z1;                       // передние плоскости совпадают
         const frontV = offV + e.z1;                // фасадная плоскость модуля
         cursor += (e.x1 - e.x0);
@@ -5384,8 +5518,10 @@ function buildModel(project) {
     });
     return frames;
   };
-  const floorFrames = layoutLayer(floorRuns, false, null);
-  layoutLayer(wallRuns, true, floorFrames);
+  groups.forEach((g, gi) => {
+    const floorFrames = layoutLayer(g, gi, false, null);
+    layoutLayer(g, gi, true, floorFrames);
+  });
 
   // --- ВИДИМОСТЬ БОКОВИН ПО СОСЕДЯМ (решение пользователя 2026-09-27) -------
   // Боковина ЗАКРЫТА, если в её плоскости вплотную стоит боковина другого
@@ -5472,7 +5608,7 @@ function buildModel(project) {
         const key = sideTowards(last, 1);
         if (key) sideCovered[last][key] = true;
       }
-      if (k > 0) {
+      if (run.k > 0) {
         const key = sideTowards(run[0], -1);
         if (key) sideCovered[run[0]][key] = true;
       }
@@ -5483,7 +5619,7 @@ function buildModel(project) {
   // нужна ДО buildModuleParts (см. resolveCountertopChainDepths ниже по
   // файлу), от неё зависит, насколько видимая боковина крайнего модуля
   // дотягивается до стены.
-  const worktopDepthByIdx = resolveCountertopChainDepths(mods, floorIdx);
+  const worktopDepthByIdx = chainDepthsAll();
 
   const placed = [];   // фактические габариты корпусов на месте — для dims
   const cornerPlinths = [];   // угловые модули: их цоколь тянем до соседнего ряда
@@ -5515,6 +5651,7 @@ function buildModel(project) {
       backMaterial: proj.backMaterial,
       drawerDecor: proj.drawerDecor, drawerThickness: proj.drawerThickness,
       base: m.base, legType: m.legType, leftSide: m.leftSide, rightSide: m.rightSide,
+      sideUserSet: m.sideUserSet,
       topType: m.topType, railWidth: m.railWidth, noBack: !!m.noBack,
       // Задняя стенка: накладная / в паз (см. resolveBackMount) и признак
       // навесного модуля. Нет полей — 'auto' и правило по умолчанию.
@@ -5636,7 +5773,7 @@ function buildModel(project) {
       // строится рабочий чертёж модуля.
       dims: Object.assign({}, built.dims, { W: cw, D: cd }),
       dimsOwn: Object.assign({}, built.dims, { W: c.w, D: c.d }),
-      sides: built.sides, sidesLabel: built.sidesLabel,
+      sides: built.sides, sidesLabel: built.sidesLabel, effSides: built.effSides,
       params: built.params,
     });
 
@@ -5728,9 +5865,14 @@ function buildModel(project) {
   // Нужен для computeCountertopChains() ниже — определяет, какие тумбы
   // физически стыкуются столешницами (для автосмены материала по цепочке
   // в UI), независимо от того, совпадает ли материал сейчас.
+  // Столешницы разных групп (основной ряд и остров) не сливаются и не
+  // сшиваются, даже если стоят вплотную: у каждой группы своя столешница.
+  const groupByModName = {};
+  mods.forEach((m, i) => { groupByModName[m.name || `Модуль ${i + 1}`] = groupOf[i]; });
+  allParts.forEach((p) => { if (p.kind === 'countertop') p.ctGroup = groupByModName[p.module] || 0; });
   const countertopSegmentsRaw = allParts
     .filter((p) => p.kind === 'countertop')
-    .map((p) => ({ module: p.module, box: Object.assign({}, p.box), topY: countertopTopY(p) }));
+    .map((p) => ({ module: p.module, group: p.ctGroup, box: Object.assign({}, p.box), topY: countertopTopY(p) }));
 
   // Высокий модуль в ряду (пенал, колонка): столешницы с обеих сторон
   // упираются в его боковины и заканчиваются на внешней грани, свеса и
@@ -5797,6 +5939,7 @@ function buildModel(project) {
     project: proj,
     modules,
     isMulti: mods.length > 1,
+    moduleGroup: groupOf,   // номер группы (основная = 0, острова = 1…) по индексу модуля
     dims: { W: round1(spanW), H: maxH, D: round1(maxD) },
     parts: merged,
     partsRaw,
@@ -6318,7 +6461,7 @@ function mergeCountertops(parts) {
     const ax = axisOf(p);
     const cross = ax === 'x' ? p.box.z : p.box.x;       // положение поперёк ряда
     const depthSize = ax === 'x' ? p.box.d : p.box.w;   // глубина столешницы
-    const key = [ax, p.material, p.thickness, round1(p.box.y), round1(cross), round1(depthSize)].join('|');
+    const key = [ax, p.material, p.thickness, round1(p.box.y), round1(cross), round1(depthSize), p.ctGroup || 0].join('|');
     if (!groups.has(key)) groups.set(key, []);
     groups.get(key).push(p);
   }
@@ -6575,6 +6718,7 @@ function joinCountertopSeams(parts, proj, warnings, placed) {
   for (let i = 0; i < tops.length; i++) {
     for (let j = i + 1; j < tops.length; j++) {
       const A = tops[i], B = tops[j];   // A построен раньше B (порядок allParts)
+      if ((A.ctGroup || 0) !== (B.ctGroup || 0)) continue;   // разные группы не сшиваем
       if (A.material !== B.material || Math.abs(A.thickness - B.thickness) > EPS) {
         warnings.push(`Стык столешницы "${A.module}"/"${B.module}": разный материал/толщина `
           + `столешницы у соседних тумб — крепёж стыка не посчитан, стык нужно решать вручную.`);
@@ -6710,6 +6854,7 @@ function computeCountertopChains(segments, placed) {
   for (let i = 0; i < n; i++) {
     for (let j = i + 1; j < n; j++) {
       const A = segments[i], B = segments[j];
+      if ((A.group || 0) !== (B.group || 0)) continue; // другая группа (остров) — не стык
       if (Math.abs(A.box.y - B.box.y) > EPS) continue; // разный уровень — не стык
       const [aLoX, aHiX] = rectX(A), [bLoX, bHiX] = rectX(B);
       const [aLoZ, aHiZ] = rectZ(A), [bLoZ, bHiZ] = rectZ(B);
@@ -6932,6 +7077,7 @@ window.Modul3D.engine = {
   //     → { code, name, thickness, facadeType }
   //   zoneFacadeSettings(sec, zoneIdx) → копия sec с полями фасада зоны поверх
   facadeMaterialOptions, facadeMaterialOf, zoneFacadeSettings, ZONE_FACADE_KEYS,
+  drawerFacadeTypeOf, DRAWER_FACADE_TYPES,
   // Эффективная толщина ЛДСП ящика секции (sec.drawerThickness → проектная
   // → 16 мм, НЕ толщина корпуса) — единая формула для ядра и UI, чтобы
   // поле «Толщина ЛДСП ящиков» не расходилось с реальным расчётом.

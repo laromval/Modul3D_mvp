@@ -1535,7 +1535,7 @@ for (const sd of ['floor', 'besideBottom']) {
   const edged = m0.parts.filter((p) => p.aluFrame).some((p) =>
     p.edging.long1 || p.edging.long2 || p.edging.short1 || p.edging.short2);
   if (edged) bad('профиль кромится');
-  if (m0.parts.some((p) => p.aluFrame && (p.holes || []).some((h) => h.kind === 'hingeCup' || h.kind === 'hingeGlass'))) {
+  if (mkA({ aluProfile: 'ALU-LXD3080' }).parts.some((p) => p.aluFrame && (p.holes || []).some((h) => h.kind === 'hingeCup' || h.kind === 'hingeGlass'))) {
     bad('петля aluFrame: чашка всё равно просверлена');
   }
   // Присадка Blum 71T950A (паспорт + уточнение 2026-09-26): на каждую петлю паз
@@ -1560,20 +1560,23 @@ for (const sd of ['floor', 'besideBottom']) {
       bad(`${tag}: отверстие под саморез не по правилу ${JSON.stringify(screws[0])}`);
     }
   };
-  checkAluHinge(d0, 'left', 'LXD3080 дверь левая');
+  // присадка петли — только у узкого профиля LXD3080: задаём его явно (по умолчанию теперь открытый LXD-1204)
+  const m3080 = mkA({ aluProfile: 'ALU-LXD3080' });
+  const d3080 = m3080.parts.filter((p) => p.kind === 'door')[0];
+  checkAluHinge(d3080, 'left', 'LXD3080 дверь левая');
   {  // явные числа для LXD3080 (19.7), петли слева: паз 3.2…19.7, саморезы x=12.8
-    const g = ((d0 && d0.grooves) || []).filter((q) => q.kind === 'aluHingeSlot')[0];
-    const s = ((d0 && d0.holes) || []).filter((h) => h.kind === 'aluHingeScrew')[0];
+    const g = ((d3080 && d3080.grooves) || []).filter((q) => q.kind === 'aluHingeSlot')[0];
+    const s = ((d3080 && d3080.holes) || []).filter((h) => h.kind === 'aluHingeScrew')[0];
     if (!g || Math.abs(g.x0 - g.w / 2 - 3.2) > 0.06 || Math.abs(g.x0 + g.w / 2 - 19.7) > 0.06) bad('LXD3080 левая: паз не 3.2…19.7');
     if (!s || s.x !== 12.8) bad('LXD3080 левая: саморез не x=12.8');
   }
   {
-    const mR = mkA({ facade: 'doorRight' });
+    const mR = mkA({ facade: 'doorRight', aluProfile: 'ALU-LXD3080' });
     checkAluHinge(mR.parts.filter((p) => p.kind === 'door')[0], 'right', 'LXD3080 дверь правая');
     const m2 = buildModel(Object.assign({}, base, {
       modules: [{ name: 'М', width: 800, height: 2100, depth: 560, topType: 'rails',
         leftSide: 'onBottom', rightSide: 'onBottom', base: { type: 'legsPlinth', legHeight: 100 },
-        sections: [{ shelves: 4, drawers: 0, facade: 'doors2', facadeType: 'alu', drawerSystem: 'ballBearing' }] }],
+        sections: [{ shelves: 4, drawers: 0, facade: 'doors2', facadeType: 'alu', aluProfile: 'ALU-LXD3080', drawerSystem: 'ballBearing' }] }],
     }));
     inspect(m2, 'алюм. фасад doors2 2100');
     const leaves = m2.parts.filter((p) => p.kind === 'door');
@@ -1586,7 +1589,7 @@ for (const sd of ['floor', 'besideBottom']) {
     // рамка вне паспортных 19–22 мм → не сверлим, предупреждаем
     const p3 = cat.ALU_PROFILES['ALU-LXD3080'], keepW = p3.width;
     p3.width = 25;
-    const mW = mkA({});
+    const mW = mkA({ aluProfile: 'ALU-LXD3080' });
     p3.width = keepW;
     const dW = mW.parts.filter((p) => p.kind === 'door')[0];
     if ((dW.grooves || []).some((g) => g.kind === 'aluHingeSlot') || (dW.holes || []).some((h) => /hinge/i.test(h.kind))) {
@@ -1596,7 +1599,7 @@ for (const sd of ['floor', 'besideBottom']) {
   }
   // Петля Blum для алюм. рамки — штатное крепление на винты, не предупреждение (2026-09-26).
   if (m0.warnings.some((w) => /алюм/i.test(w) && /петл/i.test(w))) bad('лишнее предупреждение про петлю алюм. рамки');
-  const s0 = buildSpecification(m0);
+  const s0 = buildSpecification(m3080);
   const hingeRow = (s0.hardware || []).filter((r) => /для алюм\. рамок/.test(r.name))[0];
   if (!hingeRow || hingeRow.qty !== 2 || hingeRow.article !== '71T950A' || hingeRow.sum !== 2 * cat.ALU_FRAME_EXTRAS.hinge.price) bad('петли рамки в смете: ' + JSON.stringify(hingeRow));
   const buy = (s0.aluFacades || []).filter((r) => r.mode === 'buy');
@@ -1662,14 +1665,14 @@ for (const sd of ['floor', 'besideBottom']) {
   const p3080 = cat.ALU_PROFILES['ALU-LXD3080'], keepStop = p3080.fillStop;
   p3080.fillStop = null;
   const fNull = eng.aluFillSize({ aluProfile: 'ALU-LXD3080' }, 600, 700);
-  const sN = buildSpecification(mkA({ aluPriceMode: 'own' }));
+  const sN = buildSpecification(mkA({ aluPriceMode: 'own', aluProfile: 'ALU-LXD3080' }));
   p3080.fillStop = keepStop;
   if (fNull.fillW !== null || fNull.fillH !== null) bad('fillStop null — размер всё равно посчитан');
   const fillN = (sN.aluFacades || []).filter((r) => /^Заполнение/.test(r.name))[0];
   if (!fillN || fillN.sum !== null || !/паспорту профиля/.test(fillN.note)) bad('заполнение без fillStop посчитано');
 
   // своё изготовление со стеклом: профиль за метр + хлысты 5.8, уплотнитель по 3 м
-  const s2 = buildSpecification(mkA({ aluPriceMode: 'own' }));
+  const s2 = buildSpecification(mkA({ aluPriceMode: 'own', aluProfile: 'ALU-LXD3080' }));
   const own2 = s2.aluFacades || [];
   const prof2 = own2.filter((r) => /^Профиль/.test(r.name))[0];
   if (!prof2 || prof2.price !== 60 || !/хлыстов по 5.8 м/.test(prof2.note) || /не подтверждена/.test(prof2.note)) {

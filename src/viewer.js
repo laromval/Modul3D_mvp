@@ -1384,6 +1384,67 @@ const DRILL_TITLE = {
 const GLASS4_COLOR = 0xbe9669;
 const GLASS4_OPACITY = 0.6;
 
+// ЗЕРКАЛО (материал MIRROR-4, в каталоге mirror: true) — настоящее отражение.
+// Как это устроено: фасад-зеркало получает металлический материал (серебро,
+// чуть тёмное, очень гладкий), а «что отражать» берётся из карты окружения
+// (CubeCamera): перед зеркалом ставится виртуальная камера, она один раз
+// снимает всю сцену во все 6 сторон (сам фасад-зеркало на этот момент
+// скрыт), и снимок кладётся в материал как envMap. Снимок обновляется только
+// при перестройке сцены (Viewer3D._updateMirrors), а не каждый кадр, — при
+// вращении камеры отражение «живёт» само, это работа envMap.
+// Если зеркал в сцене нет — ничего не создаётся и не снимается.
+const MIRROR_COLOR = 0xaab0b5;     // серебро, чуть темнее белого
+const MIRROR_CUBE_SIZE = 256;      // размер грани кубокарты, px
+
+// Код материала — зеркало? Смотрим флаг mirror в каталоге (FACADE_MATERIALS и
+// др.), запасной вариант — код MIRROR-4.
+function isMirrorCode(code) {
+  if (!code) return false;
+  const cat = (typeof window !== 'undefined' && window.Modul3D && window.Modul3D.catalog) || {};
+  const lists = [cat.FACADE_MATERIALS, cat.GLASS].filter(Boolean);
+  for (const l of lists) {
+    const arr = Array.isArray(l) ? l : Object.keys(l).map((k) => l[k]);
+    const it = arr.filter((x) => x && x.code === code)[0];
+    if (it) return !!it.mirror;
+  }
+  return code === 'MIRROR-4';
+}
+
+// Реестр зеркал текущей перестройки сцены: заводит Viewer3D.render() (для
+// миниатюр он null — там зеркало рисуется без карты окружения, см. ниже).
+// groups: ключ — поворот фасада (зеркала, смотрящие в одну сторону, делят
+// один материал и одну кубокарту), значение { mat, meshes, rot }.
+let _mirrorReg = null;
+
+// Материал зеркала для фасада, повёрнутого на rot градусов.
+function getMirrorMaterial(rot) {
+  const key = ((Math.round(rot || 0) % 360) + 360) % 360;
+  if (!_mirrorReg) {
+    // Нет вьювера (миниатюра) — светлый «серебристый» металл без отражений.
+    return new THREE.MeshStandardMaterial({ color: 0xc4c9ce, roughness: 0.08, metalness: 0.6 });
+  }
+  let ent = _mirrorReg.groups.get(key);
+  if (!ent) {
+    ent = {
+      rot: key, meshes: [],
+      mat: new THREE.MeshStandardMaterial({
+        color: MIRROR_COLOR, roughness: 0.03, metalness: 1, envMapIntensity: 1,
+      }),
+    };
+    _mirrorReg.groups.set(key, ent);
+  }
+  return ent.mat;
+}
+// Запомнить меш-зеркало, чтобы скрыть его на время съёмки кубокарты.
+function registerMirrorMesh(mesh, rot) {
+  if (!_mirrorReg) return;
+  const key = ((Math.round(rot || 0) % 360) + 360) % 360;
+  const ent = _mirrorReg.groups.get(key);
+  if (!ent) return;
+  ent.meshes.push(mesh);
+  _mirrorReg.dirty = true;
+}
+
 const KIND_COLOR = {
   side: 0xd8c8a8, top: 0xd8c8a8, bottom: 0xd8c8a8, divider: 0xd8c8a8, plinth: 0xb9a67e,
   shelf: 0xe0d2b4, back: 0xf2efe6,
@@ -1666,7 +1727,11 @@ function makeFramedFacade(box, row, isActive, ghost, sectionHi, drillCheck, dril
     for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) * iw, uv.getY(i) * ih);
     uv.needsUpdate = true;
   }
-  const ins = new THREE.Mesh(insGeo, matIns);
+  // Зеркальная вставка (MIRROR-4): вместо стекла-«бронзы» — материал-зеркало.
+  // Подсветки/прозрачные режимы остаются как у обычного стекла.
+  const isMirrorIns = isGlass && !sectionHi && !ghost && isMirrorCode(row.insertMaterial);
+  const ins = new THREE.Mesh(insGeo, isMirrorIns ? getMirrorMaterial(row.rot) : matIns);
+  if (isMirrorIns) registerMirrorMesh(ins, row.rot);
   ins.position.z = (aluFit && aluFit.glassFrontZ != null) ? aluFit.glassFrontZ - insT / 2
     : (isGlass ? 0 : -T * 0.15);
   g.add(ins);
@@ -2577,6 +2642,11 @@ class SimpleOrbitControl {
     // Контекстное меню по ПКМ отключаем — правая кнопка занята вращением
     this.dom.addEventListener('contextmenu', (e) => e.preventDefault());
 
+    // Перетаскивание объекта по полу (остров): ставит Viewer3D, см. _initModuleDrag.
+    this.dragStartProvider = null;
+    this.onObjectDrag = null;
+    this.onObjectDragEnd = null;
+
     this.dom.addEventListener('pointerdown', (e) => {
       this.dom.setPointerCapture(e.pointerId);
 
@@ -2655,6 +2725,9 @@ class SimpleOrbitControl {
       this._pointers.set(e.pointerId, { x: e.clientX, y: e.clientY, t: Date.now() });
       this._dragging = true;
       this.mode = (e.button === 2) ? 'rotate' : 'pan';
+      // ЛКМ по модулю-острову: вместо панорамы тащим сам остров по полу
+      // (Viewer3D.dragStartProvider решает, подходит ли модуль под курсором).
+      if (e.button === 0 && this.dragStartProvider && this.dragStartProvider(e)) this.mode = 'moveobj';
       this.moved = 0;
       this._orthoPendX = this._orthoPendY = 0;
       this._lastX = e.clientX;
@@ -2677,6 +2750,9 @@ class SimpleOrbitControl {
           this._lastY = p.y;
         }
         return;
+      }
+      if (this.mode === 'moveobj' && this.onObjectDragEnd) {
+        this.onObjectDragEnd(e, this.moved > SCENE_DRAG_PX);
       }
       this._dragging = false;
       this.mode = null;
@@ -2719,6 +2795,10 @@ class SimpleOrbitControl {
       this.userMoved = true;
       this._lastX = e.clientX;
       this._lastY = e.clientY;
+      if (this.mode === 'moveobj') {
+        if (this.moved > SCENE_DRAG_PX && this.onObjectDrag) this.onObjectDrag(e);
+        return;
+      }
       if (this.mode === 'rotate') {
         let stepX = dx, stepY = dy;
         // Вращение в плоском виде («спереди», «сверху»…): пока сдвиг не
@@ -3225,6 +3305,7 @@ class Viewer3D {
     // чтобы решить: вращать сцену (палец на детали) или панорамировать
     // (палец мимо, по пустому месту).
     this.controls.hitTestProvider = (e) => this._hitTestAt(e).length > 0;
+    this._initModuleDrag();
 
     // Пользователь начал вращать САМУ СЦЕНУ, стоя в плоском виде: переходим
     // в 3D с теми же углами и сообщаем интерфейсу — ровно как при протяжке
@@ -3284,6 +3365,118 @@ class Viewer3D {
     const r = this._raycaster.ray;
     const t = this.controls.target.clone().sub(r.origin).dot(r.direction);
     return r.origin.clone().addScaledVector(r.direction, t);
+  }
+
+  /**
+   * Перетаскивание группы модулей (острова) по полу левой кнопкой мыши.
+   * Решения принимает app.js через колбэки:
+   *   moduleDragProvider(имя) → { names:[имена модулей группы] } | null
+   *   moduleDragMove(info, dxMm, dzMm, e) → { dx, dz, collide, rect, guides } —
+   *     скорректированный сдвиг (магнит к соседям, Alt отключает);
+   *   moduleDragEnd(info, dxMm, dzMm, commit) — итог (commit=false: отмена).
+   * Пока тащим, сдвигаются только меши группы (без пересчёта движка), а на
+   * полу рисуется прямоугольник занимаемого места (красный — столкновение).
+   */
+  _initModuleDrag() {
+    this.moduleDragProvider = null;
+    this.moduleDragMove = null;
+    this.moduleDragEnd = null;
+    this._mdrag = null;
+    let planeY = 0;   // высота горизонтальной плоскости захвата, м
+    const floorPoint = (e) => {
+      const rect = this.renderer.domElement.getBoundingClientRect();
+      const ndc = new THREE.Vector2(
+        ((e.clientX - rect.left) / rect.width) * 2 - 1,
+        -((e.clientY - rect.top) / rect.height) * 2 + 1);
+      this._raycaster.setFromCamera(ndc, this.camera);
+      const ray = this._raycaster.ray;
+      if (Math.abs(ray.direction.y) < 1e-6) return null;
+      const t = (planeY - ray.origin.y) / ray.direction.y;
+      if (!(t > 0)) return null;
+      return { x: ray.origin.x + ray.direction.x * t, z: ray.origin.z + ray.direction.z * t };
+    };
+    this.controls.dragStartProvider = (e) => {
+      if (!this.moduleDragProvider || e.pointerType === 'touch') return false;
+      const hits = this._hitTestAt(e);
+      if (!hits.length) return false;
+      const owner = this._moduleOwnerOf(hits[0].object);
+      const info = owner ? this.moduleDragProvider(owner, e) : null;
+      // Плоскость захвата — на высоте точки, за которую взяли (иначе из-за
+      // перспективы остров «убегает» от курсора).
+      planeY = hits[0].point.y;
+      const p0 = info ? floorPoint(e) : null;
+      if (!info || !p0) return false;
+      const names = new Set(info.names);
+      const meshes = [];
+      this.group.traverse((o) => {
+        if (o.userData && o.userData.module && names.has(o.userData.module)) meshes.push(o);
+      });
+      // Вложенные объекты уже сдвинуты вместе с родителем — берём только корневые
+      const roots = meshes.filter((o) => {
+        for (let q = o.parent; q && q !== this.group; q = q.parent) {
+          if (q.userData && q.userData.module && names.has(q.userData.module)) return false;
+        }
+        return true;
+      });
+      this._mdrag = { info, p0, roots, base: roots.map((o) => o.position.clone()),
+        dx: 0, dz: 0, collide: false, overlay: null };
+      return true;
+    };
+    this.controls.onObjectDrag = (e) => {
+      const d = this._mdrag; if (!d) return;
+      const p = floorPoint(e); if (!p) return;
+      let dx = (p.x - d.p0.x) / MM, dz = (p.z - d.p0.z) / MM;
+      const r = this.moduleDragMove ? this.moduleDragMove(d.info, dx, dz, e) : null;
+      if (r) { dx = r.dx; dz = r.dz; d.collide = !!r.collide; }
+      d.dx = dx; d.dz = dz;
+      d.roots.forEach((o, i) => o.position.set(d.base[i].x + dx * MM, d.base[i].y, d.base[i].z + dz * MM));
+      this._drawDragOverlay(r);
+    };
+    this.controls.onObjectDragEnd = (e, moved) => {
+      const d = this._mdrag; this._mdrag = null;
+      if (!d) return;
+      this._clearDragOverlay();
+      if (!moved) {                       // просто клик: возвращаем меши, выбор — обычный
+        d.roots.forEach((o, i) => o.position.copy(d.base[i]));
+        return;
+      }
+      const commit = !d.collide;
+      if (!commit) d.roots.forEach((o, i) => o.position.copy(d.base[i]));
+      if (this.moduleDragEnd) this.moduleDragEnd(d.info, d.dx, d.dz, commit);
+    };
+  }
+
+  _clearDragOverlay() {
+    const ov = this._dragOverlay;
+    if (!ov) return;
+    this.scene.remove(ov);
+    ov.traverse((o) => { if (o.geometry) o.geometry.dispose(); if (o.material) o.material.dispose(); });
+    this._dragOverlay = null;
+  }
+
+  // r.rect — прямоугольник группы {x0,x1,z0,z1} (мм) уже со сдвигом, r.guides —
+  // направляющие магнита [{x0,z0,x1,z1}] (мм).
+  _drawDragOverlay(r) {
+    this._clearDragOverlay();
+    if (!r || !r.rect) return;
+    const g = new THREE.Group();
+    const q = r.rect, w = (q.x1 - q.x0) * MM, h = (q.z1 - q.z0) * MM;
+    const color = r.collide ? 0xe53935 : 0x2e7d32;
+    const plane = new THREE.Mesh(new THREE.PlaneGeometry(w, h),
+      new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.22, depthWrite: false, side: THREE.DoubleSide }));
+    plane.rotation.x = -Math.PI / 2;
+    plane.position.set((q.x0 + q.x1) / 2 * MM, 0.003, (q.z0 + q.z1) / 2 * MM);
+    plane.renderOrder = 5;
+    g.add(plane);
+    (r.guides || []).forEach((l) => {
+      const geo = new THREE.BufferGeometry().setFromPoints([
+        new THREE.Vector3(l.x0 * MM, 0.004, l.z0 * MM), new THREE.Vector3(l.x1 * MM, 0.004, l.z1 * MM)]);
+      const ln = new THREE.Line(geo, new THREE.LineBasicMaterial({ color: 0x1976d2, depthTest: false }));
+      ln.renderOrder = 6;
+      g.add(ln);
+    });
+    this._dragOverlay = g;
+    this.scene.add(g);
   }
 
   /**
@@ -3888,10 +4081,56 @@ class Viewer3D {
     // Разметка поверх плоского вида — пересчёт только если камера/холст/сцена
     // изменились с прошлого кадра (сравнение матриц камеры, см. _markupTick).
     this._markupTick();
+    this._updateMirrors();
     this.renderer.render(this.scene, this.camera);
     // Гизма перерисовывается только если что-то изменилось (поворот камеры,
     // наведение, текущий вид, тема) — проверка внутри update().
     if (this.gizmo) this.gizmo.update();
+  }
+
+  // ЗЕРКАЛА (MIRROR-4): снимаем кубокарту окружения для каждой группы
+  // зеркал (одинаково повёрнутые фасады), только после перестройки сцены
+  // (флаг dirty), не каждый кадр. Нет зеркал — выходим сразу, затрат нет.
+  _updateMirrors() {
+    const reg = this._mirrorReg;
+    if (!reg || !reg.dirty) return;
+    reg.dirty = false;
+    if (typeof THREE.CubeCamera !== 'function' || typeof THREE.WebGLCubeRenderTarget !== 'function') return;
+    if (!this._mirrorRTs) this._mirrorRTs = new Map();
+    try {
+      this.group.updateMatrixWorld(true);
+      this.scene.updateMatrixWorld(true);
+      reg.groups.forEach((ent, key) => {
+        if (!ent.meshes.length) return;
+        // Точка съёмки — среднее положение зеркал группы, чуть вынесенное
+        // вперёд от фасада (нормаль фасада при повороте rot — (sin, 0, cos)).
+        const c = new THREE.Vector3(), p = new THREE.Vector3();
+        ent.meshes.forEach((m) => { m.getWorldPosition(p); c.add(p); });
+        c.multiplyScalar(1 / ent.meshes.length);
+        const a = (ent.rot * Math.PI) / 180;
+        c.x += Math.sin(a) * 0.04;
+        c.z += Math.cos(a) * 0.04;
+        if (![c.x, c.y, c.z].every(Number.isFinite)) return;
+        let rt = this._mirrorRTs.get(key);
+        if (!rt) {
+          rt = new THREE.WebGLCubeRenderTarget(MIRROR_CUBE_SIZE);
+          markShared(rt.texture);       // текстура живёт между перестройками
+          this._mirrorRTs.set(key, rt);
+        }
+        const cam = new THREE.CubeCamera(0.02, 60, rt);
+        cam.position.copy(c);
+        ent.meshes.forEach((m) => { m.visible = false; });   // сам себя не отражает
+        try { cam.update(this.renderer, this.scene); }
+        finally { ent.meshes.forEach((m) => { m.visible = true; }); }
+        ent.mat.envMap = rt.texture;
+        ent.mat.needsUpdate = true;
+      });
+    } catch (e) {
+      // Кубокарта не получилась — зеркало останется просто серебристым.
+      reg.groups.forEach((ent) => {
+        ent.mat.metalness = 0.6; ent.mat.color.set(0xc4c9ce); ent.mat.needsUpdate = true;
+      });
+    }
   }
 
   /** Показать/скрыть навигационную гизму (display:none). */
@@ -4420,6 +4659,10 @@ class Viewer3D {
     // пропускает — см. markShared.
     disposeObjectTree(this.group);
     while (this.group.children.length) this.group.remove(this.group.children[0]);
+    // Реестр зеркал (MIRROR-4) этой перестройки — наполняется при создании
+    // мешей ниже, кубокарты снимает _updateMirrors() в ближайшем кадре.
+    this._mirrorReg = { groups: new Map(), dirty: false };
+    _mirrorReg = this._mirrorReg;
     // Кэш геометрии деталей разросся (много разных форм за сессию) —
     // сбрасываем его ЗДЕСЬ, когда старые меши уже убраны и его геометрию
     // никто в сцене не использует: тогда её можно честно освободить.
@@ -4855,8 +5098,15 @@ class Viewer3D {
             boxMat.map.offset.set(origin.u / tileM, origin.v / tileM2);
           }
         }
+        // Сплошной фасад-зеркало (facadeType glass4, материал MIRROR-4) —
+        // материал-зеркало с отражением; в подсветках/прозрачных режимах и при
+        // проверке присадки остаётся обычный прозрачный вид.
+        const asMirror = glassFacade && !hiCyan && !ghostLike && !xray && !drillCheck
+          && isMirrorCode(row.material);
+        if (asMirror) boxMat = getMirrorMaterial(rotDeg);
         for (const g of partGeos) {
           const piece = new THREE.Mesh(g, boxMat);
+          if (asMirror) registerMirrorMesh(piece, rotDeg);
           piece.userData.module = row.module;
           mesh.add(piece);
         }
@@ -5006,7 +5256,7 @@ class Viewer3D {
         // отверстий, с тем же фильтром по виду (легенда присадки).
         if (drillCheck && slabNotches.length) {
           for (const n of slabNotches) {
-            if (drillOnly && n.kind !== drillOnly) continue;
+            const dimN = !!drillOnly && n.kind !== drillOnly;
             const du = (n.u1 - n.u0) * MM, dv = (n.v1 - n.v0) * MM, dt = tSize * 1.02 * MM;
             const uc = ((n.u0 + n.u1) / 2 - uSize / 2) * MM;
             const vc = ((n.v0 + n.v1) / 2 - vSize / 2) * MM;
@@ -5014,7 +5264,7 @@ class Viewer3D {
               : (planeIsY ? new THREE.BoxGeometry(du, dt, dv) : new THREE.BoxGeometry(du, dv, dt));
             const nm = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({
               color: DRILL_COLOR[n.kind] || 0x555555, roughness: 0.35, metalness: 0.1,
-              depthTest: false, transparent: true, opacity: 0.6,
+              depthTest: false, transparent: true, opacity: dimN ? 0.1 : 0.6,
             }));
             nm.renderOrder = 999;
             nm.userData.drill = n.kind;

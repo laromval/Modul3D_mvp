@@ -57,10 +57,16 @@ function buildSpecification(model) {
     // заказ точно по площади: без запаса на раскрой и без округления до
     // целых «листов» (sheetW/sheetH у таких позиций и не задаются).
     if (acc.info.customOrder) {
+      // Цена не указана (зеркало MIRROR-4 до ответа поставщиков): sum null —
+      // 0 не подставляем, позиция попадает в unpricedItems.
+      const sp = acc.info.sheetPrice;
+      const hasPrice = sp !== null && sp !== undefined && Number.isFinite(Number(sp));
       return {
         code, name: acc.info.name, area_m2: round2(acc.area_m2),
-        sheetArea_m2: null, sheets: null, price: acc.info.sheetPrice,
-        sum: round2(acc.area_m2 * acc.info.sheetPrice),
+        sheetArea_m2: null, sheets: null, price: hasPrice ? sp : null,
+        sum: hasPrice ? round2(acc.area_m2 * sp) : null,
+        priceConfirmed: hasPrice,
+        note: hasPrice ? '' : `Цена: ${acc.info.priceNote || 'уточняйте у поставщика'}`,
       };
     }
     const sheetArea = (acc.info.sheetW * acc.info.sheetH) / 1_000_000;
@@ -398,6 +404,25 @@ function buildSpecification(model) {
     }
   }
 
+  // ---------- Зеркало как самостоятельный фасад: полировка кромки ----------
+  // Кромка зеркала открыта — полировка по периметру каждого фасада (решение
+  // пользователя 2026-10-05). Зеркало во вставке рамы не считается: у открытого
+  // алюм. профиля полировку начисляет buildAluFacadeRows, у закрытого — не нужна.
+  {
+    const mEdge = (window.Modul3D.catalog.ALU_FRAME_EXTRAS || {}).mirrorEdge
+      || { code: 'GLASS-MIRROR-EDGE', name: 'Полировка кромки зеркала', price: null, unit: 'пог.м',
+           priceNote: 'цена уточняется — запрос в RADEVA и DETA отправлен 2026-10-05' };
+    const isMirror = (code) => known.some((x) => x.code === code && x.mirror);
+    const mirrorFacades = parts.filter((r) => !r.aluFrame && r.facadeType === 'glass4' && isMirror(r.material));
+    const edgeM = round2(mirrorFacades.reduce((s2, r) => s2 + (2 * (r.length + r.width) * (r.qty || 1)) / 1000, 0));
+    if (edgeM > 0) {
+      const ok = mEdge.price !== null && mEdge.price !== undefined && Number.isFinite(Number(mEdge.price));
+      hardware.push({ name: mEdge.name, article: mEdge.code || '', unit: mEdge.unit || 'пог.м', qty: edgeM,
+        price: ok ? Number(mEdge.price) : null, sum: ok ? round2(edgeM * Number(mEdge.price)) : null,
+        note: ok ? 'зеркало-фасад: кромка открыта' : `зеркало-фасад: кромка открыта; Цена: ${mEdge.priceNote || 'уточняйте у стекольщика'}` });
+    }
+  }
+
   // ---------- Алюминиевые рамочные фасады ----------
   const aluFacades = buildAluFacadeRows(parts, known);
 
@@ -411,7 +436,7 @@ function buildSpecification(model) {
     sumOf(sheetMaterials) + sumOf(edging) + sumOf(countertopMaterials) + sumOf(hardware) + sumOf(fasteners)
     + sumOf(aluFacades)
   );
-  const unpricedItems = [].concat(countertopMaterials, hardware, aluFacades)
+  const unpricedItems = [].concat(sheetMaterials, countertopMaterials, hardware, aluFacades)
     .filter((r) => r.sum === null || r.sum === undefined)
     .map((r) => r.name);
 
