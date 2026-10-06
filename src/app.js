@@ -14,7 +14,7 @@
 (function () {
 // Версия сборки — показывается во вкладке браузера и в шапке.
 // При выпуске новой версии меняется только эта строка.
-const APP_VERSION = 'v385';
+const APP_VERSION = 'v386';
 
 // Номер версии выводим ПЕРВЫМ делом: если дальше что-то упадёт, по нему сразу
 // видно, какая сборка открыта.
@@ -214,13 +214,19 @@ function newModule(name) {
 // Симметричная навеска фасадов: левая половина секций модуля открывается
 // влево, правая — вправо (единственная секция — всегда влево). Перезаписывает
 // sec.facade у ВСЕХ секций модуля по позиции — вызывать сразу после
-// добавления/удаления секции, до renderSectionsList()/recompute(). Отдельные
-// дверные зоны секции (sec.doorZones[].facade) этим правилом не затрагиваются.
+// добавления/удаления секции, до renderSectionsList()/recompute(). Двери отсеков
+// (sec.doorZones[].facade) следуют за секцией, если не выставлены вручную.
 function rebalanceSectionFacades(mod) {
   const n = mod.sections.length;
-  if (n === 1) { mod.sections[0].facade = 'doorLeft'; return; }
   mod.sections.forEach((sec, i) => {
-    sec.facade = i < Math.floor(n / 2) ? 'doorLeft' : 'doorRight';
+    sec.facade = n === 1 || i < Math.floor(n / 2) ? 'doorLeft' : 'doorRight';
+    // Обычные двери отсеков идут за секцией, кроме выставленных вручную
+    // (zone.facadeManual) и не-дверных (открытый, техника, двойные).
+    if (Array.isArray(sec.doorZones)) {
+      sec.doorZones.forEach((z) => {
+        if (z && !z.facadeManual && (z.facade === 'doorLeft' || z.facade === 'doorRight')) z.facade = sec.facade;
+      });
+    }
   });
 }
 
@@ -14010,7 +14016,9 @@ function bindZoneFieldEvents(container, mod, refresh) {
     el.addEventListener('change', (e) => {
       const sec = mod.sections[Number(e.target.dataset.idx)];
       const zi = Number(e.target.dataset.zonefacade);
-      ensureZone(sec, zi).facade = e.target.value;
+      const zone = ensureZone(sec, zi);
+      zone.facade = e.target.value;
+      zone.facadeManual = true;
       refreshScreen();
       recompute();
     });
