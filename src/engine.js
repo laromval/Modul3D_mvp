@@ -4934,7 +4934,8 @@ function buildModel(project) {
   // Сосед ищется в том же ряду (напольный / навесной): верхний и нижний
   // ряды раскладываются независимо, см. «НАВЕСНЫЕ модули» ниже.
   const nextDepthOf = (m) => {
-    const same = mods.filter((x) => isWallHung(x) === isWallHung(m));
+    const gm = groupOfMod(m);
+    const same = mods.filter((x) => isWallHung(x) === isWallHung(m) && groupOfMod(x) === gm);
     const i = same.indexOf(m);
     const nxt = i >= 0 ? same[i + 1] : null;
     const d = nxt ? Number(nxt.depth || 0) : 0;
@@ -4999,8 +5000,19 @@ function buildModel(project) {
   // встаёт над первым нижним), а по глубине прижимается ЗАДНЕЙ стороной к
   // стене (v = 0 — та же плоскость, что задняя грань самого глубокого нижнего
   // модуля), а не выравнивается по фасадам нижних. Напольные — как раньше.
-  const floorIdx = [], wallIdx = [];
-  mods.forEach((m, i) => (isWallHung(m) ? wallIdx : floorIdx).push(i));
+  // ГРУППЫ (остров и т.п.): модуль с флагом groupStart начинает НОВУЮ группу —
+  // самостоятельную раскладку со своим началом, не примыкающую к предыдущей.
+  // Смещение группы по полу — поля gx/gz (мм) её первого модуля. Без флагов
+  // группа одна — раскладка как раньше.
+  const groupOf = new Array(mods.length);
+  const groupStarts = [];
+  mods.forEach((m, i) => {
+    if (i === 0 || m.groupStart) groupStarts.push(i);
+    groupOf[i] = groupStarts.length - 1;
+  });
+  const groupOfMod = (m) => groupOf[mods.indexOf(m)];
+  const groups = groupStarts.map(() => ({ floorIdx: [], wallIdx: [] }));
+  mods.forEach((m, i) => (isWallHung(m) ? groups[groupOf[i]].wallIdx : groups[groupOf[i]].floorIdx).push(i));
   // Разбиваем ряд на прогоны: угловой модуль — последний в своём прогоне.
   const splitRuns = (idxs) => {
     const out = [];
@@ -5012,24 +5024,43 @@ function buildModel(project) {
     if (cur.length) out.push(cur);
     return out;
   };
-  const floorRuns = splitRuns(floorIdx);
-  const wallRuns = splitRuns(wallIdx);
-  // Начало раскладки задаёт нижний ряд (если он есть), верхний — от него же.
-  const primaryRuns = floorRuns.length ? floorRuns : wallRuns;
-
-  // Первый прогон центрируем по X, как раньше, чтобы одиночный шкаф стоял в нуле
-  const firstRunLen = (primaryRuns[0] || []).reduce((sum, i) => {
-    const e = extent(mods[i]); return sum + (e.x1 - e.x0);
-  }, 0);
-  const originX0 = -firstRunLen / 2;
-  // По глубине первый прогон центрируем так же, как раньше стоял одиночный
-  // модуль (корпус вокруг нуля), — иначе сдвинулись бы все виды на чертежах.
-  // originZ0 — плоскость стены (задняя грань самого глубокого модуля).
-  const firstRunDepth = Math.max.apply(null, (primaryRuns[0] || [0]).map((i) => {
-    const e = extent(mods[i]); return e.z1 - e.z0;
-  }));
-  const firstRunFront = Math.max.apply(null, (primaryRuns[0] || [0]).map((i) => extent(mods[i]).z1));
-  const originZ0 = firstRunFront - firstRunDepth;
+  groups.forEach((g, gi) => {
+    g.floorRuns = splitRuns(g.floorIdx);
+    g.wallRuns = splitRuns(g.wallIdx);
+    // Начало раскладки задаёт нижний ряд (если он есть), верхний — от него же.
+    const primary = g.floorRuns.length ? g.floorRuns : g.wallRuns;
+    // Первый прогон центрируем по X, как раньше, чтобы одиночный шкаф стоял в нуле
+    const firstRunLen = (primary[0] || []).reduce((sum, i) => {
+      const e = extent(mods[i]); return sum + (e.x1 - e.x0);
+    }, 0);
+    // По глубине первый прогон центрируем так же, как раньше стоял одиночный
+    // модуль (корпус вокруг нуля), — иначе сдвинулись бы все виды на чертежах.
+    // originZ0 — плоскость стены (задняя грань самого глубокого модуля).
+    const firstRunDepth = Math.max.apply(null, (primary[0] || [0]).map((i) => {
+      const e = extent(mods[i]); return e.z1 - e.z0;
+    }));
+    const firstRunFront = Math.max.apply(null, (primary[0] || [0]).map((i) => extent(mods[i]).z1));
+    const head = mods[groupStarts[gi]] || {};
+    g.originX0 = -firstRunLen / 2 + (Number(head.gx) || 0);
+    g.originZ0 = firstRunFront - firstRunDepth + (Number(head.gz) || 0);
+  });
+  // Общие списки прогонов по всем группам (k — номер прогона внутри группы).
+  const floorRuns = [], wallRuns = [];
+  groups.forEach((g) => {
+    g.floorRuns.forEach((r, k) => { r.k = k; floorRuns.push(r); });
+    g.wallRuns.forEach((r, k) => { r.k = k; wallRuns.push(r); });
+  });
+  const floorIdx = groups.length ? groups[0].floorIdx : [];
+  // Глубины столешницы связок — по каждой группе отдельно: соседство по
+  // массиву в пределах группы и есть физическое (см. resolveCountertopChainDepths).
+  const chainDepthsAll = () => {
+    const out = [];
+    groups.forEach((g) => {
+      const r = resolveCountertopChainDepths(mods, g.floorIdx);
+      g.floorIdx.forEach((i) => { out[i] = r[i]; });
+    });
+    return out;
+  };
 
   // Раскладка каждого модуля (по индексу в mods): начало и направление его
   // прогона, смещение в системе прогона, данные угловой фальш-планки.
@@ -5041,7 +5072,7 @@ function buildModel(project) {
   // buildModuleParts: ручной overhangBack, иначе (кухня) глубина листа
   // минус корпус, фасад и свес спереди. Нет столешниц — 0, как раньше.
   const floorWallGap = (() => {
-    const wallDepths = resolveCountertopChainDepths(mods, floorIdx);
+    const wallDepths = chainDepthsAll();
     let gap = 0;
     floorIdx.forEach((i) => {
       const m = mods[i], ct = m.countertop;
@@ -5058,10 +5089,12 @@ function buildModel(project) {
   })();
   // frames[k] — начало k-го прогона ряда и положение его угла (u конца
   // углового модуля = стена следующего, перпендикулярного прогона).
-  const layoutLayer = (runs, wall, floorFrames) => {
+  const layoutLayer = (g, gi, wall, floorFrames) => {
+    const runs = wall ? g.wallRuns : g.floorRuns;
+    const gapHere = gi === 0 ? floorWallGap : 0;   // стена — только у основной группы
     const frames = [];
     let dir = 0;
-    let originX = originX0, originZ = originZ0;
+    let originX = g.originX0, originZ = g.originZ0;
     runs.forEach((run, k) => {
       const U = DIR_U[dir], V = DIR_V[dir];
       const dirRot = DIR_ROT[dir];
@@ -5091,8 +5124,8 @@ function buildModel(project) {
       // сквозной координате вдоль прогона (начало прогонов нижнего и верхнего
       // рядов может различаться).
       const wallG = originX * U[0] + originZ * U[1];
-      const talls = (wall && fl && fl.dir === dir && floorRuns[k])
-        ? floorRuns[k].filter((i) => place[i]).map((i) => {
+      const talls = (wall && fl && fl.dir === dir && g.floorRuns[k])
+        ? g.floorRuns[k].filter((i) => place[i]).map((i) => {
           const fg = fl.originX * U[0] + fl.originZ * U[1];
           return { top: Number(mods[i].height || 0), g0: fg + place[i].u0, g1: fg + place[i].u1 };
         }).sort((a, b) => a.g0 - b.g0)
@@ -5123,7 +5156,7 @@ function buildModel(project) {
         }
         const offU = cursor - e.x0;                // левый край встаёт на курсор
         const offV = wall
-          ? -e.z0 - floorWallGap                   // задняя сторона — по стене
+          ? -e.z0 - gapHere                         // задняя сторона — по стене
           : runDepth - e.z1;                       // передние плоскости совпадают
         const frontV = offV + e.z1;                // фасадная плоскость модуля
         cursor += (e.x1 - e.x0);
@@ -5158,8 +5191,10 @@ function buildModel(project) {
     });
     return frames;
   };
-  const floorFrames = layoutLayer(floorRuns, false, null);
-  layoutLayer(wallRuns, true, floorFrames);
+  groups.forEach((g, gi) => {
+    const floorFrames = layoutLayer(g, gi, false, null);
+    layoutLayer(g, gi, true, floorFrames);
+  });
 
   // --- ВИДИМОСТЬ БОКОВИН ПО СОСЕДЯМ (решение пользователя 2026-09-27) -------
   // Боковина ЗАКРЫТА, если в её плоскости вплотную стоит боковина другого
@@ -5246,7 +5281,7 @@ function buildModel(project) {
         const key = sideTowards(last, 1);
         if (key) sideCovered[last][key] = true;
       }
-      if (k > 0) {
+      if (run.k > 0) {
         const key = sideTowards(run[0], -1);
         if (key) sideCovered[run[0]][key] = true;
       }
@@ -5257,7 +5292,7 @@ function buildModel(project) {
   // нужна ДО buildModuleParts (см. resolveCountertopChainDepths ниже по
   // файлу), от неё зависит, насколько видимая боковина крайнего модуля
   // дотягивается до стены.
-  const worktopDepthByIdx = resolveCountertopChainDepths(mods, floorIdx);
+  const worktopDepthByIdx = chainDepthsAll();
 
   const placed = [];   // фактические габариты корпусов на месте — для dims
   const cornerPlinths = [];   // угловые модули: их цоколь тянем до соседнего ряда
@@ -5502,9 +5537,14 @@ function buildModel(project) {
   // Нужен для computeCountertopChains() ниже — определяет, какие тумбы
   // физически стыкуются столешницами (для автосмены материала по цепочке
   // в UI), независимо от того, совпадает ли материал сейчас.
+  // Столешницы разных групп (основной ряд и остров) не сливаются и не
+  // сшиваются, даже если стоят вплотную: у каждой группы своя столешница.
+  const groupByModName = {};
+  mods.forEach((m, i) => { groupByModName[m.name || `Модуль ${i + 1}`] = groupOf[i]; });
+  allParts.forEach((p) => { if (p.kind === 'countertop') p.ctGroup = groupByModName[p.module] || 0; });
   const countertopSegmentsRaw = allParts
     .filter((p) => p.kind === 'countertop')
-    .map((p) => ({ module: p.module, box: Object.assign({}, p.box), topY: countertopTopY(p) }));
+    .map((p) => ({ module: p.module, group: p.ctGroup, box: Object.assign({}, p.box), topY: countertopTopY(p) }));
 
   // Высокий модуль в ряду (пенал, колонка): столешницы с обеих сторон
   // упираются в его боковины и заканчиваются на внешней грани, свеса и
@@ -5571,6 +5611,7 @@ function buildModel(project) {
     project: proj,
     modules,
     isMulti: mods.length > 1,
+    moduleGroup: groupOf,   // номер группы (основная = 0, острова = 1…) по индексу модуля
     dims: { W: round1(spanW), H: maxH, D: round1(maxD) },
     parts: merged,
     partsRaw,
@@ -6092,7 +6133,7 @@ function mergeCountertops(parts) {
     const ax = axisOf(p);
     const cross = ax === 'x' ? p.box.z : p.box.x;       // положение поперёк ряда
     const depthSize = ax === 'x' ? p.box.d : p.box.w;   // глубина столешницы
-    const key = [ax, p.material, p.thickness, round1(p.box.y), round1(cross), round1(depthSize)].join('|');
+    const key = [ax, p.material, p.thickness, round1(p.box.y), round1(cross), round1(depthSize), p.ctGroup || 0].join('|');
     if (!groups.has(key)) groups.set(key, []);
     groups.get(key).push(p);
   }
@@ -6349,6 +6390,7 @@ function joinCountertopSeams(parts, proj, warnings, placed) {
   for (let i = 0; i < tops.length; i++) {
     for (let j = i + 1; j < tops.length; j++) {
       const A = tops[i], B = tops[j];   // A построен раньше B (порядок allParts)
+      if ((A.ctGroup || 0) !== (B.ctGroup || 0)) continue;   // разные группы не сшиваем
       if (A.material !== B.material || Math.abs(A.thickness - B.thickness) > EPS) {
         warnings.push(`Стык столешницы "${A.module}"/"${B.module}": разный материал/толщина `
           + `столешницы у соседних тумб — крепёж стыка не посчитан, стык нужно решать вручную.`);
@@ -6484,6 +6526,7 @@ function computeCountertopChains(segments, placed) {
   for (let i = 0; i < n; i++) {
     for (let j = i + 1; j < n; j++) {
       const A = segments[i], B = segments[j];
+      if ((A.group || 0) !== (B.group || 0)) continue; // другая группа (остров) — не стык
       if (Math.abs(A.box.y - B.box.y) > EPS) continue; // разный уровень — не стык
       const [aLoX, aHiX] = rectX(A), [bLoX, bHiX] = rectX(B);
       const [aLoZ, aHiZ] = rectZ(A), [bLoZ, bHiZ] = rectZ(B);

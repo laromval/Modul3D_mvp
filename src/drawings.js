@@ -421,8 +421,18 @@ function resolveHoleScreen(row, hAxis, vAxis, sx, sy, holeIndex) {
 // Размеры на виде СБОКУ. Ставятся так же, как спереди: сначала цепочка
 // модулей по глубине, за ней — общий габарит. Повторы (модули одного ряда
 // проецируются друг на друга) отбрасываются.
+// Модули ОСНОВНОГО ряда (группа 0). Остров (группы 1, 2…) стоит порознь, поэтому
+// размерные цепочки строятся по основному ряду, иначе ширины острова
+// суммируются с рядом. Нет model.moduleGroup (или все нули) — это все модули.
+function mainGroupMods(model) {
+  const g = model.moduleGroup, mods = model.modules;
+  if (!g || !g.length) return mods;
+  const main = mods.filter((m, i) => !g[i]);
+  return main.length ? main : mods;
+}
+
 function sideDims(model, S, bottomY, zMin, zMax) {
-  const mods = model.modules;
+  const mods = mainGroupMods(model);
   let s = '', lv = 0;
   if (mods.length > 1) {
     const seen = {}, chain = [];
@@ -445,7 +455,7 @@ function sideDims(model, S, bottomY, zMin, zMax) {
 }
 
 function overallDims(model, F, bottomY, leftX) {
-  const d = model.dims, mods = model.modules;
+  const d = model.dims, mods = mainGroupMods(model), allMods = model.modules;
   let s = '';
   // Ширина каждого модуля — цепочкой в одну линию, общий габарит за ней.
   // Модули повёрнутого прогона на вид спереди проецируются один на другой:
@@ -477,12 +487,12 @@ function overallDims(model, F, bottomY, leftX) {
   // Навесные модули (m.offsetY > 0 — низ от пола): цепочка отметок по высоте
   // — верх нижнего ряда, низ и верх верхних, — общий габарит за ней.
   let lvH = 0;
-  if (mods.some((m) => Number(m.offsetY) > 0)) {
+  if (allMods.some((m) => Number(m.offsetY) > 0)) {
     const marks = [0, d.H];
-    const floorTop = Math.max.apply(null, [0].concat(mods
+    const floorTop = Math.max.apply(null, [0].concat(allMods
       .filter((m) => !(Number(m.offsetY) > 0)).map((m) => Number(m.dims.H) || 0)));
     if (floorTop > 0) marks.push(floorTop);
-    for (const m of mods) {
+    for (const m of allMods) {
       const oy = Number(m.offsetY) || 0;
       if (oy > 0) marks.push(oy, oy + (Number(m.dims.H) || 0));
     }
@@ -509,7 +519,7 @@ function overallDims(model, F, bottomY, leftX) {
 // сначала последовательные звенья (модуль за модулем, ярус за ярусом)
 // в одну линию, и только за ними — общий габарит.
 function frontDims(model, F, bottomY, leftX) {
-  const d = model.dims, mods = model.modules;
+  const d = model.dims, mods = mainGroupMods(model);
   let s = '';
 
   // По ширине: цепочка модулей
@@ -709,7 +719,8 @@ function buildOverview(model, scale, headText) {
     region: { x0: fx0, y0: ty0, x1: fx0 + fw, y1: ty0 + dd } });
   // На виде сверху общий габарит по глубине не дублируем — он уже стоит на
   // виде сбоку. Здесь нужна только глубина корпусов.
-  const front = mods.filter((m) => !(m.rotation === 90 || m.rotation === 270))[0] || mods[0];
+  const mainMods = mainGroupMods(model);
+  const front = mainMods.filter((m) => !(m.rotation === 90 || m.rotation === 270))[0] || mainMods[0];
   let topLv = 0;
   if (front) {
     body += dimV(topSy(front.offsetZ - front.dims.D / 2), topSy(front.offsetZ + front.dims.D / 2),
@@ -719,7 +730,7 @@ function buildOverview(model, scale, headText) {
   // Модули повёрнутого прогона: их габарит виден именно сверху — цепочкой
   // вдоль Z, как ширины модулей на виде спереди.
   const turnedSeen = {}, turnedChain = [];
-  for (const m of mods) {
+  for (const m of mainMods) {
     if (!(m.rotation === 90 || m.rotation === 270)) continue;
     const a = topSy(m.offsetZ - m.dims.D / 2);
     const b = topSy(m.offsetZ + m.dims.D / 2);
@@ -731,6 +742,21 @@ function buildOverview(model, scale, headText) {
   }
   for (const it of packDims(turnedChain, topLv)) {
     body += dimV(it.a, it.b, fx0, it.level, it.label, -1);
+  }
+  // Остров стоит порознь — его глубина видна только на плане. Ставим отдельным
+  // размером на отметке уровня 0, по Z он не пересекается с основным рядом.
+  const gr = model.moduleGroup;
+  if (gr && gr.some((g) => g)) {
+    const seenIsl = {};
+    model.modules.forEach((m, i) => {
+      if (!gr[i] || m.rotation === 90 || m.rotation === 270) return;
+      const a2 = topSy(m.offsetZ - m.dims.D / 2), b2 = topSy(m.offsetZ + m.dims.D / 2);
+      const label = String(Math.round(m.dims.D));
+      const key = `${Math.round(a2)}/${Math.round(b2)}`;
+      if (seenIsl[key]) return;
+      seenIsl[key] = 1;
+      body += dimV(a2, b2, fx0, 0, label, -1);
+    });
   }
 
   body += line(fx0, fy0 + fh + GAP * 0.5, fx0 + fw, fy0 + fh + GAP * 0.5, 'dw-axis');

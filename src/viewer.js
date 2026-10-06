@@ -2505,6 +2505,11 @@ class SimpleOrbitControl {
     // Контекстное меню по ПКМ отключаем — правая кнопка занята вращением
     this.dom.addEventListener('contextmenu', (e) => e.preventDefault());
 
+    // Перетаскивание объекта по полу (остров): ставит Viewer3D, см. _initModuleDrag.
+    this.dragStartProvider = null;
+    this.onObjectDrag = null;
+    this.onObjectDragEnd = null;
+
     this.dom.addEventListener('pointerdown', (e) => {
       this.dom.setPointerCapture(e.pointerId);
 
@@ -2583,6 +2588,9 @@ class SimpleOrbitControl {
       this._pointers.set(e.pointerId, { x: e.clientX, y: e.clientY, t: Date.now() });
       this._dragging = true;
       this.mode = (e.button === 2) ? 'rotate' : 'pan';
+      // ЛКМ по модулю-острову: вместо панорамы тащим сам остров по полу
+      // (Viewer3D.dragStartProvider решает, подходит ли модуль под курсором).
+      if (e.button === 0 && this.dragStartProvider && this.dragStartProvider(e)) this.mode = 'moveobj';
       this.moved = 0;
       this._orthoPendX = this._orthoPendY = 0;
       this._lastX = e.clientX;
@@ -2605,6 +2613,9 @@ class SimpleOrbitControl {
           this._lastY = p.y;
         }
         return;
+      }
+      if (this.mode === 'moveobj' && this.onObjectDragEnd) {
+        this.onObjectDragEnd(e, this.moved > SCENE_DRAG_PX);
       }
       this._dragging = false;
       this.mode = null;
@@ -2647,6 +2658,10 @@ class SimpleOrbitControl {
       this.userMoved = true;
       this._lastX = e.clientX;
       this._lastY = e.clientY;
+      if (this.mode === 'moveobj') {
+        if (this.moved > SCENE_DRAG_PX && this.onObjectDrag) this.onObjectDrag(e);
+        return;
+      }
       if (this.mode === 'rotate') {
         let stepX = dx, stepY = dy;
         // Вращение в плоском виде («спереди», «сверху»…): пока сдвиг не
@@ -3153,6 +3168,7 @@ class Viewer3D {
     // чтобы решить: вращать сцену (палец на детали) или панорамировать
     // (палец мимо, по пустому месту).
     this.controls.hitTestProvider = (e) => this._hitTestAt(e).length > 0;
+    this._initModuleDrag();
 
     // Пользователь начал вращать САМУ СЦЕНУ, стоя в плоском виде: переходим
     // в 3D с теми же углами и сообщаем интерфейсу — ровно как при протяжке
@@ -3212,6 +3228,118 @@ class Viewer3D {
     const r = this._raycaster.ray;
     const t = this.controls.target.clone().sub(r.origin).dot(r.direction);
     return r.origin.clone().addScaledVector(r.direction, t);
+  }
+
+  /**
+   * Перетаскивание группы модулей (острова) по полу левой кнопкой мыши.
+   * Решения принимает app.js через колбэки:
+   *   moduleDragProvider(имя) → { names:[имена модулей группы] } | null
+   *   moduleDragMove(info, dxMm, dzMm, e) → { dx, dz, collide, rect, guides } —
+   *     скорректированный сдвиг (магнит к соседям, Alt отключает);
+   *   moduleDragEnd(info, dxMm, dzMm, commit) — итог (commit=false: отмена).
+   * Пока тащим, сдвигаются только меши группы (без пересчёта движка), а на
+   * полу рисуется прямоугольник занимаемого места (красный — столкновение).
+   */
+  _initModuleDrag() {
+    this.moduleDragProvider = null;
+    this.moduleDragMove = null;
+    this.moduleDragEnd = null;
+    this._mdrag = null;
+    let planeY = 0;   // высота горизонтальной плоскости захвата, м
+    const floorPoint = (e) => {
+      const rect = this.renderer.domElement.getBoundingClientRect();
+      const ndc = new THREE.Vector2(
+        ((e.clientX - rect.left) / rect.width) * 2 - 1,
+        -((e.clientY - rect.top) / rect.height) * 2 + 1);
+      this._raycaster.setFromCamera(ndc, this.camera);
+      const ray = this._raycaster.ray;
+      if (Math.abs(ray.direction.y) < 1e-6) return null;
+      const t = (planeY - ray.origin.y) / ray.direction.y;
+      if (!(t > 0)) return null;
+      return { x: ray.origin.x + ray.direction.x * t, z: ray.origin.z + ray.direction.z * t };
+    };
+    this.controls.dragStartProvider = (e) => {
+      if (!this.moduleDragProvider || e.pointerType === 'touch') return false;
+      const hits = this._hitTestAt(e);
+      if (!hits.length) return false;
+      const owner = this._moduleOwnerOf(hits[0].object);
+      const info = owner ? this.moduleDragProvider(owner, e) : null;
+      // Плоскость захвата — на высоте точки, за которую взяли (иначе из-за
+      // перспективы остров «убегает» от курсора).
+      planeY = hits[0].point.y;
+      const p0 = info ? floorPoint(e) : null;
+      if (!info || !p0) return false;
+      const names = new Set(info.names);
+      const meshes = [];
+      this.group.traverse((o) => {
+        if (o.userData && o.userData.module && names.has(o.userData.module)) meshes.push(o);
+      });
+      // Вложенные объекты уже сдвинуты вместе с родителем — берём только корневые
+      const roots = meshes.filter((o) => {
+        for (let q = o.parent; q && q !== this.group; q = q.parent) {
+          if (q.userData && q.userData.module && names.has(q.userData.module)) return false;
+        }
+        return true;
+      });
+      this._mdrag = { info, p0, roots, base: roots.map((o) => o.position.clone()),
+        dx: 0, dz: 0, collide: false, overlay: null };
+      return true;
+    };
+    this.controls.onObjectDrag = (e) => {
+      const d = this._mdrag; if (!d) return;
+      const p = floorPoint(e); if (!p) return;
+      let dx = (p.x - d.p0.x) / MM, dz = (p.z - d.p0.z) / MM;
+      const r = this.moduleDragMove ? this.moduleDragMove(d.info, dx, dz, e) : null;
+      if (r) { dx = r.dx; dz = r.dz; d.collide = !!r.collide; }
+      d.dx = dx; d.dz = dz;
+      d.roots.forEach((o, i) => o.position.set(d.base[i].x + dx * MM, d.base[i].y, d.base[i].z + dz * MM));
+      this._drawDragOverlay(r);
+    };
+    this.controls.onObjectDragEnd = (e, moved) => {
+      const d = this._mdrag; this._mdrag = null;
+      if (!d) return;
+      this._clearDragOverlay();
+      if (!moved) {                       // просто клик: возвращаем меши, выбор — обычный
+        d.roots.forEach((o, i) => o.position.copy(d.base[i]));
+        return;
+      }
+      const commit = !d.collide;
+      if (!commit) d.roots.forEach((o, i) => o.position.copy(d.base[i]));
+      if (this.moduleDragEnd) this.moduleDragEnd(d.info, d.dx, d.dz, commit);
+    };
+  }
+
+  _clearDragOverlay() {
+    const ov = this._dragOverlay;
+    if (!ov) return;
+    this.scene.remove(ov);
+    ov.traverse((o) => { if (o.geometry) o.geometry.dispose(); if (o.material) o.material.dispose(); });
+    this._dragOverlay = null;
+  }
+
+  // r.rect — прямоугольник группы {x0,x1,z0,z1} (мм) уже со сдвигом, r.guides —
+  // направляющие магнита [{x0,z0,x1,z1}] (мм).
+  _drawDragOverlay(r) {
+    this._clearDragOverlay();
+    if (!r || !r.rect) return;
+    const g = new THREE.Group();
+    const q = r.rect, w = (q.x1 - q.x0) * MM, h = (q.z1 - q.z0) * MM;
+    const color = r.collide ? 0xe53935 : 0x2e7d32;
+    const plane = new THREE.Mesh(new THREE.PlaneGeometry(w, h),
+      new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.22, depthWrite: false, side: THREE.DoubleSide }));
+    plane.rotation.x = -Math.PI / 2;
+    plane.position.set((q.x0 + q.x1) / 2 * MM, 0.003, (q.z0 + q.z1) / 2 * MM);
+    plane.renderOrder = 5;
+    g.add(plane);
+    (r.guides || []).forEach((l) => {
+      const geo = new THREE.BufferGeometry().setFromPoints([
+        new THREE.Vector3(l.x0 * MM, 0.004, l.z0 * MM), new THREE.Vector3(l.x1 * MM, 0.004, l.z1 * MM)]);
+      const ln = new THREE.Line(geo, new THREE.LineBasicMaterial({ color: 0x1976d2, depthTest: false }));
+      ln.renderOrder = 6;
+      g.add(ln);
+    });
+    this._dragOverlay = g;
+    this.scene.add(g);
   }
 
   /**
