@@ -4891,7 +4891,7 @@ function buildModuleParts(p) {
       for (let zi = 0; zi < sec.doorZoneCount; zi++) {
         const z = sec.doorZones[zi];
         zonesRaw.push({
-          facade: (z && z.facade) || 'doorLeft',
+          facade: (z && z.facade) || (sec.facade === 'doorRight' ? 'doorRight' : 'doorLeft'),
           height: (z && Number(z.height)) || 0,
           appliance: (z && z.appliance) || 'none',
           applianceW: (z && Number(z.applianceW)) || 0,

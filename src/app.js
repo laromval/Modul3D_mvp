@@ -14,7 +14,7 @@
 (function () {
 // Версия сборки — показывается во вкладке браузера и в шапке.
 // При выпуске новой версии меняется только эта строка.
-const APP_VERSION = 'v384';
+const APP_VERSION = 'v385';
 
 // Номер версии выводим ПЕРВЫМ делом: если дальше что-то упадёт, по нему сразу
 // видно, какая сборка открыта.
@@ -12767,7 +12767,7 @@ function secZoneCount(sec) {
 function ensureDoorZone(sec, zi) {
   if (!sec || !(secZoneCount(sec) > 1 && zi >= 0 && zi < secZoneCount(sec))) return null;
   if (!sec.doorZones[zi]) {
-    sec.doorZones[zi] = { facade: 'doorLeft', height: 0, appliance: 'none', applianceW: 0, applianceD: 0, note: '' };
+    sec.doorZones[zi] = { facade: zoneDefaultFacade(sec), height: 0, appliance: 'none', applianceW: 0, applianceD: 0, note: '' };
   }
   return sec.doorZones[zi];
 }
@@ -13791,6 +13791,10 @@ function zoneCardHtml(sec, i, zi, doorZoneCount) {
 // (единственный способ задать это число, см. viewer.onSelectZone) — либо,
 // для однозонного модуля, кнопкой «Разделить на отсеки» в HUD (см.
 // setModuleDoorZoneCount).
+// Дверь по умолчанию для нового отсека — той же навески, что и секция (симметрия).
+function zoneDefaultFacade(sec) {
+  return (sec && sec.facade === 'doorRight') ? 'doorRight' : 'doorLeft';
+}
 function setDoorZoneCount(sec, value) {
   const n = Math.max(1, Math.min(4, Math.round(Number(value)) || 1));
   sec.doorZoneCount = n;
@@ -13799,7 +13803,7 @@ function setDoorZoneCount(sec, value) {
   }
   if (Array.isArray(sec.doorZones)) {
     while (sec.doorZones.length < n) {
-      sec.doorZones.push({ facade: 'doorLeft', height: 0, appliance: 'none', applianceW: 0, applianceD: 0, note: '' });
+      sec.doorZones.push({ facade: zoneDefaultFacade(sec), height: 0, appliance: 'none', applianceW: 0, applianceD: 0, note: '' });
     }
   }
   return n;
@@ -13998,7 +14002,7 @@ function bindZoneFieldEvents(container, mod, refresh) {
   function ensureZone(sec, zi) {
     sec.doorZones = sec.doorZones || [];
     if (!sec.doorZones[zi]) {
-      sec.doorZones[zi] = { facade: 'doorLeft', height: 0, appliance: 'none', applianceW: 0, applianceD: 0, note: '' };
+      sec.doorZones[zi] = { facade: zoneDefaultFacade(sec), height: 0, appliance: 'none', applianceW: 0, applianceD: 0, note: '' };
     }
     return sec.doorZones[zi];
   }
