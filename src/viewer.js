@@ -1382,6 +1382,67 @@ const DRILL_TITLE = {
 const GLASS4_COLOR = 0xbe9669;
 const GLASS4_OPACITY = 0.6;
 
+// ЗЕРКАЛО (материал MIRROR-4, в каталоге mirror: true) — настоящее отражение.
+// Как это устроено: фасад-зеркало получает металлический материал (серебро,
+// чуть тёмное, очень гладкий), а «что отражать» берётся из карты окружения
+// (CubeCamera): перед зеркалом ставится виртуальная камера, она один раз
+// снимает всю сцену во все 6 сторон (сам фасад-зеркало на этот момент
+// скрыт), и снимок кладётся в материал как envMap. Снимок обновляется только
+// при перестройке сцены (Viewer3D._updateMirrors), а не каждый кадр, — при
+// вращении камеры отражение «живёт» само, это работа envMap.
+// Если зеркал в сцене нет — ничего не создаётся и не снимается.
+const MIRROR_COLOR = 0xaab0b5;     // серебро, чуть темнее белого
+const MIRROR_CUBE_SIZE = 256;      // размер грани кубокарты, px
+
+// Код материала — зеркало? Смотрим флаг mirror в каталоге (FACADE_MATERIALS и
+// др.), запасной вариант — код MIRROR-4.
+function isMirrorCode(code) {
+  if (!code) return false;
+  const cat = (typeof window !== 'undefined' && window.Modul3D && window.Modul3D.catalog) || {};
+  const lists = [cat.FACADE_MATERIALS, cat.GLASS].filter(Boolean);
+  for (const l of lists) {
+    const arr = Array.isArray(l) ? l : Object.keys(l).map((k) => l[k]);
+    const it = arr.filter((x) => x && x.code === code)[0];
+    if (it) return !!it.mirror;
+  }
+  return code === 'MIRROR-4';
+}
+
+// Реестр зеркал текущей перестройки сцены: заводит Viewer3D.render() (для
+// миниатюр он null — там зеркало рисуется без карты окружения, см. ниже).
+// groups: ключ — поворот фасада (зеркала, смотрящие в одну сторону, делят
+// один материал и одну кубокарту), значение { mat, meshes, rot }.
+let _mirrorReg = null;
+
+// Материал зеркала для фасада, повёрнутого на rot градусов.
+function getMirrorMaterial(rot) {
+  const key = ((Math.round(rot || 0) % 360) + 360) % 360;
+  if (!_mirrorReg) {
+    // Нет вьювера (миниатюра) — светлый «серебристый» металл без отражений.
+    return new THREE.MeshStandardMaterial({ color: 0xc4c9ce, roughness: 0.08, metalness: 0.6 });
+  }
+  let ent = _mirrorReg.groups.get(key);
+  if (!ent) {
+    ent = {
+      rot: key, meshes: [],
+      mat: new THREE.MeshStandardMaterial({
+        color: MIRROR_COLOR, roughness: 0.03, metalness: 1, envMapIntensity: 1,
+      }),
+    };
+    _mirrorReg.groups.set(key, ent);
+  }
+  return ent.mat;
+}
+// Запомнить меш-зеркало, чтобы скрыть его на время съёмки кубокарты.
+function registerMirrorMesh(mesh, rot) {
+  if (!_mirrorReg) return;
+  const key = ((Math.round(rot || 0) % 360) + 360) % 360;
+  const ent = _mirrorReg.groups.get(key);
+  if (!ent) return;
+  ent.meshes.push(mesh);
+  _mirrorReg.dirty = true;
+}
+
 const KIND_COLOR = {
   side: 0xd8c8a8, top: 0xd8c8a8, bottom: 0xd8c8a8, divider: 0xd8c8a8, plinth: 0xb9a67e,
   shelf: 0xe0d2b4, back: 0xf2efe6,
@@ -1664,7 +1725,11 @@ function makeFramedFacade(box, row, isActive, ghost, sectionHi, drillCheck, dril
     for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) * iw, uv.getY(i) * ih);
     uv.needsUpdate = true;
   }
-  const ins = new THREE.Mesh(insGeo, matIns);
+  // Зеркальная вставка (MIRROR-4): вместо стекла-«бронзы» — материал-зеркало.
+  // Подсветки/прозрачные режимы остаются как у обычного стекла.
+  const isMirrorIns = isGlass && !sectionHi && !ghost && isMirrorCode(row.insertMaterial);
+  const ins = new THREE.Mesh(insGeo, isMirrorIns ? getMirrorMaterial(row.rot) : matIns);
+  if (isMirrorIns) registerMirrorMesh(ins, row.rot);
   ins.position.z = (aluFit && aluFit.glassFrontZ != null) ? aluFit.glassFrontZ - insT / 2
     : (isGlass ? 0 : -T * 0.15);
   g.add(ins);
@@ -3816,10 +3881,56 @@ class Viewer3D {
     // Разметка поверх плоского вида — пересчёт только если камера/холст/сцена
     // изменились с прошлого кадра (сравнение матриц камеры, см. _markupTick).
     this._markupTick();
+    this._updateMirrors();
     this.renderer.render(this.scene, this.camera);
     // Гизма перерисовывается только если что-то изменилось (поворот камеры,
     // наведение, текущий вид, тема) — проверка внутри update().
     if (this.gizmo) this.gizmo.update();
+  }
+
+  // ЗЕРКАЛА (MIRROR-4): снимаем кубокарту окружения для каждой группы
+  // зеркал (одинаково повёрнутые фасады), только после перестройки сцены
+  // (флаг dirty), не каждый кадр. Нет зеркал — выходим сразу, затрат нет.
+  _updateMirrors() {
+    const reg = this._mirrorReg;
+    if (!reg || !reg.dirty) return;
+    reg.dirty = false;
+    if (typeof THREE.CubeCamera !== 'function' || typeof THREE.WebGLCubeRenderTarget !== 'function') return;
+    if (!this._mirrorRTs) this._mirrorRTs = new Map();
+    try {
+      this.group.updateMatrixWorld(true);
+      this.scene.updateMatrixWorld(true);
+      reg.groups.forEach((ent, key) => {
+        if (!ent.meshes.length) return;
+        // Точка съёмки — среднее положение зеркал группы, чуть вынесенное
+        // вперёд от фасада (нормаль фасада при повороте rot — (sin, 0, cos)).
+        const c = new THREE.Vector3(), p = new THREE.Vector3();
+        ent.meshes.forEach((m) => { m.getWorldPosition(p); c.add(p); });
+        c.multiplyScalar(1 / ent.meshes.length);
+        const a = (ent.rot * Math.PI) / 180;
+        c.x += Math.sin(a) * 0.04;
+        c.z += Math.cos(a) * 0.04;
+        if (![c.x, c.y, c.z].every(Number.isFinite)) return;
+        let rt = this._mirrorRTs.get(key);
+        if (!rt) {
+          rt = new THREE.WebGLCubeRenderTarget(MIRROR_CUBE_SIZE);
+          markShared(rt.texture);       // текстура живёт между перестройками
+          this._mirrorRTs.set(key, rt);
+        }
+        const cam = new THREE.CubeCamera(0.02, 60, rt);
+        cam.position.copy(c);
+        ent.meshes.forEach((m) => { m.visible = false; });   // сам себя не отражает
+        try { cam.update(this.renderer, this.scene); }
+        finally { ent.meshes.forEach((m) => { m.visible = true; }); }
+        ent.mat.envMap = rt.texture;
+        ent.mat.needsUpdate = true;
+      });
+    } catch (e) {
+      // Кубокарта не получилась — зеркало останется просто серебристым.
+      reg.groups.forEach((ent) => {
+        ent.mat.metalness = 0.6; ent.mat.color.set(0xc4c9ce); ent.mat.needsUpdate = true;
+      });
+    }
   }
 
   /** Показать/скрыть навигационную гизму (display:none). */
@@ -4348,6 +4459,10 @@ class Viewer3D {
     // пропускает — см. markShared.
     disposeObjectTree(this.group);
     while (this.group.children.length) this.group.remove(this.group.children[0]);
+    // Реестр зеркал (MIRROR-4) этой перестройки — наполняется при создании
+    // мешей ниже, кубокарты снимает _updateMirrors() в ближайшем кадре.
+    this._mirrorReg = { groups: new Map(), dirty: false };
+    _mirrorReg = this._mirrorReg;
     // Кэш геометрии деталей разросся (много разных форм за сессию) —
     // сбрасываем его ЗДЕСЬ, когда старые меши уже убраны и его геометрию
     // никто в сцене не использует: тогда её можно честно освободить.
@@ -4778,8 +4893,15 @@ class Viewer3D {
             boxMat.map.offset.set(origin.u / tileM, origin.v / tileM2);
           }
         }
+        // Сплошной фасад-зеркало (facadeType glass4, материал MIRROR-4) —
+        // материал-зеркало с отражением; в подсветках/прозрачных режимах и при
+        // проверке присадки остаётся обычный прозрачный вид.
+        const asMirror = glassFacade && !hiCyan && !ghostLike && !xray && !drillCheck
+          && isMirrorCode(row.material);
+        if (asMirror) boxMat = getMirrorMaterial(rotDeg);
         for (const g of partGeos) {
           const piece = new THREE.Mesh(g, boxMat);
+          if (asMirror) registerMirrorMesh(piece, rotDeg);
           piece.userData.module = row.module;
           mesh.add(piece);
         }

@@ -99,7 +99,7 @@ function buildSpecificationWorkbook(spec, projectName) {
 
   const sheetRows = (spec.sheetMaterials || []).map((m, i) => ({
     '№': i + 1, 'Позиция': m.name, 'Артикул': m.code, 'Ед. изм.': 'лист',
-    'Площадь, м²': m.area_m2, 'Кол-во листов': m.sheets, [`Цена, ${sym}`]: m.price, [`Сумма, ${sym}`]: m.sum,
+    'Площадь, м²': m.area_m2, 'Кол-во листов': m.sheets, [`Цена, ${sym}`]: orDash(m.price), [`Сумма, ${sym}`]: orDash(m.sum),
   }));
   addSheet(wb, sheetRows, '1. Листовые материалы');
 

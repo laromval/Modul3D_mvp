@@ -14,7 +14,7 @@
 (function () {
 // Версия сборки — показывается во вкладке браузера и в шапке.
 // При выпуске новой версии меняется только эта строка.
-const APP_VERSION = 'v374';
+const APP_VERSION = 'v377';
 
 // Номер версии выводим ПЕРВЫМ делом: если дальше что-то упадёт, по нему сразу
 // видно, какая сборка открыта.
@@ -3035,6 +3035,10 @@ const LIB_OWN_ENTRIES_ALLOWED = true;
 // категория, где каталог хранит позиции объектом {имя → цена}, а не
 // массивом: оборачиваем в тот же вид записи, it.key — имя-ключ объекта (сам
 // объект своего ключа не знает).
+// Стекло/зеркало фасада: позиция FACADE_MATERIALS из категории «Стекло».
+function isGlassFacadeItem(it) {
+  return !!it && Array.isArray(it.categoryPath) && it.categoryPath[0] === 'Стекло';
+}
 function libTopEntries(topCode) {
   const cat = window.Modul3D.catalog;
   libStampMatKinds();
@@ -3053,8 +3057,10 @@ function libTopEntries(topCode) {
     // Та же защита от задвоения, что и у 'sheet' выше — своя категория
     // «Дверей» (item.customRoot, см. libAddFacadeCategory) сюда не входит.
     const facadeAll = Object.values(cat.FACADE_MATERIALS);
+    // Стёкла и зеркало (categoryPath[0] === 'Стекло') показываются только в
+    // «Материалы → Стекло» (см. ниже) — те же объекты, второй показ не нужен.
     return facadeAll
-      .filter((it) => !isSheetItem(it) && !it.customRoot)
+      .filter((it) => !isSheetItem(it) && !it.customRoot && !isGlassFacadeItem(it))
       .map((it) => ({ group: 'facade', item: it }));
   }
   // 'matcustom-<timestamp>'/'faccustom-<timestamp>' — своя корневая
@@ -3076,7 +3082,15 @@ function libTopEntries(topCode) {
   if (topCode === 'edge') {
     return Object.keys(cat.EDGE_PRICES).map((name) => ({ group: 'edge', item: Object.assign({ key: name }, cat.EDGE_PRICES[name]) }));
   }
-  if (topCode === 'glass') return [{ group: 'glass', item: cat.GLASS }];
+  if (topCode === 'glass') {
+    // «Стекло» полок (cat.GLASS, group 'glass') + стёкла/зеркало фасадов из
+    // FACADE_MATERIALS (group 'facade' — правки и сохранение идут тем же
+    // путём, что и раньше, объекты общие с «Видами фасадов» и сметой).
+    return [{ group: 'glass', item: cat.GLASS }]
+      .concat(Object.values(cat.FACADE_MATERIALS)
+        .filter((it) => isGlassFacadeItem(it) && !it.customRoot)
+        .map((it) => ({ group: 'facade', item: it })));
+  }
   if (topCode === 'countertop') {
     // COUNTERTOP_MATERIALS (catalog.js) не имеет поля categoryPath — в
     // отличие от decors/back/facade/edge/glass, здесь дерево строится не по
@@ -12480,6 +12494,7 @@ function libLocateMaterial(code) {
   if (fac) {
     if (fac.customRoot) return { topCode: fac.customRoot, path: cpOf(fac) };
     const cp = cpOf(fac);
+    if (isGlassFacadeItem(fac)) return { topCode: 'glass', path: cp };
     return { topCode: isSheetItem(fac) ? 'sheet' : 'facade', path: cp };
   }
   if (cat.GLASS && cat.GLASS.code === code) return { topCode: 'glass', path: cpOf(cat.GLASS) };
@@ -13838,7 +13853,7 @@ function openAluFillPicker() {
   let path = [];
   if (toDoorsGlass) {
     const f0 = (aluCat().FACADE_MATERIALS || {})[glassOpts[0].code];
-    topCode = 'facade';
+    topCode = isGlassFacadeItem(f0) ? 'glass' : 'facade';
     path = f0 && Array.isArray(f0.categoryPath) ? f0.categoryPath : [];
   } else if (toGlass) {
     topCode = 'glass';
@@ -16050,17 +16065,17 @@ function renderSpecTable(spec) {
     <table><thead><tr>${cols.map(c => `<th>${c}</th>`).join('')}</tr></thead>
     <tbody>${rows}</tbody></table>`;
 
+  const money = (v) => (v === null || v === undefined ? '—' : v);
+  const noteHtml = (r) => (r && r.note ? `<div class="spec-note">${esc(r.note)}</div>` : '');
   const sheetRows = spec.sheetMaterials.map((m, i) =>
     // sheets === null — изделие под заказ (стекло, фасад из массива, см.
     // catalog.js: customOrder), считается по площади, а не по листам.
-    `<tr><td>${i + 1}</td><td>${esc(m.name)}</td><td>${esc(m.code)}</td><td>${m.area_m2} м²</td><td>${m.sheets == null ? '—' : m.sheets}</td><td>${m.price}</td><td>${m.sum}</td></tr>`).join('');
+    `<tr><td>${i + 1}</td><td>${esc(m.name)}${noteHtml(m)}</td><td>${esc(m.code)}</td><td>${m.area_m2} м²</td><td>${m.sheets == null ? '—' : m.sheets}</td><td>${money(m.price)}</td><td>${money(m.sum)}</td></tr>`).join('');
   const edgeRows = spec.edging.map((e, i) =>
     `<tr><td>${i + 1}</td><td>Кромка ${esc(e.type)}</td><td>${e.length_m} пог.м</td><td>${e.price_per_m}</td><td>${e.sum}</td></tr>`).join('');
   // Цена/сумма может быть null — «цену уточняйте» (петли для алюм. рамки,
   // строки алюминиевых фасадов, см. specification.js): показываем «—» и
   // пометку row.note, 0 не подставляем.
-  const money = (v) => (v === null || v === undefined ? '—' : v);
-  const noteHtml = (r) => (r && r.note ? `<div class="spec-note">${esc(r.note)}</div>` : '');
   const hwRows = spec.hardware.map((h, i) =>
     `<tr><td>${i + 1}</td><td>${esc(h.name)}${noteHtml(h)}</td><td>${esc(h.article || '')}</td><td>${h.qty} ${esc(h.unit || '')}</td><td>${money(h.price)}</td><td>${money(h.sum)}</td></tr>`).join('');
   const aluRows = (spec.aluFacades || []).map((r, i) => {

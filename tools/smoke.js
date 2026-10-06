@@ -744,7 +744,7 @@ check('в списке фасадов есть открывание вверх',
   check('алюм. фасад: выбирается в «Вид фасада»', () =>
     /<label class="mt6" for="p-secFacadeType">Вид фасада<\/label>/.test(panelHtml()) && aluSet('alu'));
   check('алюм. фасад: в секции одна плашка-итог, без полей профиля', () =>
-    /class="alu-fill-pick alu-summary" data-mat-pick="facade"/.test(panelHtml()) && !/data-field="alu/.test(panelHtml()) && /LXD3080/.test(panelHtml()));
+    /class="alu-fill-pick alu-summary" data-mat-pick="facade"/.test(panelHtml()) && !/data-field="alu/.test(panelHtml()) && /LXD-1204/.test(panelHtml()));
   check('алюм. фасад: плашка открывает конструктор в Библиотеке', () => {
     const b = matPick();
     if (!b) return false;
@@ -754,8 +754,8 @@ check('в списке фасадов есть открывание вверх',
       && /data-alu-draft-fill="1"/.test(libHtml()) && /Для: <b>/.test(libHtml())
       && !/data-alu-draft-apply="1" disabled/.test(libHtml());
   });
-  check('алюм. фасад: чертёж сечения с паспортными размерами', () => /class="alu-schema alu-sec/.test(libHtml()) && />12.5</.test(libHtml()) && /Ширина рамки 19.7 мм/.test(libHtml()));
-  check('алюм. фасад: размер стекла по правилу профиля', () => /Стекло[^<]*2×12.5 − 3/.test(libHtml()));
+  check('алюм. фасад: чертёж сечения с паспортными размерами', () => /class="alu-schema alu-sec/.test(libHtml()) && />45</.test(libHtml()) && /Ширина рамки 45 мм/.test(libHtml()));
+  check('алюм. фасад: размер стекла по правилу профиля', () => /Стекло[^<]*2×1.2 − 3/.test(libHtml()));
   // профили Tehmob — только стекло 4 мм (catalog fillType 'glass'): листовых нет.
   // «Заполнение» — не список, а плашка: клик открывает Библиотеку в режиме
   // подбора (роль aluFill), «Выбрать» — только у стёкол; выбор пишет код в
