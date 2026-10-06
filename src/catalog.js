@@ -1221,6 +1221,41 @@
     "sourceSiteId": "mobilierMd",
     "sourceArticle": "MR-WP-010-01"
   },
+  // Пантограф — штанга, опускающаяся вниз ручкой (GTV PG-ST, масляный
+  // амортизатор, 8 кг). Размеры и присадка — по инструкции производителя
+  // (assets/drawings/gtv-pantograf-pg-st*.png, страницы «Планирование» и
+  // «Шаблон»). Длина = ширина корпуса в свету (545–700 / 645–910 / 875–1200),
+  // у каждой комбинации «длина × цвет» свой артикул и своя цена (options);
+  // item.price/article показывают выбранный вариант (selLength/selColor), см.
+  // catalog.resolveOption. Цена с mobilier.md на 2026-10-06 зависит от цвета,
+  // от длины — нет.
+  "pantograph": {
+    "name": "Пантограф GTV PG-ST (штанга опускающаяся, 8 кг)",
+    "unit": "шт",
+    "image": "https://mobilier.md/image/cache/catalog/products/17352/317d42815bfc5e15ae971a46121b4e32-1200x800.png",
+    "price": 751,
+    "article": "PG-ST6083-60",
+    "category": "rod",
+    "sourceUrl": "https://mobilier.md/index.php?product_id=17352&route=product%2Fproduct",
+    "sourceName": "PG-ST6083-60 Pantograf cu ridicator cu ulei, 645-910mm, 8 kg, antracit",
+    "verifiedAt": "2026-10-06T00:00:00.000Z",
+    "sourceSiteId": "mobilierMd",
+    "drawing": "assets/drawings/gtv-pantograf-pg-st.png",
+    "drawingFull": "assets/drawings/gtv-pantograf-pg-st-big.png",
+    "selLength": "645–910",
+    "selColor": "антрацит",
+    "options": [
+      { "length": "545–700", "lengthMin": 545, "lengthMax": 700, "color": "белый", "price": 749, "article": "PG-ST4560-10A", "sourceUrl": "https://mobilier.md/index.php?product_id=17346&route=product%2Fproduct" },
+      { "length": "545–700", "lengthMin": 545, "lengthMax": 700, "color": "хром/чёрный", "price": 686, "article": "PG-ST4560-20", "sourceUrl": "https://mobilier.md/index.php?product_id=17347&route=product%2Fproduct" },
+      { "length": "545–700", "lengthMin": 545, "lengthMax": 700, "color": "антрацит", "price": 751, "article": "PG-ST4560-60", "sourceUrl": "https://mobilier.md/index.php?product_id=17348&route=product%2Fproduct" },
+      { "length": "645–910", "lengthMin": 645, "lengthMax": 910, "color": "белый", "price": 749, "article": "PG-ST6083-10A", "sourceUrl": "https://mobilier.md/index.php?product_id=17350&route=product%2Fproduct" },
+      { "length": "645–910", "lengthMin": 645, "lengthMax": 910, "color": "хром/чёрный", "price": 686, "article": "PG-ST6083-20", "sourceUrl": "https://mobilier.md/index.php?product_id=17351&route=product%2Fproduct" },
+      { "length": "645–910", "lengthMin": 645, "lengthMax": 910, "color": "антрацит", "price": 751, "article": "PG-ST6083-60", "sourceUrl": "https://mobilier.md/index.php?product_id=17352&route=product%2Fproduct" },
+      { "length": "875–1200", "lengthMin": 875, "lengthMax": 1200, "color": "белый", "price": 749, "article": "PG-ST83115-10A", "sourceUrl": "https://mobilier.md/index.php?product_id=17354&route=product%2Fproduct" },
+      { "length": "875–1200", "lengthMin": 875, "lengthMax": 1200, "color": "хром/чёрный", "price": 686, "article": "PG-ST8311520", "sourceUrl": "https://mobilier.md/index.php?product_id=17355&route=product%2Fproduct" },
+      { "length": "875–1200", "lengthMin": 875, "lengthMax": 1200, "color": "антрацит", "price": 751, "article": "PG-ST83115-60", "sourceUrl": "https://mobilier.md/index.php?product_id=17356&route=product%2Fproduct" }
+    ]
+  },
   "hingeGlass": {
     "name": "Петля для стеклянной двери (отверстие Ø26)",
     "unit": "шт",
@@ -2444,8 +2479,51 @@
       || defaultDecor();
   }
 
+  // ---- Варианты позиции фурнитуры «длина × цвет» (item.options) ----
+  // Позиция с options — один товар в нескольких исполнениях, у каждого своя
+  // цена/артикул. item.selLength/selColor — выбранный в Библиотеке вариант;
+  // item.price/article/sourceUrl держим равными выбранному, чтобы остальной
+  // код (таблица, «Обновить цены», смета обычных позиций) не знал про варианты.
+  function itemOptions(item) {
+    return item && Array.isArray(item.options) ? item.options.filter((o) => o) : [];
+  }
+  function _uniq(list) {
+    const out = [];
+    list.forEach((v) => { if (v != null && v !== '' && out.indexOf(v) < 0) out.push(v); });
+    return out;
+  }
+  function optionLengths(item) { return _uniq(itemOptions(item).map((o) => o.length)); }
+  function optionColors(item) { return _uniq(itemOptions(item).map((o) => o.color)); }
+  // Вариант по выбору. sel: { length?, width?, color? } — width (мм) подбирает
+  // длину по диапазону lengthMin..lengthMax (так секция сама находит свой
+  // размер пантографа); без цвета берём selColor позиции, без длины — selLength.
+  // null — позиция без вариантов или такого сочетания нет.
+  function resolveOption(item, sel) {
+    const opts = itemOptions(item);
+    if (!opts.length) return null;
+    sel = sel || {};
+    const color = sel.color != null ? sel.color : item.selColor;
+    let pool = opts;
+    if (color) { const byColor = pool.filter((o) => o.color === color); if (byColor.length) pool = byColor; }
+    if (Number.isFinite(sel.width)) {
+      return pool.find((o) => Number.isFinite(o.lengthMin) && Number.isFinite(o.lengthMax)
+        && sel.width >= o.lengthMin && sel.width <= o.lengthMax) || null;
+    }
+    const length = sel.length != null ? sel.length : item.selLength;
+    return (length && pool.find((o) => o.length === length)) || pool[0] || null;
+  }
+  // Привести item.price/article/sourceUrl к выбранному варианту.
+  function syncItemToOption(item) {
+    const o = resolveOption(item);
+    if (!o) return;
+    if (o.price != null) item.price = o.price;
+    if (o.article) item.article = o.article;
+    if (o.sourceUrl) item.sourceUrl = o.sourceUrl;
+  }
+
   window.Modul3D = window.Modul3D || {};
   window.Modul3D.catalog = {
+    itemOptions, optionLengths, optionColors, resolveOption, syncItemToOption,
     CATALOG_SOURCE,
     DECORS, BACK_MATERIALS, COUNTERTOP_MATERIALS, EDGE_PRICES, HARDWARE_PRICES, FASTENER_PRICES, JOINT_LABEL,
     DRAWER_SYSTEMS, DRAWER_SYSTEM_ORDER, pickNL, GLASS,

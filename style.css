@@ -2889,3 +2889,26 @@ body.is-focus .scrim { opacity: 0 !important; }
 .lib-link-cat-node[hidden] { display: none; }
 .lib-link-cat-node.selected { background: var(--accent-soft); box-shadow: inset 3px 0 0 var(--accent); }
 .lib-link-cat-node.selected .lib-tree-name { color: var(--accent); font-weight: 600; }
+
+/* Варианты позиции фурнитуры «длина × цвет» (app.js: libHwOptionSelectsHtml,
+   libHwVariantsBlockHtml). Два компактных списка друг под другом в колонке
+   «Характеристики», чтобы не раздувать таблицу фиксированной ширины. */
+.lib-hw-chars-cell { vertical-align: top; }
+.lib-opt-cell { display: flex; flex-direction: column; gap: 2px; margin-top: 4px; min-width: 0; }
+.lib-opt-select { width: 100%; max-width: 100%; box-sizing: border-box; font-size: 11px; padding: 1px 2px; }
+.lib-opt-price { font-size: 11px; color: var(--text-2); }
+.lib-opt-note { font-size: 10px; color: var(--warn, #b45309); line-height: 1.2; }
+.lib-var-block { margin: var(--sp-3) 0; padding: var(--sp-3); border: 1px solid var(--border); border-radius: var(--r-sm); background: var(--surface-2); }
+.lib-var-block > b { display: block; font-size: var(--fs-sm); margin-bottom: var(--sp-2); }
+.lib-var-block .hint { margin: var(--sp-1) 0; }
+.lib-var-row { display: flex; align-items: center; gap: var(--sp-2); font-size: var(--fs-sm); padding: 1px 0; }
+.lib-var-row.current { font-weight: 600; color: var(--accent); }
+.lib-var-txt { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lib-var-del { border: 0; background: none; cursor: pointer; color: var(--muted); font-size: 16px; line-height: 1; padding: 0 4px; }
+.lib-var-del:hover { color: #c0392b; }
+.lib-var-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--sp-2); margin-top: var(--sp-2); }
+.lib-var-field { display: flex; flex-direction: column; font-size: 11px; color: var(--text-2); min-width: 0; }
+.lib-var-field input { width: 100%; box-sizing: border-box; font-size: var(--fs-sm); }
+.lib-var-url { margin-top: var(--sp-2); }
+.lib-var-url .lib-var-field { margin-bottom: var(--sp-1); }
+.lib-var-seed, .lib-link-allvars { display: flex; gap: var(--sp-2); align-items: flex-start; font-size: var(--fs-sm); margin: var(--sp-2) 0; }

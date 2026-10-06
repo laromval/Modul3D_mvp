@@ -1125,6 +1125,7 @@ const HOLE_LABELS = {
   runnerBracket: 'Кронштейн направляющей',
   relingFix: 'Крепление рейлинга',
   rodFlange: 'Фланец штанги',
+  pantographFix: 'Корпус пантографа',
   hangerScrew: 'Шуруп навесной шины',
   handle: 'Ручка',
   hingeCup: 'Чашка петли',

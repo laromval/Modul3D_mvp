@@ -239,6 +239,24 @@ function buildSpecification(model) {
     hardware.push(hwRow(HARDWARE_PRICES.rodHolder, rods.reduce((s, r) => s + r.qty, 0)));
   }
 
+  // Пантограф: один на секцию, вариант (длина) — по ширине секции (part.length),
+  // цвет — выбранный в Библиотеке (item.selColor). У варианта своя цена/артикул.
+  const pantoItem = HARDWARE_PRICES.pantograph;
+  if (pantoItem) {
+    for (const pg of parts.filter((r) => r.kind === 'pantograph')) {
+      const cat = window.Modul3D.catalog;
+      const o = (cat.resolveOption(pantoItem, { width: pg.length, color: pg.pantographColor })
+        // ширина вне диапазонов — ближайший размер (в 3D уже есть предупреждение)
+        || cat.resolveOption(pantoItem, { width: pg.length < 545 ? 545 : 1200, color: pg.pantographColor }));
+      const info = o ? Object.assign({}, pantoItem, {
+        price: o.price != null ? o.price : pantoItem.price,
+        article: o.article || pantoItem.article,
+        name: `${pantoItem.name}, ${o.length} мм, ${o.color}`,
+      }) : pantoItem;
+      hardware.push(hwRow(info, pg.qty));
+    }
+  }
+
   // ---------- 4. Крепёж / метизы ----------
   const fasteners = [];
   // Крепёж корпуса берём ПО ФАКТУ присадки: тип выбран по конструктиву

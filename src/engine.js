@@ -1866,6 +1866,7 @@ function makePart(o) {
     plastic: !!o.plastic,
     legType: o.legType || null,   // 'metal' | 'kitchen' — какую опору рисовать в 3D
     hasClip: !!o.hasClip,         // кухонная опора у переднего ряда с цоколем — держит его клипсой
+    pantographColor: o.pantographColor || null, // цвет пантографа секции (null — как в Библиотеке)
     cc: o.cc || 0,                 // межосевое ручки — по нему стоят её ножки
     // Присадка: отверстия в системе координат детали (левый нижний угол
     // лицевой стороны), готовые к выгрузке на станок.
@@ -3604,6 +3605,7 @@ function buildModuleParts(p) {
   // переходе в ручной режим и держит сумму равной доступной высоте.
   const secInfo = [];
   const rodFlanges = [];      // куда встали фланцы штанги — для присадки панелей
+  const pantographPanels = []; // куда встали корпуса пантографа — для присадки боковин
   const shelfPanelX = {};     // секция -> x панелей, к которым крепятся полки
   const drawerMounts = [];    // высоты направляющих и панели под них
   for (let i = 0; i < n; i++) {
@@ -3850,80 +3852,195 @@ function buildModuleParts(p) {
       }));
     }
 
-    // ----- Штанга для одежды -----
-    // Нормы установки (см. README):
-    //   • просвет от штанги до полки над ней — 50–60 мм, иначе плечики
-    //     не проходят; при отсутствии полки отсчёт от крыши;
-    //   • от задней стенки до оси штанги — не менее 300 мм: плечики висят
-    //     поперёк корпуса и упираются в заднюю стенку;
-    //   • держатели (фланцы) крепятся к боковинам двумя саморезами.
-    if (sec.rod) {
+    // Штанга и пантограф — два независимых выбора секции (можно оба сразу:
+    // пантограф сверху, штанга ниже), у каждого своя высота от дна секции.
+    if (sec.rod || sec.pantograph) {
       const ROD_D = 25;
       const ROD_TOP_GAP = 60;      // просвет до полки/крыши над штангой, мм
       const ROD_BACK_MIN = 300;    // минимум от задней стенки до оси, мм
 
-      // По глубине: ось по центру внутреннего пространства, но не ближе
-      // ROD_BACK_MIN к задней стенке и не ближе 80 мм к фасаду.
-      const innerBackZ = -D / 2 + tb;          // внутренняя плоскость задней стенки
-      const innerFrontZ = D / 2;               // передняя плоскость корпуса
-      let rodZ = (innerBackZ + innerFrontZ) / 2;
-      const minZ = innerBackZ + ROD_BACK_MIN;
-      if (rodZ < minZ) rodZ = minZ;
-      if (rodZ > innerFrontZ - 80) rodZ = innerFrontZ - 80;
-      const backClear = rodZ - innerBackZ;
-      if (backClear < ROD_BACK_MIN - 0.5) {
-        warnings.push(`${secName}: глубина корпуса ${Math.round(D)} мм мала для штанги — `
-          + `от задней стенки до оси ${Math.round(backClear)} мм вместо ${ROD_BACK_MIN}; `
-          + `плечики будут упираться.`);
-      }
-
-      // По высоте: под ближайшей полкой сверху (или под крышей) с просветом.
+      // По высоте: под ближайшей полкой сверху (или под крышей).
       const above = (infoRow && infoRow.shelfYs ? infoRow.shelfYs : [])
         .filter((y) => y > innerBottomY + 100);
       const ceiling = above.length ? Math.min.apply(null, above) - t / 2 : innerBottomY + innerH;
-      const wanted = Number(sec.rodHeight);
-      const manual = Number.isFinite(wanted) && wanted > 0;
-      let rodY = manual ? innerBottomY + wanted : ceiling - ROD_TOP_GAP;
-      const topLimit = ceiling - ROD_D / 2 - 10;
-      if (rodY > topLimit) {
-        warnings.push(`${secName}: штанга на ${Math.round(rodY - innerBottomY)} мм упирается в полку — `
-          + `опущена до ${Math.round(topLimit - innerBottomY)} мм.`);
-        rodY = topLimit;
-      }
-      if (manual && ceiling - rodY < 50) {
-        warnings.push(`${secName}: просвет над штангой ${Math.round(ceiling - rodY)} мм — `
-          + `для плечиков нужно 50–60 мм.`);
-      }
+      const innerBackZ = -D / 2 + tb;          // внутренняя плоскость задней стенки
+      const innerFrontZ = D / 2;               // передняя плоскость корпуса
+      // Зона механизма пантографа по высоте (для проверки столкновения со штангой).
+      let pgZone = null;
 
-      const rodLen = secW - 2;
-      parts.push(makePart({
-        name: 'Штанга для одежды', section: secName, material: 'ROD-D25', thickness: 0,
-        length: rodLen, width: ROD_D, qty: 1, kind: 'rod',
-        note: `Ø${ROD_D} мм, ${Math.round(rodY - innerBottomY)} мм от дна секции, `
-          + `просвет сверху ${Math.round(ceiling - rodY)} мм, от задней стенки ${Math.round(backClear)} мм`,
-        edging: { long1: null, long2: null, short1: null, short2: null },
-        x: secCenterX, y: rodY, z: rodZ,
-        dims: { w: rodLen, h: ROD_D, d: ROD_D },
-        shape: 'cylinderX',
-        hardware: true,
-      }));
-
-      // Фланцы на обеих ограничивающих панелях + присадка под их саморезы
-      for (const sgn of [-1, 1]) {
-        // Фланец стоит ВНУТРИ проёма, прижатый к панели: так он не «утоплен»
-        // в боковину. Штанга входит в него — это нормально, они одно целое.
-        const px = secCenterX + sgn * (secW / 2 - 3);
+      if (sec.pantograph) {
+        // ----- Пантограф GTV PG-ST (опускающаяся штанга) -----
+        // Размеры — инструкция GTV (assets/drawings/gtv-pantograf-pg-st*.png):
+        // ось верхней трубы → низ корпуса механизма 836 мм; корпус механизма
+        // 140×260 мм на каждой боковине, ось рычага — на 1/2 глубины; свободная
+        // ширина A/B/C = 545–700 / 645–910 / 875–1200; от крыши/полки до оси
+        // трубы ≥ 30; глубина G ≥ 140; вынос рычагов при опускании 710 мм.
+        // По умолчанию встаёт максимально высоко — ось на 30 мм ниже крыши/полки.
+        const PG_DROP = 836, PG_BODY_W = 140, PG_BODY_H = 260;
+        const PG_MIN_W = 545, PG_MAX_W = 1200, PG_FRONT_REACH = 710, PG_TOP_GAP = 30;
+        const pgZ = (innerBackZ + innerFrontZ) / 2;   // ось рычага — на 1/2 глубины
+        const wantedPg = Number(sec.pantographHeight);
+        const manualPg = Number.isFinite(wantedPg) && wantedPg > 0;
+        // Свободные отсеки секции по высоте: между верхом ящиков/дном, полками
+        // (в т.ч. жёсткой над ящиками) и крышей. Механизм висит на 836 мм ниже
+        // оси трубы, поэтому ему нужен отсек высотой не менее 836 + 30 мм.
+        // PG_NEED — механически минимум по чертежу GTV; PG_COMFORT — минимальный свободный
+        // отсек для одежды на плечиках (решение пользователя 2026-10-06: 1000 мм).
+        const PG_NEED = PG_DROP + PG_TOP_GAP;
+        const PG_COMFORT = 1000;
+        const secFloor = drawerZoneH > 0 ? Math.max(innerBottomY, baseH + drawerZoneH) : innerBottomY;
+        const shelfPlanes = shelfEntries.map((e) => e.y).filter((y) => y > secFloor).sort((x, y) => x - y);
+        const pgComps = [];
+        let cBottom = secFloor;
+        for (const sy of shelfPlanes) {
+          pgComps.push({ bottom: cBottom, top: sy - t / 2 });
+          cBottom = sy + t / 2;
+        }
+        pgComps.push({ bottom: cBottom, top: innerBottomY + innerH });
+        const compH = (c) => c.top - c.bottom;
+        const inSection = (c) => Math.round(c.bottom - innerBottomY) + '–' + Math.round(c.top - innerBottomY);
+        let comp;
+        let pgY;
+        if (manualPg) {
+          const wantY = innerBottomY + wantedPg;
+          // отсек, в котором стоит заданная высота; если она попала в полку — ближайший отсек ниже
+          comp = pgComps.filter((c) => c.top >= wantY - 0.5)[0] || pgComps[pgComps.length - 1];
+          if (wantY < comp.bottom) {
+            const below = pgComps.filter((c) => c.top <= wantY + 0.5).pop();
+            if (below) comp = below;
+          }
+          pgY = Math.min(wantY, comp.top - PG_TOP_GAP);
+          if (wantY > comp.top - PG_TOP_GAP + 0.5) {
+            warnings.push(`${secName}: пантограф на ${Math.round(wantedPg)} мм упирается в полку/крышу — `
+              + `опущен до ${Math.round(pgY - innerBottomY)} мм (от оси трубы до крыши/полки не менее ${PG_TOP_GAP} мм).`);
+          }
+        } else {
+          // Авто: самый верхний отсек, куда механизм помещается; если такого нет — самый высокий.
+          const comfy = pgComps.filter((c) => compH(c) >= PG_COMFORT - 0.5);
+          const fits = pgComps.filter((c) => compH(c) >= PG_NEED - 0.5);
+          comp = comfy.length ? comfy[comfy.length - 1]
+            : (fits.length ? fits[fits.length - 1]
+              : pgComps.slice().sort((x, y) => compH(y) - compH(x))[0]);
+          pgY = comp.top - PG_TOP_GAP;
+        }
+        if (compH(comp) < PG_NEED - 0.5) {
+          warnings.push(`${secName}: пантограф не помещается — в отсеке на высоте ${inSection(comp)} мм `
+            + `свободно ${Math.round(compH(comp))} мм, а механизму нужно не менее ${PG_NEED} мм `
+            + `(${PG_DROP} мм вниз от оси трубы + ${PG_TOP_GAP} мм до крыши/полки). `
+            + `Уберите полки/ящики под ним или поставьте пантограф в другую секцию.`);
+        } else if (compH(comp) < PG_COMFORT - 0.5) {
+          warnings.push(`${secName}: в отсеке пантографа на высоте ${inSection(comp)} мм свободно `
+            + `${Math.round(compH(comp))} мм — механизм встаёт, но для одежды на плечиках нужно не менее ${PG_COMFORT} мм.`);
+        }
+        if (secW < PG_MIN_W || secW > PG_MAX_W) {
+          warnings.push(`${secName}: ширина секции ${Math.round(secW)} мм вне диапазона пантографа GTV `
+            + `(${PG_MIN_W}–${PG_MAX_W} мм) — подходящего размера нет.`);
+        }
+        if (D < PG_BODY_W) {
+          warnings.push(`${secName}: глубина корпуса ${Math.round(D)} мм меньше 140 мм — пантограф не встанет.`);
+        }
+        const pgTop = pgY + ROD_D / 2, pgBottom = pgY - PG_DROP;
+        pgZone = { top: pgTop, bottom: pgBottom };
         parts.push(makePart({
-          name: 'Держатель штанги (фланец)', section: secName, material: 'ROD-H25', thickness: 0,
-          length: 40, width: 40, qty: 1, kind: 'rodFlange',
-          note: 'Крепится к панели двумя саморезами',
+          name: 'Пантограф (опускающаяся штанга)', section: secName, material: 'PANTOGRAPH', thickness: 0,
+          length: secW, width: PG_DROP, qty: 1, kind: 'pantograph',
+          note: `GTV PG-ST, ось трубы ${Math.round(pgY - innerBottomY)} мм от дна секции, `
+            + `просвет сверху ${Math.round(comp.top - pgY)} мм; при опускании выносится на ${PG_FRONT_REACH} мм вперёд`
+            + (sec.pantographColor ? `, цвет: ${sec.pantographColor}` : ''),
           edging: { long1: null, long2: null, short1: null, short2: null },
-          x: px, y: rodY, z: rodZ,
-          dims: { w: 6, h: 40, d: 40 },
-          shape: 'flange',
+          x: secCenterX, y: (pgTop + pgBottom) / 2, z: pgZ,
+          dims: { w: secW, h: pgTop - pgBottom, d: PG_BODY_W },
+          shape: 'pantograph',
+          pantographColor: sec.pantographColor || null,
           hardware: true,
         }));
-        rodFlanges.push({ panelX: sgn < 0 ? panelLX(i) : panelRX(i), y: rodY, z: rodZ, secName });
+        // Присадка боковин по шаблону GTV: две колонки по 6 точек (7,5 мм от
+        // краёв шаблона 140 мм), шаг сверху вниз 45/45/50/45/45, снизу 10 мм.
+        // Диаметр на шаблоне не указан — берём Ø4 по винтам комплекта (Ø4×20).
+        for (const sgn of [-1, 1]) {
+          pantographPanels.push({
+            panelX: sgn < 0 ? panelLX(i) : panelRX(i), bottomY: pgBottom, z: pgZ, secName,
+            bodyH: PG_BODY_H, bodyW: PG_BODY_W,
+          });
+        }
+      }
+
+      // ----- Штанга для одежды -----
+      // Нормы установки (см. README):
+      //   • просвет от штанги до полки над ней — 50–60 мм, иначе плечики
+      //     не проходят; при отсутствии полки отсчёт от крыши;
+      //   • от задней стенки до оси штанги — не менее 300 мм: плечики висят
+      //     поперёк корпуса и упираются в заднюю стенку;
+      //   • держатели (фланцы) крепятся к боковинам двумя саморезами.
+      if (sec.rod) {
+        // По глубине: ось по центру внутреннего пространства, но не ближе
+        // ROD_BACK_MIN к задней стенке и не ближе 80 мм к фасаду.
+        let rodZ = (innerBackZ + innerFrontZ) / 2;
+        const minZ = innerBackZ + ROD_BACK_MIN;
+        if (rodZ < minZ) rodZ = minZ;
+        if (rodZ > innerFrontZ - 80) rodZ = innerFrontZ - 80;
+        const backClear = rodZ - innerBackZ;
+        if (backClear < ROD_BACK_MIN - 0.5) {
+          warnings.push(`${secName}: глубина корпуса ${Math.round(D)} мм мала для штанги — `
+            + `от задней стенки до оси ${Math.round(backClear)} мм вместо ${ROD_BACK_MIN}; `
+            + `плечики будут упираться.`);
+        }
+        const wanted = Number(sec.rodHeight);
+        const manual = Number.isFinite(wanted) && wanted > 0;
+        // По умолчанию от пола: 1300 мм, если в секции есть пантограф (штанга под ним), иначе 1600 мм;
+        // не выше, чем позволяет крыша/полка.
+        // Под пантографом штанга не выше низа его механизма (иначе держатели встают на рычаги).
+        // Ось штанги по умолчанию — высота ОТ ПОЛА (y в модели отсчитывается от пола).
+        const rodDefaultY = pgZone ? Math.min(1300, pgZone.bottom - 30) : 1600;
+        let rodY = manual ? innerBottomY + wanted : Math.min(rodDefaultY, ceiling - ROD_TOP_GAP);
+        const topLimit = ceiling - ROD_D / 2 - 10;
+        if (rodY > topLimit) {
+          warnings.push(`${secName}: штанга на ${Math.round(rodY - innerBottomY)} мм упирается в полку — `
+            + `опущена до ${Math.round(topLimit - innerBottomY)} мм.`);
+          rodY = topLimit;
+        }
+        if (manual && ceiling - rodY < 50) {
+          warnings.push(`${secName}: просвет над штангой ${Math.round(ceiling - rodY)} мм — `
+            + `для плечиков нужно 50–60 мм.`);
+        }
+        // Штанга и пантограф в одной секции: держатели штанги не должны стоять
+        // на корпусе механизма пантографа (он занимает 836 мм вниз от его трубы).
+        if (pgZone && rodY + 20 > pgZone.bottom && rodY - 20 < pgZone.top) {
+          warnings.push(`${secName}: штанга на ${Math.round(rodY - innerBottomY)} мм попадает в зону механизма `
+            + `пантографа (${Math.round(pgZone.bottom - innerBottomY)}–${Math.round(pgZone.top - innerBottomY)} мм) — `
+            + `опустите штангу ниже ${Math.round(pgZone.bottom - innerBottomY)} мм.`);
+        }
+
+        const rodLen = secW - 2;
+        parts.push(makePart({
+          name: 'Штанга для одежды', section: secName, material: 'ROD-D25', thickness: 0,
+          length: rodLen, width: ROD_D, qty: 1, kind: 'rod',
+          note: `Ø${ROD_D} мм, ${Math.round(rodY - innerBottomY)} мм от дна секции, `
+            + `просвет сверху ${Math.round(ceiling - rodY)} мм, от задней стенки ${Math.round(backClear)} мм`,
+          edging: { long1: null, long2: null, short1: null, short2: null },
+          x: secCenterX, y: rodY, z: rodZ,
+          dims: { w: rodLen, h: ROD_D, d: ROD_D },
+          shape: 'cylinderX',
+          hardware: true,
+        }));
+
+        // Фланцы на обеих ограничивающих панелях + присадка под их саморезы
+        for (const sgn of [-1, 1]) {
+          // Фланец стоит ВНУТРИ проёма, прижатый к панели: так он не «утоплен»
+          // в боковину. Штанга входит в него — это нормально, они одно целое.
+          const px = secCenterX + sgn * (secW / 2 - 3);
+          parts.push(makePart({
+            name: 'Держатель штанги (фланец)', section: secName, material: 'ROD-H25', thickness: 0,
+            length: 40, width: 40, qty: 1, kind: 'rodFlange',
+            note: 'Крепится к панели двумя саморезами',
+            edging: { long1: null, long2: null, short1: null, short2: null },
+            x: px, y: rodY, z: rodZ,
+            dims: { w: 6, h: 40, d: 40 },
+            shape: 'flange',
+            hardware: true,
+          }));
+          rodFlanges.push({ panelX: sgn < 0 ? panelLX(i) : panelRX(i), y: rodY, z: rodZ, secName });
+        }
       }
     }
   }
@@ -4411,6 +4528,28 @@ function buildModuleParts(p) {
         y: round1(localY + FLANGE_R * Math.cos(rad)),
         d: FLANGE_HOLE_D, depth: 12, through: false, side: 'front', kind: 'rodFlange',
       });
+    }
+  }
+
+  // Присадка под корпус пантографа GTV (шаблон из инструкции): 12 отверстий на
+  // каждой боковине. Колонки — 7,5 и 132,5 мм от края шаблона 140 мм; ряды —
+  // снизу 10, 55, 100, 150, 195, 240 мм (шаг сверху вниз 45/45/50/45/45).
+  const PG_HOLE_D = 4;          // под винты комплекта Ø4×20 (диаметр на шаблоне не указан)
+  const PG_ROWS = [10, 55, 100, 150, 195, 240];
+  const PG_COLS = [7.5, 132.5];
+  for (const f of pantographPanels) {
+    const panel = parts.filter((p) => (p.kind === 'side' || p.kind === 'divider')
+      && Math.abs(p.box.x - f.panelX) < 1.5)[0];
+    if (!panel) continue;
+    const baseX = f.bottomY - (panel.box.y - panel.box.h / 2);
+    const baseY = (f.z - f.bodyW / 2) - (panel.box.z - panel.box.d / 2);
+    for (const v of PG_ROWS) {
+      for (const u of PG_COLS) {
+        panel.holes.push({
+          x: round1(baseX + v), y: round1(baseY + u),
+          d: PG_HOLE_D, depth: 12, through: false, side: 'front', kind: 'pantographFix',
+        });
+      }
     }
   }
 

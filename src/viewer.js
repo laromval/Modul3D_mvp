@@ -1319,6 +1319,7 @@ const DRILL_COLOR = {
   relingFix: 0x6ec6d6,
   handle: 0x2b2b2b,
   rodFlange: 0x8a5a2b,
+  pantographFix: 0x6b4423,
   legFix: 0x777777,
   boxBottomFix: 0x8fae3a,
   runnerLocator: 0xc0468f,
@@ -1354,6 +1355,7 @@ const DRILL_TITLE = {
   relingFix: 'Держатель релинга',
   handle: 'Ручка',
   rodFlange: 'Держатель штанги',
+  pantographFix: 'Корпус пантографа (шаблон GTV)',
   legFix: 'Опора',
   boxBottomFix: 'Крепление дна ящика',
   runnerLocator: 'Посадка короба на направляющую',
@@ -1867,6 +1869,76 @@ function makeRod(box, moduleName, isActive, rotDeg, dimmed) {
   mesh.position.set(box.x * MM, box.y * MM, box.z * MM);
   mesh.userData.module = moduleName;
   return mesh;
+}
+
+// Пантограф GTV PG-ST в поднятом положении (инструкция GTV, страница
+// «Планирование»): верхняя труба, два рычага вдоль боковин вниз к корпусам
+// механизма 140×260 на боковинах, центральная стойка вниз до ручки.
+// box — габарит: w = ширина секции, h = от низа корпуса механизма до верха
+// трубы (836 + Ø/2), d = 140. Толщины пластин/рычагов на чертеже не указаны —
+// нарисованы ориентировочно, габариты и положение — по чертежу.
+// Цвет пантографа секции; не задан — выбранный в Библиотеке.
+function pantographColorOf(row) {
+  if (row && row.pantographColor) return row.pantographColor;
+  const cat = window.Modul3D && window.Modul3D.catalog;
+  const it = cat && cat.HARDWARE_PRICES && cat.HARDWARE_PRICES.pantograph;
+  return (it && it.selColor) || 'антрацит';
+}
+// Цвета исполнений GTV PG-ST: труба/рычаги и корпус механизма.
+const PANTOGRAPH_COLORS = {
+  'антрацит': { tube: 0x5b6066, body: 0x3b3f44 },
+  'белый': { tube: 0xf3f3f1, body: 0xe6e6e3 },
+  'хром/чёрный': { tube: 0xd9dde0, body: 0x1d1d1f },
+};
+function makePantograph(box, moduleName, isActive, rotDeg, dimmed, colorName) {
+  const info = {};
+  const pal = PANTOGRAPH_COLORS[colorName] || PANTOGRAPH_COLORS['антрацит'];
+  const rodD = (info.rodD || 25) * MM;
+  const bodyH = (info.bodyH || 260) * MM;
+  const w = box.w * MM, h = box.h * MM, dep = box.d * MM;
+  const mk = (color, rough, metal) => new THREE.MeshStandardMaterial({
+    color: isActive ? 0x9fc3de : color, roughness: rough, metalness: metal,
+    emissive: isActive ? 0x14314a : 0x000000,
+    transparent: !!dimmed || isActive,
+    opacity: dimmed ? 0.22 : (isActive ? ACTIVE_MODULE_OPACITY : 1),
+    depthWrite: !(dimmed || isActive),
+  });
+  const chrome = colorName === 'хром/чёрный';
+  const steel = mk(pal.tube, chrome ? 0.18 : 0.45, chrome ? 0.95 : 0.35);
+  const body = mk(pal.body, 0.55, 0.3);
+  const g = new THREE.Group();
+  const top = h / 2, bottom = -h / 2;
+  const railY = top - rodD / 2;
+  const bodyT = 14 * MM;
+  // Верхняя труба между рычагами.
+  const railLen = Math.max(w - 2 * bodyT, 0.001);
+  const rail = new THREE.Mesh(new THREE.CylinderGeometry(rodD / 2, rodD / 2, railLen, 20), steel);
+  rail.rotation.z = Math.PI / 2;
+  rail.position.set(0, railY, 0);
+  g.add(rail);
+  // Центральная стойка — от трубы вниз до ручки.
+  const poleD = 12 * MM;
+  const poleLen = Math.max(railY - bottom - 10 * MM, 0.001);
+  const pole = new THREE.Mesh(new THREE.CylinderGeometry(poleD / 2, poleD / 2, poleLen, 14), steel);
+  pole.position.set(0, railY - poleLen / 2, 0);
+  g.add(pole);
+  for (const sgn of [-1, 1]) {
+    const x = sgn * (w / 2 - bodyT / 2);
+    // Корпус механизма на боковине: 140×260, прижат к панели.
+    const plate = new THREE.Mesh(new THREE.BoxGeometry(bodyT, bodyH, dep), body);
+    plate.position.set(x, bottom + bodyH / 2, 0);
+    g.add(plate);
+    // Рычаг от трубы к корпусу механизма.
+    const armTop = railY, armBottom = bottom + bodyH;
+    const armLen = Math.max(armTop - armBottom, 0.001);
+    const arm = new THREE.Mesh(new THREE.BoxGeometry(8 * MM, armLen, 22 * MM), steel);
+    arm.position.set(sgn * (w / 2 - bodyT - 4 * MM), armBottom + armLen / 2, 0);
+    g.add(arm);
+  }
+  g.position.set(box.x * MM, box.y * MM, box.z * MM);
+  g.rotation.y = ((rotDeg || 0) * Math.PI) / 180;
+  g.userData.module = moduleName;
+  return g;
 }
 
 // Опора мебельная: труба Ø d, монтажная площадка сверху (крепится к дну)
@@ -4548,6 +4620,11 @@ class Viewer3D {
           mesh.userData.module = row.module;
           this.group.add(mesh);
         }
+        continue;
+      }
+      // Пантограф GTV — опускающаяся штанга (см. makePantograph).
+      if (row.shape === 'pantograph') {
+        for (const box of row.boxes) this.group.add(makePantograph(box, row.module, isActive, row.rot, dimmed, pantographColorOf(row)));
         continue;
       }
       // Штанга — труба вдоль оси X, поперёк проёма секции.

@@ -14,7 +14,7 @@
 (function () {
 // Версия сборки — показывается во вкладке браузера и в шапке.
 // При выпуске новой версии меняется только эта строка.
-const APP_VERSION = 'v373';
+const APP_VERSION = 'v382';
 
 // Номер версии выводим ПЕРВЫМ делом: если дальше что-то упадёт, по нему сразу
 // видно, какая сборка открыта.
@@ -147,11 +147,22 @@ const { exportDrillCsv, exportDrillDxf } = window.Modul3D.cnc;
 // файла — приложение работает как раньше, просто без кнопки «Разметка».
 const markupApi = window.Modul3D.markup || null;
 
+// Выбор цвета пантографа секции: цвета берутся из вариантов позиции в Библиотеке
+// (HARDWARE_PRICES.pantograph.options); значение по умолчанию — цвет, выбранный там.
+function pantographColorSelectHtml(sec, i) {
+  const cat = window.Modul3D.catalog;
+  const item = cat.HARDWARE_PRICES.pantograph;
+  const colors = cat.optionColors(item);
+  if (!colors.length) return '<span class="hint">нет вариантов цвета</span>';
+  const cur = sec.pantographColor || item.selColor || colors[0];
+  return `<select data-field="pantographColor" data-idx="${i}">${colors.map((c) => `<option value="${esc(c)}" ${c === cur ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select>`;
+}
+
 function newSection() {
   return {
     shelves: 3, drawers: 0, facade: 'doorLeft', handle: 'bow160',
     shelfMode: 'auto', shelfHeights: [],
-    rod: false, rodHeight: 1900,
+    rod: false, rodHeight: 0, pantograph: false, pantographHeight: 0,
     drawerMode: 'auto', drawerHeights: [], drawerPinned: [], pushToOpen: false,
     drawerBoxHeight: 'auto',   // высота короба ящика: 'auto' или код из каталога
     drawerOffset: 10,   // технологический зазор от дна, чтобы ящик не тёрся
@@ -886,6 +897,12 @@ const state = {
   // что у фурнитуры и материалов разный смысл «характеристик». Чисто
   // UI-состояние, сессионное, дефолт false — как и остальные тумблеры колонок.
   libHwCharsVisible: false,
+  // Блок «Варианты» (длина × цвет, item.options) у позиции фурнитуры, открытый
+  // кнопкой «Варианты» под таблицей: { group, key } или null; libVarForm —
+  // поля мини-формы «+ вариант» этой позиции (зеркало DOM, чтобы перерисовка
+  // панели не стирала ввод). Чисто UI-состояние.
+  libVarOpen: null,
+  libVarForm: null,
   // Строка таблицы материалов, выделенная кликом (см. libRowHtml/
   // initLibraryPanel) — { group, key } или null. group/key — то же, что
   // читает libFindItem (group — истинное происхождение позиции: decors/
@@ -1151,6 +1168,18 @@ function mergeCatalogItem(savedItem, freshItem) {
   // каталога, пометка остаётся снятой, пока он не сбросит каталог к
   // заводским настройкам целиком (см. restoreCatalogFrom(CATALOG_DEFAULTS)).
   if (merged.priceNoteCleared) delete merged.priceNote;
+  // Варианты «длина × цвет» (item.options, selLength/selColor): сохранённые
+  // правки пользователя главнее — Object.assign выше уже оставил их как есть.
+  // Если в сохранённой копии вариантов нет (снимок до их появления), а в
+  // заводской есть — берём заводские целиком; новые заводские варианты в
+  // уже существующий список не дописываем.
+  if (!(Array.isArray(savedItem.options) && savedItem.options.length)
+      && Array.isArray(freshItem.options) && freshItem.options.length) {
+    merged.options = JSON.parse(JSON.stringify(freshItem.options));
+    if (freshItem.selLength !== undefined) merged.selLength = freshItem.selLength;
+    if (freshItem.selColor !== undefined) merged.selColor = freshItem.selColor;
+    if (window.Modul3D.catalog.syncItemToOption) window.Modul3D.catalog.syncItemToOption(merged);
+  }
   // categoryPathEdited — пользователь САМ переименовал или перенёс категорию,
   // в которой лежит эта позиция (✎/⇄ в дереве «Библиотеки», см.
   // libSetEntryPath). Тот же приём и та же причина, что и у priceNoteCleared
@@ -4728,6 +4757,7 @@ function libSheetShortName(it) {
 // внутри обёртки .lib-table-scroll, но не сжимает название.
 const LIB_NAME_COL_W = 163;
 const LIB_HW_NAME_COL_W = LIB_NAME_COL_W;
+const LIB_VAR_OPEN_HINT = 'Сначала кликните по строке позиции в таблице — выберите её';
 function libTableStyle(nameW, midW, pickMode, suppliersVisible) {
   const total = nameW + midW + (suppliersVisible ? 63 : 0) + (pickMode ? 76 : 0);
   return `table-layout:fixed;width:100%;min-width:${total}px`;
@@ -5138,6 +5168,273 @@ function libHwPriceDisplayValue(it, unit) {
   return it.price != null ? `${it.price} ${curSym()}` : '';
 }
 
+// ---------------------------------------------------------------------------
+// Варианты позиции фурнитуры «длина × цвет» (item.options, модель данных и
+// хелперы — catalog.js: itemOptions/optionLengths/optionColors/resolveOption/
+// syncItemToOption). Выбор варианта в Библиотеке — item.selLength/selColor;
+// item.price/article/sourceUrl всегда держим равными выбранному варианту
+// (syncItemToOption после ЛЮБОГО изменения выбора/вариантов).
+// ---------------------------------------------------------------------------
+
+// Две компактные выпадающие «Длина»/«Цвет» в колонке «Характеристики» строки
+// (одна колонка, списки друг под другом — ширина таблицы фиксирована).
+function libHwOptionSelectsHtml(group, key, it) {
+  const cat = window.Modul3D.catalog;
+  const opts = cat.itemOptions(it);
+  if (!opts.length) return '';
+  const lens = cat.optionLengths(it);
+  const cols = cat.optionColors(it);
+  const cur = cat.resolveOption(it);
+  const exact = opts.some((o) => o.length === it.selLength && o.color === it.selColor);
+  const selLen = lens.indexOf(it.selLength) >= 0 ? it.selLength : (cur && cur.length);
+  const selCol = cols.indexOf(it.selColor) >= 0 ? it.selColor : (cur && cur.color);
+  const mk = (field, list, selected, title) => `<select class="lib-opt-select" data-opt-field="${field}" data-opt-group="${esc(group)}" data-opt-key="${esc(key)}" title="${esc(title)}">`
+    + list.map((v) => `<option value="${esc(v)}" ${v === selected ? 'selected' : ''}>${esc(v)}</option>`).join('') + '</select>';
+  const note = exact ? '' : '<div class="lib-opt-note">Такого сочетания нет — показан ближайший вариант</div>';
+  const price = cur && cur.price != null ? `<div class="lib-opt-price">${esc(cur.price)} ${esc(curSym())}</div>` : '';
+  return `<div class="lib-opt-cell">${mk('selLength', lens, selLen, 'Длина, мм')}${mk('selColor', cols, selCol, 'Цвет')}${price}${note}</div>`;
+}
+
+// Смена «Длина»/«Цвет» в строке — тот же путь сохранения, что и у правки ячейки.
+function libSetOptionSelection(group, key, field, value) {
+  if (!requireLibraryEditAuth()) { renderLibraryPanel(); return; }
+  const it = libFindItem(group, key);
+  if (!it || (field !== 'selLength' && field !== 'selColor')) return;
+  it[field] = value;
+  window.Modul3D.catalog.syncItemToOption(it);
+  recompute();
+  scheduleCatalogSave();
+  renderLibraryPanel();
+}
+
+// Подсказки по названию карточки товара (mobilier.md: «… 645-910mm … antracit»):
+// диапазон мм → length/lengthMin/lengthMax, румынские слова цвета → русские.
+// Только предзаполнение полей — пользователь правит их до добавления.
+function libVarGuessFromName(name) {
+  const s = String(name || '');
+  const out = { length: '', lengthMin: '', lengthMax: '', color: '' };
+  const m = /(\d{3,4})\s*[-–—]\s*(\d{3,4})\s*(?:mm|мм)?/i.exec(s);
+  if (m) { out.length = `${m[1]}–${m[2]}`; out.lengthMin = m[1]; out.lengthMax = m[2]; }
+  const has = (w) => new RegExp(`(^|[^a-zа-яё])${w}([^a-zа-яё]|$)`, 'i').test(s);
+  if (has('crom') && has('negru')) out.color = 'хром/чёрный';
+  else if (has('antracit')) out.color = 'антрацит';
+  else if (has('alb')) out.color = 'белый';
+  else if (has('negru')) out.color = 'чёрный';
+  else if (has('crom')) out.color = 'хром';
+  else if (has('gri')) out.color = 'серый';
+  return out;
+}
+
+function libVarFormFor(group, key) {
+  const f = state.libVarForm;
+  if (f && f.group === group && f.key === key) return f;
+  state.libVarForm = { group, key, length: '', min: '', max: '', color: '', price: '', article: '', url: '', seed: true, busy: false, msg: '', err: false };
+  return state.libVarForm;
+}
+
+// Блок «Варианты» под таблицей: список вариантов с × и мини-форма «+ вариант».
+function libHwVariantsBlockHtml(group, key, it) {
+  const cat = window.Modul3D.catalog;
+  const opts = cat.itemOptions(it);
+  const cur = cat.resolveOption(it);
+  const f = libVarFormFor(group, key);
+  const rows = opts.map((o, i) => {
+    const range = Number.isFinite(o.lengthMin) && Number.isFinite(o.lengthMax) && String(o.length).indexOf(String(o.lengthMin)) < 0 ? ` (${o.lengthMin}–${o.lengthMax} мм)` : '';
+    const txt = `${o.length}${range} · ${o.color} · ${o.price != null ? o.price + ' ' + curSym() : '—'}${o.article ? ' · ' + o.article : ''}`;
+    return `<div class="lib-var-row${o === cur ? ' current' : ''}"><span class="lib-var-txt" title="${esc(txt)}">${esc(txt)}</span><button type="button" class="lib-var-del" data-var-idx="${i}" title="Удалить вариант">×</button></div>`;
+  }).join('');
+  const inp = (field, label, type, ph) => `<label class="lib-var-field"><span>${esc(label)}</span><input class="lib-var-f" data-vf="${field}" type="${type}" ${type === 'number' ? 'step="any" min="0"' : ''} placeholder="${esc(ph || '')}" value="${esc(f[field])}"></label>`;
+  const seedHtml = opts.length ? '' : `<label class="lib-var-seed"><input type="checkbox" class="lib-var-f" data-vf="seed" ${f.seed ? 'checked' : ''}> Сохранить текущую позицию как вариант «основной»</label>`;
+  const msgHtml = f.msg ? `<p class="hint lib-var-msg${f.err ? ' lib-link-error' : ''}">${esc(f.msg)}</p>` : '';
+  return `
+    <div class="lib-var-block" data-var-group="${esc(group)}" data-var-key="${esc(key)}">
+      <b>Варианты: ${esc(it.name || '')}</b>
+      ${rows || '<p class="hint">Вариантов пока нет — позиция с одной ценой.</p>'}
+      <div class="lib-var-form">
+        ${inp('length', 'Длина', 'text', '645–910')}
+        ${inp('min', 'От, мм', 'number', '')}
+        ${inp('max', 'До, мм', 'number', '')}
+        ${inp('color', 'Цвет', 'text', 'антрацит')}
+        ${inp('price', 'Цена', 'number', '')}
+        ${inp('article', 'Артикул', 'text', '')}
+      </div>
+      <p class="hint">«От/до» — необязательно: по ним секция сама выбирает размер. Если длины или цвета нет, впишите «—».</p>
+      ${seedHtml}
+      <div class="lib-leaf-actions"><button type="button" class="link-btn lib-var-add">+ вариант</button></div>
+      <div class="lib-var-url">
+        ${inp('url', 'Ссылка на карточку варианта', 'url', 'https://…')}
+        <button type="button" class="link-btn lib-var-fetch" ${f.busy ? 'disabled' : ''}>${f.busy ? 'Загружаем…' : '+ вариант по ссылке'}</button>
+      </div>
+      ${msgHtml}
+      <div class="lib-leaf-actions"><button type="button" class="link-btn lib-var-close">Закрыть</button></div>
+    </div>`;
+}
+
+// «+ вариант»: читает мини-форму (зеркало state.libVarForm), валидирует и
+// добавляет вариант в item.options; для позиции без вариантов создаёт options.
+function libVarAdd() {
+  if (!requireLibraryEditAuth()) return;
+  const open = state.libVarOpen;
+  if (!open) return;
+  const cat = window.Modul3D.catalog;
+  const it = libFindItem(open.group, open.key);
+  const f = libVarFormFor(open.group, open.key);
+  if (!it) return;
+  const fail = (msg) => { f.msg = msg; f.err = true; renderLibraryPanel(); };
+  const length = String(f.length || '').trim();
+  const color = String(f.color || '').trim();
+  const price = Number(f.price);
+  if (!length) return fail('Укажите длину (например 645–910; если её нет — «—»).');
+  if (!color) return fail('Укажите цвет (если его нет — «—»).');
+  if (String(f.price).trim() === '' || !(price >= 0)) return fail('Укажите цену — число не меньше нуля.');
+  const min = String(f.min).trim() === '' ? null : Number(f.min);
+  const max = String(f.max).trim() === '' ? null : Number(f.max);
+  if ((min == null) !== (max == null)) return fail('Диапазон «от/до» нужно заполнить целиком — или оставить оба поля пустыми.');
+  if (min != null && !(min > 0 && max >= min)) return fail('«От» должно быть больше нуля и не больше «до».');
+  const hadOptions = cat.itemOptions(it).length > 0;
+  if (hadOptions && it.options.some((o) => o && o.length === length && o.color === color)) {
+    return fail('Вариант с такой длиной и цветом уже есть — удалите его или измените поля.');
+  }
+  const opt = { length, color, price };
+  if (min != null) { opt.lengthMin = min; opt.lengthMax = max; }
+  const article = String(f.article || '').trim();
+  if (article) opt.article = article;
+  const url = String(f.url || '').trim();
+  if (url) opt.sourceUrl = url;
+  if (!hadOptions) {
+    it.options = [];
+    if (f.seed) {
+      const base = { length: 'основной', color: 'основной', price: it.price != null ? it.price : 0 };
+      if (it.article) base.article = it.article;
+      if (it.sourceUrl) base.sourceUrl = it.sourceUrl;
+      it.options.push(base);
+      it.selLength = base.length;
+      it.selColor = base.color;
+    } else {
+      it.selLength = length;
+      it.selColor = color;
+    }
+  }
+  it.options.push(opt);
+  cat.syncItemToOption(it);
+  state.libVarForm = null;
+  libVarFormFor(open.group, open.key);
+  recompute();
+  scheduleCatalogSave();
+  renderLibraryPanel();
+}
+
+function libVarDelete(idx) {
+  if (!requireLibraryEditAuth()) return;
+  const open = state.libVarOpen;
+  const cat = window.Modul3D.catalog;
+  const it = open && libFindItem(open.group, open.key);
+  if (!it || !Array.isArray(it.options) || !it.options[idx]) return;
+  const removed = it.options[idx];
+  const wasCurrent = removed === cat.resolveOption(it);
+  it.options.splice(idx, 1);
+  if (!it.options.length) {
+    // Вариантов не осталось — позиция снова простая (цена/артикул остаются).
+    delete it.options; delete it.selLength; delete it.selColor;
+  } else if (wasCurrent) {
+    it.selLength = it.options[0].length;
+    it.selColor = it.options[0].color;
+    cat.syncItemToOption(it);
+  }
+  recompute();
+  scheduleCatalogSave();
+  renderLibraryPanel();
+}
+
+// Запрос данных товара по ссылке — ОБЩИЙ путь «Добавить по ссылке»
+// (libLinkCheckSubmit) и «+ вариант по ссылке»: POST /catalog-link-parse.
+async function libLinkParseRequest(siteId, url) {
+  const token = getAuthToken();
+  if (!token) throw new Error('Войдите в аккаунт, чтобы проверить ссылку.');
+  const res = await fetch(`${AUTH_API_BASE}/catalog-link-parse`, {
+    method: 'POST',
+    headers: { authorization: 'Bearer ' + token, 'content-type': 'application/json' },
+    body: JSON.stringify({ siteId, url }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Не удалось получить данные с сайта.');
+  return data.draft || {};
+}
+
+// «+ вариант по ссылке»: тянет цену/артикул/ссылку, длину и цвет предзаполняет
+// по названию; результат кладёт В ПОЛЯ формы — добавляет вариант уже «+ вариант».
+async function libVarFetchByUrl() {
+  if (!requireLibraryEditAuth()) return;
+  const open = state.libVarOpen;
+  if (!open) return;
+  const f = libVarFormFor(open.group, open.key);
+  const url = String(f.url || '').trim();
+  if (!url) { f.msg = 'Вставьте ссылку на карточку варианта.'; f.err = true; renderLibraryPanel(); return; }
+  f.busy = true; f.msg = ''; f.err = false;
+  renderLibraryPanel();
+  try {
+    if (!state.libLinkSites) await loadLibLinkSites();
+    const siteId = libLinkResolveSiteId(url);
+    if (!siteId) throw new Error('Сайт этой ссылки не подключён — заполните поля вручную.');
+    const draft = await libLinkParseRequest(siteId, url);
+    if (draft.price == null) throw new Error('Сайт не отдал цену — впишите её вручную.');
+    const guess = libVarGuessFromName(draft.name);
+    f.price = String(draft.price);
+    f.article = draft.article ? String(draft.article) : '';
+    if (guess.length) { f.length = guess.length; f.min = guess.lengthMin; f.max = guess.lengthMax; }
+    if (guess.color) f.color = guess.color;
+    f.msg = 'Данные получены. Проверьте длину и цвет, при необходимости поправьте и нажмите «+ вариант».';
+    f.err = false;
+  } catch (err) {
+    f.msg = err.message || 'Не удалось получить данные.';
+    f.err = true;
+  }
+  f.busy = false;
+  renderLibraryPanel();
+}
+
+// Из вариативного товара (draft.variants, sebas.md: атрибуты × комбинации с
+// ценами) — список options. Атрибут с подписью «цвет/culoare/color» → color,
+// первый из остальных → length. form.variantSel — выбранная сейчас комбинация.
+function libLinkOptionsFromVariants(form) {
+  const variants = form.draft && form.draft.variants;
+  if (!variants || !Array.isArray(variants.attributes) || !variants.attributes.length || !Array.isArray(variants.items)) return null;
+  const attrs = variants.attributes;
+  const isColorAttr = (a) => /цвет|culoare|color|colour/i.test(String(a.label || a.id || ''));
+  const colorAttr = attrs.find(isColorAttr) || null;
+  const lengthAttr = attrs.find((a) => a !== colorAttr) || null;
+  const labelOf = (a, value) => {
+    const o = (a.options || []).find((x) => String(x.value).toLowerCase() === String(value).toLowerCase());
+    return o ? String(o.label) : String(value);
+  };
+  const valuesOf = (a, v) => (v != null && String(v) !== '' ? [String(v)] : (a.options || []).map((o) => String(o.value)));
+  const options = [];
+  variants.items.forEach((item) => {
+    if (!item || item.price == null) return;
+    const vals = item.values || {};
+    const lenVals = lengthAttr ? valuesOf(lengthAttr, vals[lengthAttr.id]) : [''];
+    const colVals = colorAttr ? valuesOf(colorAttr, vals[colorAttr.id]) : [''];
+    lenVals.forEach((lv) => colVals.forEach((cv) => {
+      const opt = { length: lengthAttr ? labelOf(lengthAttr, lv) : '—', color: colorAttr ? labelOf(colorAttr, cv) : '—', price: Number(item.price) };
+      const r = /(\d+(?:[.,]\d+)?)\s*[-–—]\s*(\d+(?:[.,]\d+)?)/.exec(opt.length);
+      if (r) { opt.lengthMin = Number(r[1].replace(',', '.')); opt.lengthMax = Number(r[2].replace(',', '.')); }
+      if (item.article) opt.article = String(item.article);
+      if (form.url) opt.sourceUrl = form.url;
+      const values = {};
+      attrs.forEach((a) => { values[a.id] = a === lengthAttr ? lv : a === colorAttr ? cv : (vals[a.id] || ''); });
+      opt.variantValues = values;
+      if (!options.some((o) => o.length === opt.length && o.color === opt.color)) options.push(opt);
+    }));
+  });
+  if (!options.length) return null;
+  const sel = form.variantSel || {};
+  return {
+    options,
+    selLength: lengthAttr && sel[lengthAttr.id] ? labelOf(lengthAttr, sel[lengthAttr.id]) : options[0].length,
+    selColor: colorAttr && sel[colorAttr.id] ? labelOf(colorAttr, sel[colorAttr.id]) : options[0].color,
+  };
+}
+
 // Таблица позиций одного листа/ветки вкладки «Фурнитура» — тот же каркас и
 // тот же НАБОР КОЛОНОК, что у материалов со свёрнутыми характеристиками (см.
 // libLeafTableHtml/libColgroup): Наименование / Образец / Цена, те же ширины
@@ -5156,6 +5453,14 @@ function libHwPriceDisplayValue(it, unit) {
 // безопасно берём из первой записи; opts.hwCategory — тот же самый ключ,
 // передаётся явно из libraryHardwareBlock и подстраховывает пустой лист
 // (когда entries вообще нет).
+// Ячейка «Характеристики» строки: чертёж присадки и (у позиций с вариантами)
+// два списка «Длина»/«Цвет»; у остальных без чертежа — «—».
+function libHwCharsCellHtml(group, key, it) {
+  const drawing = it.drawing ? libDrawingSwatchHtml(group, key, it.drawing, it.drawingFull, it.name) : '';
+  const selects = libHwOptionSelectsHtml(group, key, it);
+  return `<td class="lib-hw-chars-cell">${drawing}${selects}${drawing || selects ? '' : '—'}</td>`;
+}
+
 function libHardwareLeafTableHtml(topCode, path, entries, opts) {
   opts = opts || {};
   const category = (entries[0] && entries[0].item && entries[0].item.category) || opts.hwCategory || '';
@@ -5230,7 +5535,7 @@ function libHardwareLeafTableHtml(topCode, path, entries, opts) {
           data-row-idx="${i}" class="${isSelected ? 'lib-row-selected' : ''}">
         ${libEditCell(group, key, 'name', 'text', it.name, { afterHtml: moveIc, extraClass: 'lib-name-cell' })}
         ${suppliersVisible ? '' : `<td>${libSwatchHtml(group, key, it.image, it.sourceUrl)}</td>`}
-        ${hwCharsVisible ? `<td>${it.drawing ? libDrawingSwatchHtml(group, key, it.drawing, it.drawingFull, it.name) : '—'}</td>` : libHwPriceCellHtml(group, key, it, unit)}
+        ${hwCharsVisible ? libHwCharsCellHtml(group, key, it) : libHwPriceCellHtml(group, key, it, unit)}
         ${suppliersVisible ? `<td class="lib-supplier-col" title="${esc(supplierDisplay)}">${esc(supplierDisplay)}</td>` : ''}
         ${pickCell}
       </tr>`;
@@ -5268,7 +5573,13 @@ function libHardwareLeafTableHtml(topCode, path, entries, opts) {
   // позиция сейчас нигде не используется в проекте.
   const selectedHere = !!sel && entries.some((e) => e.group === sel.group && e.item.key === sel.key);
   const delHtml = `<button type="button" class="link-btn lib-row-del" ${selectedHere ? '' : 'disabled'}${selectedHere ? '' : ` title="${esc(LIB_ROW_DEL_HINT)}"`}>− Удалить позицию</button>`;
-  const actionsHtml = (addHtml || linkAddHtml || delHtml) ? `<div class="lib-leaf-actions">${addHtml}${linkAddHtml}${delHtml}</div>` : '';
+  // «Варианты» — открывает блок вариантов (длина × цвет) выделенной строки,
+  // активна, только если выделена строка ИЗ ЭТОЙ таблицы (как «− Удалить»).
+  const varHtml = `<button type="button" class="link-btn lib-var-open" ${selectedHere ? '' : 'disabled'} title="${esc(selectedHere ? 'Варианты выбранной позиции: длина, цвет, цена' : LIB_VAR_OPEN_HINT)}">Варианты</button>`;
+  const varOpen = state.libVarOpen;
+  const varEntry = varOpen ? entries.find((e) => e.group === varOpen.group && e.item.key === varOpen.key) : null;
+  const varBlockHtml = varEntry ? libHwVariantsBlockHtml(varEntry.group, varEntry.item.key, varEntry.item) : '';
+  const actionsHtml = (addHtml || linkAddHtml || delHtml) ? `<div class="lib-leaf-actions">${addHtml}${linkAddHtml}${varHtml}${delHtml}</div>` : '';
   // Кнопка-треугольник сортировки/фильтра — на тех же колонках, что и у
   // материалов: «Наименование» и «Цена» (у «Образца» фильтровать нечего).
   // Номер колонки обязан совпадать с позицией <td> в строке и с индексом в
@@ -5288,7 +5599,7 @@ function libHardwareLeafTableHtml(topCode, path, entries, opts) {
   // тумблер включён. Без кнопки-фильтра (.dth-filter-btn) — по аналогии с
   // «Образцом», фильтровать по картинке нечего.
   const drawingColHtml = hwCharsVisible ? '<col>' : '';
-  const drawingHeadHtml = hwCharsVisible ? '<th>Чертёж</th>' : '';
+  const drawingHeadHtml = hwCharsVisible ? '<th>Чертёж / вариант</th>' : '';
   // Колонка «Выбрать» (см. pickMode выше) — без заголовка и без фильтра, как
   // и «Образец», просто пустая шапка над кнопками строк.
   const pickColHtml = pickMode ? '<col style="width:76px">' : '';
@@ -5307,7 +5618,7 @@ function libHardwareLeafTableHtml(topCode, path, entries, opts) {
       ${hwCharsToggleHtml}
       ${suppliersToggleHtml}
       ${libPriceNoteHtml(items)}
-      <div class="lib-table-scroll"><table class="lib-table" style="${libTableStyle(LIB_HW_NAME_COL_W, suppliersVisible ? 58 : 112, pickMode, suppliersVisible)}" data-chars-key="${esc(tableKey)}">
+      <div class="lib-table-scroll"><table class="lib-table" style="${libTableStyle(LIB_HW_NAME_COL_W, (suppliersVisible ? 58 : 112) + (hwCharsVisible && items.some((x) => window.Modul3D.catalog.itemOptions(x).length) ? 56 : 0), pickMode, suppliersVisible)}" data-chars-key="${esc(tableKey)}">
         <colgroup><col style="width:${LIB_HW_NAME_COL_W}px">${suppliersVisible ? '' : '<col style="width:54px">'}${hwCharsVisible ? drawingColHtml : '<col>'}${supplierColHtml}${pickColHtml}</colgroup>
         <thead><tr>
           <th class="lib-th-filter"><span class="dth-label">Наименование</span>${filterBtn(0)}</th>
@@ -5319,6 +5630,7 @@ function libHardwareLeafTableHtml(topCode, path, entries, opts) {
         <tbody>${rowsHtml}${emptyRow}</tbody>
       </table></div>
       ${actionsHtml}
+      ${varBlockHtml}
     </div>`;
 }
 
@@ -6430,14 +6742,7 @@ async function libLinkCheckSubmit(panel) {
   form.step = 'loading';
   renderLibraryPanel();
   try {
-    const res = await fetch(`${AUTH_API_BASE}/catalog-link-parse`, {
-      method: 'POST',
-      headers: { authorization: 'Bearer ' + token, 'content-type': 'application/json' },
-      body: JSON.stringify({ siteId: form.siteId, url: form.url }),
-    });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(data.error || 'Не удалось получить данные с сайта.');
-    form.draft = data.draft || {};
+    form.draft = await libLinkParseRequest(form.siteId, form.url);
     // Зеркало полей экрана подтверждения относится к КОНКРЕТНОМУ черновику
     // (см. libLinkCaptureFormState): пользователь мог уже один раз дойти до
     // подтверждения, вернуться по ошибке на шаг ввода и проверить другую
@@ -7186,6 +7491,7 @@ function libLinkConfirmHtml(form) {
       <div class="field"><label>Наименование</label><input type="text" class="lib-link-f" data-f="name" value="${esc(nameVal)}"></div>
       <div class="field"><label>Артикул</label><input type="text" class="lib-link-f" data-f="article" value="${esc(articleVal)}"></div>
       ${libLinkVariantsHtml(form)}
+      ${isHw && libLinkOptionsFromVariants(form) ? `<label class="lib-link-allvars"><input type="checkbox" class="lib-link-allvars-cb" ${form.allVariants === false ? '' : 'checked'}> Сохранить все варианты (длина × цвет) — у каждого своя цена</label>` : ''}
       <div class="field"><label>Цена, ${esc(curSym())}</label><input type="number" step="any" class="lib-link-f" data-f="price" value="${esc(priceVal)}"></div>
       ${priceHintHtml}
       ${priceNoteHtml}
@@ -7843,13 +8149,32 @@ function libLinkSaveHardware(form, values, extra) {
   // ИМЕННО эту комбинацию. А предупреждение парсера про диапазон цен
   // (draft.priceNote) не сохраняем — в таблице фурнитуры его больше не
   // показывают (см. libPriceNoteHtml), только в форме добавления по ссылке.
-  const variant = libLinkSelectedVariantInfo(form);
+  // «Сохранить все варианты» (по умолчанию включено у вариативного товара):
+  // позиция получает item.options по всем комбинациям сайта вместо одной
+  // выбранной — см. libLinkOptionsFromVariants. Тогда имя без суффикса
+  // варианта (если пользователь его не правил), а вместо item.variant у
+  // каждого варианта свои variantValues для «Обновить цены с сайта».
+  const allOpts = form.allVariants === false ? null : libLinkOptionsFromVariants(form);
+  const variant = allOpts ? null : libLinkSelectedVariantInfo(form);
+  const finalName = allOpts && !(form.touched && form.touched.name) && form.draft && form.draft.name
+    ? String(form.draft.name).trim() : name;
   // sourceName/sourceArticle — то же, что у материалов (см.
   // libLinkSourceFields/libLinkSaveMaterial): «Обновить цены с сайта» по ним
   // отличает ручное переименование позиции от сайтового имени.
-  const common = Object.assign({ name, article, price, unit, category,
+  const common = Object.assign({ name: finalName, article, price, unit, category,
     sourceUrl: form.url, sourceSiteId: form.siteId, verifiedAt: new Date().toISOString() },
     libLinkSourceFields(form), variant ? { variant } : {}, subField);
+  if (allOpts) {
+    common.options = allOpts.options;
+    common.selLength = allOpts.selLength;
+    common.selColor = allOpts.selColor;
+    if (form.draft && form.draft.name) common.sourceName = String(form.draft.name);
+    // Цену/артикул, исправленные на экране подтверждения, получает выбранный
+    // вариант; затем item.price/article/sourceUrl сверяются с ним.
+    const chosenOpt = cat.resolveOption(common);
+    if (chosenOpt) { chosenOpt.price = price; if (article) chosenOpt.article = article; }
+    cat.syncItemToOption(common);
+  }
   if (category === 'mechanism') {
     cat.LIFTS[key] = Object.assign({ id: key, brand: '', minH: Number(extra.minH) || 0,
       maxH: Number(extra.maxH) || 0, maxW: Number(extra.maxW) || 0, note: '' }, common);
@@ -7924,10 +8249,22 @@ function libLinkedItemsList() {
   const cat = window.Modul3D.catalog;
   const list = [];
   const add = (it) => {
-    if (!it || !it.sourceUrl) return;
+    if (!it) return;
+    // Позиция с вариантами «длина × цвет»: у каждого варианта своя ссылка и
+    // цена — обновляем варианты по их sourceUrl, а не саму позицию (её цена
+    // всегда равна выбранному варианту, см. catalog.syncItemToOption).
+    if (Array.isArray(it.options) && it.options.length) {
+      it.options.forEach((o) => {
+        if (!o || !o.sourceUrl) return;
+        const sid = libLinkResolveSiteId(o.sourceUrl) || it.sourceSiteId;
+        if (sid) list.push({ item: it, option: o, url: o.sourceUrl, siteId: sid });
+      });
+      return;
+    }
+    if (!it.sourceUrl) return;
     const siteId = it.sourceSiteId || libLinkResolveSiteId(it.sourceUrl);
     if (!siteId) return;
-    list.push({ item: it, siteId });
+    list.push({ item: it, url: it.sourceUrl, siteId });
   };
   const addArr = (arr) => (arr || []).forEach(add);
   const addObj = (obj) => Object.keys(obj || {}).forEach((k) => add(obj[k]));
@@ -8020,6 +8357,24 @@ function libLinkApplyRefreshedDraft(it, d, siteId) {
   return true;
 }
 
+// Обновление цены ОДНОГО варианта «длина × цвет» (item.options) по его
+// sourceUrl. Название и артикул не трогаем (ручные правки главнее данных с
+// сайта) — только цена; затем item.price приводится к выбранному варианту.
+// Вариант из вариативного товара (variantValues) ищем той же libLinkFindVariant.
+// false — сайт цену варианта не отдал: цену не выдумываем.
+function libLinkApplyRefreshedOption(it, opt, d) {
+  let price = d.price;
+  if (opt.variantValues) {
+    const chosen = libLinkFindVariant(d.variants, opt.variantValues);
+    price = chosen ? chosen.price : null;
+  }
+  if (price == null) return false;
+  opt.price = price;
+  it.verifiedAt = new Date().toISOString();
+  window.Modul3D.catalog.syncItemToOption(it);
+  return true;
+}
+
 // «Обновить цены с сайта» — ОДНА кнопка на весь каталог пользователя (п.1.8
 // ТЗ, не по кнопке на каждую позицию): собирает все sourceUrl-позиции разом
 // и обновляет результатом те же объекты каталога. Поле цены определяем по
@@ -8060,21 +8415,24 @@ async function refreshCatalogLinkedPrices() {
       const res = await fetch(`${AUTH_API_BASE}/catalog-link-refresh`, {
         method: 'POST',
         headers: { authorization: 'Bearer ' + token, 'content-type': 'application/json' },
-        body: JSON.stringify({ items: chunk.map((e) => ({ url: e.item.sourceUrl, siteId: e.siteId })) }),
+        body: JSON.stringify({ items: chunk.map((e) => ({ url: e.url, siteId: e.siteId })) }),
       });
       // eslint-disable-next-line no-await-in-loop
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || 'Не удалось обновить цены.');
       const results = Array.isArray(data.results) ? data.results : [];
       results.forEach((r) => {
-        const matches = chunk.filter((e) => e.item.sourceUrl === r.url && e.siteId === r.siteId);
+        const matches = chunk.filter((e) => e.url === r.url && e.siteId === r.siteId);
         if (r.ok && r.draft) {
           matches.forEach((e) => {
             // Позиция могла не обновиться и при успешном ответе — если у неё
             // выбран вариант, а комбинация с сайта пропала (см.
             // libLinkApplyRefreshedDraft): считаем её такой же неудачной, как
             // и позицию, которую сервер вообще не смог прочитать.
-            if (libLinkApplyRefreshedDraft(e.item, r.draft, e.siteId)) updated += 1;
+            const okApplied = e.option
+              ? libLinkApplyRefreshedOption(e.item, e.option, r.draft)
+              : libLinkApplyRefreshedDraft(e.item, r.draft, e.siteId);
+            if (okApplied) updated += 1;
             else failed += 1;
           });
         } else {
@@ -8203,6 +8561,12 @@ function libSaveEdit(group, key, field, value) {
   const it = libFindItem(group, key);
   if (!it) return;
   it[field] = value;
+  // Позиция с вариантами «длина × цвет»: цена — у каждого варианта своя, правка
+  // пишется в ВЫБРАННЫЙ вариант (item.price остаётся равной ему).
+  if (field === 'price' && String(group).indexOf('hw:') === 0) {
+    const optSel = window.Modul3D.catalog.resolveOption(it);
+    if (optSel) { optSel.price = value; window.Modul3D.catalog.syncItemToOption(it); }
+  }
   // Миниатюры Библиотеки (_thumbCache, см. libModThumbDataUrl) кэшируются по
   // коду материала, а не по имени — но реальный цвет/текстуру в renderThumbnail
   // определяет decorLook() (viewer.js) по РЕГЭКСПУ ИМЕНИ («дуб»/«лдсп»/«бел» и
@@ -9909,6 +10273,14 @@ function libApplyRowSelectionDom(panel, next) {
     if (hasSel) btn.removeAttribute('title');
     else btn.title = LIB_ROW_DEL_HINT;
   });
+  panel.querySelectorAll('.lib-var-open').forEach((btn) => {
+    const body = btn.closest('.lib-leaf-body');
+    const table = body ? body.querySelector('table.lib-table') : null;
+    const hasSel = !!(next && table && Array.from(table.querySelectorAll('tr[data-row-key]'))
+      .some((tr) => tr.dataset.rowGroup === next.group && tr.dataset.rowKey === next.key));
+    btn.disabled = !hasSel;
+    btn.title = hasSel ? 'Варианты выбранной позиции: длина, цвет, цена' : LIB_VAR_OPEN_HINT;
+  });
 }
 
 // Клик по «остальной части» строки — НЕ редактируемая ячейка (название
@@ -10640,6 +11012,26 @@ function initLibraryPanel() {
     // неактивна (disabled), пока ничего не выбрано.
     const delRowBtn = e.target.closest('.lib-row-del');
     if (delRowBtn) { libDeleteSelectedRow(); return; }
+    // Варианты «длина × цвет» (см. libHwVariantsBlockHtml): открыть/закрыть
+    // блок, добавить/удалить вариант, добавить по ссылке. Клики по самому блоку
+    // и по спискам «Длина/Цвет» строки не должны выделять/снимать строку.
+    const varOpenBtn = e.target.closest('.lib-var-open');
+    if (varOpenBtn) {
+      const vsel = state.libSelectedRow;
+      if (!varOpenBtn.disabled && vsel) {
+        const same = state.libVarOpen && state.libVarOpen.group === vsel.group && state.libVarOpen.key === vsel.key;
+        state.libVarOpen = same ? null : { group: vsel.group, key: vsel.key };
+        renderLibraryPanel();
+      }
+      return;
+    }
+    if (e.target.closest('.lib-var-close')) { state.libVarOpen = null; renderLibraryPanel(); return; }
+    if (e.target.closest('.lib-var-add')) { libVarAdd(); return; }
+    const varDelBtn = e.target.closest('.lib-var-del');
+    if (varDelBtn) { libVarDelete(Number(varDelBtn.dataset.varIdx)); return; }
+    const varFetchBtn = e.target.closest('.lib-var-fetch');
+    if (varFetchBtn) { if (!varFetchBtn.disabled) libVarFetchByUrl(); return; }
+    if (e.target.closest('.lib-var-block') || e.target.closest('.lib-opt-select')) return;
     const swatch = e.target.closest('.lib-swatch');
     if (swatch) {
       // Touch (телефон/планшет, см. isTouchLibraryDevice) — лупа-иконка и
@@ -10738,6 +11130,20 @@ function initLibraryPanel() {
     // нужен ради общего CSS шапки), и по общему классу его нельзя отличить от
     // переключателя материалов. Состояние своё (state.libHwPriceUnit), чтобы
     // вкладки не влияли друг на друга.
+    const optSelEl = e.target.closest('.lib-opt-select');
+    if (optSelEl) {
+      libSetOptionSelection(optSelEl.dataset.optGroup, optSelEl.dataset.optKey, optSelEl.dataset.optField, optSelEl.value);
+      return;
+    }
+    const varField = e.target.closest('.lib-var-f');
+    if (varField && varField.dataset.vf === 'seed') {
+      if (state.libVarForm) state.libVarForm.seed = varField.checked;
+      return;
+    }
+    if (e.target.classList && e.target.classList.contains('lib-link-allvars-cb') && state.libLinkForm) {
+      state.libLinkForm.allVariants = e.target.checked;
+      return;
+    }
     const hwPriceUnitSel = e.target.closest('.lib-hw-price-unit-select');
     if (hwPriceUnitSel) {
       // Пишем в КЛЮЧ корневой категории (data-top у самого select, см.
@@ -10826,6 +11232,13 @@ function initLibraryPanel() {
   // бросают 'input' на каждое нажатие клавиши, без полной перерисовки панели
   // (иначе терялся бы фокус/курсор посреди набора текста).
   panel.addEventListener('input', (e) => {
+    // Мини-форма «+ вариант»: зеркалим поле в state, без перерисовки (иначе
+    // терялся бы фокус).
+    const varIn = e.target.closest && e.target.closest('.lib-var-f');
+    if (varIn && varIn.dataset.vf && varIn.dataset.vf !== 'seed' && state.libVarForm) {
+      state.libVarForm[varIn.dataset.vf] = varIn.value;
+      return;
+    }
     if (e.target.closest('.lib-link-form')) {
       libLinkMarkFieldTouched(e.target);
       libLinkRevalidate(panel);
@@ -14182,7 +14595,13 @@ function renderSectionsList() {
       <div class="sub">
         <label class="checkbox-inline"><input type="checkbox" data-field="rod" data-idx="${i}" ${sec.rod ? 'checked' : ''}> Штанга для одежды</label>
         ${sec.rod ? `<label class="mt6">Высота штанги от дна секции, мм</label>
-        <div class="mini-row"><input type="number" step="10" min="300" value="${sec.rodHeight || 1900}" data-field="rodHeight" data-idx="${i}"></div>` : ''}
+        <div class="mini-row"><input type="number" step="10" min="300" value="${sec.rodHeight || ''}" placeholder="${sec.pantograph ? 'авто — 1300 мм от пола, но ниже механизма пантографа' : 'авто — 1600 мм от пола'}" data-field="rodHeight" data-idx="${i}"></div>` : ''}
+        <label class="checkbox-inline mt6" title="Штанга опускается вниз ручкой (GTV PG-ST, 8 кг). Ставится вверху секции; штанга выше 2100 мм от дна без пантографа недоступна рукой."><input type="checkbox" data-field="pantograph" data-idx="${i}" ${sec.pantograph ? 'checked' : ''}> Пантограф (опускается ручкой)</label>
+        ${sec.pantograph ? `<label class="mt6">Высота оси трубы пантографа от дна секции, мм</label>
+        <div class="mini-row"><input type="number" step="10" min="300" value="${sec.pantographHeight || ''}" placeholder="авто — под крышей/полкой" data-field="pantographHeight" data-idx="${i}"></div>
+        <label class="mt6">Цвет пантографа</label>
+        <div class="mini-row">${pantographColorSelectHtml(sec, i)}</div>
+        <div class="hint">GTV PG-ST: от оси трубы до низа механизма 836 мм, ширина секции 545–1200 мм, вынос вперёд при опускании 710 мм. Пусто — максимально высоко (30 мм до крыши/полки). Штангу ставьте ниже механизма.</div>` : ''}
       </div>`;
 
     // Вертикальные отсеки фасада (пенал под встроенную технику): деление на
@@ -14339,12 +14758,15 @@ function renderSectionsList() {
       sec[f] = (f === 'facade' || f === 'shelfMode'
                 || f === 'widthMode'
                 || f === 'handle' || f === 'lift' || f === 'handleOrient'
-                || f === 'facadeType')
+                || f === 'facadeType' || f === 'pantographColor')
         ? e.target.value
         : (e.target.type === 'checkbox' ? e.target.checked : Number(e.target.value));
       // Вид фасада задан явно — старый флажок sec.glass (ранние сохранения)
       // больше не должен с ним спорить (ядро: facadeType || glass).
       if (f === 'facadeType') delete sec.glass;
+      // Включили/выключили штангу или пантограф — высота штанги снова «авто»
+      // (1500 под пантографом, 1800 без него), а не прежнее введённое число.
+      if (f === 'rod' || f === 'pantograph') sec.rodHeight = 0;
       // Смена количества ящиков снимает все фиксации высот фасадов (панель
       // «Ящики» этой секции переоткрывается с чистого автораспределения).
       if (f === 'drawers') {
