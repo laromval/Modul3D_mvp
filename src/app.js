@@ -14,7 +14,7 @@
 (function () {
 // Версия сборки — показывается во вкладке браузера и в шапке.
 // При выпуске новой версии меняется только эта строка.
-const APP_VERSION = 'v374';
+const APP_VERSION = 'v375';
 
 // Номер версии выводим ПЕРВЫМ делом: если дальше что-то упадёт, по нему сразу
 // видно, какая сборка открыта.
@@ -8311,9 +8311,23 @@ function libPickMaterial(rowGroup, code) {
     // копии в другой массив.
     const info = facadeTargetInfo(target);
     if (!info) { state.libPickTarget = null; renderLibraryPanel(); return; }
+    if (target.drawers) {
+      // Фасады ящиков секции (Focus Mode): материал — в sec.drawerFacadeMaterial,
+      // допустимые — по эффективному ВИДУ ящиков (drawerPickTypeId). Если свой
+      // вид ещё не задан (ящики повторяют секцию) — закрепляем его, иначе
+      // ядро материал ящиков не прочтёт.
+      const dId = drawerPickTypeId(info.sec);
+      if (!dId || !facadeMaterialOptionsOf(dId).some((o) => o.code === code)) return;
+      if (!info.sec.drawerFacadeType) info.sec.drawerFacadeType = dId;
+      info.sec.drawerFacadeMaterial = code;
+      libPickReturnToParams(target, info);
+      return;
+    }
     if (!facadeMaterialOptionsOf(info.ftId).some((o) => o.code === code)) return;
     const store = info.zi == null ? info.sec : ensureDoorZone(info.sec, info.zi);
     if (!store) { state.libPickTarget = null; renderLibraryPanel(); return; }
+    // Запись на уровень секции с экрана «Деталь» — ящики остаются как были.
+    if (target.pinDrawers && info.zi == null) pinDrawerFacade(info.sec);
     store.facadeMaterial = code;
     libPickReturnToParams(target, info);
     return;
@@ -8492,7 +8506,7 @@ function libPickReturnToParams(target, info) {
   if (target.returnTo === 'materials') {
     el = info ? document.getElementById('matFacadeField') : document.querySelector(`#paramsPanel [data-mat-pick="${target.role}"]`);
   } else if (target.returnTo === 'part') {
-    el = document.getElementById('partMaterial');
+    el = document.getElementById('partMaterial') || document.getElementById('partFacadeField');
   } else if (target.returnTo === 'module' && info) {
     el = document.querySelector(`[data-alu-open="${target.secIdx}"]`)
       || document.querySelector(`[data-sec-facade-pick="${target.secIdx}"]`);
@@ -11800,10 +11814,15 @@ function partKindPlaceholderBlock(mod) {
     <h3>Деталь</h3>
     <div class="hint">Редактор для этого вида детали (${esc(kindTitle)}) появится отдельным этапом.</div>`;
   }
+  // Фасады: выбор вида/материала прямо здесь (только Focus Mode, экран «Деталь»).
+  const sp = state.selectedPart;
+  const facadeFields = kind === 'door' && sp.asPart ? partDoorFacadeBlock(mod)
+    : (kind === 'drawerFront' ? partDrawerFacadeBlock(mod) : '');
   return `
     ${backLinkBlock()}
     <h3>${esc(chosen.part.name || kindTitle)}</h3>
     ${partPickerBlock(candidates, chosenIdx, kindTitle)}
+    ${facadeFields}
     ${partGrainField(chosen.part)}
     <div class="hint">Остальные поля (толщина, материал, присадка) для этого вида
     детали появятся отдельным этапом.</div>`;
@@ -12243,10 +12262,10 @@ function matFacadeFieldHtml() {
 // Клик по плашке «Фасад»: alu — конструктор в Библиотеке, прочие виды с
 // выбором материала — нужная категория Библиотеки в режиме подбора (роль
 // 'facadeMaterial'), где «Выбрать» есть только у допустимых материалов.
-function openFacadeMaterialPicker(t, returnTo) {
+function openFacadeMaterialPicker(t, returnTo, extra) {
   const info = facadeTargetInfo(t);
   if (!info) return;
-  const target = { role: 'facadeMaterial', moduleIdx: t.moduleIdx, moduleName: info.mod.name, secIdx: t.secIdx, zoneIdx: info.zi, returnTo: returnTo || 'materials' };
+  const target = Object.assign({ role: 'facadeMaterial', moduleIdx: t.moduleIdx, moduleName: info.mod.name, secIdx: t.secIdx, zoneIdx: info.zi, returnTo: returnTo || 'materials' }, extra || {});
   if (info.ftId === 'alu') { openAluConstructor(target); return; }
   const opts = facadeMaterialOptionsOf(info.ftId);
   if (!opts.length) return;
@@ -12255,6 +12274,154 @@ function openFacadeMaterialPicker(t, returnTo) {
   const code = cur && opts.some((o) => o.code === cur.code) ? cur.code : opts[0].code;
   const loc = libLocateMaterial(code) || { topCode: 'sheet', path: [] };
   state.libPickTarget = target;
+  libOpenPickLocation(loc.topCode, loc.path);
+}
+
+// Фасады ящиков секции, как их строит ядро (engine.drawerFacadeTypeOf —
+// единый источник): { id, material, ... } или null.
+function drawerFacadeInfo(sec) {
+  const engine = window.Modul3D.engine;
+  if (!sec || !engine || typeof engine.drawerFacadeTypeOf !== 'function') return null;
+  try {
+    return engine.drawerFacadeTypeOf(sec, state.decorCode, state.bodyThickness, state.facadeMatCode, state.facadeThickness);
+  } catch (err) { return null; }
+}
+// Виды фасада, допустимые ящикам (из ядра; запасной список — старый engine.js).
+function drawerFacadeAllowedTypes() {
+  const engine = window.Modul3D.engine;
+  return engine && Array.isArray(engine.DRAWER_FACADE_TYPES) ? engine.DRAWER_FACADE_TYPES : ['ldsp', 'mdf', 'wood'];
+}
+// Эффективный вид фасада ящиков, если он допустим для ящиков; иначе '' (ящики
+// повторяют, например, алюминиевый фасад секции — выбрать материал нельзя).
+function drawerPickTypeId(sec) {
+  const d = drawerFacadeInfo(sec);
+  return d && drawerFacadeAllowedTypes().indexOf(d.id) >= 0 ? d.id : '';
+}
+// «Закрепляет» фасады ящиков секции, пока они повторяют фасад секции: перед
+// записью вида/материала/alu-настроек на уровень секции (экран «Деталь»,
+// Focus Mode) ящики должны остаться как были, а не стать алюминиевыми.
+// Вид — текущий эффективный (если допустим ящикам, иначе ЛДСП), материал —
+// текущий эффективный у ЛДСП/МДФ. Для записи в отсек не нужна: ящики отсеков
+// не читают.
+function pinDrawerFacade(sec) {
+  const engine = window.Modul3D.engine;
+  if (!sec || !(Number(sec.drawers) > 0) || sec.drawerFacadeType) return;
+  const cur = effFacadeTypeId(sec);
+  const id = drawerFacadeAllowedTypes().indexOf(cur) >= 0 ? cur : 'ldsp';
+  sec.drawerFacadeType = id;
+  delete sec.drawerFacadeMaterial;
+  if ((id === 'ldsp' || id === 'mdf') && id === cur && engine && typeof engine.facadeMaterialOf === 'function') {
+    try {
+      const fm = engine.facadeMaterialOf(sec, matFacadeProj());
+      if (fm && fm.code) sec.drawerFacadeMaterial = fm.code;
+    } catch (err) { /* останется умолчание вида */ }
+  }
+}
+
+// Цель выбора фасада ДВЕРИ на экране «Деталь» (Focus Mode): секция и (если
+// секция делится на отсеки) отсек выбранной детали — НЕ активная секция
+// панели «Материалы». pinDrawers — запись на уровень секции сначала
+// закрепляет ящики (pinDrawerFacade).
+function partFacadeTarget(mod) {
+  const sp = state.selectedPart;
+  if (!mod || !sp || !Number.isInteger(sp.sectionIndex)) return null;
+  const sec = mod.sections && mod.sections[sp.sectionIndex];
+  if (!sec) return null;
+  const zc = secZoneCount(sec);
+  const zi = zc > 1 && Number.isInteger(sp.zoneIndex) && sp.zoneIndex >= 0 && sp.zoneIndex < zc ? sp.zoneIndex : null;
+  return { moduleIdx: state.modules.indexOf(mod), moduleName: mod.name, secIdx: sp.sectionIndex, zoneIdx: zi };
+}
+
+// Поля «Вид фасада»/«Материал фасада» ТОЛЬКО выбранной двери (экран «Деталь»,
+// Focus Mode). Те же данные, что в matFacadeFieldHtml, но цель — выбранная
+// деталь; кнопки «на весь проект» здесь нет.
+function partDoorFacadeBlock(mod) {
+  const t = partFacadeTarget(mod);
+  const info = facadeTargetInfo(t);
+  if (!info) return '';
+  const secFt = effFacadeTypeId(info.sec);
+  let typeHtml;
+  if (info.zi != null) {
+    const zone = (info.sec.doorZones || [])[info.zi] || {};
+    const own = zone.facadeType && FACADE_TYPES[zone.facadeType] ? zone.facadeType : '';
+    typeHtml = `
+      <select id="partFacadeType">
+        <option value="" ${own ? '' : 'selected'}>как у секции (${esc((FACADE_TYPES[secFt] || FACADE_TYPES.ldsp).name)})</option>
+        ${FACADE_TYPE_ORDER.map((id) => `<option value="${id}" ${own === id ? 'selected' : ''}>${esc(FACADE_TYPES[id].name)}</option>`).join('')}
+      </select>`;
+  } else {
+    typeHtml = `
+      <select id="partFacadeType">
+        ${FACADE_TYPE_ORDER.map((id) => `<option value="${id}" ${secFt === id ? 'selected' : ''}>${esc(FACADE_TYPES[id].name)}</option>`).join('')}
+      </select>`;
+  }
+  let matHtml;
+  if (info.ftId === 'alu') {
+    matHtml = `<label class="mt6">Алюминиевый фасад</label>${aluSummaryPlashkaHtml(info.eff, ' data-mat-pick="partFacade"')}`;
+  } else if (!facadeMaterialOptionsOf(info.ftId).length) {
+    matHtml = '<div class="hint">Материал для этого вида фасада — доработаем позже.</div>';
+  } else {
+    let fm = null;
+    try { fm = window.Modul3D.engine.facadeMaterialOf(info.eff, matFacadeProj()); } catch (err) { fm = null; }
+    matHtml = `<label class="mt6">Материал фасада</label>${matPickPlashkaHtml('partFacade', '', fm && fm.code, fm && fm.name)}
+      ${fm && fm.thickness ? `<div class="hint">Толщина фасада ${esc(fm.thickness)} мм</div>` : ''}`;
+  }
+  return `
+    <div class="field" id="partFacadeField">
+      <label>Вид фасада${info.zi != null ? ' отсека' : ''}</label>
+      ${typeHtml}
+      ${matHtml}
+      <div class="hint">Меняется только этот фасад; ящики секции остаются как были.</div>
+    </div>`;
+}
+
+// Поля «Вид»/«Материал» фасадов ящиков секции выбранного фасада ящика
+// (экран «Деталь», Focus Mode). Один выбор на ВСЕ ящики секции. Допустимы
+// только ЛДСП, МДФ и дерево (engine.DRAWER_FACADE_TYPES).
+function partDrawerFacadeBlock(mod) {
+  const t = partFacadeTarget(mod);
+  const sec = t && mod.sections[t.secIdx];
+  if (!sec) return '';
+  const allowed = drawerFacadeAllowedTypes();
+  const d = drawerFacadeInfo(sec);
+  const curId = d && allowed.indexOf(d.id) >= 0 ? d.id : '';
+  const warn = !curId ? `<div class="hint">Ящики сейчас повторяют фасад секции (${esc(((FACADE_TYPES[effFacadeTypeId(sec)] || FACADE_TYPES.ldsp)).name)}) — выберите ЛДСП, МДФ или дерево.</div>` : '';
+  let matHtml = '';
+  if (curId) {
+    if (facadeMaterialOptionsOf(curId).length) {
+      matHtml = `<label class="mt6">Материал</label>${matPickPlashkaHtml('partDrawerFacade', '', d && d.material)}
+        ${d && d.thickness ? `<div class="hint">Толщина фасада ${esc(d.thickness)} мм</div>` : ''}`;
+    } else {
+      matHtml = '<div class="hint">У этого вида фасада выбора материала нет.</div>';
+    }
+  }
+  return `
+    <div class="field" id="partFacadeField">
+      <label>Фасады ящиков · Секция ${t.secIdx + 1}</label>
+      <div class="hint">Меняется сразу у всех ящиков секции.</div>
+      ${warn}
+      <label class="mt6" for="partDrawerFacadeType">Вид</label>
+      <select id="partDrawerFacadeType">
+        ${curId ? '' : '<option value="" selected></option>'}
+        ${allowed.map((id) => `<option value="${id}" ${curId === id ? 'selected' : ''}>${esc((FACADE_TYPES[id] || {}).name || id)}</option>`).join('')}
+      </select>
+      ${matHtml}
+    </div>`;
+}
+// Клик по плашке материала фасада ящиков: Библиотека в режиме подбора с
+// допустимыми материалами вида ящиков (libPickMaterial/libPickRowAllowed,
+// флаг drawers).
+function openDrawerFacadeMaterialPicker(t) {
+  const info = facadeTargetInfo(t);
+  if (!info) return;
+  const dId = drawerPickTypeId(info.sec);
+  const opts = dId ? facadeMaterialOptionsOf(dId) : [];
+  if (!opts.length) return;
+  const d = drawerFacadeInfo(info.sec);
+  const code = d && opts.some((o) => o.code === d.material) ? d.material : opts[0].code;
+  const loc = libLocateMaterial(code) || { topCode: 'sheet', path: [] };
+  state.libPickTarget = { role: 'facadeMaterial', drawers: true, moduleIdx: t.moduleIdx, moduleName: info.mod.name,
+    secIdx: t.secIdx, zoneIdx: null, returnTo: 'part' };
   libOpenPickLocation(loc.topCode, loc.path);
 }
 
@@ -12558,6 +12725,10 @@ function libPickRowAllowed(topCode, entry) {
   }
   if (t.role === 'facadeMaterial') {
     const info = facadeTargetInfo(t);
+    if (info && t.drawers) {
+      const dId = drawerPickTypeId(info.sec);
+      return !!dId && facadeMaterialOptionsOf(dId).some((o) => o.code === code);
+    }
     return !!info && facadeMaterialOptionsOf(info.ftId).some((o) => o.code === code);
   }
   return false;
@@ -13772,6 +13943,8 @@ function libAluPickProfile(code) {
 // setAlu; без неё — свободная цель (активная секция).
 function openAluConstructorFromLibrary() {
   const t = state.libPickTarget;
+  // Подбор фасада ящиков: алюминий ящикам недопустим — конструктор не открываем.
+  if (t && t.role === 'facadeMaterial' && t.drawers) return;
   if (t && t.role === 'facadeMaterial' && facadeTargetInfo(t)) {
     openAluConstructor(Object.assign({}, t, { setAlu: true }));
     return;
@@ -14041,6 +14214,8 @@ function libAluDraftApply() {
     return;
   }
   aluDraftNormalize();
+  // Запись на уровень секции с экрана «Деталь» — ящики остаются как были.
+  if (outer && outer.pinDrawers && info.zi == null) pinDrawerFacade(info.sec);
   if (setAlu && info.ftId !== 'alu') {
     store.facadeType = 'alu';
     if (info.zi == null) delete store.glass;   // старый флажок не спорит с видом
@@ -14900,6 +15075,8 @@ function bindPanelEvents() {
         const role = btn.dataset.matPick;
         if (role === 'facade') openFacadeMaterialPicker(matFacadeTarget(), 'materials');
         else if (role === 'part') openPartMaterialPicker();
+        else if (role === 'partFacade') openFacadeMaterialPicker(partFacadeTarget(mod), 'part', { pinDrawers: true });
+        else if (role === 'partDrawerFacade') openDrawerFacadeMaterialPicker(partFacadeTarget(mod));
         else if (role === 'hangerSystem') openHangerSystemPicker();
         else openMaterialPicker(role);
       });
@@ -14946,6 +15123,41 @@ function bindPanelEvents() {
     if (fld && fld.scrollIntoView) fld.scrollIntoView({ block: 'center' });
   });
   on('p-facadeApplyAll', 'click', applyFacadeToWholeProject);
+
+  // Экран «Деталь» (Focus Mode): вид фасада ТОЛЬКО выбранной двери — отсека
+  // (пусто = как у секции) или секции. Запись на уровень секции сначала
+  // закрепляет ящики (pinDrawerFacade), чтобы они не сменились вместе с дверью.
+  on('partFacadeType', 'change', (e) => {
+    const t = partFacadeTarget(mod);
+    const info = facadeTargetInfo(t);
+    if (!info) return;
+    const v = e.target.value;
+    if (info.zi != null) {
+      const zone = ensureDoorZone(info.sec, info.zi);
+      if (!zone) return;
+      if (v && FACADE_TYPES[v]) zone.facadeType = v; else delete zone.facadeType;
+      delete zone.facadeMaterial;
+    } else {
+      if (!FACADE_TYPES[v]) return;
+      pinDrawerFacade(info.sec);
+      info.sec.facadeType = v;
+      delete info.sec.glass;
+    }
+    recompute();
+    renderParamsPanel();
+  });
+  // Вид фасадов ящиков секции (ЛДСП/МДФ/дерево) — один на все ящики секции.
+  // Материал прежнего вида не переносим — он станет умолчанием нового.
+  on('partDrawerFacadeType', 'change', (e) => {
+    const t = partFacadeTarget(mod);
+    const sec = t && mod.sections[t.secIdx];
+    const v = e.target.value;
+    if (!sec || drawerFacadeAllowedTypes().indexOf(v) < 0) return;
+    sec.drawerFacadeType = v;
+    delete sec.drawerFacadeMaterial;
+    recompute();
+    renderParamsPanel();
+  });
 
   // Добавление секции переехало в ряд вкладок секций (кнопка «+» рядом с
   // ними) — обработчик делегирован внутри renderSectionsList() на
