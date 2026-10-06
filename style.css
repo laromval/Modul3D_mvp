@@ -416,6 +416,17 @@ select:focus-visible {
   transition: opacity var(--dur-slow) var(--ease);
 }
 .warnings:empty { display: none; }
+/* Левая панель открыта — плашка не прячется под ней: центруется в свободной части
+   сцены (справа от панели), а не по всей ширине окна. Только на десктопе: на узком
+   экране панель во всю ширину, там плашка живёт по правилам мобильной раскладки. */
+@media (min-width: 821px) {
+  body:has(.drawer-left.open) .warnings {
+    --warn-dw: var(--drawer-w);
+    left: calc(var(--rail-w) + var(--sp-3) + var(--warn-dw) + (100% - var(--rail-w) - var(--sp-3) - var(--warn-dw)) / 2);
+    max-width: min(680px, calc(100% - var(--rail-w) - var(--sp-3) - var(--warn-dw) - 2 * (var(--gizmo-right) + var(--gizmo-size) + var(--sp-3))));
+  }
+  body:has(#drawer-library.lib-wide.open) .warnings { --warn-dw: min(420px, 92vw); }
+}
 .warn-row { display: flex; align-items: flex-start; gap: 10px; }
 .warn-x {
   margin-left: auto; flex: none; background: none; border: 0; cursor: pointer;

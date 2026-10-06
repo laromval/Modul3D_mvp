@@ -391,6 +391,10 @@ function nicheFromEdgeDoorHeight(doorHeight, t, gap) {
 // В ручном режиме (shelfHeights) диапазоны не учитываются — там высоту
 // задаёт сам пользователь, это его ответственность (см. комментарий у
 // вызова из buildModuleParts).
+// Рекомендованные высоты по типу одежды, мм: ось штанги над опорой (дно секции / полка / нижняя штанга).
+// Для пантографа — расстояние от оси его трубы вниз до полки под ним (решение пользователя 2026-10-06).
+const ROD_CLOTHES_HEIGHT = { long: 1500, mid: 1300, short: 1000 };
+
 function getShelfYs(sec, zoneBottomY, zoneH, t, originY, excludeRanges) {
   const n = sec.shelves || 0;
   if (!n) return [];
@@ -3810,7 +3814,24 @@ function buildModuleParts(p) {
       }
       shelfEntries.sort((a, b) => a.y - b.y);
     } else {
-      const zoneYs = getShelfYs(sec, shelfZoneBottom, shelfZoneH, t, innerBottomY, []);
+      let zoneYs = getShelfYs(sec, shelfZoneBottom, shelfZoneH, t, innerBottomY, []);
+      // Пантограф в секции: авто-полки не делят секцию «как пустую». Верхний отсек — под
+      // одежду пантографа: от оси трубы вниз до полки ровно по типу одежды (1500/1300/1000 мм);
+      // эта полка — верхняя из заданных, остальные ровно делят то, что ниже (решение 2026-10-06).
+      const pgAuto = sec.pantograph && sec.shelves > 0 && !(sec.shelfMode === 'manual' && Array.isArray(sec.shelfHeights));
+      if (pgAuto) {
+        const roofY = innerBottomY + innerH;
+        const wantedPgH = Number(sec.pantographHeight);
+        const tubeY = (Number.isFinite(wantedPgH) && wantedPgH > 0) ? innerBottomY + wantedPgH : roofY - 30;
+        const hang = ROD_CLOTHES_HEIGHT[sec.pantographClothes] || ROD_CLOTHES_HEIGHT.long;
+        const topShelfY = tubeY - hang - t / 2;
+        if (topShelfY > shelfZoneBottom + t + 40 && topShelfY < roofY) {
+          const rest = sec.shelves > 1
+            ? getShelfYs({ shelves: sec.shelves - 1, shelfMode: 'auto' }, shelfZoneBottom, topShelfY - shelfZoneBottom, t, innerBottomY, [])
+            : [];
+          zoneYs = rest.concat([topShelfY]);
+        }
+      }
       // sec.shelfFixed[si] — полка на стыке зон фасада (старый, однозонный
       // путь placeShelvesAtZoneBoundaries до появления per-zone полок выше).
       // Индекс si совпадает с sec.shelfHeights[si] 1:1 (getShelfYs в ручном
@@ -3906,7 +3927,7 @@ function buildModuleParts(p) {
       const ROD_D = 25;
       const ROD_TOP_GAP = 50;      // просвет от ВЕРХНЕЙ КРОМКИ трубы до полки/крыши, мм (подтверждено 2026-10-05)
       // Минимальная высота оси штанги от дна секции по типу одежды
-      const ROD_CLOTHES_MIN = { long: 1500, mid: 1300, short: 1000 };
+      const ROD_CLOTHES_MIN = ROD_CLOTHES_HEIGHT;   // и авто-высота оси при выборе «что вешаем» (решение 2026-10-06)
       const ROD_CLOTHES_NAME = { long: 'длинной одежды', mid: 'средней одежды', short: 'коротких вещей' };
       const ROD_BACK_MIN = 300;    // минимум от задней стенки до оси, мм
 
@@ -4038,11 +4059,29 @@ function buildModuleParts(p) {
         }
         const wanted = Number(sec.rodHeight);
         const manual = Number.isFinite(wanted) && wanted > 0;
-        // Авто-высота оси штанги — ОТ ПОЛА (y в модели от пола): 1600 мм одна штанга без
-        // пантографа; 2050 мм верхняя при двух штангах (нижняя 1000, зазор между трубами
+        // Авто-высота оси штанги: 1500 мм от дна секции одна штанга; 2050 мм верхняя при двух штангах (нижняя 1000, зазор между трубами
         // 1000 мм + толщина труб); 1300 мм под пантографом, но не ниже механизма.
-        const rodDefaultY = pgZone ? Math.min(1300, pgZone.bottom - 30) : (sec.rod2 ? 2050 : 1600);
+        // Две штанги (без пантографа): нижняя считается раньше верхней — размер «что вешаем»
+        // у ВЕРХНЕЙ откладывается от нижней штанги, а не от дна секции (решение 2026-10-06).
+        const twoRods = !!sec.rod2 && !sec.pantograph;
+        let rod2Y = 0;
+        if (twoRods) {
+          const w2 = Number(sec.rod2Height);
+          rod2Y = Number.isFinite(w2) && w2 > 0 ? innerBottomY + w2
+            : (ROD_CLOTHES_MIN[sec.rod2Clothes] ? innerBottomY + ROD_CLOTHES_MIN[sec.rod2Clothes] : 1000);   // авто — по типу одежды, иначе 1000 мм от пола
+        }
+        const clothesH = ROD_CLOTHES_MIN[sec.rodClothes] || 0;
+        const clothesY = !clothesH ? 0 : (twoRods ? rod2Y + clothesH : innerBottomY + clothesH);   // выбран тип одежды — высота по нему
+        // Без выбранного типа одежды — как для длинной (1500 от дна секции, решение 2026-10-06);
+        // две штанги — верхняя 2050 от пола; рядом с пантографом — не ниже механизма.
+        const longY = innerBottomY + ROD_CLOTHES_MIN.long;
+        const rodDefaultY = pgZone ? Math.min(clothesY || longY, pgZone.bottom - 30) : (clothesY || (sec.rod2 ? 2050 : longY));
         let rodY = manual ? innerBottomY + wanted : Math.min(rodDefaultY, ceiling - ROD_TOP_GAP - ROD_D / 2);
+        if (twoRods && !manual && clothesY && clothesY > ceiling - ROD_TOP_GAP - ROD_D / 2 + 0.5) {
+          warnings.push(`${secName}: верхняя штанга на ${clothesH} мм над нижней встала бы на ${Math.round(clothesY - innerBottomY)} мм `
+            + `от дна секции — выше секции (максимум ${Math.round(ceiling - ROD_TOP_GAP - ROD_D / 2 - innerBottomY)} мм). `
+            + `Установите пантограф или выберите размер меньше.`);
+        }
         const topLimit = ceiling - ROD_D / 2 - 10;
         if (rodY > topLimit) {
           warnings.push(`${secName}: штанга на ${Math.round(rodY - innerBottomY)} мм упирается в полку — `
@@ -4055,8 +4094,8 @@ function buildModuleParts(p) {
             + `для плечиков нужно не менее ${ROD_TOP_GAP} мм.`);
         }
         const clothesMin = ROD_CLOTHES_MIN[sec.rodClothes];
-        if (clothesMin && rodY - innerBottomY < clothesMin) {
-          warnings.push(`${secName}: штанга на ${Math.round(rodY - innerBottomY)} мм от дна — `
+        if (clothesMin && !twoRods && rodY - innerBottomY < clothesMin - 0.5) {
+          warnings.push(`${secName}: штанга на ${Math.round(rodY - innerBottomY)} мм от дна секции — `
             + `для ${ROD_CLOTHES_NAME[sec.rodClothes]} нужно не ниже ${clothesMin} мм.`);
         }
         if (!sec.pantograph && rodY - innerBottomY > 2100) {
@@ -4110,10 +4149,8 @@ function buildModuleParts(p) {
         // нижняя для коротких вещей. Расстояние между осями — не менее
         // ROD_PAIR_MIN (минимум для коротких вещей, подтверждено 2026-10-05).
         // Полки между штангами нет, правило 50 мм до полки к нижней не относится.
-        if (sec.rod2 && !sec.pantograph) {
+        if (twoRods) {
           const ROD_PAIR_MIN = 1000;
-          const w2 = Number(sec.rod2Height);
-          const rod2Y = Number.isFinite(w2) && w2 > 0 ? innerBottomY + w2 : 1000;   // авто — 1000 мм от пола
           if (rodY - rod2Y < ROD_PAIR_MIN - 0.5) {
             warnings.push(`${secName}: расстояние между штангами ${Math.round(rodY - rod2Y)} мм — `
               + `для коротких вещей нужно не менее ${ROD_PAIR_MIN} мм.`);

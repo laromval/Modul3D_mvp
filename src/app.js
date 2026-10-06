@@ -14,7 +14,7 @@
 (function () {
 // Версия сборки — показывается во вкладке браузера и в шапке.
 // При выпуске новой версии меняется только эта строка.
-const APP_VERSION = 'v381';
+const APP_VERSION = 'v382';
 
 // Номер версии выводим ПЕРВЫМ делом: если дальше что-то упадёт, по нему сразу
 // видно, какая сборка открыта.
@@ -14985,27 +14985,43 @@ function renderSectionsList() {
           : ''}
       </div>`;
 
+    // Выбор «что вешаем»: по типу одежды ядро ставит высоту оси штанги от пола.
+    // Одна строка: список «что вешаем» + (пока тип не выбран) поле своего размера.
+    // Пункт «свой размер» показывает установленную высоту: введённую или рекомендованную.
+    const ROD_CLOTHES_UI = { long: 1500, mid: 1300, short: 1000 };
+    const rodClothesRowHtml = (field, cur, idx, heightField, heightVal, rec, fromLower) => {
+      const custom = Number(heightVal) > 0;
+      // Пока тип не выбран (две штанги — рекомендуемые 2050/1000 от пола) в закрытом списке
+      // виден рекомендуемый размер, а в раскрытом списке его нет — только три типа.
+      const recOpt = cur ? '' : `<option value="" selected disabled hidden>Рекомендовано: ${rec}</option>`;
+      return `<div class="mini-row" style="display:flex;gap:6px;align-items:center">
+          <select data-field="${field}" data-idx="${idx}" style="flex:1 1 auto;min-width:0">
+            ${recOpt}
+            <option value="long"${cur === 'long' ? ' selected' : ''}>Длинная одежда ${ROD_CLOTHES_UI.long} мм</option>
+            <option value="mid"${cur === 'mid' ? ' selected' : ''}>Средняя одежда ${ROD_CLOTHES_UI.mid} мм</option>
+            <option value="short"${cur === 'short' ? ' selected' : ''}>Короткие вещи ${ROD_CLOTHES_UI.short} мм</option>
+          </select>
+          <input type="number" step="10" min="0" value="${custom ? Number(heightVal) : ''}" placeholder="${ROD_CLOTHES_UI[cur] || parseInt(rec, 10)}" title="Свой размер, мм" data-field="${heightField}" data-idx="${idx}" style="flex:0 0 90px;width:90px">
+        </div>`;
+    };
+
     // Штанга для одежды в кухонном модуле не бывает — блок не показываем.
     const rodBlock = mod.family === 'kitchen' ? '' : `
       <div class="sub">
         <label class="checkbox-inline"><input type="checkbox" data-field="rod" data-idx="${i}" ${sec.rod ? 'checked' : ''}> Штанга для одежды</label>
-        ${sec.rod ? `<label class="mt6">Высота штанги от дна секции, мм (пусто — авто)</label>
-        <div class="mini-row"><input type="number" step="10" min="0" value="${Number(sec.rodHeight) > 0 ? Number(sec.rodHeight) : ''}" placeholder="${sec.pantograph ? 'авто — 1300 мм от пола, но ниже механизма пантографа' : (sec.rod2 ? 'авто — 2050 мм от пола' : 'авто — 1600 мм от пола')}" data-field="rodHeight" data-idx="${i}"></div>
-        <label class="mt6">Что вешаем (проверка высоты)</label>
-        <div class="mini-row"><select data-field="rodClothes" data-idx="${i}">
-          <option value=""${!sec.rodClothes ? ' selected' : ''}>Не проверять</option>
-          <option value="long"${sec.rodClothes === 'long' ? ' selected' : ''}>Длинная (от 1500 мм)</option>
-          <option value="mid"${sec.rodClothes === 'mid' ? ' selected' : ''}>Средняя (от 1300 мм)</option>
-          <option value="short"${sec.rodClothes === 'short' ? ' selected' : ''}>Короткая (от 1000 мм)</option>
-        </select></div>
+        ${sec.rod ? `<label class="mt6">Рекомендованные размеры для одежды</label>
+        ${rodClothesRowHtml('rodClothes', sec.rodClothes, i, 'rodHeight', sec.rodHeight, sec.rod2 && !sec.pantograph ? '2050 мм от пола' : '1500 мм от дна секции', !!(sec.rod2 && !sec.pantograph))}
         ${sec.pantograph ? '' : `<label class="checkbox-inline mt6"><input type="checkbox" data-field="rod2" data-idx="${i}" ${sec.rod2 ? 'checked' : ''}> Вторая штанга ниже (для коротких вещей)</label>
-        ${sec.rod2 ? `<label class="mt6">Высота нижней штанги от дна секции, мм (пусто — авто: 1000 мм от пола; не менее 1000 мм до верхней)</label>
-        <div class="mini-row"><input type="number" step="10" min="0" value="${Number(sec.rod2Height) > 0 ? Number(sec.rod2Height) : ''}" placeholder="авто — 1000 мм от пола" data-field="rod2Height" data-idx="${i}"></div>` : ''}`}` : ''}
+        ${sec.rod2 ? `<label class="mt6">Нижняя штанга — рекомендованные размеры для одежды (до верхней не менее 1000 мм)</label>
+        ${rodClothesRowHtml('rod2Clothes', sec.rod2Clothes, i, 'rod2Height', sec.rod2Height, '1000 мм от пола')}` : ''}`}` : ''}
         <label class="checkbox-inline mt6" title="Штанга опускается вниз ручкой (GTV PG-ST, 8 кг). Ставится вверху секции; штанга выше 2100 мм от дна без пантографа недоступна рукой."><input type="checkbox" data-field="pantograph" data-idx="${i}" ${sec.pantograph ? 'checked' : ''}> Пантограф (опускается ручкой)</label>
-        ${sec.pantograph ? `<label class="mt6">Высота оси трубы пантографа от дна секции, мм</label>
-        <div class="mini-row"><input type="number" step="10" min="300" value="${sec.pantographHeight || ''}" placeholder="авто — под крышей/полкой" data-field="pantographHeight" data-idx="${i}"></div>
-        <label class="mt6">Цвет пантографа</label>
-        <div class="mini-row">${pantographColorSelectHtml(sec, i)}</div>
+        ${sec.pantograph ? `<div class="mini-row mt6" style="display:flex;gap:6px;align-items:center">
+          <select data-field="pantographClothes" data-idx="${i}" title="Что вешаем на пантограф: от оси трубы вниз до полки под ним" style="flex:1.4 1 0;min-width:0">
+            ${['long', 'mid', 'short'].map((k) => `<option value="${k}"${(sec.pantographClothes || 'long') === k ? ' selected' : ''}>${{ long: 'Длинная одежда', mid: 'Средняя одежда', short: 'Короткие вещи' }[k]} ${ROD_CLOTHES_UI[k]} мм</option>`).join('')}
+          </select>
+          <div style="flex:1 1 0;min-width:0">${pantographColorSelectHtml(sec, i)}</div>
+          <input type="number" step="10" min="300" value="${sec.pantographHeight || ''}" placeholder="авто" title="Высота оси трубы от дна секции, мм (пусто — максимально высоко)" data-field="pantographHeight" data-idx="${i}" style="flex:0 0 70px;width:70px">
+        </div>
         <div class="hint">GTV PG-ST: от оси трубы до низа механизма 836 мм, ширина секции 545–1200 мм, вынос вперёд при опускании 710 мм. Пусто — максимально высоко (30 мм до крыши/полки). Штангу ставьте ниже механизма; вторая штанга вместе с пантографом недоступна.</div>` : ''}
       </div>`;
 
@@ -15163,7 +15179,7 @@ function renderSectionsList() {
       sec[f] = (f === 'facade' || f === 'shelfMode'
                 || f === 'widthMode'
                 || f === 'handle' || f === 'lift' || f === 'handleOrient'
-                || f === 'facadeType' || f === 'rodClothes' || f === 'pantographColor')
+                || f === 'facadeType' || f === 'rodClothes' || f === 'rod2Clothes' || f === 'pantographClothes' || f === 'pantographColor')
         ? e.target.value
         : (e.target.type === 'checkbox' ? e.target.checked : Number(e.target.value));
       // Вид фасада задан явно — старый флажок sec.glass (ранние сохранения)
@@ -15172,6 +15188,13 @@ function renderSectionsList() {
       // Включили/выключили штангу или пантограф — высота штанги снова «авто»
       // (1500 под пантографом, 1800 без него), а не прежнее введённое число.
       if (f === 'rod' || f === 'pantograph') sec.rodHeight = 0;
+      // Выбрали тип одежды — штанга встаёт на высоту по нему (ручную высоту сбрасываем).
+      if (f === 'rodClothes') sec.rodHeight = 0;
+      // Включили штангу — в списке сразу «Длинная одежда»; две штанги — верхняя/нижняя по рекомендованным размерам.
+      if (f === 'rod' && sec.rod) sec.rodClothes = 'long';
+      if (f === 'pantograph' && sec.pantograph) sec.pantographClothes = 'long';
+      if (f === 'rod2') { sec.rodClothes = sec.rod2 ? '' : 'long'; sec.rod2Clothes = ''; sec.rodHeight = 0; sec.rod2Height = 0; }
+      if (f === 'rod2Clothes') sec.rod2Height = 0;
       // Смена количества ящиков снимает все фиксации высот фасадов (панель
       // «Ящики» этой секции переоткрывается с чистого автораспределения).
       if (f === 'drawers') {
