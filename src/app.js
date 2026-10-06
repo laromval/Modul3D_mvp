@@ -14,7 +14,7 @@
 (function () {
 // Версия сборки — показывается во вкладке браузера и в шапке.
 // При выпуске новой версии меняется только эта строка.
-const APP_VERSION = 'v383';
+const APP_VERSION = 'v384';
 
 // Номер версии выводим ПЕРВЫМ делом: если дальше что-то упадёт, по нему сразу
 // видно, какая сборка открыта.
@@ -13735,8 +13735,11 @@ function zoneCardHtml(sec, i, zi, doorZoneCount) {
         <label class="mt6">Высота каждой полки от низа отсека, мм</label>
         <div class="mini-row">
           ${Array.from({ length: zoneShelves }, (_, s) =>
-            `<input type="number" step="10" min="0" value="${(zone.shelfHeights && zone.shelfHeights[s]) || (300 * (s + 1))}"
-                    data-zoneshelfheight="${zi}" data-idx="${i}" data-zshelf="${s}" title="Полка ${s + 1}">`
+            `<div class="shelf-cell">
+              <input type="number" step="10" min="0" value="${(zone.shelfHeights && zone.shelfHeights[s]) || (300 * (s + 1))}"
+                    data-zoneshelfheight="${zi}" data-idx="${i}" data-zshelf="${s}" title="Полка ${s + 1}">
+              ${shelfFixedSelect(zone.shelfFixed && zone.shelfFixed[s], `data-zoneshelffixed="${zi}" data-idx="${i}" data-zshelf="${s}"`, s)}
+            </div>`
           ).join('')}
         </div>` : ''}
     </div>` : '';
@@ -14062,6 +14065,7 @@ function bindZoneFieldEvents(container, mod, refresh) {
       // зоны поровну, а не наследует случайные ручные значения.
       zone.shelfMode = 'auto';
       zone.shelfHeights = [];
+      zone.shelfFixed = [];
       refreshScreen();
       recompute();
     });
@@ -14083,6 +14087,14 @@ function bindZoneFieldEvents(container, mod, refresh) {
       const zone = ensureZone(sec, zi);
       zone.shelfHeights = zone.shelfHeights || [];
       zone.shelfHeights[Number(e.target.dataset.zshelf)] = Number(e.target.value);
+      recompute();
+    });
+  });
+  container.querySelectorAll('[data-zoneshelffixed]').forEach((el) => {
+    el.addEventListener('change', (e) => {
+      const sec = mod.sections[Number(e.target.dataset.idx)];
+      const zone = ensureZone(sec, Number(e.target.dataset.zoneshelffixed));
+      setShelfFixed(zone, Number(e.target.dataset.zshelf), e.target.value);
       recompute();
     });
   });
@@ -14131,10 +14143,28 @@ function shelfHeightsInputs(sec, i) {
   return `
     <div class="mini-row">
       ${Array.from({ length: sec.shelves }, (_, s) =>
-        `<input type="number" step="10" min="0" value="${(sec.shelfHeights && sec.shelfHeights[s]) || (300 * (s + 1))}"
-                data-shelf="${s}" data-idx="${i}" title="Полка ${s + 1}">`
+        `<div class="shelf-cell">
+          <input type="number" step="10" min="0" value="${(sec.shelfHeights && sec.shelfHeights[s]) || (300 * (s + 1))}"
+                data-shelf="${s}" data-idx="${i}" title="Полка ${s + 1}">
+          ${shelfFixedSelect(sec.shelfFixed && sec.shelfFixed[s], `data-shelffixed="${s}" data-idx="${i}"`, s)}
+        </div>`
       ).join('')}
     </div>`;
+}
+
+// Под высотой каждой полки (режим «Вручную») — «Съёмная» (на полкодержателях)
+// или «Жёсткая» (несъёмная, минификс Rastex к боковинам/стойкам). Движок
+// читает sec.shelfFixed[s] / zone.shelfFixed[s] — индекс совпадает с shelfHeights.
+function shelfFixedSelect(isFixed, attrs, s) {
+  return `<select ${attrs} title="Крепление полки ${s + 1}">
+    <option value="0" ${isFixed ? '' : 'selected'}>Съёмная</option>
+    <option value="1" ${isFixed ? 'selected' : ''}>Жёсткая</option>
+  </select>`;
+}
+
+function setShelfFixed(holder, s, value) {
+  holder.shelfFixed = holder.shelfFixed || [];
+  holder.shelfFixed[s] = value === '1';
 }
 
 // Блок «Полки» (режим авто/вручную + высоты) — полки принадлежат секции
@@ -14169,7 +14199,15 @@ function bindShelfFieldEvents(container, mod, refresh) {
       // поля в общем делегате [data-field] сайдбара (renderSectionsList).
       sec.shelfMode = 'auto';
       sec.shelfHeights = [];
+      sec.shelfFixed = [];
       refreshScreen();
+      recompute();
+    });
+  });
+  container.querySelectorAll('[data-shelffixed]').forEach((el) => {
+    el.addEventListener('change', (e) => {
+      const sec = mod.sections[Number(e.target.dataset.idx)];
+      setShelfFixed(sec, Number(e.target.dataset.shelffixed), e.target.value);
       recompute();
     });
   });
@@ -15246,6 +15284,7 @@ function renderSectionsList() {
       if (f === 'shelves') {
         sec.shelfMode = 'auto';
         sec.shelfHeights = [];
+        sec.shelfFixed = [];
       }
       if (f === 'shelfMode' && sec.shelfMode === 'manual') {
         fillManualShelfHeights(mod, Number(e.target.dataset.idx));
@@ -15261,6 +15300,14 @@ function renderSectionsList() {
       const sec = mod.sections[Number(e.target.dataset.idx)];
       sec.shelfHeights = sec.shelfHeights || [];
       sec.shelfHeights[Number(e.target.dataset.shelf)] = Number(e.target.value);
+      recompute();
+    });
+  });
+  // крепление полок: съёмная / жёсткая
+  list.querySelectorAll('[data-shelffixed]').forEach((el) => {
+    el.addEventListener('change', (e) => {
+      const sec = mod.sections[Number(e.target.dataset.idx)];
+      setShelfFixed(sec, Number(e.target.dataset.shelffixed), e.target.value);
       recompute();
     });
   });

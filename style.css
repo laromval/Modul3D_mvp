@@ -1342,6 +1342,9 @@ input[type='number']::-webkit-outer-spin-button {
 .dim { color: var(--muted); font-weight: 400; }
 .mt6 { margin-top: 6px; display: block; font-size: var(--fs-sm); color: var(--text-2); }
 .mini-row { display: flex; gap: 6px; margin-top: 4px; }
+/* Ячейка полки вручную: высота + под ней выбор «Съёмная/Жёсткая» */
+.shelf-cell { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.shelf-cell select { padding-left: 6px; padding-right: 18px; font-size: var(--fs-sm); text-overflow: ellipsis; }
 .sub { margin-top: var(--sp-2); padding-left: var(--sp-2); border-left: 2px solid var(--border); }
 .sub label { font-size: var(--fs-sm); color: var(--text-2); }
 

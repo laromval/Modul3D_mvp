@@ -1834,12 +1834,14 @@ const RASTEX = {
     : t >= 16 ? 12.7 : 12.2),
 };
 
-function jointPoints(depth) {
+// isShelf — несъёмная полка на Rastex: до 500 мм глубины два крепежа, свыше
+// 500 — три (решение пользователя 2026-10-06; у полки 450 три — перебор).
+function jointPoints(depth, isShelf) {
   const a = JOINT_SETBACK, b = depth - JOINT_SETBACK;
   // Узкая деталь (например планка 100 мм) — один крепёж по центру: два
   // с отступом 50 мм от каждого края сошлись бы в одну точку.
   if (b - a < 32) return [round1(depth / 2)];
-  const n = depth <= 400 ? 2 : (depth <= 700 ? 3 : 4);
+  const n = depth <= (isShelf ? 500 : 400) ? 2 : (depth <= 700 ? 3 : 4);
   const out = [];
   for (let i = 0; i < n; i++) out.push(round1(a + ((b - a) * i) / (n - 1)));
   return out;
@@ -3834,7 +3836,10 @@ function buildModuleParts(p) {
         const zoneYs = getShelfYs(
           { shelves: dz.shelves, shelfMode: dz.shelfMode, shelfHeights: dz.shelfHeights },
           zBottom, zHeight, t, zBottom, null);
-        for (const y of zoneYs) shelfEntries.push({ y, fixed: false, zi, zb: zBottom });
+        // dz.shelfFixed[k] — «Жёсткая» полка вручную (индекс = shelfHeights[k]).
+        const zoneFixedOk = dz.shelfMode === 'manual' && Array.isArray(dz.shelfFixed);
+        zoneYs.forEach((y, k) => shelfEntries.push({
+          y, fixed: zoneFixedOk && !!dz.shelfFixed[k], zi, zb: zBottom }));
       }
       shelfEntries.sort((a, b) => a.y - b.y);
     } else {
@@ -3877,7 +3882,7 @@ function buildModuleParts(p) {
       infoRow.zoneShelfManualHeights = {};
       if (multiZone) {
         for (const e of shelfEntries) {
-          if (e.fixed || e.zi === undefined) continue;
+          if (e.zi === undefined) continue;
           (infoRow.zoneShelfManualHeights[e.zi] = infoRow.zoneShelfManualHeights[e.zi] || [])
             .push(Math.round(e.y - t / 2 - e.zb));
         }
@@ -4323,7 +4328,7 @@ function buildModuleParts(p) {
           ? Math.max(0, hp.box.d - D) : 0;
         const pts = grooveExtra
           ? jointPoints(D).map((v) => round1(v + grooveExtra))
-          : jointPoints(hp.box.d);
+          : jointPoints(hp.box.d, hp.kind === 'shelf');
         // Кто кого перекрывает
         const bottomOverlays = (hp.kind === 'bottom') && (mode === 'onBottom');
         // ДНО НАВЕСНОГО модуля (вкладное) — решение пользователя 2026-09-27:
@@ -4512,7 +4517,7 @@ function buildModuleParts(p) {
         const atLeftD = dv.box.x < hp.box.x;
         const xEdgeD = atLeftD ? 0 : hp.length;
         const camXD = atLeftD ? RASTEX.camSetback : hp.length - RASTEX.camSetback;
-        const ptsD = jointPoints(hp.box.d);
+        const ptsD = jointPoints(hp.box.d, true);
         for (const py of ptsD) {
           const yOnDv = (hp.box.z - hp.box.d / 2) + py - dvBackZ;
           hp.holes.push({ x: round1(camXD), y: round1(py), d: RASTEX.camD,
