@@ -5051,7 +5051,7 @@ class Viewer3D {
         // отверстий, с тем же фильтром по виду (легенда присадки).
         if (drillCheck && slabNotches.length) {
           for (const n of slabNotches) {
-            if (drillOnly && n.kind !== drillOnly) continue;
+            const dimN = !!drillOnly && n.kind !== drillOnly;
             const du = (n.u1 - n.u0) * MM, dv = (n.v1 - n.v0) * MM, dt = tSize * 1.02 * MM;
             const uc = ((n.u0 + n.u1) / 2 - uSize / 2) * MM;
             const vc = ((n.v0 + n.v1) / 2 - vSize / 2) * MM;
@@ -5059,7 +5059,7 @@ class Viewer3D {
               : (planeIsY ? new THREE.BoxGeometry(du, dt, dv) : new THREE.BoxGeometry(du, dv, dt));
             const nm = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({
               color: DRILL_COLOR[n.kind] || 0x555555, roughness: 0.35, metalness: 0.1,
-              depthTest: false, transparent: true, opacity: 0.6,
+              depthTest: false, transparent: true, opacity: dimN ? 0.1 : 0.6,
             }));
             nm.renderOrder = 999;
             nm.userData.drill = n.kind;
