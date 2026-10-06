@@ -2566,6 +2566,10 @@ const STALE_TOUCH_POINTER_MS = 3000;
 // (pointerup в Viewer3D: `controls.moved > SCENE_DRAG_PX`), поэтому клик,
 // выбирающий модуль, никогда не переключит плоский вид в 3D.
 const SCENE_DRAG_PX = 6;
+// Ручка двери, перетаскивание по фасаду (см. _initHandleDrag):
+const HANDLE_SNAP_R = 40;    // радиус магнита к точкам примагничивания, мм
+const HANDLE_PICK_PX = 12;   // допуск захвата ручки по экрану, px
+const HANDLE_CLICK_PX = 4;   // смещение меньше этого — обычный клик, не перетаскивание
 // Полюсный порог: ближе к вертикали (phi < POLE_EPS или > π − POLE_EPS) вектор
 // «вверх» камеры берём вдоль ∓Z — иначе lookAt вырождается (см. update()).
 const POLE_EPS = 0.02;
@@ -2647,8 +2651,14 @@ class SimpleOrbitControl {
     this.onObjectDrag = null;
     this.onObjectDragEnd = null;
 
+    // Ставит Viewer3D (_initHandleDrag): если жест начался на ручке двери,
+    // которую можно тянуть, провайдер забирает его себе (true) — орбита,
+    // панорама и перетаскивание острова на этот жест не включаются.
+    this.captureProvider = null;
+
     this.dom.addEventListener('pointerdown', (e) => {
       this.dom.setPointerCapture(e.pointerId);
+      if (this.captureProvider && this.captureProvider(e)) return;
 
       if (e.pointerType === 'touch') {
         // Защитная очистка "протухших" записей — sweep по возрасту, а НЕ по
@@ -3243,6 +3253,9 @@ class Viewer3D {
     // у render()). Та же защита от срабатывания во время вращения камеры,
     // что и у одиночного клика: moved > 6 — вращали, клик не считается.
     this.renderer.domElement.addEventListener('dblclick', (e) => {
+      // Двойной клик по перетаскиваемой ручке — сброс её на авто-положение
+      // (onHandleMove с mode:null), а не вход в изоляцию.
+      if (this._handleDblClick(e)) return;
       if (!this.onIsolateModule || this.controls.moved > SCENE_DRAG_PX) return;
       // Гасим отложенный одиночный клик от pointerup (см. выше) — иначе он
       // выстрелит следом за изоляцией и собьёт состояние (лишний
@@ -3306,6 +3319,7 @@ class Viewer3D {
     // (палец мимо, по пустому месту).
     this.controls.hitTestProvider = (e) => this._hitTestAt(e).length > 0;
     this._initModuleDrag();
+    this._initHandleDrag();
 
     // Пользователь начал вращать САМУ СЦЕНУ, стоя в плоском виде: переходим
     // в 3D с теми же углами и сообщаем интерфейсу — ровно как при протяжке
@@ -3443,6 +3457,222 @@ class Viewer3D {
       const commit = !d.collide;
       if (!commit) d.roots.forEach((o, i) => o.position.copy(d.base[i]));
       if (this.moduleDragEnd) this.moduleDragEnd(d.info, d.dx, d.dz, commit);
+    };
+  }
+
+  /**
+   * Ручное перетаскивание ручки двери по фасаду — только по вертикали.
+   * Включается, только если задан колбэк this.onHandleMove(payload):
+   *   { module, si, zi, leaf, mode, floor }
+   *   module — имя модуля (то же, что в onSelectPart/onSelectZone);
+   *   mode — 'top' | 'bottom' | 'center' (прилипла к магниту), 'abs'
+   *   (свободно или к высоте другой ручки; floor — высота центра ручки от
+   *   пола, мм, до 0.1) или null (двойной клик — сброс на авто-положение).
+   * Пока тянем, двигаются только меши ручки (без пересчёта модели); модель
+   * обновляет app.js по колбэку. Esc во время жеста — отмена.
+   * Данные ручки (диапазон, магниты) лежат в userData.handleRef мешей ручки.
+   */
+  _initHandleDrag() {
+    this.onHandleMove = null;
+    this._hdrag = null;
+    const canvas = this.renderer.domElement;
+    const v = new THREE.Vector3();
+
+    // Группы-ручки с handleRef (обычно их единицы-десятки)
+    const handleGroups = () => this.group.children.filter((o) => o.userData && o.userData.handleRef);
+
+    // Координата точки на экране (px, относительно холста)
+    const toScreen = (x, y, z) => {
+      const rect = canvas.getBoundingClientRect();
+      v.set(x, y, z).project(this.camera);
+      return { x: (v.x * 0.5 + 0.5) * rect.width + rect.left, y: (-v.y * 0.5 + 0.5) * rect.height + rect.top };
+    };
+
+    // Ручка под курсором: допуск по экранным пикселям (ручка маленькая),
+    // дальше — проверка, что её не заслоняет другая деталь.
+    const pickHandle = (e) => {
+      if (!this.onHandleMove) return null;
+      let best = null, bestD = HANDLE_PICK_PX;
+      for (const g of handleGroups()) {
+        const half = g.userData.handleHalf || 0;
+        const halfX = g.userData.handleHalfX || 0;   // горизонтальная скоба: она длинная по горизонтали
+        // Расстояние до отрезка ручки на экране: вертикального (half) и горизонтального (halfX)
+        const segD = (x0, y0, z0, x1, y1, z1) => {
+          const a = toScreen(x0, y0, z0), b = toScreen(x1, y1, z1);
+          const abx = b.x - a.x, aby = b.y - a.y;
+          const len2 = abx * abx + aby * aby;
+          const t = len2 > 1e-6 ? Math.max(0, Math.min(1, ((e.clientX - a.x) * abx + (e.clientY - a.y) * aby) / len2)) : 0;
+          return Math.hypot(e.clientX - (a.x + abx * t), e.clientY - (a.y + aby * t));
+        };
+        const p0 = g.position;
+        let d = segD(p0.x, p0.y - half, p0.z, p0.x, p0.y + half, p0.z);
+        if (halfX) {
+          // у модуля, повёрнутого на 90/270°, скоба лежит вдоль оси z сцены
+          d = Math.min(d, g.userData.handleAlongZ
+            ? segD(p0.x, p0.y, p0.z - halfX, p0.x, p0.y, p0.z + halfX)
+            : segD(p0.x - halfX, p0.y, p0.z, p0.x + halfX, p0.y, p0.z));
+        }
+        if (d <= bestD) { bestD = d; best = g; }
+      }
+      if (!best) return null;
+      // Заслоняет ли ручку что-то ближе к камере (например, мы смотрим с тыла)
+      const hits = this._hitTestAt(e);
+      if (hits.length) {
+        const ray = this._raycaster.ray;
+        const tH = v.copy(best.position).sub(ray.origin).dot(ray.direction);
+        if (hits[0].distance < tH - 0.03) return null;
+      }
+      return best;
+    };
+
+    // Высота (м) точки вертикальной прямой через ручку, ближайшей к лучу курсора
+    const lineY = (e, g) => {
+      const rect = canvas.getBoundingClientRect();
+      const ndc = new THREE.Vector2(
+        ((e.clientX - rect.left) / rect.width) * 2 - 1,
+        -((e.clientY - rect.top) / rect.height) * 2 + 1);
+      this._raycaster.setFromCamera(ndc, this.camera);
+      const r = this._raycaster.ray;
+      const w0y = r.origin.y;
+      const w0 = new THREE.Vector3(r.origin.x - g.position.x, 0, r.origin.z - g.position.z);
+      const b = r.direction.y;
+      const den = 1 - b * b;
+      if (den < 1e-4) return null;   // смотрим строго вдоль вертикали — точка не определена
+      const dd = r.direction.x * w0.x + r.direction.z * w0.z + r.direction.y * w0y;
+      return (w0y - b * dd) / den;
+    };
+
+    // Положение центра ручки (мм) под курсором + магнит
+    const place = (e) => {
+      const d = this._hdrag;
+      const yv = lineY(e, d.groups[0]);
+      if (yv === null) return null;
+      const ref = d.ref;
+      let y = Math.max(ref.yMin, Math.min(ref.yMax, (yv + d.offset) / MM));
+      let snap = null, bestS = HANDLE_SNAP_R;
+      for (const s of (ref.snaps || [])) {
+        const dist = Math.abs(y - s.y);
+        if (dist <= bestS) { bestS = dist; snap = s; }
+      }
+      if (snap) y = Math.max(ref.yMin, Math.min(ref.yMax, snap.y));
+      return { y, snap };
+    };
+
+    const setY = (yMm) => {
+      for (const g of this._hdrag.groups) g.position.y = yMm * MM;
+    };
+
+    // Тонкая линия-маркер активной точки магнита поперёк фасада
+    const showSnap = (snap) => {
+      const d = this._hdrag;
+      if (!snap) { if (d.line) d.line.visible = false; return; }
+      if (!d.line) {
+        const g0 = d.groups[0];
+        const geo = new THREE.BufferGeometry().setFromPoints([
+          new THREE.Vector3(-0.2, 0, 0), new THREE.Vector3(0.2, 0, 0)]);
+        d.line = new THREE.Line(geo, new THREE.LineBasicMaterial({ color: 0x1976d2, depthTest: false }));
+        d.line.renderOrder = 6;
+        d.line.position.x = g0.position.x;
+        d.line.position.z = g0.position.z;
+        d.line.rotation.y = g0.rotation.y;   // вдоль фасада, как скоба
+        this.scene.add(d.line);
+      }
+      d.line.visible = true;
+      d.line.position.y = snap.y * MM;
+    };
+
+    const finish = (restore) => {
+      const d = this._hdrag;
+      if (!d) return;
+      this._hdrag = null;
+      if (d.line) {
+        this.scene.remove(d.line);
+        d.line.geometry.dispose(); d.line.material.dispose();
+      }
+      if (restore) for (const g of d.groups) g.position.y = d.y0 * MM;
+      canvas.style.cursor = '';
+    };
+
+    this.controls.captureProvider = (e) => {
+      if (!this.onHandleMove) return false;
+      if (this._hdrag) return true;                    // второй палец во время жеста — игнор
+      if (e.pointerType !== 'touch' && e.button !== 0) return false;
+      const g = pickHandle(e);
+      if (!g) return false;
+      const ref = g.userData.handleRef;
+      if (!(ref.yMax > ref.yMin)) return false;        // двигать некуда
+      const groups = handleGroups().filter((o) => o.userData.handleRef === ref);
+      const yv = lineY(e, g);
+      if (yv === null) return false;
+      this._hdrag = {
+        ref, groups, module: g.userData.module, y0: g.position.y / MM,
+        offset: g.position.y - yv,   // чтобы ручка не прыгала под курсор
+        x0: e.clientX, y0px: e.clientY, pid: e.pointerId,
+        drag: false, line: null, last: null,
+      };
+      this.controls.moved = 0;
+      return true;
+    };
+
+    canvas.addEventListener('pointermove', (e) => {
+      const d = this._hdrag;
+      if (!d) {
+        // Наведение мышью: курсор ns-resize над ручкой
+        if (e.pointerType === 'touch' || e.buttons || !this.onHandleMove || this.controls._dragging) return;
+        const hover = pickHandle(e);
+        canvas.style.cursor = hover ? 'ns-resize' : '';
+        return;
+      }
+      if (e.pointerId !== d.pid) return;
+      const px = Math.hypot(e.clientX - d.x0, e.clientY - d.y0px);
+      if (!d.drag) {
+        if (px <= HANDLE_CLICK_PX) { this.controls.moved = px; return; }
+        d.drag = true;
+        canvas.style.cursor = 'ns-resize';
+      }
+      this.controls.moved = 1000;   // жест — не клик: pointerup/dblclick выбора не делают
+      const p = place(e);
+      if (!p) return;
+      d.last = p;
+      setY(p.y);
+      showSnap(p.snap);
+    });
+
+    const up = (e, cancelled) => {
+      const d = this._hdrag;
+      if (!d || e.pointerId !== d.pid) return;
+      const last = d.last;
+      const commit = !cancelled && d.drag && last && Math.abs(last.y - d.y0) > 0.05;
+      finish(!commit);
+      if (!commit) return;
+      const ref = d.ref;
+      const kind = last.snap ? last.snap.kind : 'abs';
+      const named = kind === 'top' || kind === 'bottom' || kind === 'center';
+      this.onHandleMove({
+        module: d.module, si: ref.si, zi: ref.zi, leaf: ref.leaf,
+        mode: named ? kind : 'abs',
+        floor: named ? null : Math.round((last.y + ref.floorOffset) * 10) / 10,
+      });
+    };
+    canvas.addEventListener('pointerup', (e) => up(e, false));
+    canvas.addEventListener('pointercancel', (e) => up(e, true));
+
+    // Esc во время жеста — отмена: ручка возвращается на место
+    window.addEventListener('keydown', (e) => {
+      if (e.key !== 'Escape' || !this._hdrag) return;
+      finish(true);
+      e.stopPropagation();
+    }, true);
+
+    // Двойной клик по ручке — сброс на авто-положение; true = событие занято
+    this._handleDblClick = (e) => {
+      if (!this.onHandleMove) return false;
+      const g = pickHandle(e);
+      if (!g) return false;
+      if (this._clickTimer) { clearTimeout(this._clickTimer); this._clickTimer = null; }
+      const ref = g.userData.handleRef;
+      this.onHandleMove({ module: g.userData.module, si: ref.si, zi: ref.zi, leaf: ref.leaf, mode: null, floor: null });
+      return true;
     };
   }
 
@@ -4821,6 +5051,17 @@ class Viewer3D {
       if (row.shape === 'handleKnob' || row.shape === 'handleBowH' || row.shape === 'handleBowV') {
         for (const box of row.boxes) {
           const g = makeHandle(box, row.shape, row.module, isActive, row.cc, row.rot || 0, dimmed);
+          // Ручку двери можно потянуть по фасаду (см. _initHandleDrag):
+          // handleRef — данные движка (диапазон, магниты), half — полудлина
+          // по вертикали (м) для захвата по экранной близости.
+          if (row.handleRef) {
+            g.userData.handleRef = row.handleRef;
+            g.userData.handleHalf = (box.h * MM) / 2;
+            if (row.shape === 'handleBowH') {
+              g.userData.handleAlongZ = row.rot === 90 || row.rot === 270;
+              g.userData.handleHalfX = (box.w * MM) / 2;   // длина скобы — box.w до поворота модуля
+            }
+          }
           this.group.add(g);
         }
         continue;

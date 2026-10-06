@@ -1096,6 +1096,40 @@ function hingeHoles(W, H, hingeSide, shelves, warn, secName, glassDoor, railBott
   return out;
 }
 
+// Ссылка на ручку двери для перетаскивания в 3D: вертикальная или горизонтальная
+// скоба и кнопка (половина длины по вертикали — только у вертикальной). Привязки (snaps) и диапазон
+// достраивает applyHandleSnaps, когда положение всех ручек уже известно.
+function makeHandleRef(dh, si, zi, leaf, doorY, H, p, ft) {
+  if (!dh.count || dh.mounts.length !== 1) return null;
+  const m = dh.mounts[0];
+  return { si, zi, leaf, faceBottomY: doorY - H / 2, floorOffset: Number(p.mountBottom) || 0,
+    H, edge: doorHandleEdge(ft.frame), half: m.vertical ? m.cc / 2 : 0, manual: !!dh.manual,
+    yMin: 0, yMax: 0, snaps: [] };
+}
+// Привязки при перетаскивании ручки: верх (крайнее отверстие в edge мм от
+// верхнего торца двери), низ, середина двери и высота любой другой ручки модуля.
+// y — центр ручки в координатах модуля, как box.y у детали-ручки.
+function applyHandleSnaps(parts) {
+  const hs = parts.filter((r) => r.kind === 'handle' && r.handleRef);
+  if (!hs.length) return;
+  for (const r of hs) {
+    const f = r.handleRef;
+    const lo = f.faceBottomY + f.edge + f.half, hi = f.faceBottomY + f.H - f.edge - f.half;
+    f.yMin = round1(lo); f.yMax = round1(hi);
+    f.snaps = [{ kind: 'bottom', y: round1(lo) }, { kind: 'center', y: round1(f.faceBottomY + f.H / 2) },
+      { kind: 'top', y: round1(hi) }];
+    if (!(hi >= lo)) { r.handleRef = null; continue; }
+    const seen = [];
+    for (const o of hs) {
+      if (o === r) continue;
+      const y = o.box.y;
+      if (y < lo - 0.5 || y > hi + 0.5 || seen.some((v) => Math.abs(v - y) < 0.5)) continue;
+      seen.push(y);
+      f.snaps.push({ kind: 'abs', y: round1(y) });
+    }
+  }
+}
+
 // ВЫРАВНИВАНИЕ РУЧЕК БОЛЬШИХ ДВЕРЕЙ ПО СЕКЦИИ С ОТСЕКАМИ (решение
 // пользователя 2026-10-06). Ручка большой (неделёной) двери может стоять на
 // высоте 850–1000 мм от пола (центр ручки). Если в модуле есть секция, поделённая
@@ -1112,7 +1146,7 @@ function registerDoorHandle(reg, dh, zoneCount, wallHung, floorY, H, hStart, hEn
   const cy = dh.mounts.reduce((a, m) => a + m.cy, 0) / dh.mounts.length;
   const rec = { floorY, H, hStart, hEnd, doorIdx: hEnd, cy };
   if (zoneCount > 1) {
-    if (!wallHung && Number.isFinite(floorY) && m0.cc && m0.vertical && dh.mounts.length === 1) {
+    if (!dh.manual && !wallHung && Number.isFinite(floorY) && m0.cc && m0.vertical && dh.mounts.length === 1) {
       rec.altCy = H - edge - m0.cc / 2;       // ручка у верхнего края фасада
     }
     reg.divided.push(rec);
@@ -1121,6 +1155,7 @@ function registerDoorHandle(reg, dh, zoneCount, wallHung, floorY, H, hStart, hEn
   // «Уровень руки» — те же условия, что в handleLevel; горизонтальную скобу не трогаем
   if (wallHung || !Number.isFinite(floorY) || floorY + H <= 1100 || floorY >= 1200) return;
   if (m0.cc && !m0.vertical) return;
+  if (dh.manual) return;                // вручную поставленную ручку не двигаем
   reg.big.push(rec);
 }
 function shiftHandle(parts, b, delta) {
@@ -1169,6 +1204,28 @@ function handleLevel(o, H, edge) {
   return Math.min(Math.max(HAND_LEVEL - bottom, edge), H - edge);
 }
 
+// РУЧНОЕ ПОЛОЖЕНИЕ РУЧКИ ДВЕРИ (перетаскивание в 3D, решение пользователя
+// 2026-10-06). override: { mode: 'top'|'bottom'|'center'|'abs', floor } —
+// 'abs' хранит высоту центра ручки от ПОЛА, остальные режимы привязаны к самой
+// двери. Крайнее отверстие ближе edge к торцу двери не ставим. null — нет правки.
+function manualHandleCy(ov, H, edge, half, floorY) {
+  if (!ov) return null;
+  const lo = edge + half, hi = H - edge - half;
+  if (!(hi >= lo)) return null;
+  let cy;
+  if (ov.mode === 'top') cy = hi;
+  else if (ov.mode === 'bottom') cy = lo;
+  else if (ov.mode === 'center') cy = H / 2;
+  else if (ov.mode === 'abs' && Number.isFinite(Number(ov.floor)) && Number.isFinite(floorY)) cy = Number(ov.floor) - floorY;
+  else return null;
+  return Math.min(Math.max(cy, lo), hi);
+}
+const HANDLE_SNAP_R = 40;   // радиус примагничивания ручки при перетаскивании, мм
+function handleOverrideOf(p, si, zi, leaf) {
+  const all = p.handleOverrides;
+  return (all && all[si + '|' + zi + '|' + leaf]) || null;
+}
+
 function handleHoles(o) {
   const cat = window.Modul3D.catalog;
   let h = cat.HANDLES[o.handleId] || cat.HANDLES.none;
@@ -1184,6 +1241,7 @@ function handleHoles(o) {
 
   const W = o.width, H = o.height;
   const D = cat.HANDLE_HOLE_D;
+  let manual = false;          // положение задано вручную (перетаскиванием)
   const holes = [];
   // mounts — куда встанет сама ручка (для 3D и чертежей), в координатах детали
   const mounts = [];
@@ -1291,6 +1349,9 @@ function handleHoles(o) {
       if (top > H - edge) { bottom -= top - (H - edge); top = H - edge; }
       if (bottom < MIN_EDGE) { top += MIN_EDGE - bottom; bottom = MIN_EDGE; }
       if (top > H - MIN_EDGE) { bottom -= top - (H - MIN_EDGE); top = H - MIN_EDGE; }
+      // Ручное положение (перетаскивание в 3D) — поверх всех правил выше.
+      const ovCy = manualHandleCy(o.override, H, edge, half, floorY);
+      if (ovCy !== null) { bottom = ovCy - half; top = ovCy + half; manual = true; }
       const cy = (top + bottom) / 2;
       mounts.push({ cx: round1(cx), cy: round1(cy), cc: h.cc, vertical: true });
       holes.push({ x: round1(cx), y: round1(bottom), d: D, through: true, kind: 'handle' });
@@ -1298,7 +1359,11 @@ function handleHoles(o) {
     } else if (horizontal) {
       // ГОРИЗОНТАЛЬНО: ручка вдоль верхнего края, ближним отверстием
       // в edge мм от края открывания.
-      const cy = Math.min(Math.max(handleLevel(o, H, edge), MIN_EDGE), H - MIN_EDGE);
+      let cy = Math.min(Math.max(handleLevel(o, H, edge), MIN_EDGE), H - MIN_EDGE);
+      // Ручное положение (перетаскивание в 3D): горизонтальная скоба — «толщиной»
+      // в одну линию, поэтому отступ от торцов двери считаем до самой оси (half = 0).
+      const ovCy = manualHandleCy(o.override, H, edge, 0, Number(o.floorY));
+      if (ovCy !== null) { cy = ovCy; manual = true; }
       const near = o.hingeSide === 'left' ? W - edge : edge;
       const far = o.hingeSide === 'left' ? near - h.cc : near + h.cc;
       const ccx = (near + far) / 2;
@@ -1306,7 +1371,9 @@ function handleHoles(o) {
       holes.push({ x: round1(Math.min(near, far)), y: round1(cy), d: D, through: true, kind: 'handle' });
       holes.push({ x: round1(Math.max(near, far)), y: round1(cy), d: D, through: true, kind: 'handle' });
     } else {
-      const cy = Math.min(Math.max(handleLevel(o, H, edge), MIN_EDGE), H - MIN_EDGE);
+      let cy = Math.min(Math.max(handleLevel(o, H, edge), MIN_EDGE), H - MIN_EDGE);
+      const ovCy = h.holes === 1 ? manualHandleCy(o.override, H, edge, 0, Number(o.floorY)) : null;
+      if (ovCy !== null) { cy = ovCy; manual = true; }
       mounts.push({ cx: round1(cx), cy: round1(cy), cc: 0, vertical: false });
       holes.push({ x: round1(cx), y: round1(cy), d: D, through: true, kind: 'handle' });
     }
@@ -1314,7 +1381,7 @@ function handleHoles(o) {
 
   // отверстия не должны вылезать за деталь
   const bad = holes.filter((p) => p.x < 8 || p.x > W - 8 || p.y < 8 || p.y > H - 8);
-  return { holes, mounts, handle: h, count, overflow: bad.length > 0 };
+  return { holes, mounts, handle: h, count, overflow: bad.length > 0, manual };
 }
 
 // Создаёт «деталь» ручки для 3D и чертежей. В деталировку не попадает
@@ -1340,6 +1407,7 @@ function pushHandleParts(o) {
         : { w: KNOB_D, h: KNOB_D, d: KNOB_OUT },
       shape: isBow ? (m.vertical ? 'handleBowV' : 'handleBowH') : 'handleKnob',
       cc: m.cc || 0,
+      handleRef: o.ref || null,
       hardware: true,
     }));
   }
@@ -1953,6 +2021,10 @@ function makePart(o) {
     hasClip: !!o.hasClip,         // кухонная опора у переднего ряда с цоколем — держит его клипсой
     pantographColor: o.pantographColor || null, // цвет пантографа секции (null — как в Библиотеке)
     cc: o.cc || 0,                 // межосевое ручки — по нему стоят её ножки
+    // Ручка двери, которую можно перетащить в 3D (см. HANDLE_SNAP_R, pushHandleParts
+    // и applyHandleSnaps): { si, zi, leaf, faceBottomY, floorOffset, H, edge, half,
+    // manual, yMin, yMax, snaps:[{kind,y}] } — y в координатах модуля. null — не двигается.
+    handleRef: o.handleRef || null,
     // Присадка: отверстия в системе координат детали (левый нижний угол
     // лицевой стороны), готовые к выгрузке на станок.
     holes: o.holes || [],
@@ -5016,7 +5088,7 @@ function buildModuleParts(p) {
           handleId: sec.handle, handleCC: sec.handleCC, orient: sec.handleOrient,
           hingeSide: fac === 'doorLeft' ? 'left' : 'right',
           floorY: (Number(p.mountBottom) || 0) + doorY - doorZoneH / 2, frame: ft.frame,
-          wallHung: isWallHung(p),
+          wallHung: isWallHung(p), override: handleOverrideOf(p, i, zi, 0),
           zoneIndex: zi, zoneCount: zonesRaw.length });
         if (dh.overflow) warnings.push(`${secName}: ручка «${dh.handle.name}» не помещается на двери.`);
         if (dh.badCC) warnings.push(`${secName}: у ручки не задано межосевое расстояние — укажите его в секции.`);
@@ -5024,7 +5096,8 @@ function buildModuleParts(p) {
         const hStart = parts.length;
         pushHandleParts({ parts, mounts: dh.mounts, secName: zoneSecName, handleName: dh.handle.name,
           faceX: fX, faceY: doorY, faceW: facadeW, faceH: doorZoneH,
-          faceZ: D / 2 + ft.thickness / 2, t: ft.thickness });
+          faceZ: D / 2 + ft.thickness / 2, t: ft.thickness,
+          ref: makeHandleRef(dh, i, zi, 0, doorY, doorZoneH, p, ft) });
         registerDoorHandle(handleAlign, dh, zonesRaw.length, isWallHung(p),
           (Number(p.mountBottom) || 0) + doorY - doorZoneH / 2, doorZoneH, hStart, parts.length,
           doorHandleEdge(ft.frame));
@@ -5174,7 +5247,7 @@ function buildModuleParts(p) {
             handleId: sec.handle, handleCC: sec.handleCC, orient: sec.handleOrient,
             hingeSide: leaf === 0 ? 'left' : 'right',
             floorY: (Number(p.mountBottom) || 0) + doorY - doorZoneH / 2, frame: ft.frame,
-            wallHung: isWallHung(p),
+            wallHung: isWallHung(p), override: handleOverrideOf(p, i, zi, leaf),
             zoneIndex: zi, zoneCount: zonesRaw.length });
           if (dh.count) handleHardware.push({ id: dh.handle.id, qty: dh.count, name: dh.handle.name, cc: dh.handle.cc });
           const leafX = fX - facadeW / 2 + leafW / 2 + leaf * (leafW + 2 * gap);
@@ -5186,7 +5259,8 @@ function buildModuleParts(p) {
           const hStart = parts.length;
           pushHandleParts({ parts, mounts: dh.mounts, secName: zoneSecName, handleName: dh.handle.name,
             faceX: leafX, faceY: doorY, faceW: leafW, faceH: doorZoneH,
-            faceZ: D / 2 + ft.thickness / 2, t: ft.thickness });
+            faceZ: D / 2 + ft.thickness / 2, t: ft.thickness,
+            ref: makeHandleRef(dh, i, zi, leaf, doorY, doorZoneH, p, ft) });
           registerDoorHandle(handleAlign, dh, zonesRaw.length, isWallHung(p),
             (Number(p.mountBottom) || 0) + doorY - doorZoneH / 2, doorZoneH, hStart, parts.length,
           doorHandleEdge(ft.frame));
@@ -5296,6 +5370,7 @@ function buildModuleParts(p) {
   }
 
   alignBigDoorHandles(handleAlign, parts);
+  applyHandleSnaps(parts);
 
   // Ручные правки конкретных деталей — см. applyPartOverrides выше. Строго
   // ПОСЛЕДНИЙ шаг: все формулы корпуса уже отработали, соседние детали
@@ -5821,6 +5896,8 @@ function buildModel(project) {
       // отдельных деталей — в объекте модуля (как partOverrides).
       grainGroups: proj.grainGroups || {},
       grainOverrides: m.grainOverrides || {},
+      // Ручное положение ручек дверей (перетаскивание в 3D), см. manualHandleCy.
+      handleOverrides: m.handleOverrides || {},
       // Навеска верхнего модуля (applyWallHanger): объект системы из
       // catalog.HANGER_SYSTEMS и её код — для сметы.
       hangerSystem: hangerRes.sys, hangerSystemId: hangerRes.id,

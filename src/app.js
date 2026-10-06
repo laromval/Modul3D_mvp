@@ -14,7 +14,7 @@
 (function () {
 // Версия сборки — показывается во вкладке браузера и в шапке.
 // При выпуске новой версии меняется только эта строка.
-const APP_VERSION = 'v388';
+const APP_VERSION = 'v389';
 
 // Номер версии выводим ПЕРВЫМ делом: если дальше что-то упадёт, по нему сразу
 // видно, какая сборка открыта.
@@ -2230,6 +2230,7 @@ function libModProjectModuleOf(m) {
     legType: m.legType || 'metal',
     sections: engineSectionsOf(m),
     partOverrides: m.partOverrides || {},
+    handleOverrides: m.handleOverrides || {},
     countertop: m.countertop,
   };
 }
@@ -16207,6 +16208,8 @@ function recompute(isRetry) {
       // { [grainKey]: 'along' | 'across' }. Отдельно от partOverrides — оно не
       // должно помечать деталь «изменённой вручную».
       grainOverrides: m.grainOverrides || {},
+      // Ручное положение ручек дверей (перетаскивание в 3D): { 'секция|зона|створка': { mode, floor } }.
+      handleOverrides: m.handleOverrides || {},
       // Столешница модуля (панель «Столешница», см. countertopPanelBlock) —
       // читает buildModuleParts() в engine.js как p.countertop.
       countertop: m.countertop,
@@ -17725,6 +17728,20 @@ function initHeaderControls() {
       renderParamsPanel();
       state.selectedPart = { module, kind: 'door', side: undefined, subIndex: 0, sectionIndex, zoneIndex, asPart: false };
       viewer.render(currentModel, viewOpts());
+    };
+
+    // Ручка двери, перетащенная в 3D по фасаду (viewer.js, _initHandleDrag):
+    // mode 'top'|'bottom'|'center' — привязка к двери, 'abs' — высота центра
+    // от пола (floor, мм), null — сброс на автоматическое положение. Хранится в
+    // mod.handleOverrides['секция|зона|створка'] (см. manualHandleCy в engine.js).
+    viewer.onHandleMove = ({ module, si, zi, leaf, mode, floor }) => {
+      const mm = state.modules.find((m) => m.name === module);
+      if (!mm) return;
+      const key = si + '|' + zi + '|' + leaf;
+      mm.handleOverrides = mm.handleOverrides || {};
+      if (mode) mm.handleOverrides[key] = mode === 'abs' ? { mode, floor } : { mode };
+      else delete mm.handleOverrides[key];
+      recompute();
     };
 
     // Клик МИМО любой детали, пока изоляция активна — то же меню, но только
