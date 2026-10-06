@@ -14,7 +14,7 @@
 (function () {
 // Версия сборки — показывается во вкладке браузера и в шапке.
 // При выпуске новой версии меняется только эта строка.
-const APP_VERSION = 'v377';
+const APP_VERSION = 'v378';
 
 // Номер версии выводим ПЕРВЫМ делом: если дальше что-то упадёт, по нему сразу
 // видно, какая сборка открыта.
@@ -1619,6 +1619,15 @@ function deleteModule(idx) {
   // всегда снимать изоляцию/выбор детали, чем определять, задело ли удаление
   // именно изолированный модуль.
   exitIsolation();
+  {
+    // Удаляем начало группы — следующий модуль той же группы становится её началом.
+    const del = state.modules[idx], nxt = state.modules[idx + 1];
+    if (nxt && !nxt.groupStart && (del.groupStart || del.gx || del.gz)) {
+      if (del.groupStart) nxt.groupStart = true;
+      if (del.gx) nxt.gx = del.gx;
+      if (del.gz) nxt.gz = del.gz;
+    }
+  }
   state.modules.splice(idx, 1);
   // Удалили последний модуль — проект начат заново, прежний ручной выбор
   // корпуса больше не защищает его от белого корпуса первой кухни.
@@ -1674,6 +1683,140 @@ function renumberModules() {
 
 // Новый модуль встаёт СРАЗУ ЗА выделенным, а не в конец ряда: правее стоящие
 // модули сдвигаются дальше. Так добавляют модуль в середину гарнитура.
+// Габарит проекта на полу, мм ({x0,x1,z0,z1}) — по корпусам модулей из
+// последнего расчёта. Нужен, чтобы поставить остров перед имеющейся мебелью.
+function modelBoundsMm() {
+  const mods = (currentModel && currentModel.modules) || [];
+  if (!mods.length) return null;
+  const b = { x0: Infinity, x1: -Infinity, z0: Infinity, z1: -Infinity };
+  mods.forEach((q) => {
+    b.x0 = Math.min(b.x0, q.offsetX - q.dims.W / 2); b.x1 = Math.max(b.x1, q.offsetX + q.dims.W / 2);
+    b.z0 = Math.min(b.z0, q.offsetZ - q.dims.D / 2); b.z1 = Math.max(b.z1, q.offsetZ + q.dims.D / 2);
+  });
+  return b;
+}
+
+// Куда вставить новые модули (по переключателю «Добавлять: слева / справа /
+// отдельно»). Возвращает индекс в state.modules и выставляет у первого из
+// `list` флаги группы: «слева» от начала группы передаёт новому её начало и
+// смещение, «отдельно» — начинает новую группу (остров) в конце списка.
+// Перетаскивание острова мышью по полу (viewer.js, _initModuleDrag). Остров —
+// группа модулей (currentModel.moduleGroup > 0); основную группу тащим только с
+// Shift. Магнит: края и середины острова слегка притягиваются к краям и
+// серединам чужих модулей, у кухни — по краю столешницы (порог SNAP_MM) — «напротив» и «вровень», но на любом
+// расстоянии; Alt отключает. Наложение корпусов запрещено (красный контур).
+function bindIslandDrag() {
+  const SNAP_MM = 80;
+  const rectsOf = (pred) => {
+    const mods = (currentModel && currentModel.modules) || [];
+    return mods.map((q, i) => ({ i, x0: q.offsetX - q.dims.W / 2, x1: q.offsetX + q.dims.W / 2,
+      z0: q.offsetZ - q.dims.D / 2, z1: q.offsetZ + q.dims.D / 2 })).filter((r) => pred(r.i));
+  };
+  const unite = (rs) => rs.reduce((u, r) => ({ x0: Math.min(u.x0, r.x0), x1: Math.max(u.x1, r.x1),
+    z0: Math.min(u.z0, r.z0), z1: Math.max(u.z1, r.z1) }),
+    { x0: Infinity, x1: -Infinity, z0: Infinity, z1: -Infinity });
+  viewer.moduleDragProvider = (name, e) => {
+    if (!currentModel || !currentModel.moduleGroup) return null;
+    const idx = currentModel.modules.findIndex((q) => q.name === name);
+    if (idx < 0) return null;
+    const g = currentModel.moduleGroup[idx];
+    if (g === 0 && !(e && e.shiftKey)) return null;
+    const indices = [];
+    currentModel.moduleGroup.forEach((gg, i) => { if (gg === g) indices.push(i); });
+    return { group: g, indices, names: indices.map((i) => currentModel.modules[i].name),
+      head: indices[0] };
+  };
+  viewer.moduleDragMove = (info, dx, dz, e) => {
+    const inGroup = new Set(info.indices);
+    const carc = rectsOf(() => true);
+    const ownCarc = carc.filter((r) => inGroup.has(r.i));
+    const othCarc = carc.filter((r) => !inGroup.has(r.i));
+    // Столешницы: остров выравнивается по КРАЮ СТОЛЕШНИЦЫ основной кухни (а не
+    // по корпусу под ней) — особенно когда он повёрнут на 90°. Деталь
+    // столешницы знает свою группу (p.ctGroup, engine.js).
+    const tops = ((currentModel && (currentModel.partsRaw || currentModel.parts)) || []).filter((p) => p.kind === 'countertop')
+      .map((p) => ({ g: p.ctGroup || 0, x0: p.box.x - p.box.w / 2, x1: p.box.x + p.box.w / 2,
+        z0: p.box.z - p.box.d / 2, z1: p.box.z + p.box.d / 2 }));
+    const ownTops = tops.filter((t) => t.g === info.group);
+    const othTops = tops.filter((t) => t.g !== info.group);
+    const own = ownCarc.concat(ownTops);          // всё, что занимает место острова
+    const others = othCarc.concat(othTops);       // и чужое
+    const u = unite(own);                         // габарит острова с его столешницей
+    // Цели магнита: край столешницы к краю столешницы; нет столешниц — корпуса.
+    const targets = (ownTops.length && othTops.length) ? othTops : othCarc;
+    const guides = [];
+    if (!(e && e.altKey) && targets.length) {
+      const best = (lo, hi, key) => {
+        const sh = key === 'x' ? dx : dz;
+        const mine = [u[lo] + sh, (u[lo] + u[hi]) / 2 + sh, u[hi] + sh];
+        let res = null;
+        targets.forEach((o) => {
+          [o[lo], (o[lo] + o[hi]) / 2, o[hi]].forEach((t) => mine.forEach((m) => {
+            const d = t - m;
+            if (Math.abs(d) <= SNAP_MM && (!res || Math.abs(d) < Math.abs(res.d))) res = { d, at: t, o };
+          }));
+        });
+        return res;
+      };
+      const bx = best('x0', 'x1', 'x'), bz = best('z0', 'z1', 'z');
+      if (bx) dx += bx.d;
+      if (bz) dz += bz.d;
+      const sh = { x0: u.x0 + dx, x1: u.x1 + dx, z0: u.z0 + dz, z1: u.z1 + dz };
+      if (bx) guides.push({ x0: bx.at, x1: bx.at, z0: Math.min(sh.z0, bx.o.z0) - 300, z1: Math.max(sh.z1, bx.o.z1) + 300 });
+      if (bz) guides.push({ z0: bz.at, z1: bz.at, x0: Math.min(sh.x0, bz.o.x0) - 300, x1: Math.max(sh.x1, bz.o.x1) + 300 });
+    }
+    dx = Math.round(dx); dz = Math.round(dz);
+    const collide = own.some((a) => others.some((o) =>
+      a.x0 + dx < o.x1 - 0.5 && a.x1 + dx > o.x0 + 0.5 && a.z0 + dz < o.z1 - 0.5 && a.z1 + dz > o.z0 + 0.5));
+    return { dx, dz, collide, guides,
+      rect: { x0: u.x0 + dx, x1: u.x1 + dx, z0: u.z0 + dz, z1: u.z1 + dz } };
+  };
+  viewer.moduleDragEnd = (info, dx, dz, commit) => {
+    if (!commit) { showToastSafe('Остров нельзя поставить поверх другого модуля'); return; }
+    const head = state.modules[info.head];
+    if (!head) return;
+    head.gx = Math.round((Number(head.gx) || 0) + dx);
+    head.gz = Math.round((Number(head.gz) || 0) + dz);
+    recompute();
+    const gxEl = document.getElementById('islandGx'), gzEl = document.getElementById('islandGz');
+    if (gxEl && state.modules[groupHeadIndex(state.activeModule)] === head) { gxEl.value = head.gx; gzEl.value = head.gz; }
+  };
+}
+function showToastSafe(msg) {
+  try {
+    if (typeof showToast === 'function') showToast(msg);
+    else console.warn(msg);
+  } catch (_) { console.warn(msg); }
+}
+
+function placementIndexFor(list) {
+  list.forEach((m) => { delete m.groupStart; delete m.gx; delete m.gz; });
+  const n = state.modules.length;
+  const mode = state.addMode || 'right';
+  if (!n) return 0;
+  if (mode === 'island') {
+    const b = modelBoundsMm();
+    const D = Number(list[0].depth) || 600;
+    list[0].groupStart = true;
+    // Перед имеющейся мебелью, через проход ~900 мм, по центру композиции.
+    list[0].gx = b ? Math.round((b.x0 + b.x1) / 2) : 0;
+    list[0].gz = b ? Math.round(b.z1 + 900 + D / 2) : 0;
+    return n;
+  }
+  if (mode === 'left') {
+    const at = Math.min(state.activeModule, n - 1);
+    const head = state.modules[at];
+    if (head && (head.groupStart || at === 0)) {
+      if (head.groupStart) list[0].groupStart = true;
+      if (head.gx) list[0].gx = head.gx;
+      if (head.gz) list[0].gz = head.gz;
+      delete head.groupStart; delete head.gx; delete head.gz;
+    }
+    return at;
+  }
+  return Math.min(state.activeModule + 1, n);
+}
+
 function insertModule(m) {
   // Вставка сдвигает и может переименовать соседние модули (renumberModules
   // ниже) — изоляция всё равно не имеет смысла в момент добавления нового
@@ -1707,7 +1850,7 @@ function insertModule(m) {
   // Вставленный модуль — всегда НОВЫЙ: клон из пресета/библиотеки/комплекта
   // мог принести uid эталона (или другого модуля проекта), см. newModuleUid.
   m.uid = newModuleUid();
-  const at = Math.min(state.activeModule + 1, state.modules.length);
+  const at = placementIndexFor([m]);
   state.modules.splice(at, 0, m);
   renumberModules();
   state.activeModule = at;
@@ -1750,7 +1893,7 @@ function insertModulesBatch(mods) {
     }
   });
   mods.forEach((m) => { m.uid = newModuleUid(); });   // см. insertModule
-  const at = Math.min(state.activeModule + 1, state.modules.length);
+  const at = placementIndexFor(mods);
   state.modules.splice(at, 0, ...mods);
   renumberModules();
   state.activeModule = at;
@@ -2149,6 +2292,18 @@ function libModLeafGridHtml(topCode, path, entries) {
   return `<div class="lib-leaf-body"><div class="lib-grid">${tiles}${empty}</div></div>`;
 }
 
+// Переключатель «Добавлять: слева / справа / отдельно» — стоит в «Базе модулей»,
+// откуда модуль и добавляется; действует на все способы добавления.
+function addModeRowHtml() {
+  return `
+    <div class="add-mode" id="addModeRow">
+      <span class="add-mode-label">Добавлять:</span>
+      ${[['left', '← Слева'], ['right', 'Справа →'], ['island', 'Отдельно']].map(([k, t]) =>
+        `<button type="button" class="add-mode-btn ${(state.addMode || 'right') === k ? 'active' : ''}" data-addmode="${k}"
+                 title="${k === 'left' ? 'Новый модуль встанет слева от выбранного' : k === 'right' ? 'Новый модуль встанет справа от выбранного' : 'Новый модуль встанет отдельно от остальных (остров); его можно тащить мышью по полу'}">${t}</button>`).join('')}
+    </div>`;
+}
+
 function libraryBlock() {
   const catsHtml = libTabRootCodes('modules')
     .map((code) => libTopCategoryTreeHtml('modules', code, 0))
@@ -2157,6 +2312,7 @@ function libraryBlock() {
   // дублировал название активной вкладки .lib-tabs прямо над ним (то же на
   // «Материалах»/«Фурнитуре»/«Дверях») и съедал место на телефоне.
   return `
+    ${addModeRowHtml()}
     <div class="lib-link-refresh-bar">
       <button type="button" class="btn" data-lib-save-project="1" title="Сохранить текущий проект в «Базу модулей»">Сохранить в базу</button>
       ${libAddCatTileHtml('modules')}
@@ -11291,11 +11447,46 @@ function moduleTabsBlock(mod) {
         ${state.modules.map((m, i) =>
           `<button class="mod-tab tip tip-down ${i === state.activeModule ? 'active' : ''}" data-mod="${i}"
                    data-search="${esc(m.name.toLowerCase())}" type="button"
-                   data-tip="ПКМ: переименование">${esc(m.name)}${m.rotation ? ` ↻${m.rotation}°` : ''}</button>`
+                   data-tip="ПКМ: переименование${m.groupStart && i > 0 ? '. ◆ — начало острова' : ''}">${m.groupStart && i > 0 ? '◆ ' : ''}${esc(m.name)}${m.rotation ? ` ↻${m.rotation}°` : ''}</button>`
         ).join('')}
       </div>
       <button class="mod-add tip tip-down" id="addModule" type="button" data-tip="Добавить модуль" aria-label="Добавить модуль">+</button>
-    </div>`;
+    </div>
+    ${islandPositionBlock()}`;
+}
+
+// Положение острова (группы, к которой относится выбранный модуль) — для
+// точной правки числами; мышью остров тащится прямо по полу в 3D.
+function groupHeadIndex(i) {
+  let h = i;
+  while (h > 0 && !state.modules[h].groupStart) h--;
+  return h;
+}
+function islandPositionBlock() {
+  const h = groupHeadIndex(state.activeModule);
+  const head = state.modules[h];
+  if (!head || (h === 0 && !head.gx && !head.gz)) return '';
+  return `<div class="island-pos">${h > 0 ? 'Остров' : 'Группа'}: X <input type="number" id="islandGx" step="10" value="${Math.round(head.gx || 0)}"> мм,
+    Z <input type="number" id="islandGz" step="10" value="${Math.round(head.gz || 0)}"> мм</div>`;
+}
+function bindAddMode() {
+  document.querySelectorAll('[data-addmode]').forEach((b) => {
+    b.addEventListener('click', () => {
+      state.addMode = b.dataset.addmode;
+      document.querySelectorAll('[data-addmode]').forEach((x) =>
+        x.classList.toggle('active', x === b));
+    });
+  });
+  ['islandGx', 'islandGz'].forEach((id) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.addEventListener('change', () => {
+      const head = state.modules[groupHeadIndex(state.activeModule)];
+      if (!head) return;
+      head[id === 'islandGx' ? 'gx' : 'gz'] = Number(el.value) || 0;
+      recompute();
+    });
+  });
 }
 
 // Фильтр строки поиска над вкладками модулей — та же логика, что и
@@ -14891,6 +15082,7 @@ function exitFocusMode() {
 // как…», см. большой комментарий над state.libModPlacements) его нет, левый
 // клик по ним идёт отдельным путём (addLibModCardToProject).
 function bindLibraryEvents() {
+  bindAddMode();
   document.querySelectorAll('.lib-item').forEach((b) => {
     b.addEventListener('click', () => {
       // Клик, которым браузер завершает перетаскивание миниатюры (см.
@@ -14955,6 +15147,7 @@ function bindPanelEvents() {
   // вкладках модулей — остальные поля не отрисованы, обращаться к ним нельзя.
   if (!mod) {
     on('addModule', 'click', () => insertModule(newModule()));
+    bindAddMode();
     updateHistoryButtons();
     return;
   }
@@ -14983,6 +15176,7 @@ function bindPanelEvents() {
     });
   });
   on('addModule', 'click', () => insertModule(newModule()));
+  bindAddMode();
   updateHistoryButtons();
 
   on('m-width', 'change', (e) => { mod.width = Number(e.target.value); recompute(); });
@@ -15413,6 +15607,9 @@ function recompute(isRetry) {
       uid: m.uid,
       name: m.name, width: m.width, height: m.height, depth: m.depth,
       rotation: m.rotation || 0, corner: !!m.corner, family: m.family || 'custom',
+      // Остров: groupStart — модуль начинает отдельную группу, gx/gz — её
+      // смещение по полу, мм (engine.js, раскладка по группам).
+      groupStart: !!m.groupStart, gx: Number(m.gx) || 0, gz: Number(m.gz) || 0,
       topType: m.topType, railWidth: m.railWidth, noBack: !!m.noBack,
       backMount: m.backMount, backGroove: m.backGroove, wallHung: m.wallHung,
       // Отметка верха навесного модуля от пола (engine.js, mountBottom).
@@ -16803,6 +17000,7 @@ function initHeaderControls() {
     viewer.onCameraFit = () => {
       if (state.view !== 'iso') renderViewOverlay();
     };
+    bindIslandDrag();
   }
 
   // Оверлей размеров пересчитываем при любом движении камеры

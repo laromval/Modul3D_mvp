@@ -2889,3 +2889,11 @@ body.is-focus .scrim { opacity: 0 !important; }
 .lib-link-cat-node[hidden] { display: none; }
 .lib-link-cat-node.selected { background: var(--accent-soft); box-shadow: inset 3px 0 0 var(--accent); }
 .lib-link-cat-node.selected .lib-tree-name { color: var(--accent); font-weight: 600; }
+
+/* Переключатель «Добавлять: слева / справа / отдельно» и положение острова */
+.add-mode { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; margin: 0 0 var(--sp-2); font-size: 12px; }
+.add-mode-label { color: var(--muted, #888); margin-right: 2px; }
+.add-mode-btn { padding: 3px 8px; border: 1px solid var(--border, #c9c9c9); border-radius: 6px; background: transparent; color: inherit; cursor: pointer; font-size: 12px; }
+.add-mode-btn.active { background: var(--accent, #2e7d32); border-color: var(--accent, #2e7d32); color: #fff; }
+.island-pos { font-size: 12px; margin: 0 0 var(--sp-2); }
+.island-pos input { width: 64px; }
