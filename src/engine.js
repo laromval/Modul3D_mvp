@@ -4119,24 +4119,6 @@ function buildModuleParts(p) {
               + `для коротких вещей нужно не менее ${ROD_PAIR_MIN} мм.`);
           }
           emitRod(rod2Y, `нижняя штанга, до верхней ${Math.round(rodY - rod2Y)} мм, `);
-
-          // Две штанги в секции делят её на два отсека: между ними несъёмная
-          // жёсткая полка на Rastex во всю глубину (решение пользователя
-          // 2026-10-05). Над нижней трубой — те же 50 мм до полки.
-          const midShelfY = rod2Y + ROD_D / 2 + ROD_TOP_GAP + t / 2;
-          const midHidden = sectionFrontHidden(sec, decor, t, facadeMat, p.facadeThickness);
-          if (midShelfY + t / 2 > rodY - ROD_D / 2) {
-            warnings.push(`${secName}: между штангами нет места для жёсткой полки — раздвиньте штанги.`);
-          } else {
-            parts.push(makePart({
-              name: 'Полка', section: secName, material: decor.code, thickness: t,
-              length: secW, width: D, qty: 1, kind: 'shelf', glass: false, fixed: true,
-              note: 'Несъёмная, между двумя штангами, во всю глубину корпуса, крепится минификсами Rastex к боковинам',
-              edging: { long1: midHidden ? EDGE_BACK : EDGE_FRONT, long2: EDGE_BACK, short1: EDGE_BACK, short2: EDGE_BACK },
-              x: secCenterX, y: midShelfY, z: 0,
-              dims: { w: secW, h: t, d: D },
-            }));
-          }
         }
       }
     }
