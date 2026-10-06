@@ -1337,6 +1337,21 @@ function facadeTypeOf(sec, decor, t, facadeMat, facadeThickness) {
   };
 }
 
+// Фасады ящиков секции (решение владельца 2026-10-05, Focus Mode): у ящиков
+// СВОЙ вид и материал — sec.drawerFacadeType / sec.drawerFacadeMaterial, один
+// на все ящики секции. Допустимы только ЛДСП, МДФ и деревянный фасад (алюминий,
+// стекло и фрезерованный МДФ для ящиков не годятся). Не задано (или вид не из
+// списка) — фасады ящиков, как и раньше, повторяют вид секции (обратная
+// совместимость старых проектов и «обычного» режима).
+const DRAWER_FACADE_TYPES = ['ldsp', 'mdf', 'wood'];
+function drawerFacadeTypeOf(sec, decor, t, facadeMat, facadeThickness) {
+  const own = sec && sec.drawerFacadeType;
+  if (!own || DRAWER_FACADE_TYPES.indexOf(own) < 0) return facadeTypeOf(sec, decor, t, facadeMat, facadeThickness);
+  const eff = Object.assign({}, sec, { facadeType: own, facadeMaterial: sec.drawerFacadeMaterial });
+  delete eff.glass;
+  return facadeTypeOf(eff, decor, t, facadeMat, facadeThickness);
+}
+
 // ---------------------------------------------------------------------------
 // МАТЕРИАЛ ФАСАДА СЕКЦИИ/ОТСЕКА (sec.facadeMaterial, решение 2026-09-26)
 // Допустимые материалы по виду фасада — из Библиотеки (catalog.js):
@@ -4534,6 +4549,8 @@ function buildModuleParts(p) {
 
     const ft = facadeTypeOf(sec, decor, t, facadeMat, p.facadeThickness);
     const ftSec = ft;
+    // Фасады ящиков — свой вид/материал секции (sec.drawerFacadeType), иначе = ft.
+    const dft = drawerFacadeTypeOf(sec, decor, t, facadeMat, p.facadeThickness);
     // Алюминиевая рамка на петле «для алюминиевой рамки» (profile.hinge ===
     // 'aluFrame'): чашку Ø35 не сверлим — вместо неё паз и 2 отверстия под
     // саморезы по паспорту Blum 71T950A (aluHingeCuts, 2026-09-26).
@@ -4601,17 +4618,17 @@ function buildModuleParts(p) {
       if (dh.badCC) warnings.push(`${secName}: у ручки не задано межосевое расстояние — укажите его в секции.`);
       pushHandleParts({ parts, mounts: dh.mounts, secName, handleName: dh.handle.name,
         faceX: fX, faceY: dy + dHeights[d] / 2, faceW: facadeW, faceH: fH,
-      faceZ: D / 2 + ft.thickness / 2, t: ft.thickness });
+      faceZ: D / 2 + dft.thickness / 2, t: dft.thickness });
       parts.push(makePart({
         name: `Фасад ящика ${d + 1}`, section: secName, sectionIndex: i,
-        material: ft.material, thickness: ft.thickness,
-        facadeType: ft.id, ...facadePartFields(ft, facadeW, fH),
+        material: dft.material, thickness: dft.thickness,
+        facadeType: dft.id, ...facadePartFields(dft, facadeW, fH),
         length: facadeW, width: fH, qty: 1, kind: 'drawerFront', grain: true,
         holes: dh.holes.concat(fixHoles),
         note: 'Накладной' + (dh.count ? `, ручка ${dh.handle.name}` : ''),
-        edging: { long1: facadeEdgeType(ft), long2: facadeEdgeType(ft), short1: facadeEdgeType(ft), short2: facadeEdgeType(ft) },
-        x: fX, y: dy + dHeights[d] / 2, z: D / 2 + ft.thickness / 2,
-        dims: { w: facadeW, h: fH, d: ft.thickness },
+        edging: { long1: facadeEdgeType(dft), long2: facadeEdgeType(dft), short1: facadeEdgeType(dft), short2: facadeEdgeType(dft) },
+        x: fX, y: dy + dHeights[d] / 2, z: D / 2 + dft.thickness / 2,
+        dims: { w: facadeW, h: fH, d: dft.thickness },
       }));
       drawerHardware.push({ section: secName, width: secWi, depth: D, system: sec.drawerSystem || 'ballBearing', pushToOpen: !!sec.pushToOpen });
       dy += dHeights[d];
@@ -6848,6 +6865,7 @@ window.Modul3D.engine = {
   //     → { code, name, thickness, facadeType }
   //   zoneFacadeSettings(sec, zoneIdx) → копия sec с полями фасада зоны поверх
   facadeMaterialOptions, facadeMaterialOf, zoneFacadeSettings, ZONE_FACADE_KEYS,
+  drawerFacadeTypeOf, DRAWER_FACADE_TYPES,
   // Эффективная толщина ЛДСП ящика секции (sec.drawerThickness → проектная
   // → 16 мм, НЕ толщина корпуса) — единая формула для ядра и UI, чтобы
   // поле «Толщина ЛДСП ящиков» не расходилось с реальным расчётом.
