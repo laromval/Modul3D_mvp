@@ -546,8 +546,11 @@ for (const sd of ['besideBottom', 'onBottom']) {
   inspect(model, `металлические опоры, боковина ${sd}`);
   const side = model.parts.filter((p) => p.kind === 'side')[0];
   const bottomY = side.boxes[0].y - side.boxes[0].h / 2;
-  if (Math.abs(bottomY - 100) > 0.6) {
-    problems.push(`металлические опоры: видимая боковина «${sd}» стоит на ${bottomY} мм вместо 100 (опоры декоративные, закрывать не нужно)`);
+  const bottomPt = model.parts.find((p) => p.kind === 'bottom');
+  // «на дно» (решение 2026-10-06): боковина стоит на дне — не ниже верхней пласти дна над опорами.
+  const wantY = sd === 'onBottom' ? 100 + bottomPt.thickness : 100;
+  if (Math.abs(bottomY - wantY) > 0.6) {
+    problems.push(`металлические опоры: видимая боковина «${sd}» стоит на ${bottomY} мм вместо ${wantY} (опоры декоративные, закрывать не нужно)`);
   }
   cases += 1;
 }

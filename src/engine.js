@@ -2679,7 +2679,8 @@ function buildModuleParts(p) {
   // сбоку или торчит из-под цокольной планки. Декларированный sides.left/
   // right по-прежнему управляет НЕвидимой боковиной; для видимой:
   //   • чистые «опоры» с металлическим типом (legType==='metal') —
-  //     декоративные, специально остаются на виду — 'besideBottom';
+  //     декоративные, остаются на виду — боковина «на дно» (решение 2026-10-06;
+  //     явно заданное «сбоку дна» сохраняется);
   //   • «опоры» с кухонными пластиковыми (legType!=='metal') и «опоры с
   //     цоколем» (там опора всегда пластиковая, см. kitchen ниже по файлу,
   //     legType не читается) — 'floor', закрыть полностью.
@@ -2695,14 +2696,15 @@ function buildModuleParts(p) {
   const userSide = (key) => !!(p.sideUserSet && p.sideUserSet[key]);
   const effSideFor = (key) => {
     if (hungModule || !sideVisible[key] || userSide(key)) return sides[key];
-    if (p.base.type === 'legs') return p.legType === 'metal' ? 'besideBottom' : 'floor';
+    if (p.base.type === 'legs') return p.legType === 'metal' ? (sides[key] === 'besideBottom' ? 'besideBottom' : 'onBottom') : 'floor';
     if (p.base.type === 'legsPlinth') return 'floor';
     return sides[key];
   };
   if (!hungModule && (p.base.type === 'legs' || p.base.type === 'legsPlinth')) {
     for (const key of ['left', 'right']) {
-      // «Сбоку дна» у металлических опор — декоративный вариант, не предупреждаем.
-      const decorative = sides[key] === 'besideBottom' && p.base.type === 'legs' && p.legType === 'metal';
+      // Металлические опоры — декоративные, на виду сбоку им не страшно (решение
+      // 2026-10-06): при любом ручном выборе боковины не предупреждаем.
+      const decorative = p.base.type === 'legs' && p.legType === 'metal';
       if (sideWasVisible[key] && userSide(key) && sides[key] !== 'floor' && !decorative) {
         warnings.push(`${key === 'left' ? 'левая' : 'правая'} боковина «${SIDE_LABEL[sides[key]]}» у края модуля — опора будет видна сбоку.`);
       }
@@ -3395,7 +3397,21 @@ function buildModuleParts(p) {
     const padL = LEG_INSET + (effLeft === 'floor' ? tL : 0);
     const padR = LEG_INSET + (effRight === 'floor' ? tR : 0);
     const xFrom = -W / 2 + padL, xTo = W / 2 - padR;
-    const cols = Math.max(2, Math.ceil((xTo - xFrom) / LEG_SPAN) + 1);
+    // Оси рядов опор: края + под каждой вертикальной стойкой (иначе вес стойки
+    // с ящиками прогибает дно между опорами и ящик перестаёт выдвигаться —
+    // решение пользователя 2026-10-06); оставшиеся пролёты длиннее LEG_SPAN
+    // делятся поровну. Один проём — прежняя раскладка (края + равные шаги).
+    const legXs = [xFrom, xTo];
+    for (let i = 0; i < n - 1; i++) {
+      const dx = layout.x0[i] + layout.widths[i] + t / 2;
+      if (legXs.every((v) => Math.abs(v - dx) > 100)) legXs.push(dx);
+    }
+    legXs.sort((a, b) => a - b);
+    for (let i = legXs.length - 2; i >= 0; i--) {
+      const a = legXs[i], b = legXs[i + 1];
+      const gaps = Math.ceil((b - a) / LEG_SPAN);
+      for (let g = gaps - 1; g >= 1; g--) legXs.splice(i + 1, 0, a + ((b - a) * g) / gaps);
+    }
     // Передний ряд опор: стандартный отступ от края — как у обычных опор
     // без цоколя. Только кухонная опора умеет держать цоколь клипсой и
     // поэтому подтягивается вплотную за планку; у металлической опоры
@@ -3436,8 +3452,7 @@ function buildModuleParts(p) {
     // используем, без произвольного коэффициента.
     const CLIP_Y = baseH * 0.5;
 
-    for (let c = 0; c < cols; c++) {
-      const x = cols === 1 ? 0 : xFrom + ((xTo - xFrom) * c) / (cols - 1);
+    for (const x of legXs) {
       for (const z of [zFront, zBack]) {
         const hasClip = kitchen && hasPlinth && z === zFront;
         parts.push(makePart({
