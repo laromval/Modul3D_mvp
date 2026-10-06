@@ -12110,6 +12110,23 @@ function autoBackMountMode(mod) {
   }
 }
 
+// Какие детали получили бы паз при выборе «В паз» по умолчанию — по движку:
+// если автоматика уже даёт паз, берём её набор; если нет (накладная), все
+// детали, кроме крыши шкафа выше BACK_GROOVE_TALL_H. null — не удалось.
+function autoGroovePartsOf(mod) {
+  const engine = window.Modul3D.engine;
+  if (!engine || typeof engine.resolveBackMount !== 'function') return null;
+  try {
+    const sides = engine.normalizeSides(Object.assign({}, mod, { wallHung: moduleIsWallHung(mod) }));
+    const r = engine.resolveBackMount(Object.assign({}, mod, { backMount: undefined }), sides, state.backThickness);
+    if (r.mode === 'groove') return Object.assign({ left: false, right: false, top: false, bottom: false }, r.parts);
+    const tall = Number(mod.height) > (engine.BACK_GROOVE_TALL_H || 1600) && mod.family !== 'kitchen';
+    return { left: true, right: true, top: !tall, bottom: true };
+  } catch (err) {
+    return null;
+  }
+}
+
 // Блок «Задняя стенка» (режим крепления m.backMount: 'overlay' | 'groove' —
 // пусто/что угодно ещё читается как «ещё не выбрано вручную», см.
 // autoBackMountMode выше — и, при «В паз», параметры паза m.backGroove) — с
@@ -15674,7 +15691,13 @@ function bindPanelEvents() {
     if (v === 'overlay' || v === 'groove') mod.backMount = v; else delete mod.backMount;
     // Поля паза заводим сразу с дефолтами — чтобы сохранённый модуль/проект
     // нёс явные числа, которые видит пользователь, а не «пусто».
-    if (v === 'groove' && !mod.backGroove) mod.backGroove = backGrooveOf(mod);
+    if (v === 'groove' && !mod.backGroove) {
+      mod.backGroove = backGrooveOf(mod);
+      // Детали с пазом берём такими, какими их выбрала бы автоматика (шкаф
+      // выше 1600 мм — крыша накладная, она сверху не видна), а не «все 4».
+      const ap = autoGroovePartsOf(mod);
+      if (ap) mod.backGroove.parts = ap;
+    }
     renderParamsPanel();
     recompute();
   });

@@ -2361,7 +2361,16 @@ function resolveBackMount(p, sides, tb) {
     // материал видимой боковины, дно/ДВП меняют размеры, у фасадов появляется
     // перепад (баг 2026-09-27, обе боковины «на дно» на верхнем модуле).
     const q = (v) => v === 'floor' || v === 'besideBottom';
-    if (!hung && !q(sides.left) && !q(sides.right)) return overlay;
+    // Боковина «на дно» (заданная, либо ставшая такой у видимой боковины на
+    // металлических опорах — см. effSideFor) стоит на дне: дно идёт на всю
+    // ширину и его задняя пласть открыта, поэтому стенка встаёт в паз и в
+    // ДНЕ тоже (решение пользователя 2026-10-06). Считаем только по полям
+    // модуля, без видимости боковин — этот же вызов делает extent().
+    const baseType = (p.base && p.base.type) || p.baseType;
+    const metalLegs = baseType === 'legs' && p.legType === 'metal';
+    const sideOnBottom = (v) => v === 'onBottom' || (metalLegs && v !== 'besideBottom');
+    const bottomGroove = hung || sideOnBottom(sides.left) || sideOnBottom(sides.right);
+    if (!hung && !q(sides.left) && !q(sides.right)) return overlay;   // обе «на дно» — накладная, как прежде
     offset = BACK_GROOVE_DEFAULTS.offset;
     depth = BACK_GROOVE_DEFAULTS.depth;
     entry = BACK_GROOVE_DEFAULTS.entry;
@@ -2369,7 +2378,7 @@ function resolveBackMount(p, sides, tb) {
     // его торец); ШКАФ (выше BACK_GROOVE_TALL_H) — паз только в боковинах,
     // крыша прежней глубины; навесной — паз в дне, крыша прежней глубины.
     const tall = Number(p.height) > BACK_GROOVE_TALL_H;
-    parts = { left: q(sides.left), right: q(sides.right), top: !hung && !tall, bottom: hung };
+    parts = { left: q(sides.left), right: q(sides.right), top: !hung && !tall, bottom: bottomGroove };
   } else {
     const g = p.backGroove || {};
     const num = (v, def, ok) => {
