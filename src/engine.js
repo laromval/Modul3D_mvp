@@ -1186,12 +1186,19 @@ function hingeHoles(W, H, hingeSide, shelves, warn, secName, glassDoor, railBott
 // Ссылка на ручку двери для перетаскивания в 3D: вертикальная или горизонтальная
 // скоба и кнопка (половина длины по вертикали — только у вертикальной). Привязки (snaps) и диапазон
 // достраивает applyHandleSnaps, когда положение всех ручек уже известно.
-function makeHandleRef(dh, si, zi, leaf, doorY, H, p, ft) {
+function makeHandleRef(dh, si, zi, leaf, doorY, H, p, ft, faceX, W, hingeSide) {
   if (!dh.count || dh.mounts.length !== 1) return null;
   const m = dh.mounts[0];
+  const edge = doorHandleEdge(ft.frame);
+  const hx = (!m.vertical && m.cc) ? m.cc / 2 : 0;   // полудлина горизонтальной скобы
+  // По X ручка описывается расстоянием c от её центра до ДАЛЬНЕГО от петель
+  // края двери (farRight — дальний край справа, т.е. петли слева).
   return { si, zi, leaf, faceBottomY: doorY - H / 2, floorOffset: Number(p.mountBottom) || 0,
-    H, edge: doorHandleEdge(ft.frame), half: m.vertical ? m.cc / 2 : 0, manual: !!dh.manual,
-    yMin: 0, yMax: 0, snaps: [] };
+    H, edge, half: m.vertical ? m.cc / 2 : 0, manual: !!dh.manual,
+    yMin: 0, yMax: 0, snaps: [],
+    W, faceLeftX: faceX - W / 2, farRight: hingeSide === 'left', hx,
+    c0: round1(hingeSide === 'left' ? W - m.cx : m.cx),
+    cMin: round1(edge + hx), cMax: round1(Math.max(edge + hx, Math.min(W - edge - hx, W / 2))), xSnaps: [] };
 }
 // Привязки при перетаскивании ручки: верх (крайнее отверстие в edge мм от
 // верхнего торца двери), низ, середина двери и высота любой другой ручки модуля.
@@ -1206,13 +1213,22 @@ function applyHandleSnaps(parts) {
     f.snaps = [{ kind: 'bottom', y: round1(lo) }, { kind: 'center', y: round1(f.faceBottomY + f.H / 2) },
       { kind: 'top', y: round1(hi) }];
     if (!(hi >= lo)) { r.handleRef = null; continue; }
-    const seen = [];
+    // По X: дальний от петель край, центр двери и положение соседних ручек
+    f.xSnaps = [{ kind: 'far', c: f.cMin }];
+    if (f.W / 2 >= f.cMin && f.W / 2 <= f.cMax) f.xSnaps.push({ kind: 'center', c: round1(f.W / 2) });
+    const seen = [], seenX = [];
     for (const o of hs) {
       if (o === r) continue;
       const y = o.box.y;
-      if (y < lo - 0.5 || y > hi + 0.5 || seen.some((v) => Math.abs(v - y) < 0.5)) continue;
-      seen.push(y);
-      f.snaps.push({ kind: 'abs', y: round1(y) });
+      if (!(y < lo - 0.5 || y > hi + 0.5 || seen.some((v) => Math.abs(v - y) < 0.5))) {
+        seen.push(y);
+        f.snaps.push({ kind: 'abs', y: round1(y) });
+      }
+      const c = round1(f.farRight ? f.faceLeftX + f.W - o.box.x : o.box.x - f.faceLeftX);
+      if (c < f.cMin - 0.5 || c > f.cMax + 0.5 || f.xSnaps.some((v) => Math.abs(v.c - c) < 0.5)
+        || seenX.some((v) => Math.abs(v - c) < 0.5)) continue;
+      seenX.push(c);
+      f.xSnaps.push({ kind: 'abs', c });
     }
   }
 }
@@ -1307,6 +1323,21 @@ function manualHandleCy(ov, H, edge, half, floorY) {
   else return null;
   return Math.min(Math.max(cy, lo), hi);
 }
+// То же по ширине: override.xMode 'far'|'center'|'abs', xd — расстояние от центра
+// ручки до ДАЛЬНЕГО от петель края двери (для 'abs'). hx — полудлина горизонтальной
+// скобы (крайнее отверстие не ближе edge к торцам). null — по X правки нет.
+function manualHandleCd(ov, W, edge, hx) {
+  if (!ov || !ov.xMode) return null;
+  // Со стороны петель ручку не монтируем — дальше середины двери не пускаем
+  const lo = edge + hx, hi = Math.max(lo, Math.min(W - edge - hx, W / 2));
+  if (!(hi >= lo)) return null;
+  let c;
+  if (ov.xMode === 'far') c = lo;
+  else if (ov.xMode === 'center') c = W / 2;
+  else if (ov.xMode === 'abs' && Number.isFinite(Number(ov.xd))) c = Number(ov.xd);
+  else return null;
+  return Math.min(Math.max(c, lo), hi);
+}
 const HANDLE_SNAP_R = 40;   // радиус примагничивания ручки при перетаскивании, мм
 function handleOverrideOf(p, si, zi, leaf) {
   const all = p.handleOverrides;
@@ -1383,12 +1414,15 @@ function handleHoles(o) {
     // отодвигается от края так, чтобы оба отверстия остались на детали.
     // Отступ зависит от конструкции фасада — см. doorHandleEdge.
     const edge = doorHandleEdge(o.frame);
-    const cx = o.hingeSide === 'left' ? W - edge : edge;
+    let cx = o.hingeSide === 'left' ? W - edge : edge;
     const MIN_EDGE = 12;                       // минимум от отверстия до торца
 
     // Ориентация скобы: по умолчанию на двери вертикально, но можно поставить
     // и горизонтально — тогда ручка идёт вдоль верхнего края.
     const horizontal = h.holes === 2 && o.orient === 'horizontal';
+    // Ручное положение по ширине (перетаскивание в 3D): центр ручки.
+    const ovC = manualHandleCd(o.override, W, edge, horizontal ? h.cc / 2 : 0);
+    if (ovC !== null) { cx = o.hingeSide === 'left' ? W - ovC : ovC; manual = true; }
 
     if (h.holes === 2 && !horizontal) {
       // ВЕРТИКАЛЬНО. Отступ отсчитывается до КРАЙНЕГО ОТВЕРСТИЯ, а не до
@@ -1451,9 +1485,10 @@ function handleHoles(o) {
       // в одну линию, поэтому отступ от торцов двери считаем до самой оси (half = 0).
       const ovCy = manualHandleCy(o.override, H, edge, 0, Number(o.floorY));
       if (ovCy !== null) { cy = ovCy; manual = true; }
-      const near = o.hingeSide === 'left' ? W - edge : edge;
+      // ccx — центр скобы; ближнее к дальнему краю отверстие — на cc/2 дальше от центра
+      const ccx = ovC !== null ? cx : (o.hingeSide === 'left' ? W - edge - h.cc / 2 : edge + h.cc / 2);
+      const near = o.hingeSide === 'left' ? ccx + h.cc / 2 : ccx - h.cc / 2;
       const far = o.hingeSide === 'left' ? near - h.cc : near + h.cc;
-      const ccx = (near + far) / 2;
       mounts.push({ cx: round1(ccx), cy: round1(cy), cc: h.cc, vertical: false });
       holes.push({ x: round1(Math.min(near, far)), y: round1(cy), d: D, through: true, kind: 'handle' });
       holes.push({ x: round1(Math.max(near, far)), y: round1(cy), d: D, through: true, kind: 'handle' });
@@ -5359,7 +5394,7 @@ function buildModuleParts(p) {
         pushHandleParts({ parts, mounts: dh.mounts, secName: zoneSecName, handleName: dh.handle.name,
           faceX: fX, faceY: doorY, faceW: facadeW, faceH: doorZoneH,
           faceZ: D / 2 + ft.thickness / 2, t: ft.thickness,
-          ref: makeHandleRef(dh, i, zi, 0, doorY, doorZoneH, p, ft) });
+          ref: makeHandleRef(dh, i, zi, 0, doorY, doorZoneH, p, ft, fX, facadeW, fac === 'doorLeft' ? 'left' : 'right') });
         registerDoorHandle(handleAlign, dh, zonesRaw.length, isWallHung(p),
           (Number(p.mountBottom) || 0) + doorY - doorZoneH / 2, doorZoneH, hStart, parts.length,
           doorHandleEdge(ft.frame));
@@ -5522,7 +5557,7 @@ function buildModuleParts(p) {
           pushHandleParts({ parts, mounts: dh.mounts, secName: zoneSecName, handleName: dh.handle.name,
             faceX: leafX, faceY: doorY, faceW: leafW, faceH: doorZoneH,
             faceZ: D / 2 + ft.thickness / 2, t: ft.thickness,
-            ref: makeHandleRef(dh, i, zi, leaf, doorY, doorZoneH, p, ft) });
+            ref: makeHandleRef(dh, i, zi, leaf, doorY, doorZoneH, p, ft, leafX, leafW, leaf === 0 ? 'left' : 'right') });
           registerDoorHandle(handleAlign, dh, zonesRaw.length, isWallHung(p),
             (Number(p.mountBottom) || 0) + doorY - doorZoneH / 2, doorZoneH, hStart, parts.length,
           doorHandleEdge(ft.frame));

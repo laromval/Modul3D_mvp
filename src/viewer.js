@@ -3462,9 +3462,12 @@ class Viewer3D {
   }
 
   /**
-   * Ручное перетаскивание ручки двери по фасаду — только по вертикали.
+   * Ручное перетаскивание ручки двери по фасаду — по вертикали и по горизонтали.
    * Включается, только если задан колбэк this.onHandleMove(payload):
-   *   { module, si, zi, leaf, mode, floor }
+   *   { module, si, zi, leaf, mode, floor, xMode, xd }
+   *   xMode — 'far' (дальний от петель край) | 'center' | 'abs' | undefined
+   *   (по ширине не двигали); xd — расстояние от центра ручки до дальнего от
+   *   петель края двери, мм. mode === undefined — по высоте не двигали;
    *   module — имя модуля (то же, что в onSelectPart/onSelectZone);
    *   mode — 'top' | 'bottom' | 'center' (прилипла к магниту), 'abs'
    *   (свободно или к высоте другой ручки; floor — высота центра ручки от
@@ -3543,54 +3546,91 @@ class Viewer3D {
       return (w0y - b * dd) / den;
     };
 
-    // Положение центра ручки (мм) под курсором + магнит
-    const place = (e) => {
-      const d = this._hdrag;
-      const yv = lineY(e, d.groups[0]);
-      if (yv === null) return null;
-      const ref = d.ref;
-      let y = Math.max(ref.yMin, Math.min(ref.yMax, (yv + d.offset) / MM));
-      let snap = null, bestS = HANDLE_SNAP_R;
-      for (const s of (ref.snaps || [])) {
-        const dist = Math.abs(y - s.y);
-        if (dist <= bestS) { bestS = dist; snap = s; }
-      }
-      if (snap) y = Math.max(ref.yMin, Math.min(ref.yMax, snap.y));
-      return { y, snap };
+    // Смещение (м) вдоль фасада точки пересечения луча курсора с плоскостью
+    // фасада, проходящей через ручку (ось — локальный x фасада, учитывает поворот модуля)
+    const lineS = (e, d) => {
+      const rect = canvas.getBoundingClientRect();
+      const ndc = new THREE.Vector2(
+        ((e.clientX - rect.left) / rect.width) * 2 - 1,
+        -((e.clientY - rect.top) / rect.height) * 2 + 1);
+      this._raycaster.setFromCamera(ndc, this.camera);
+      const r = this._raycaster.ray;
+      const den = r.direction.dot(d.nrm);
+      if (Math.abs(den) < 0.05) return null;   // смотрим вдоль фасада — не определено
+      const t = v.copy(d.base[0]).sub(r.origin).dot(d.nrm) / den;
+      const P = v.copy(r.direction).multiplyScalar(t).add(r.origin);
+      return P.sub(d.base[0]).dot(d.dir);
     };
 
-    const setY = (yMm) => {
-      for (const g of this._hdrag.groups) g.position.y = yMm * MM;
+    // Положение центра ручки под курсором + магниты (по высоте y и по ширине c)
+    const place = (e) => {
+      const d = this._hdrag;
+      const ref = d.ref;
+      let y = d.cur.y, snap = null;
+      const yv = lineY(e, d.groups[0]);
+      if (yv !== null && ref.yMax > ref.yMin) {
+        y = Math.max(ref.yMin, Math.min(ref.yMax, (yv + d.offset) / MM));
+        let bestS = HANDLE_SNAP_R;
+        for (const s of (ref.snaps || [])) {
+          const dist = Math.abs(y - s.y);
+          if (dist <= bestS) { bestS = dist; snap = s; }
+        }
+        if (snap) y = Math.max(ref.yMin, Math.min(ref.yMax, snap.y));
+      }
+      let c = d.cur.c, xsnap = null;
+      const sv = ref.cMax > ref.cMin ? lineS(e, d) : null;
+      if (sv !== null) {
+        const sgn = ref.farRight ? -1 : 1;
+        c = Math.max(ref.cMin, Math.min(ref.cMax, ref.c0 + (sgn * (sv - d.s0)) / MM));
+        let bestX = HANDLE_SNAP_R;
+        for (const s of (ref.xSnaps || [])) {
+          const dist = Math.abs(c - s.c);
+          if (dist <= bestX) { bestX = dist; xsnap = s; }
+        }
+        if (xsnap) c = Math.max(ref.cMin, Math.min(ref.cMax, xsnap.c));
+      }
+      return { y, snap, c, xsnap };
+    };
+
+    const setPos = (yMm, cMm) => {
+      const d = this._hdrag;
+      const sgn = d.ref.farRight ? -1 : 1;
+      const off = sgn * (cMm - d.ref.c0) * MM;
+      d.groups.forEach((g, i) => {
+        g.position.set(d.base[i].x + d.dir.x * off, yMm * MM, d.base[i].z + d.dir.z * off);
+      });
     };
 
     // Тонкая линия-маркер активной точки магнита поперёк фасада
-    const showSnap = (snap) => {
+    const showSnap = (snap, xsnap) => {
       const d = this._hdrag;
-      if (!snap) { if (d.line) d.line.visible = false; return; }
-      if (!d.line) {
-        const g0 = d.groups[0];
-        const geo = new THREE.BufferGeometry().setFromPoints([
-          new THREE.Vector3(-0.2, 0, 0), new THREE.Vector3(0.2, 0, 0)]);
-        d.line = new THREE.Line(geo, new THREE.LineBasicMaterial({ color: 0x1976d2, depthTest: false }));
-        d.line.renderOrder = 6;
-        d.line.position.x = g0.position.x;
-        d.line.position.z = g0.position.z;
-        d.line.rotation.y = g0.rotation.y;   // вдоль фасада, как скоба
-        this.scene.add(d.line);
-      }
-      d.line.visible = true;
-      d.line.position.y = snap.y * MM;
+      const g0 = d.groups[0];
+      const mk = (pts) => {
+        const geo = new THREE.BufferGeometry().setFromPoints(pts);
+        const ln = new THREE.Line(geo, new THREE.LineBasicMaterial({ color: 0x1976d2, depthTest: false }));
+        ln.renderOrder = 6;
+        ln.rotation.y = g0.rotation.y;   // вдоль фасада, как скоба
+        this.scene.add(ln);
+        return ln;
+      };
+      if (!d.line) d.line = mk([new THREE.Vector3(-0.2, 0, 0), new THREE.Vector3(0.2, 0, 0)]);
+      if (!d.lineV) d.lineV = mk([new THREE.Vector3(0, -0.2, 0), new THREE.Vector3(0, 0.2, 0)]);
+      d.line.visible = !!snap;
+      d.lineV.visible = !!xsnap;
+      d.line.position.set(g0.position.x, snap ? snap.y * MM : 0, g0.position.z);
+      d.lineV.position.set(g0.position.x, g0.position.y, g0.position.z);
     };
 
     const finish = (restore) => {
       const d = this._hdrag;
       if (!d) return;
       this._hdrag = null;
-      if (d.line) {
-        this.scene.remove(d.line);
-        d.line.geometry.dispose(); d.line.material.dispose();
+      for (const ln of [d.line, d.lineV]) {
+        if (!ln) continue;
+        this.scene.remove(ln);
+        ln.geometry.dispose(); ln.material.dispose();
       }
-      if (restore) for (const g of d.groups) g.position.y = d.y0 * MM;
+      if (restore) d.groups.forEach((g, i) => g.position.copy(d.base[i]));
       canvas.style.cursor = '';
     };
 
@@ -3601,16 +3641,24 @@ class Viewer3D {
       const g = pickHandle(e);
       if (!g) return false;
       const ref = g.userData.handleRef;
-      if (!(ref.yMax > ref.yMin)) return false;        // двигать некуда
+      if (!(ref.yMax > ref.yMin) && !(ref.cMax > ref.cMin)) return false;   // двигать некуда
       const groups = handleGroups().filter((o) => o.userData.handleRef === ref);
       const yv = lineY(e, g);
       if (yv === null) return false;
-      this._hdrag = {
+      const th = g.rotation.y;
+      const d = {
         ref, groups, module: g.userData.module, y0: g.position.y / MM,
         offset: g.position.y - yv,   // чтобы ручка не прыгала под курсор
+        base: groups.map((o) => o.position.clone()),
+        dir: new THREE.Vector3(Math.cos(th), 0, -Math.sin(th)),
+        nrm: new THREE.Vector3(Math.sin(th), 0, Math.cos(th)),
+        cur: { y: g.position.y / MM, c: ref.c0 }, s0: 0,
         x0: e.clientX, y0px: e.clientY, pid: e.pointerId,
-        drag: false, line: null, last: null,
+        drag: false, line: null, lineV: null, last: null,
       };
+      const s0 = lineS(e, d);
+      d.s0 = s0 === null ? 0 : s0;
+      this._hdrag = d;
       this.controls.moved = 0;
       return true;
     };
@@ -3621,7 +3669,7 @@ class Viewer3D {
         // Наведение мышью: курсор ns-resize над ручкой
         if (e.pointerType === 'touch' || e.buttons || !this.onHandleMove || this.controls._dragging) return;
         const hover = pickHandle(e);
-        canvas.style.cursor = hover ? 'ns-resize' : '';
+        canvas.style.cursor = hover ? 'move' : '';
         return;
       }
       if (e.pointerId !== d.pid) return;
@@ -3629,31 +3677,40 @@ class Viewer3D {
       if (!d.drag) {
         if (px <= HANDLE_CLICK_PX) { this.controls.moved = px; return; }
         d.drag = true;
-        canvas.style.cursor = 'ns-resize';
+        canvas.style.cursor = 'move';
       }
       this.controls.moved = 1000;   // жест — не клик: pointerup/dblclick выбора не делают
       const p = place(e);
       if (!p) return;
       d.last = p;
-      setY(p.y);
-      showSnap(p.snap);
+      d.cur = { y: p.y, c: p.c };
+      setPos(p.y, p.c);
+      showSnap(p.snap, p.xsnap);
     });
 
     const up = (e, cancelled) => {
       const d = this._hdrag;
       if (!d || e.pointerId !== d.pid) return;
       const last = d.last;
-      const commit = !cancelled && d.drag && last && Math.abs(last.y - d.y0) > 0.05;
+      const movedY = !!last && Math.abs(last.y - d.y0) > 0.05;
+      const movedX = !!last && Math.abs(last.c - d.ref.c0) > 0.05;
+      const commit = !cancelled && d.drag && (movedY || movedX);
       finish(!commit);
       if (!commit) return;
       const ref = d.ref;
-      const kind = last.snap ? last.snap.kind : 'abs';
-      const named = kind === 'top' || kind === 'bottom' || kind === 'center';
-      this.onHandleMove({
-        module: d.module, si: ref.si, zi: ref.zi, leaf: ref.leaf,
-        mode: named ? kind : 'abs',
-        floor: named ? null : Math.round((last.y + ref.floorOffset) * 10) / 10,
-      });
+      const payload = { module: d.module, si: ref.si, zi: ref.zi, leaf: ref.leaf };
+      if (movedY) {
+        const kind = last.snap ? last.snap.kind : 'abs';
+        const named = kind === 'top' || kind === 'bottom' || kind === 'center';
+        payload.mode = named ? kind : 'abs';
+        payload.floor = named ? null : Math.round((last.y + ref.floorOffset) * 10) / 10;
+      }
+      if (movedX) {
+        const kx = last.xsnap ? last.xsnap.kind : 'abs';
+        payload.xMode = kx === 'far' || kx === 'center' ? kx : 'abs';
+        payload.xd = payload.xMode === 'abs' ? Math.round(last.c * 10) / 10 : null;
+      }
+      this.onHandleMove(payload);
     };
     canvas.addEventListener('pointerup', (e) => up(e, false));
     canvas.addEventListener('pointercancel', (e) => up(e, true));

@@ -14,7 +14,7 @@
 (function () {
 // Версия сборки — показывается во вкладке браузера и в шапке.
 // При выпуске новой версии меняется только эта строка.
-const APP_VERSION = 'v396';
+const APP_VERSION = 'v397';
 
 // Номер версии выводим ПЕРВЫМ делом: если дальше что-то упадёт, по нему сразу
 // видно, какая сборка открыта.
@@ -17978,13 +17978,20 @@ function initHeaderControls() {
     // mode 'top'|'bottom'|'center' — привязка к двери, 'abs' — высота центра
     // от пола (floor, мм), null — сброс на автоматическое положение. Хранится в
     // mod.handleOverrides['секция|зона|створка'] (см. manualHandleCy в engine.js).
-    viewer.onHandleMove = ({ module, si, zi, leaf, mode, floor }) => {
+    // По ширине: xMode 'far'|'center'|'abs' и xd (расстояние от центра ручки до
+    // дальнего от петель края, мм); mode/xMode undefined — эта ось не менялась.
+    viewer.onHandleMove = ({ module, si, zi, leaf, mode, floor, xMode, xd }) => {
       const mm = state.modules.find((m) => m.name === module);
       if (!mm) return;
       const key = si + '|' + zi + '|' + leaf;
       mm.handleOverrides = mm.handleOverrides || {};
-      if (mode) mm.handleOverrides[key] = mode === 'abs' ? { mode, floor } : { mode };
-      else delete mm.handleOverrides[key];
+      if (mode === null) delete mm.handleOverrides[key];
+      else {
+        const ov = Object.assign({}, mm.handleOverrides[key]);
+        if (mode) { ov.mode = mode; if (mode === 'abs') ov.floor = floor; else delete ov.floor; }
+        if (xMode) { ov.xMode = xMode; if (xMode === 'abs') ov.xd = xd; else delete ov.xd; }
+        mm.handleOverrides[key] = ov;
+      }
       recompute();
     };
 
