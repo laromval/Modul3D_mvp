@@ -3231,7 +3231,8 @@ class Viewer3D {
       if (this.onSelectZone) {
         const zoneHit = this._resolveZoneHit(hits);
         if (zoneHit) {
-          this.onSelectZone({ ...zoneHit, clientX: e.clientX, clientY: e.clientY });
+          // button: 2 — правый клик (отсек + меню), иначе левый (секция целиком).
+          this.onSelectZone({ ...zoneHit, clientX: e.clientX, clientY: e.clientY, button: e.button });
           return;
         }
       }
@@ -3792,7 +3793,10 @@ class Viewer3D {
     // экраном «Ящики» (sec.drawers), к отсекам отношения не имеют. Раньше
     // (в Focus Mode) клик по ящику вёл на обычный редактор детали, а не на
     // редактор отсека — сохраняем это же разделение и здесь.
-    if (kind === 'door') {
+    // Исключение — фасад ящика ВНУТРИ отсека (у него есть zoneIndex): это
+    // клик по этому отсеку, как по его двери. Секционные ящики (zoneIndex
+    // нет) по-прежнему не считаются отсеком.
+    if (kind === 'door' || (kind === 'drawerFront' && Number.isFinite(kindOwner.userData.zoneIndex))) {
       const sectionIndex = kindOwner.userData.sectionIndex;
       if (!Number.isFinite(sectionIndex)) return null;
       const zoneIndex = Number.isFinite(kindOwner.userData.zoneIndex) ? kindOwner.userData.zoneIndex : null;
@@ -5124,10 +5128,15 @@ class Viewer3D {
           // xray делает рамочный фасад полупрозрачным так же, как «Скрыть фасады».
           const framedMesh = makeFramedFacade(box, row, isActive, ghostLike || xray, hiCyan,
             drillCheck, drillOnly);
-          // partKey — как у обычных деталей ниже. userData.kind у рамочного
-          // фасада нет (так было и раньше), поэтому клик по нему в изоляции
-          // пока идёт в onFocusMiss, а не в onSelectPart; ключ лежит «про запас».
+          // partKey/kind/sectionIndex/zoneIndex — как у обычных деталей ниже: без
+          // них клик по алюминиевому/витражному/рамочному фасаду не определял
+          // отсек (_resolveZoneHit) и не давал «Редактировать отсек».
           framedMesh.userData.partKey = partKeyOf(row, box);
+          framedMesh.userData.kind = row.kind;
+          if (row.kind === 'door' || row.kind === 'drawerFront') {
+            framedMesh.userData.sectionIndex = Number.isFinite(row.sectionIndex) ? row.sectionIndex : null;
+            framedMesh.userData.zoneIndex = Number.isFinite(row.zoneIndex) ? row.zoneIndex : null;
+          }
           this.group.add(framedMesh);
         }
         continue;

@@ -399,7 +399,13 @@ sandbox.Modul3D.viewer = {
   Viewer3D: class {
     // viewName/onViewChange — как у настоящего Viewer3D (гизма видов):
     // экземпляр запоминаем, чтобы проверить переключение видов ниже.
-    constructor() { this.onSelectModule = null; this.onViewChange = null; this.viewName = 'iso'; sandbox.__viewer = this; }
+    constructor() {
+      this.onSelectModule = null; this.onViewChange = null; this.viewName = 'iso'; sandbox.__viewer = this;
+      // Холст с событиями: ui-shell.js слушает pointerup, чтобы отличить правый клик (HUD) от левого.
+      const ls = [];
+      this.renderer = { domElement: { addEventListener: (t, fn) => { if (t === 'pointerup') ls.push(fn); } } };
+      this.__click = (button) => ls.forEach((fn) => fn({ button }));
+    }
     // Последняя отрисованная модель — сценарии проверяют по ней детали.
     render(model) { if (model) sandbox.__lastModel = model; } setView(name) { this.viewName = name; } dispose() {}
     project() { return { x: 0, y: 0 }; }
@@ -1084,6 +1090,38 @@ for (const id of Array.from(registry.keys())) {
   if (tabs && modTab) tabs.dispatch('click', { target: modTab });
 })();
 
+// --- ящики ВНУТРИ отсека: карточка отсека, экран «Ящики» отсека, «Назад» ---
+(function zoneDrawersScenario() {
+  const app = sandbox.Modul3D.app;
+  const panel = () => $('paramsPanel').innerHTML;
+  app.setPanelView('drawers');
+  const name = (panel().match(/<h3>Ящики — (.+?) — Секция/) || [])[1];
+  app.setPanelView('module');
+  check('отсеки: ящики отсека — поле в карточке, экран и «Назад»', () => {
+    if (!name) return false;
+    app.setModuleDoorZoneCount(name, 3, 0);
+    app.editModuleZone(name, 0, 1);
+    const inp = $('paramsPanel').querySelectorAll('[data-zonedrawers]')[0];
+    if (!inp) return false;
+    inp.value = 2;
+    inp.dispatch('change', { target: inp });
+    const btn = $('paramsPanel').querySelectorAll('[data-zonedrawers-open]')[0];
+    if (!btn || /disabled/.test(String(btn.attrs.disabled !== undefined ? 'disabled' : ''))) return false;
+    btn.click();
+    if (panel().indexOf('id="drawersPanelRoot"') === -1 || !/Отсек 2/.test(panel())) return false;
+    const mode = document.getElementById('drawersMode');
+    mode.value = 'manual';
+    mode.dispatch('change', { target: mode });
+    const hs = $('paramsPanel').querySelectorAll('[data-drawer]');
+    if (hs.length !== 2 || hs.some((x) => !(Number(x.attrs.value) > 0))) return false;
+    document.getElementById('panelBack').click();
+    const back = panel().indexOf('data-zonedrawers=') !== -1;
+    app.setModuleDoorZoneCount(name, 1, 0);
+    app.setPanelView('module');
+    return back;
+  });
+})();
+
 // --- панель: у кухонного модуля нет штанги, выбора верха нет ни у кого -----
 (function panelFieldsScenario() {
   sandbox.Modul3D.app.setPanelView('module');   // вернулись с экрана «Ящики»
@@ -1461,9 +1499,13 @@ for (const id of ['hideFacades', 'addModule', 'saveProjectBtn', 'openProjectBtn'
   check('HUD: «Материалы модуля» открыты (#p-decor — плашка)', () => !!name && !!document.getElementById('p-decor'));
   check('HUD: клик по модулю в 3D при открытых материалах — без ошибки', () => {
     if (!v || typeof v.onSelectModule !== 'function') return false;
+    v.__click(0);                       // левый клик только выделяет — HUD не открывается
+    v.onSelectModule(name);
+    const left = $('partHud').classList.contains('open');
+    v.__click(2);                       // правый клик — выделяет и открывает HUD
     v.onSelectModule(name);
     const hud = String($('partHud').innerHTML || '');
-    return /Материал: [^<—]/.test(hud);
+    return !left && /Материал: [^<—]/.test(hud);
   });
   if (v && typeof v.onSelectModule === 'function') v.onSelectModule(null);
   const back = document.getElementById('panelBack');

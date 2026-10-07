@@ -1307,10 +1307,16 @@ function initHud() {
   var timer = null;
   function hookViewerEvents() {
     if (!viewerInstance) return false;
+    // Какой кнопкой был последний клик по сцене: левая только выделяет модуль,
+    // HUD (меню модуля) открывает правая. Слушатель в фазе capture срабатывает
+    // раньше обработчика viewer.js, который вызывает onSelectModule с задержкой.
+    var lastBtn = 0;
+    var cv = viewerInstance.renderer && viewerInstance.renderer.domElement;
+    if (cv) cv.addEventListener('pointerup', function (e) { lastBtn = e.button; }, true);
     var prev = viewerInstance.onSelectModule;
     viewerInstance.onSelectModule = function (name) {
       if (typeof prev === 'function') prev.call(viewerInstance, name);
-      if (name) showHud(name); else hideHud();
+      if (name && lastBtn === 2) showHud(name); else hideHud();
     };
     // Двойной клик — вход в Focus Mode (изоляция модуля): своё меню поверх
     // 3D показывает уже app.js (showFocusMenu), а этот мини-HUD относится к
@@ -1332,7 +1338,7 @@ function initHud() {
     viewerInstance.onSelectZone = function (payload) {
       hideHud();
       if (typeof prevSelectZone === 'function') prevSelectZone.call(viewerInstance, payload);
-      if (payload && payload.module) {
+      if (payload && payload.module && lastBtn === 2) {
         showHud(payload.module, { sectionIndex: payload.sectionIndex, zoneIndex: payload.zoneIndex });
       }
     };

@@ -14,7 +14,7 @@
 (function () {
 // Версия сборки — показывается во вкладке браузера и в шапке.
 // При выпуске новой версии меняется только эта строка.
-const APP_VERSION = 'v389';
+const APP_VERSION = 'v394';
 
 // Номер версии выводим ПЕРВЫМ делом: если дальше что-то упадёт, по нему сразу
 // видно, какая сборка открыта.
@@ -149,13 +149,59 @@ const markupApi = window.Modul3D.markup || null;
 
 // Выбор цвета пантографа секции: цвета берутся из вариантов позиции в Библиотеке
 // (HARDWARE_PRICES.pantograph.options); значение по умолчанию — цвет, выбранный там.
-function pantographColorSelectHtml(sec, i) {
+function pantographColorSelectHtml(sec, attrs) {
   const cat = window.Modul3D.catalog;
   const item = cat.HARDWARE_PRICES.pantograph;
   const colors = cat.optionColors(item);
   if (!colors.length) return '<span class="hint">нет вариантов цвета</span>';
   const cur = sec.pantographColor || item.selColor || colors[0];
-  return `<select data-field="pantographColor" data-idx="${i}">${colors.map((c) => `<option value="${esc(c)}" ${c === cur ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select>`;
+  return `<select ${attrs}>${colors.map((c) => `<option value="${esc(c)}" ${c === cur ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select>`;
+}
+
+// Блок «Штанга / Вторая штанга / Пантограф» — общий для секции (renderSectionsList)
+// и отсека (zoneCardHtml). owner — секция либо отсек (читаем/пишем rod*, pantograph*),
+// attrOf(поле) — строка data-атрибутов элемента (для секции data-field+data-idx,
+// для отсека data-zonerodfield+data-idx+data-zi), floorWord — «дна секции»/«низа
+// отсека», unit — «секции»/«отсека» (для подсказок). Обработчики — по тем же именам
+// полей: renderSectionsList (секция), bindZoneFieldEvents (отсек).
+const ROD_CLOTHES_UI = { long: 1500, mid: 1300, short: 1000 };
+// Выбор «что вешаем»: по типу одежды ядро ставит высоту оси штанги от пола.
+// Одна строка: список «что вешаем» + (пока тип не выбран) поле своего размера.
+// Пункт «свой размер» показывает установленную высоту: введённую или рекомендованную.
+function rodClothesRowHtml(attrOf, field, cur, heightField, heightVal, rec) {
+  const custom = Number(heightVal) > 0;
+  // Пока тип не выбран (две штанги — рекомендуемые 2050/1000 от пола) в закрытом списке
+  // виден рекомендуемый размер, а в раскрытом списке его нет — только три типа.
+  const recOpt = cur ? '' : `<option value="" selected disabled hidden>Рекомендовано: ${rec}</option>`;
+  return `<div class="mini-row" style="display:flex;gap:6px;align-items:center">
+          <select ${attrOf(field)} style="flex:1 1 auto;min-width:0">
+            ${recOpt}
+            <option value="long"${cur === 'long' ? ' selected' : ''}>Длинная одежда ${ROD_CLOTHES_UI.long} мм</option>
+            <option value="mid"${cur === 'mid' ? ' selected' : ''}>Средняя одежда ${ROD_CLOTHES_UI.mid} мм</option>
+            <option value="short"${cur === 'short' ? ' selected' : ''}>Короткие вещи ${ROD_CLOTHES_UI.short} мм</option>
+          </select>
+          <input type="number" step="10" min="0" value="${custom ? Number(heightVal) : ''}" placeholder="${ROD_CLOTHES_UI[cur] || parseInt(rec, 10)}" title="Свой размер, мм" ${attrOf(heightField)} style="flex:0 0 90px;width:90px">
+        </div>`;
+}
+function rodBlockHtml(owner, attrOf, floorWord, unit) {
+  return `
+      <div class="sub">
+        <label class="checkbox-inline"><input type="checkbox" ${attrOf('rod')} ${owner.rod ? 'checked' : ''}> Штанга для одежды</label>
+        ${owner.rod ? `<label class="mt6">Рекомендованные размеры для одежды</label>
+        ${rodClothesRowHtml(attrOf, 'rodClothes', owner.rodClothes, 'rodHeight', owner.rodHeight, owner.rod2 && !owner.pantograph ? '2050 мм от пола' : `1500 мм от ${floorWord}`)}
+        ${owner.pantograph ? '' : `<label class="checkbox-inline mt6"><input type="checkbox" ${attrOf('rod2')} ${owner.rod2 ? 'checked' : ''}> Вторая штанга ниже (для коротких вещей)</label>
+        ${owner.rod2 ? `<label class="mt6">Нижняя штанга — рекомендованные размеры для одежды (до верхней не менее 1000 мм)</label>
+        ${rodClothesRowHtml(attrOf, 'rod2Clothes', owner.rod2Clothes, 'rod2Height', owner.rod2Height, '1000 мм от пола')}` : ''}`}` : ''}
+        <label class="checkbox-inline mt6" title="Штанга опускается вниз ручкой (GTV PG-ST, 8 кг). Ставится вверху ${unit}; штанга выше 2100 мм от дна без пантографа недоступна рукой."><input type="checkbox" ${attrOf('pantograph')} ${owner.pantograph ? 'checked' : ''}> Пантограф (опускается ручкой)</label>
+        ${owner.pantograph ? `<div class="mini-row mt6" style="display:flex;gap:6px;align-items:center">
+          <select ${attrOf('pantographClothes')} title="Что вешаем на пантограф: от оси трубы вниз до полки под ним" style="flex:1.4 1 0;min-width:0">
+            ${['long', 'mid', 'short'].map((k) => `<option value="${k}"${(owner.pantographClothes || 'long') === k ? ' selected' : ''}>${{ long: 'Длинная одежда', mid: 'Средняя одежда', short: 'Короткие вещи' }[k]} ${ROD_CLOTHES_UI[k]} мм</option>`).join('')}
+          </select>
+          <div style="flex:1 1 0;min-width:0">${pantographColorSelectHtml(owner, attrOf('pantographColor'))}</div>
+          <input type="number" step="10" min="300" value="${owner.pantographHeight || ''}" placeholder="авто" title="Высота оси трубы от ${floorWord}, мм (пусто — максимально высоко)" ${attrOf('pantographHeight')} style="flex:0 0 70px;width:70px">
+        </div>
+        <div class="hint">GTV PG-ST: от оси трубы до низа механизма 836 мм, ширина секции 545–1200 мм, вынос вперёд при опускании 710 мм. Пусто — максимально высоко (30 мм до крыши/полки). Штангу ставьте ниже механизма; вторая штанга вместе с пантографом недоступна.</div>` : ''}
+      </div>`;
 }
 
 function newSection() {
@@ -990,6 +1036,9 @@ const state = {
   // закрыта). Тоже чисто UI-состояние, как selectedPart выше: не часть
   // данных проекта, в snapshot()/файл не попадает.
   drawersSectionIndex: null,
+  // Индекс отсека секции drawersSectionIndex, если экран «Ящики» открыт для
+  // ящиков ОТСЕКА (sec.doorZones[zi]); null — ящики самой секции.
+  drawersZone: null,
   // Открыт ли полноэкранный визуальный редактор вырезов детали (см.
   // openPartVisualEditor/closePartVisualEditor) — новый режим ПОВЕРХ экрана
   // «Деталь», не замена partBlock(). Закрытие (красный крестик) возвращает
@@ -1359,6 +1408,7 @@ function exitIsolation() {
   // защита: если модуль/секция пропадает (удаление, undo/redo, открытие
   // другого проекта), панели больше нечего показывать.
   state.drawersSectionIndex = null;
+  state.drawersZone = null;
   // Визуальный редактор вырезов открыт для конкретной детали конкретного
   // модуля — если сам модуль/фокус пропадает (удаление, undo/redo, открытие
   // другого проекта), редактору больше нечего показывать, закрываем и его.
@@ -1961,8 +2011,10 @@ function setPanelView(view) {
 // «Редактировать →» в renderSectionsList(). Сама панель — отдельный
 // экран panelView:'drawers' (см. drawersPanelBlock/renderParamsPanel), не
 // инлайн-блок внутри списка секций.
-function openDrawersPanel(secIndex) {
+function openDrawersPanel(secIndex, zoneIndex) {
   state.drawersSectionIndex = secIndex;
+  // zoneIndex — ящики ОТСЕКА (кнопка в карточке отсека); без него — секции.
+  state.drawersZone = Number.isInteger(zoneIndex) ? zoneIndex : null;
   state.panelView = 'drawers';
   renderParamsPanel();
 }
@@ -12534,7 +12586,7 @@ function doorZoneEditorScreen(mod, sectionIndex, zoneIndex) {
     ${backLinkBlock()}
     <h3>Фасад · Секция ${sectionIndex + 1}</h3>
     <div id="doorZoneEditorRoot">
-      ${zoneCardHtml(sec, sectionIndex, zi, doorZoneCount)}
+      ${zoneCardHtml(sec, sectionIndex, zi, doorZoneCount, mod)}
     </div>`;
 }
 
@@ -12988,6 +13040,37 @@ function partFacadeTarget(mod) {
   return { moduleIdx: state.modules.indexOf(mod), moduleName: mod.name, secIdx: sp.sectionIndex, zoneIdx: zi };
 }
 
+// Те же «Вид фасада» + «Материал фасада» выбранного отсека, но двумя колонками в
+// одну строку (карточка отсека). Идентификаторы и обработчики — как у
+// partDoorFacadeBlock (partFacadeType, data-mat-pick="partFacade").
+function partDoorFacadeRowHtml(mod) {
+  const t = partFacadeTarget(mod);
+  const info = facadeTargetInfo(t);
+  if (!info || info.zi == null) return '';
+  const secFt = effFacadeTypeId(info.sec);
+  const zone = (info.sec.doorZones || [])[info.zi] || {};
+  const own = zone.facadeType && FACADE_TYPES[zone.facadeType] ? zone.facadeType : '';
+  let matHtml;
+  if (info.ftId === 'alu') {
+    matHtml = aluSummaryPlashkaHtml(info.eff, ' data-mat-pick="partFacade"');
+  } else if (!facadeMaterialOptionsOf(info.ftId).length) {
+    matHtml = '<div class="hint">Материал для этого вида — позже.</div>';
+  } else {
+    let fm = null;
+    try { fm = window.Modul3D.engine.facadeMaterialOf(info.eff, matFacadeProj()); } catch (err) { fm = null; }
+    matHtml = matPickPlashkaHtml('partFacade', '', fm && fm.code, fm && fm.name);
+  }
+  return `
+    <div class="field-row mt6 zone-facade-row" id="partFacadeField">
+      <div class="field"><label>Вид фасада</label>
+        <select id="partFacadeType">
+          ${FACADE_TYPE_ORDER.map((id) => `<option value="${id}" ${(own || secFt) === id ? 'selected' : ''}>${esc(FACADE_TYPES[id].name)}</option>`).join('')}
+        </select>
+      </div>
+      <div class="field"><label>Материал фасада</label>${matHtml}</div>
+    </div>`;
+}
+
 // Поля «Вид фасада»/«Материал фасада» ТОЛЬКО выбранной двери (экран «Деталь»,
 // Focus Mode). Те же данные, что в matFacadeFieldHtml, но цель — выбранная
 // деталь; кнопки «на весь проект» здесь нет.
@@ -13400,8 +13483,38 @@ function libPickRowAllowed(topCode, entry) {
 // могут стоять разные ящики. Поля используют простые уникальные id (а не
 // делегированный обработчик [data-field] из renderSectionsList, который
 // слушает только #sectionsList — этот экран отрисован в другом месте DOM).
-function drawersPanelBlock(mod, secIndex) {
-  const sec = mod.sections[secIndex];
+//
+// «Владелец» ящиков — секция (zi == null) или отсек секции (zi — индекс в
+// sec.doorZones, ящики внутри отсека). drawersCtx даёт: owner — объект, в
+// который ПИШЕМ (секция/отсек), view — объект для ЧТЕНИЯ (у отсека поля,
+// не заданные в нём, берутся у секции — как zoneDrawerSection в engine.js).
+function drawersCtx(mod, si, zi) {
+  const sec = mod && mod.sections && mod.sections[si];
+  if (!sec) return null;
+  if (zi === null || zi === undefined) return { sec, owner: sec, view: sec, zi: null };
+  const owner = Array.isArray(sec.doorZones) ? sec.doorZones[zi] : null;
+  if (!owner) return null;
+  const view = Object.assign({}, sec, {
+    drawers: Number(owner.drawers) || 0,
+    drawerMode: owner.drawerMode,
+    drawerHeights: owner.drawerHeights || [],
+    drawerPinned: owner.drawerPinned || [],
+  });
+  ['drawerSystem', 'drawerThickness', 'drawerOffset', 'drawerDecorCode', 'drawerFacadeType',
+    'drawerFacadeMaterial', 'drawerBoxHeight', 'pushToOpen'].forEach((k) => {
+    if (owner[k] !== undefined && owner[k] !== null && owner[k] !== '') view[k] = owner[k];
+  });
+  return { sec, owner, view, zi };
+}
+
+function zoneTitleOf(zi, count) {
+  return zi === 0 ? 'Нижний отсек' : (zi === count - 1 ? 'Верхний отсек' : `Отсек ${zi + 1}`);
+}
+
+function drawersPanelBlock(mod, secIndex, zi) {
+  const ctx = drawersCtx(mod, secIndex, zi);
+  const sec = ctx.view;
+  const zoneMode = ctx.zi !== null;
   const sys = sec.drawerSystem || 'ballBearing';
 
   // 1. Высота фасадов ящиков — режим auto/manual + список высот сверху вниз
@@ -13425,7 +13538,7 @@ function drawersPanelBlock(mod, secIndex) {
           // «верхнего» уходила в нижний ящик.
           const d = sec.drawers - 1 - k;
           const pinned = !!(sec.drawerPinned && sec.drawerPinned[d]);
-          return `<input type="number" step="10" min="50" value="${manualHeights(secIndex, sec)[d]}"
+          return `<input type="number" step="10" min="50" value="${manualHeights(secIndex, sec, ctx.zi)[d]}"
                   class="${pinned ? 'pinned' : ''}" data-drawer="${d}"
                   title="${k === 0 ? 'Верхний ящик' : (k === sec.drawers - 1 ? 'Нижний ящик' : 'Ящик ' + (k + 1) + ' сверху')}${pinned ? ' — задан вручную, автоматически не меняется' : ' — подстраивается автоматически'}">`;
         }).join('')}
@@ -13437,8 +13550,8 @@ function drawersPanelBlock(mod, secIndex) {
         <button type="button" class="link-btn" id="drawersUnpinBtn">сбросить фиксацию</button></div>` : ''}`;
 
   return `
-    ${materialsBackLinkBlock()}
-    <h3>Ящики — ${esc(mod.name)} — Секция ${secIndex + 1}</h3>
+    ${zoneMode ? backLinkBlock() : materialsBackLinkBlock()}
+    <h3>Ящики — ${esc(mod.name)} — Секция ${secIndex + 1}${zoneMode ? ' — ' + esc(zoneTitleOf(ctx.zi, Number(ctx.sec.doorZoneCount) || 1)) : ''}</h3>
     <div id="drawersPanelRoot">
       ${heightsBlock}
 
@@ -13523,6 +13636,16 @@ function renderParamsPanel() {
           || state.drawersSectionIndex < 0 || state.drawersSectionIndex >= mod.sections.length)) {
     state.panelView = 'module';
   }
+  // Ящики ОТСЕКА: отсек должен существовать, быть без техники и с ящиками.
+  if (state.panelView === 'drawers' && state.drawersZone !== null) {
+    const c = drawersCtx(mod, state.drawersSectionIndex, state.drawersZone);
+    const zok = c && state.drawersZone < (Number(c.sec.doorZoneCount) || 1)
+      && (c.owner.appliance || 'none') === 'none' && c.view.drawers > 0;
+    if (!zok) {
+      state.drawersZone = null;
+      state.panelView = (state.selectedPart && state.selectedPart.kind === 'door') ? 'part' : 'module';
+    }
+  }
 
   // Пустой проект (или потеря последнего модуля) — параметрам модуля/детали/
   // материалов показывать нечего, панель «Библиотека» теперь отдельная и
@@ -13533,7 +13656,7 @@ function renderParamsPanel() {
   } else if (state.panelView === 'materials') {
     screen = materialsBackLinkBlock() + matFacadeFieldHtml() + materialsBlock(mod) + grainGroupsBlock();
   } else if (state.panelView === 'drawers') {
-    screen = drawersPanelBlock(mod, state.drawersSectionIndex);
+    screen = drawersPanelBlock(mod, state.drawersSectionIndex, state.drawersZone);
   } else if (state.panelView === 'part') {
     if (!state.selectedPart) {
       screen = partPlaceholderBlock();
@@ -13584,17 +13707,24 @@ function drawerOffsetOf(sec) {
 
 // Сведения о секции из ПОСЧИТАННОЙ модели: доступный фронт и фактические
 // высоты фасадов ящиков. Панель опирается на них, а не считает заново.
-function secCalc(secIndex) {
+function secCalc(secIndex, zi) {
   const m = currentModel && currentModel.modules[state.activeModule];
   const info = m && m.dims && m.dims.sections && m.dims.sections[secIndex];
+  if (zi !== null && zi !== undefined) {
+    // ящики отсека: данные движка лежат по индексу отсека
+    return {
+      drawerAvail: Number(info && info.zoneDrawerAvail && info.zoneDrawerAvail[zi]) || 0,
+      drawerHeights: (info && info.zoneDrawerHeights && info.zoneDrawerHeights[zi]) || [],
+    };
+  }
   return info || { drawerAvail: 0, drawerHeights: [] };
 }
 
 // Значения полей ручного режима. Если пользователь ещё ничего не задавал,
 // берутся высоты, только что распределённые автоматически, — переключение
 // режима больше не обнуляет ящики.
-function manualHeights(secIndex, sec) {
-  const auto = secCalc(secIndex).drawerHeights || [];
+function manualHeights(secIndex, sec, zi) {
+  const auto = secCalc(secIndex, zi).drawerHeights || [];
   const out = [];
   for (let d = 0; d < sec.drawers; d++) {
     const v = Number(sec.drawerHeights && sec.drawerHeights[d]);
@@ -13626,10 +13756,10 @@ function fitDrawerHeights(cur, fixed, avail) {
 // Пользователь поменял высоту фасада вручную. Этот ящик и все, которые он
 // правил раньше, ФИКСИРУЮТСЯ и больше автоматически не меняются — остаток
 // разбирают только те, к которым пользователь ещё не притрагивался.
-function redistributeDrawers(secIndex, sec, changed, value) {
-  const avail = Number(secCalc(secIndex).drawerAvail) || 0;
+function redistributeDrawers(secIndex, sec, changed, value, zi) {
+  const avail = Number(secCalc(secIndex, zi).drawerAvail) || 0;
   const n = sec.drawers;
-  const cur = manualHeights(secIndex, sec);
+  const cur = manualHeights(secIndex, sec, zi);
 
   sec.drawerPinned = (sec.drawerPinned || []).slice(0, n);
   sec.drawerPinned[changed] = true;
@@ -13657,23 +13787,33 @@ function reflowManualDrawers() {
     const mm = currentModel.modules[mi];
     const info = mm && mm.dims && mm.dims.sections;
     if (!info) return;
-    m.sections.forEach((sec, si) => {
-      if (sec.drawerMode !== 'manual' || !sec.drawers) return;
-      const avail = Number(info[si] && info[si].drawerAvail) || 0;
+    // owner — секция или отсек (zi), avail — доступный фронт из модели
+    const reflowOwner = (owner, avail) => {
+      if (owner.drawerMode !== 'manual' || !owner.drawers) return;
       if (avail <= 0) return;
-      const cur = (sec.drawerHeights || []).slice(0, sec.drawers).map(Number);
-      if (cur.length !== sec.drawers || cur.some((v) => !Number.isFinite(v) || v <= 0)) return;
+      const cur = (owner.drawerHeights || []).slice(0, owner.drawers).map(Number);
+      if (cur.length !== owner.drawers || cur.some((v) => !Number.isFinite(v) || v <= 0)) return;
       if (Math.abs(cur.reduce((a, b) => a + b, 0) - avail) < 0.5) return;
 
       const fixed = [];
-      const pin = sec.drawerPinned || [];
-      for (let d = 0; d < sec.drawers; d++) if (pin[d]) fixed.push(d);
-      if (fixed.length >= sec.drawers) return;      // всё задано вручную — не трогаем
+      const pin = owner.drawerPinned || [];
+      for (let d = 0; d < owner.drawers; d++) if (pin[d]) fixed.push(d);
+      if (fixed.length >= owner.drawers) return;      // всё задано вручную — не трогаем
 
       const next = fitDrawerHeights(cur, fixed, avail);
       if (next.some((v, i) => Math.abs(v - cur[i]) > 0.05)) {
-        sec.drawerHeights = next;
+        owner.drawerHeights = next;
         changed = true;
+      }
+    };
+    m.sections.forEach((sec, si) => {
+      reflowOwner(sec, Number(info[si] && info[si].drawerAvail) || 0);
+      if ((Number(sec.doorZoneCount) || 1) > 1 && Array.isArray(sec.doorZones)) {
+        sec.doorZones.slice(0, Number(sec.doorZoneCount)).forEach((z, zi) => {
+          if (z && (z.appliance || 'none') === 'none') {
+            reflowOwner(z, Number(info[si] && info[si].zoneDrawerAvail && info[si].zoneDrawerAvail[zi]) || 0);
+          }
+        });
       }
     });
   });
@@ -13707,6 +13847,33 @@ function secActualFacadeWidth(mod, i) {
   return (part && part.box && Number.isFinite(part.box.w)) ? Math.round(part.box.w) : null;
 }
 
+// Ручка отсека: те же поля, что у секции (тип, присадка, межосевое), но свои у
+// каждого отсека. Пусто («Как у секции») — движок берёт ручку секции.
+function zoneHandleBlockHtml(sec, i, zi, zone, nicheOnly) {
+  if (nicheOnly || zone.facade === 'open' || zone.facade === 'blindFacade') return '';
+  const hid = zone.handle || sec.handle;
+  const eff = HANDLES[hid] || {};
+  const orient = zone.handleOrient || sec.handleOrient;
+  const twoHoles = eff.holes === 2;
+  return `
+    <div class="field-row mt6">
+      <div class="field"><label>Ручки</label>
+        <select data-zonehandle="${zi}" data-idx="${i}">
+          ${HANDLE_ORDER.map((id) => `<option value="${id}" ${hid === id ? 'selected' : ''}>${esc(HANDLES[id].name)}</option>`).join('')}
+        </select>
+      </div>
+      ${twoHoles ? `<div class="field"><label>Присадка ручки</label>
+        <select data-zonehandleorient="${zi}" data-idx="${i}">
+          <option value="vertical" ${orient !== 'horizontal' ? 'selected' : ''}>вертикально</option>
+          <option value="horizontal" ${orient === 'horizontal' ? 'selected' : ''}>горизонтально</option>
+        </select>
+      </div>` : ''}
+    </div>
+    ${hid === 'custom' ? `
+    <label class="mt6">Межосевое расстояние, мм</label>
+    <div class="mini-row"><input type="number" step="1" min="32" max="1200" value="${zone.handleCC || sec.handleCC || 160}" data-zonehandlecc="${zi}" data-idx="${i}"></div>` : ''}`;
+}
+
 // Разметка ОДНОЙ карточки отсека фасада (техника/фасад/высота/габариты/
 // заметка) — чистая функция рендера без побочных эффектов и завязки на
 // замыкание конкретного места вызова. Используется в компактном контекстном
@@ -13717,7 +13884,7 @@ function secActualFacadeWidth(mod, i) {
 // `i` — индекс секции в mod.sections (для data-idx у полей), `zi` — индекс
 // отсека в sec.doorZones, `doorZoneCount` — общее число отсеков секции (для
 // заголовка «Нижний/Верхний/Отсек N»).
-function zoneCardHtml(sec, i, zi, doorZoneCount) {
+function zoneCardHtml(sec, i, zi, doorZoneCount, mod) {
   const zone = sec.doorZones[zi] || {};
   const isBottom = zi === 0;
   const isTop = zi === doorZoneCount - 1;
@@ -13731,53 +13898,74 @@ function zoneCardHtml(sec, i, zi, doorZoneCount) {
   // Полки внутри зоны со встроенной техникой неуместны — там либо ниша под
   // прибор, либо фасад скрывает прибор (appliance !== 'none' в обоих
   // случаях), поэтому блок «Полки» показываем только для обычной зоны.
-  const zoneShelfDetail = zoneShelves > 0 ? `
+  const zoneShelfDetail = (zoneShelves > 0 && zone.shelfMode === 'manual') ? `
     <div class="sub">
-      <label>Полки</label>
-      <select data-zoneshelfmode="${zi}" data-idx="${i}">
-        <option value="auto" ${zone.shelfMode !== 'manual' ? 'selected' : ''}>Равномерно</option>
-        <option value="manual" ${zone.shelfMode === 'manual' ? 'selected' : ''}>Вручную</option>
-      </select>
-      ${zone.shelfMode === 'manual' ? `
-        <label class="mt6">Высота каждой полки от низа отсека, мм</label>
-        <div class="mini-row">
-          ${Array.from({ length: zoneShelves }, (_, s) =>
-            `<div class="shelf-cell">
-              <input type="number" step="10" min="0" value="${(zone.shelfHeights && zone.shelfHeights[s]) || (300 * (s + 1))}"
-                    data-zoneshelfheight="${zi}" data-idx="${i}" data-zshelf="${s}" title="Полка ${s + 1}">
-              ${shelfFixedSelect(zone.shelfFixed && zone.shelfFixed[s], `data-zoneshelffixed="${zi}" data-idx="${i}" data-zshelf="${s}"`, s)}
-            </div>`
-          ).join('')}
-        </div>` : ''}
+      <label class="mt6">Высота каждой полки от низа отсека, мм</label>
+      <div class="mini-row">
+        ${Array.from({ length: zoneShelves }, (_, s) =>
+          `<div class="shelf-cell">
+            <input type="number" step="10" min="0" value="${(zone.shelfHeights && zone.shelfHeights[s]) || (300 * (s + 1))}"
+                  data-zoneshelfheight="${zi}" data-idx="${i}" data-zshelf="${s}" title="Полка ${s + 1}">
+            ${shelfFixedSelect(zone.shelfFixed && zone.shelfFixed[s], `data-zoneshelffixed="${zi}" data-idx="${i}" data-zshelf="${s}"`, s)}
+          </div>`
+        ).join('')}
+      </div>
     </div>` : '';
-  return `
-  <div class="sub">
-    <label><strong>${esc(title)}</strong></label>
-    <label class="mt6">Встраиваемая техника</label>
-    <select data-zoneappliance="${zi}" data-idx="${i}">
-      <option value="none" ${appliance === 'none' ? 'selected' : ''}>Нет (обычный фасад)</option>
-      <option value="oven" ${appliance === 'oven' ? 'selected' : ''}>Духовой шкаф</option>
-      <option value="microwave" ${appliance === 'microwave' ? 'selected' : ''}>СВЧ</option>
-      <option value="fridge" ${appliance === 'fridge' ? 'selected' : ''}>Холодильник</option>
-      <option value="washer" ${appliance === 'washer' ? 'selected' : ''}>Стиральная машина</option>
-      <option value="dishwasher" ${appliance === 'dishwasher' ? 'selected' : ''}>Посудомоечная машина</option>
-    </select>
-    ${!nicheOnly ? `
-    <label class="mt6">Открывание фасадов</label>
-    <select data-zonefacade="${zi}" data-idx="${i}">
+  const facadeOpts = `
       <option value="doorLeft" ${(zone.facade === 'doorLeft' || zone.facade === 'doors1') ? 'selected' : ''}>Дверь левая</option>
       <option value="doorRight" ${zone.facade === 'doorRight' ? 'selected' : ''}>Дверь правая</option>
       <option value="doors2" ${zone.facade === 'doors2' ? 'selected' : ''}>Две двери</option>
       <option value="liftUp" ${zone.facade === 'liftUp' ? 'selected' : ''}>Открывание вверх</option>
       <option value="blindFacade" ${zone.facade === 'blindFacade' ? 'selected' : ''}>Заглушка</option>
-      <option value="open" ${zone.facade === 'open' ? 'selected' : ''}>Без дверей</option>
-    </select>` : '<div class="hint">Ниша без фасада — техника показывает свою лицевую панель.</div>'}
-    <label class="mt6">Высота отсека (ниши), мм</label>
-    <div class="mini-row"><input type="number" min="0" step="10" value="${zone.height || ''}" placeholder="авто (остаток)" data-zoneheight="${zi}" data-idx="${i}"></div>
+      <option value="open" ${zone.facade === 'open' ? 'selected' : ''}>Без дверей</option>`;
+  // Вид и материал фасада отсека — те же поля и обработчики, что на экране «Деталь»
+  // (partFacadeType / data-mat-pick="partFacade"), только в одну строку.
+  const facadeRow = (!nicheOnly && mod) ? partDoorFacadeRowHtml(mod) : '';
+  return `
+  <div class="sub">
+    <label><strong>${esc(title)}</strong></label>
+    <label class="mt6">Высота отсека (внутри), мм</label>
+    <div class="mini-row"><input type="number" min="0" step="10" value="${zone.height || ''}" placeholder="авто (остаток)" title="Внутренний размер: от верха нижней полки до низа верхней" data-zoneheight="${zi}" data-idx="${i}"></div>
+    ${facadeRow}
+    <div class="field-row mt6">
+      <div class="field">
+        <select data-zoneappliance="${zi}" data-idx="${i}" aria-label="Встраиваемая техника">
+          <option value="none" ${appliance === 'none' ? 'selected' : ''}>Без техники</option>
+          <option value="oven" ${appliance === 'oven' ? 'selected' : ''}>Духовой шкаф</option>
+          <option value="microwave" ${appliance === 'microwave' ? 'selected' : ''}>СВЧ</option>
+          <option value="fridge" ${appliance === 'fridge' ? 'selected' : ''}>Холодильник</option>
+          <option value="washer" ${appliance === 'washer' ? 'selected' : ''}>Стиральная машина</option>
+          <option value="dishwasher" ${appliance === 'dishwasher' ? 'selected' : ''}>Посудомоечная машина</option>
+        </select>
+      </div>
+      ${!nicheOnly ? `<div class="field">
+        <select data-zonefacade="${zi}" data-idx="${i}" aria-label="Открывание фасадов">${facadeOpts}
+        </select>
+      </div>` : ''}
+    </div>
+    ${nicheOnly ? '<div class="hint">Ниша без фасада — техника показывает свою лицевую панель.</div>' : ''}
+    ${zoneHandleBlockHtml(sec, i, zi, zone, nicheOnly)}
     ${appliance === 'none' ? `
-    <label class="mt6">Полки, шт</label>
-    <div class="mini-row"><input type="number" min="0" max="12" value="${zoneShelves}" data-zoneshelves="${zi}" data-idx="${i}"></div>
-    ${zoneShelfDetail}` : ''}
+    <div class="field-row field-row-wide-action mt6">
+      <div class="field"><label>Ящики, шт</label><input type="number" min="0" max="8" value="${Number(zone.drawers) || 0}" data-zonedrawers="${zi}" data-idx="${i}"></div>
+      <div class="field field-row-action">
+        <label>&nbsp;</label>
+        <button class="btn materials-link-btn field-row-btn" data-zonedrawers-open="${zi}" data-idx="${i}" type="button" ${(Number(zone.drawers) || 0) > 0 ? '' : 'disabled'}>Редактировать ящики <span class="arrow">→</span></button>
+      </div>
+    </div>
+    <div class="field-row field-row-wide-action mt6">
+      <div class="field"><label>Полки, шт</label><input type="number" min="0" max="12" value="${zoneShelves}" data-zoneshelves="${zi}" data-idx="${i}"></div>
+      ${zoneShelves > 0 ? `<div class="field field-row-action">
+        <label>&nbsp;</label>
+        <select data-zoneshelfmode="${zi}" data-idx="${i}">
+          <option value="auto" ${zone.shelfMode !== 'manual' ? 'selected' : ''}>Равномерно</option>
+          <option value="manual" ${zone.shelfMode === 'manual' ? 'selected' : ''}>Вручную</option>
+        </select>
+      </div>` : ''}
+    </div>
+    ${zoneShelfDetail}
+    ${(mod && mod.family === 'kitchen') ? '' : rodBlockHtml(
+      zone, (f) => `data-zonerodfield="${f}" data-idx="${i}" data-zi="${zi}"`, 'низа отсека', 'отсека')}` : ''}
     ${appliance !== 'none' ? `
     <label class="mt6">Габариты техники, мм (для памяти — ниша считается по высоте отсека выше)</label>
     <div class="field-row">
@@ -14024,6 +14212,32 @@ function bindZoneFieldEvents(container, mod, refresh) {
       recompute();
     });
   });
+  container.querySelectorAll('[data-zonehandle]').forEach((el) => {
+    el.addEventListener('change', (e) => {
+      const sec = mod.sections[Number(e.target.dataset.idx)];
+      const zone = ensureZone(sec, Number(e.target.dataset.zonehandle));
+      zone.handle = e.target.value;
+      if (zone.handle === 'custom' && !(Number(zone.handleCC) > 0)) zone.handleCC = Number(sec.handleCC) || 160;
+      refreshScreen();
+      recompute();
+    });
+  });
+  container.querySelectorAll('[data-zonehandleorient]').forEach((el) => {
+    el.addEventListener('change', (e) => {
+      const sec = mod.sections[Number(e.target.dataset.idx)];
+      ensureZone(sec, Number(e.target.dataset.zonehandleorient)).handleOrient = e.target.value;
+      recompute();
+    });
+  });
+  container.querySelectorAll('[data-zonehandlecc]').forEach((el) => {
+    el.addEventListener('change', (e) => {
+      const sec = mod.sections[Number(e.target.dataset.idx)];
+      const zone = ensureZone(sec, Number(e.target.dataset.zonehandlecc));
+      if (!zone.handle) zone.handle = sec.handle;   // движок берёт межосевое отсека, только если ручка отсека задана явно
+      zone.handleCC = Number(e.target.value) || 0;
+      recompute();
+    });
+  });
   container.querySelectorAll('[data-zoneheight]').forEach((el) => {
     el.addEventListener('change', (e) => {
       const sec = mod.sections[Number(e.target.dataset.idx)];
@@ -14067,6 +14281,24 @@ function bindZoneFieldEvents(container, mod, refresh) {
       recompute();
     });
   });
+  // ящики внутри отсека: число (0..8) и переход на экран «Ящики» отсека
+  container.querySelectorAll('[data-zonedrawers]').forEach((el) => {
+    el.addEventListener('change', (e) => {
+      const sec = mod.sections[Number(e.target.dataset.idx)];
+      const zone = ensureZone(sec, Number(e.target.dataset.zonedrawers));
+      zone.drawers = Math.max(0, Math.min(8, Math.floor(Number(e.target.value) || 0)));
+      // как у секции: смена числа снимает все фиксации высот фасадов
+      zone.drawerPinned = [];
+      zone.drawerHeights = [];
+      refreshScreen();
+      recompute();
+    });
+  });
+  container.querySelectorAll('[data-zonedrawers-open]').forEach((el) => {
+    el.addEventListener('click', (e) => {
+      openDrawersPanel(Number(e.currentTarget.dataset.idx), Number(e.currentTarget.dataset.zonedrawersOpen));
+    });
+  });
   container.querySelectorAll('[data-zoneshelves]').forEach((el) => {
     el.addEventListener('change', (e) => {
       const sec = mod.sections[Number(e.target.dataset.idx)];
@@ -14100,6 +14332,26 @@ function bindZoneFieldEvents(container, mod, refresh) {
       const zone = ensureZone(sec, zi);
       zone.shelfHeights = zone.shelfHeights || [];
       zone.shelfHeights[Number(e.target.dataset.zshelf)] = Number(e.target.value);
+      recompute();
+    });
+  });
+  // штанга / вторая штанга / пантограф отсека — та же логика, что у секции
+  // (renderSectionsList, поля [data-field]), только объект — отсек.
+  container.querySelectorAll('[data-zonerodfield]').forEach((el) => {
+    el.addEventListener('change', (e) => {
+      const sec = mod.sections[Number(e.target.dataset.idx)];
+      const zone = ensureZone(sec, Number(e.target.dataset.zi));
+      const f = e.target.dataset.zonerodfield;
+      zone[f] = (f === 'rodClothes' || f === 'rod2Clothes' || f === 'pantographClothes' || f === 'pantographColor')
+        ? e.target.value
+        : (e.target.type === 'checkbox' ? e.target.checked : Number(e.target.value));
+      if (f === 'rod' || f === 'pantograph') zone.rodHeight = 0;
+      if (f === 'rodClothes') zone.rodHeight = 0;
+      if (f === 'rod' && zone.rod) zone.rodClothes = 'long';
+      if (f === 'pantograph' && zone.pantograph) zone.pantographClothes = 'long';
+      if (f === 'rod2') { zone.rodClothes = zone.rod2 ? '' : 'long'; zone.rod2Clothes = ''; zone.rodHeight = 0; zone.rod2Height = 0; }
+      if (f === 'rod2Clothes') zone.rod2Height = 0;
+      refreshScreen();
       recompute();
     });
   });
@@ -15074,45 +15326,9 @@ function renderSectionsList() {
           : ''}
       </div>`;
 
-    // Выбор «что вешаем»: по типу одежды ядро ставит высоту оси штанги от пола.
-    // Одна строка: список «что вешаем» + (пока тип не выбран) поле своего размера.
-    // Пункт «свой размер» показывает установленную высоту: введённую или рекомендованную.
-    const ROD_CLOTHES_UI = { long: 1500, mid: 1300, short: 1000 };
-    const rodClothesRowHtml = (field, cur, idx, heightField, heightVal, rec, fromLower) => {
-      const custom = Number(heightVal) > 0;
-      // Пока тип не выбран (две штанги — рекомендуемые 2050/1000 от пола) в закрытом списке
-      // виден рекомендуемый размер, а в раскрытом списке его нет — только три типа.
-      const recOpt = cur ? '' : `<option value="" selected disabled hidden>Рекомендовано: ${rec}</option>`;
-      return `<div class="mini-row" style="display:flex;gap:6px;align-items:center">
-          <select data-field="${field}" data-idx="${idx}" style="flex:1 1 auto;min-width:0">
-            ${recOpt}
-            <option value="long"${cur === 'long' ? ' selected' : ''}>Длинная одежда ${ROD_CLOTHES_UI.long} мм</option>
-            <option value="mid"${cur === 'mid' ? ' selected' : ''}>Средняя одежда ${ROD_CLOTHES_UI.mid} мм</option>
-            <option value="short"${cur === 'short' ? ' selected' : ''}>Короткие вещи ${ROD_CLOTHES_UI.short} мм</option>
-          </select>
-          <input type="number" step="10" min="0" value="${custom ? Number(heightVal) : ''}" placeholder="${ROD_CLOTHES_UI[cur] || parseInt(rec, 10)}" title="Свой размер, мм" data-field="${heightField}" data-idx="${idx}" style="flex:0 0 90px;width:90px">
-        </div>`;
-    };
-
     // Штанга для одежды в кухонном модуле не бывает — блок не показываем.
-    const rodBlock = mod.family === 'kitchen' ? '' : `
-      <div class="sub">
-        <label class="checkbox-inline"><input type="checkbox" data-field="rod" data-idx="${i}" ${sec.rod ? 'checked' : ''}> Штанга для одежды</label>
-        ${sec.rod ? `<label class="mt6">Рекомендованные размеры для одежды</label>
-        ${rodClothesRowHtml('rodClothes', sec.rodClothes, i, 'rodHeight', sec.rodHeight, sec.rod2 && !sec.pantograph ? '2050 мм от пола' : '1500 мм от дна секции', !!(sec.rod2 && !sec.pantograph))}
-        ${sec.pantograph ? '' : `<label class="checkbox-inline mt6"><input type="checkbox" data-field="rod2" data-idx="${i}" ${sec.rod2 ? 'checked' : ''}> Вторая штанга ниже (для коротких вещей)</label>
-        ${sec.rod2 ? `<label class="mt6">Нижняя штанга — рекомендованные размеры для одежды (до верхней не менее 1000 мм)</label>
-        ${rodClothesRowHtml('rod2Clothes', sec.rod2Clothes, i, 'rod2Height', sec.rod2Height, '1000 мм от пола')}` : ''}`}` : ''}
-        <label class="checkbox-inline mt6" title="Штанга опускается вниз ручкой (GTV PG-ST, 8 кг). Ставится вверху секции; штанга выше 2100 мм от дна без пантографа недоступна рукой."><input type="checkbox" data-field="pantograph" data-idx="${i}" ${sec.pantograph ? 'checked' : ''}> Пантограф (опускается ручкой)</label>
-        ${sec.pantograph ? `<div class="mini-row mt6" style="display:flex;gap:6px;align-items:center">
-          <select data-field="pantographClothes" data-idx="${i}" title="Что вешаем на пантограф: от оси трубы вниз до полки под ним" style="flex:1.4 1 0;min-width:0">
-            ${['long', 'mid', 'short'].map((k) => `<option value="${k}"${(sec.pantographClothes || 'long') === k ? ' selected' : ''}>${{ long: 'Длинная одежда', mid: 'Средняя одежда', short: 'Короткие вещи' }[k]} ${ROD_CLOTHES_UI[k]} мм</option>`).join('')}
-          </select>
-          <div style="flex:1 1 0;min-width:0">${pantographColorSelectHtml(sec, i)}</div>
-          <input type="number" step="10" min="300" value="${sec.pantographHeight || ''}" placeholder="авто" title="Высота оси трубы от дна секции, мм (пусто — максимально высоко)" data-field="pantographHeight" data-idx="${i}" style="flex:0 0 70px;width:70px">
-        </div>
-        <div class="hint">GTV PG-ST: от оси трубы до низа механизма 836 мм, ширина секции 545–1200 мм, вынос вперёд при опускании 710 мм. Пусто — максимально высоко (30 мм до крыши/полки). Штангу ставьте ниже механизма; вторая штанга вместе с пантографом недоступна.</div>` : ''}
-      </div>`;
+    const rodBlock = mod.family === 'kitchen' ? '' : rodBlockHtml(
+      sec, (f) => `data-field="${f}" data-idx="${i}"`, 'дна секции', 'секции');
 
     // Вертикальные отсеки фасада (пенал под встроенную технику): деление на
     // отсеки и карточка каждого отсека живут только в 3D (клик по отсеку →
@@ -15182,7 +15398,7 @@ function renderSectionsList() {
           </select>
         </div>` : `
         <div class="field">
-          <div class="hint">Секция разделена на отсеки по высоте. Деление и настройка отсеков (фасад, встраиваемая техника, полки) — кликом по отсеку прямо в 3D (Focus Mode не нужен): «Разделить секцию на отсеки» / «Редактировать отсек».</div>
+          <div class="hint">Секция разделена на отсеки по высоте. Деление и настройка отсеков (фасад, встраиваемая техника, ручки, ящики, полки, штанга, пантограф) — кликом по отсеку прямо в 3D (Focus Mode не нужен): «Разделить секцию на отсеки» / «Редактировать отсек».</div>
         </div>`}
         ${glassBlock}
         ${handleBlock}
@@ -15668,7 +15884,17 @@ function bindPanelEvents() {
   // Якорь навигации (кнопка «Материалы») и ссылка «← Назад» — их элементы
   // отрисованы не на каждом экране, но привязка безопасна и для отсутствующих.
   on('materialsLinkBtn', 'click', () => setPanelView('materials'));
-  on('panelBack', 'click', () => setPanelView('module'));
+  on('panelBack', 'click', () => {
+    // Экран «Ящики» отсека → назад в редактор этого отсека (selectedPart
+    // сохранён), а не в «Конструктив модуля».
+    if (state.panelView === 'drawers' && state.drawersZone !== null
+        && state.selectedPart && state.selectedPart.kind === 'door') {
+      state.drawersZone = null;
+      setPanelView('part');
+      return;
+    }
+    setPanelView('module');
+  });
   // Экран «Деталь» → быстрый переход к полю, которое красит видимую боковину.
   on('partToFacadeDecor', 'click', () => setPanelView('materials'));
   // Экран «Деталь» → полноэкранный визуальный редактор вырезов (см.
@@ -16083,7 +16309,10 @@ function bindPanelEvents() {
   const drawersRoot = document.getElementById('drawersPanelRoot');
   if (drawersRoot) {
     const si = state.drawersSectionIndex;
-    const sec = mod.sections[si];
+    const dctx = drawersCtx(mod, si, state.drawersZone);
+    // sec — владелец ящиков (секция либо отсек): сюда пишем все поля
+    const sec = dctx && dctx.owner;
+    const dzi = dctx ? dctx.zi : null;
     if (sec) {
       on('drawersMode', 'change', (e) => {
         sec.drawerMode = e.target.value;
@@ -16091,14 +16320,14 @@ function bindPanelEvents() {
         // распределено автоматически (не обнуляет ящики); возврат в авто —
         // снимает все фиксации. Та же логика, что и раньше в делегате
         // renderSectionsList для 'drawerMode'.
-        if (e.target.value === 'manual') sec.drawerHeights = manualHeights(si, sec);
+        if (e.target.value === 'manual') sec.drawerHeights = manualHeights(si, sec, dzi);
         else sec.drawerPinned = [];
         renderParamsPanel();
         recompute();
       });
       drawersRoot.querySelectorAll('[data-drawer]').forEach((el) => {
         el.addEventListener('change', (e) => {
-          sec.drawerHeights = redistributeDrawers(si, sec, Number(e.target.dataset.drawer), Number(e.target.value));
+          sec.drawerHeights = redistributeDrawers(si, sec, Number(e.target.dataset.drawer), Number(e.target.value), dzi);
           renderParamsPanel();
           recompute();
         });
@@ -17709,10 +17938,24 @@ function initHeaderControls() {
     // новый короткий путь к отсеку — раньше попасть в него можно было только
     // через Focus Mode (двойной клик → onSelectPart выше), а для отсека без
     // фасада вообще не было по чему кликнуть.
-    viewer.onSelectZone = ({ module, sectionIndex, zoneIndex, clientX, clientY }) => {
+    viewer.onSelectZone = ({ module, sectionIndex, zoneIndex, clientX, clientY, button }) => {
       const mm = state.modules.find((m) => m.name === module);
       const sec = mm && mm.sections[sectionIndex];
       if (!sec) return;
+      // Левый клик — выбирается вся секция: в панели «Параметры проекта»
+      // раскрывается её вкладка, подсвечивается секция целиком (zoneIndex
+      // null), меню не открывается. Правый клик — отсек и меню (ниже).
+      if (button !== 2) {
+        closeFocusMenu();
+        exitIsolation();
+        selectModuleByName(module);
+        mm.activeSection = sectionIndex;
+        state.panelView = 'module';
+        renderParamsPanel();
+        state.selectedPart = { module, kind: 'door', side: undefined, subIndex: 0, sectionIndex, zoneIndex: null, asPart: false };
+        viewer.render(currentModel, viewOpts());
+        return;
+      }
       // Отсек подсвечивается в 3D СРАЗУ по клику — ещё до выбора пункта меню
       // (по тому же принципу, что и onSelectPart в фокусе выше). Без этого
       // подсветка появлялась только после «Редактировать отсек», а сам клик
@@ -17724,6 +17967,7 @@ function initHeaderControls() {
       closeFocusMenu();
       exitIsolation();
       selectModuleByName(module);
+      mm.activeSection = sectionIndex;
       state.panelView = 'module';
       renderParamsPanel();
       state.selectedPart = { module, kind: 'door', side: undefined, subIndex: 0, sectionIndex, zoneIndex, asPart: false };

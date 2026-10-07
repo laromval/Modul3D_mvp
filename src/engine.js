@@ -185,7 +185,7 @@ function getDrawerHeights(sec, drawerUnitH, avail, warn, secName) {
     // это отдельный отсек, ящики остаются типовой высоты, а содержимое отсека
     // не двигается (раньше после удаления фасада ящики раздувались на всю секцию).
     const hasOtherContent = !!sec.rod || Number(sec.shelves) > 0
-      || (Array.isArray(sec.doorZones) && sec.doorZones.some((z) => z && (z.rod || Number(z.shelves) > 0)));
+      || (Array.isArray(sec.doorZones) && sec.doorZones.some((z) => z && (z.rod || z.pantograph || Number(z.shelves) > 0 || Number(z.drawers) > 0)));
     if (!hasDoor && !hasOtherContent) {
       // Ящики занимают весь фронт: делим поровну, кратно 10, остаток —
       // нижнему ящику, чтобы верх стопки был заподлицо с крышкой.
@@ -220,7 +220,8 @@ function getDrawerHeights(sec, drawerUnitH, avail, warn, secName) {
 // читать его напрямую.
 function sectionHasAnyFacade(sec) {
   if (Number(sec.doorZoneCount) > 1 && Array.isArray(sec.doorZones) && sec.doorZones.length) {
-    return sec.doorZones.some((z) => z && z.facade !== 'open');
+    // Ящики отсека тоже закрывают передний торец, даже если дверь отсека 'open'.
+    return sec.doorZones.some((z) => z && (z.facade !== 'open' || Number(z.drawers) > 0));
   }
   return sec.facade !== 'open';
 }
@@ -309,8 +310,14 @@ function applianceHingeNote(appliance) {
  *   РЕАЛЬНОЙ ниши i-й зоны (то, что видит сборщик/встраиваемая техника) —
  *   в тех же относительных координатах.
  */
-function layoutDoorZones(zones, slotHeight, gap, t, warn, secName) {
+// edge = { lo, hi } — толщина панели у нижнего и верхнего края слота (дно секции и
+// крыша). Если задана, высота ниши КРАЙНЕГО отсека — внутренний размер между
+// верхней пластью дна (нижней полкой) и низом верхней полки (крыши), как её меряет
+// сборщик (решение пользователя 2026-10-08). Без edge — как раньше (до внешней грани).
+function layoutDoorZones(zones, slotHeight, gap, t, warn, secName, edge) {
   const N = zones.length;
+  const eLo = (edge && Number(edge.lo)) || 0;
+  const eHi = (edge && Number(edge.hi)) || 0;
   const usableBudget = Math.max(0, slotHeight - 2 * gap * N);
   // Крайняя зона (i===0 или i===N-1, только при N>1) граничит лишь с ОДНОЙ
   // полкой-перегородкой — с другой стороны край корпуса (днище/крышка), там
@@ -320,10 +327,16 @@ function layoutDoorZones(zones, slotHeight, gap, t, warn, secName) {
   // обратной совместимости из комментария выше.
   const tAdjFor = (i) => {
     if (N <= 1) return 0;
-    return (i === 0 || i === N - 1) ? t / 2 : t;
+    let a = (i === 0 || i === N - 1) ? t / 2 : t;
+    if (i === 0) a += eLo;
+    if (i === N - 1) a += eHi;
+    return a;
   };
   const explicit = zones.map((z, i) => {
     const niche = Math.max(0, Number(z.height) || 0);
+    // Отсек только из ящиков с авто-высотой (z.fitDoorH — см. planZoneLayout):
+    // высота подгоняется под стопку фасадов, а не берёт «остаток».
+    if (!(niche > 0) && Number(z.fitDoorH) > 0) return Number(z.fitDoorH);
     return niche > 0 ? Math.max(0, niche - 2 * gap + tAdjFor(i)) : 0;
   });
   const sumExplicit = explicit.reduce((a, v) => a + v, 0);
@@ -358,8 +371,8 @@ function layoutDoorZones(zones, slotHeight, gap, t, warn, secName) {
   const nicheBottoms = [];
   const nicheHeights = [];
   for (let i = 0; i < N; i++) {
-    const nb = i === 0 ? 0 : bottoms[i] - gap + t / 2;
-    const nt = i === N - 1 ? slotHeight : bottoms[i + 1] - gap - t / 2;
+    const nb = i === 0 ? eLo : bottoms[i] - gap + t / 2;
+    const nt = i === N - 1 ? slotHeight - eHi : bottoms[i + 1] - gap - t / 2;
     nicheBottoms.push(nb);
     nicheHeights.push(Math.max(0, nt - nb));
   }
@@ -376,7 +389,81 @@ function layoutDoorZones(zones, slotHeight, gap, t, warn, secName) {
 // нишу, а не дверь.
 function nicheFromEdgeDoorHeight(doorHeight, t, gap) {
   const g = gap ?? 1.5;
-  return Math.max(0, Number(doorHeight) + 2 * g - t / 2);
+  // Нижний отсек над дном секции (без ящиков): ниша — внутренний размер от верха дна,
+  // поэтому к половине толщины полки добавляется толщина дна.
+  return Math.max(0, Number(doorHeight) + 2 * g - t / 2 - t);
+}
+
+// ---------------------------------------------------------------------------
+// ЯЩИКИ ВНУТРИ ОТСЕКА (решение пользователя 2026-10-07). У отсека многозонной
+// секции (sec.doorZones[zi]) могут быть свои ящики: zone.drawers (0..8) и
+// зональные аналоги настроек секции (drawerMode/drawerHeights/drawerSystem/
+// drawerThickness/drawerOffset/drawerDecorCode/drawerFacadeType/
+// drawerFacadeMaterial/drawerBoxHeight). Стопка ставится ОТ НИЗА НИШИ отсека;
+// выше неё остаётся дверь/полки/штанга отсека. Секционные ящики (sec.drawers)
+// работают как раньше, отсеки идут выше них.
+const ZONE_DRAWER_OWN_KEYS = ['drawerSystem', 'drawerThickness', 'drawerOffset', 'drawerDecorCode',
+  'drawerFacadeType', 'drawerFacadeMaterial', 'drawerBoxHeight', 'pushToOpen'];
+
+// «Виртуальная секция» отсека: поля секции + поля ящиков/содержимого самого
+// отсека — чтобы переиспользовать getDrawerHeights/drawerLift/buildDrawerBoxes.
+// Режим и ручные высоты берутся ТОЛЬКО из отсека (у секции свои ящики).
+function zoneDrawerSection(sec, z) {
+  const zz = z || {};
+  const appliance = zz.appliance || 'none';
+  const n = appliance === 'none' ? Math.max(0, Math.min(8, Math.floor(Number(zz.drawers) || 0))) : 0;
+  const defFacade = sec.facade === 'doorRight' ? 'doorRight' : 'doorLeft';
+  const v = Object.assign({}, sec, {
+    drawers: n, drawerMode: zz.drawerMode, drawerHeights: zz.drawerHeights,
+    facade: zz.facade || defFacade,
+    rod: zz.rod, rod2: zz.rod2, pantograph: zz.pantograph, shelves: zz.shelves,
+    doorZoneCount: 1, doorZones: undefined,
+  });
+  for (const k of ZONE_DRAWER_OWN_KEYS) {
+    if (zz[k] !== undefined && zz[k] !== null && zz[k] !== '') v[k] = zz[k];
+  }
+  return v;
+}
+
+/**
+ * Раскладка отсеков секции С УЧЁТОМ ящиков отсеков. Единая точка для всех мест
+ * модели (полки, штанга, ящики, фасады) — раскладка не может разойтись.
+ *
+ * Отсек, в котором ТОЛЬКО ящики (facade 'open', нет полок/штанги/пантографа) и
+ * высота ниши авто (0), подгоняется под стопку (типовая высота фасада, как у
+ * секции, либо заданные вручную) — а не берёт «остаток». Остальные отсеки с
+ * ящиками получают стопку внутри своей двери-эквивалента (heights[zi]); выше —
+ * то, что задано в отсеке.
+ *
+ * @return { layout, stacks[zi] } stacks[zi] — null либо
+ *   { heights, sum, virt, p0 } — p0: нижняя граница стопки фасадов
+ *   относительно slotBot (= bottoms[zi] - gap).
+ */
+function planZoneLayout(sec, slotHeight, gap, t, drawerUnitH, warnLayout, warnStack, secName, edge) {
+  const N = Number(sec.doorZoneCount);
+  const zones = [];
+  const virts = [];
+  for (let zi = 0; zi < N; zi++) {
+    const z = (sec.doorZones && sec.doorZones[zi]) || {};
+    const virt = zoneDrawerSection(sec, z);
+    virts.push(virt);
+    const desc = { height: Number(z.height) || 0, appliance: z.appliance || 'none' };
+    if (virt.drawers > 0 && !(desc.height > 0) && virt.facade === 'open'
+      && !virt.rod && !virt.pantograph && !(Number(virt.shelves) > 0)) {
+      const typ = getDrawerHeights(Object.assign({}, virt, { facade: 'doorLeft' }), drawerUnitH, 1e6, null, '');
+      desc.fitDoorH = typ.reduce((s, v) => s + v, 0);
+    }
+    zones.push(desc);
+  }
+  const layout = layoutDoorZones(zones, slotHeight, gap, t, warnLayout, secName, edge);
+  const stacks = zones.map((d, zi) => {
+    const virt = virts[zi];
+    if (!(virt.drawers > 0) || !(layout.heights[zi] > 0)) return null;
+    const label = `${secName}, отсек ${zi + 1}`;
+    const heights = getDrawerHeights(virt, drawerUnitH, layout.heights[zi], warnStack, label);
+    return { heights, sum: heights.reduce((s, v) => s + v, 0), virt, p0: layout.bottoms[zi] - gap };
+  });
+  return { layout, stacks };
 }
 
 // Возвращает координаты ЦЕНТРА полок по высоте.
@@ -3851,7 +3938,9 @@ function buildModuleParts(p) {
     const frontAvail = (H - baseH);
     const drawerHeights = getDrawerHeights(
       sec, drawerUnitH, frontAvail, (w) => warnings.push(w), secName);
-    secInfo.push({ index: i, drawerAvail: frontAvail, drawerHeights: drawerHeights.slice(), shelfYs: [], boxes: [] });
+    secInfo.push({ index: i, drawerAvail: frontAvail, drawerHeights: drawerHeights.slice(), shelfYs: [], boxes: [],
+      // Ящики ОТСЕКОВ (zone.drawers): по индексу отсека, как drawerAvail/drawerHeights/boxes секции.
+      zoneDrawerAvail: {}, zoneDrawerHeights: {}, zoneDrawerBoxes: {} });
     const infoRowBox = secInfo[secInfo.length - 1];
     // Фасады стоят СНАРУЖИ и занимают фронт, а не внутреннюю высоту —
     // сравнивать их с innerH нельзя. Помещаемость проверяется по фактическим
@@ -3868,6 +3957,7 @@ function buildModuleParts(p) {
     const runnerNLs = [];
     const boxInfo = [];
     const boxPartsStart = parts.length;
+    let boxPartsEnd = 0;   // конец деталей ящиков СЕКЦИИ (дальше — ящики отсеков)
     if (drawerHeights.length) {
       // Материал/толщина ящиков — по умолчанию проектные (drawerDecor/drawerT),
       // но секция может переопределить их своими sec.drawerDecorCode/
@@ -3909,6 +3999,7 @@ function buildModuleParts(p) {
       });
       if (infoRowBox) infoRowBox.boxes = boxInfo;
     }
+    boxPartsEnd = parts.length;
 
     // ----- Полки: вкладные, с отступом от переднего края, сзади до задней стенки -----
     // Съёмная полка: отступ SHELF_SETBACK от переднего края, задний край —
@@ -3937,6 +4028,19 @@ function buildModuleParts(p) {
     // раньше, одним плоским набором на sec.shelves/shelfHeights/shelfFixed.
     const multiZone = Number(sec.doorZoneCount) > 1
       && Array.isArray(sec.doorZones) && sec.doorZones.length > 0;
+    // Раскладка отсеков (+ ящики отсеков) — одна на все места модели.
+    const zpSlotBot = drawerZoneH ? baseH + drawerZoneH : baseH;
+    const zonePlan = multiZone
+      ? planZoneLayout(sec, baseH + frontAvail - zpSlotBot, gap, t, drawerUnitH,
+        null, (w) => warnings.push(w), secName, { lo: drawerZoneH ? 0 : t, hi: t })
+      : null;
+    if (zonePlan) {
+      zonePlan.stacks.forEach((st, zi) => {
+        if (!st) return;
+        infoRowBox.zoneDrawerAvail[zi] = zonePlan.layout.heights[zi];
+        infoRowBox.zoneDrawerHeights[zi] = st.heights.slice();
+      });
+    }
     let shelfEntries = []; // { y, fixed }
     if (sec.shelves > 0 && !multiZone && shelfZoneH < t + 40) {
       // Если ящики заняли весь фронт, зоны под полки не остаётся — полки не
@@ -3944,28 +4048,32 @@ function buildModuleParts(p) {
       warnings.push(`${secName}: под полки не осталось места — уменьшите число ящиков `
         + `или увеличьте высоту модуля.`);
     } else if (multiZone) {
-      const azSlotBot = drawerZoneH ? baseH + drawerZoneH : baseH;
-      const azSlotTop = baseH + frontAvail;
-      const azZones = [];
-      for (let zi = 0; zi < sec.doorZoneCount; zi++) {
-        const z = sec.doorZones[zi];
-        azZones.push({ height: (z && Number(z.height)) || 0, appliance: (z && z.appliance) || 'none' });
-      }
-      const azLayout = layoutDoorZones(azZones, azSlotTop - azSlotBot, gap, t, null, secName);
+      const azSlotBot = zpSlotBot;
+      const azLayout = zonePlan.layout;
       for (const off of azLayout.partitions) {
         shelfEntries.push({ y: azSlotBot + off, fixed: true, fullDepth: true });
       }
       // Ниша под технику (appliance !== 'none') не получает съёмных полок —
       // sec.doorZones[zi].shelves для неё в интерфейсе не показывается и
       // остаётся 0, отдельно исключать её диапазон не нужно.
-      for (let zi = 0; zi < azZones.length; zi++) {
+      for (let zi = 0; zi < sec.doorZoneCount; zi++) {
         const dz = sec.doorZones[zi] || {};
         if (!(Number(dz.shelves) > 0)) continue;
         const zBottom = azSlotBot + azLayout.nicheBottoms[zi];
         const zHeight = azLayout.nicheHeights[zi];
+        // Ящики отсека занимают низ ниши: полки — выше их стопки (ручная высота
+        // по-прежнему от низа ниши, как у секции от её дна).
+        const zst = zonePlan.stacks[zi];
+        const zShelfBottom = zst ? Math.max(zBottom, azSlotBot + zst.p0 + zst.sum) : zBottom;
+        const zShelfH = zst ? zBottom + zHeight - zShelfBottom : zHeight;
+        if (zst && zShelfH < t + 40) {
+          warnings.push(`${secName}, отсек ${zi + 1}: под полки не осталось места — уменьшите число ящиков `
+            + `отсека или увеличьте высоту отсека.`);
+          continue;
+        }
         const zoneYs = getShelfYs(
           { shelves: dz.shelves, shelfMode: dz.shelfMode, shelfHeights: dz.shelfHeights },
-          zBottom, zHeight, t, zBottom, null);
+          zShelfBottom, zShelfH, t, zBottom, null);
         // dz.shelfFixed[k] — «Жёсткая» полка вручную (индекс = shelfHeights[k]).
         const zoneFixedOk = dz.shelfMode === 'manual' && Array.isArray(dz.shelfFixed);
         zoneYs.forEach((y, k) => shelfEntries.push({
@@ -4036,7 +4144,7 @@ function buildModuleParts(p) {
       // Короб ящика (особенно Quadro) бывает почти вровень с фасадом — нижняя
       // пласть полки не должна заходить в него: тогда полка поднимается до
       // верха самого высокого короба (физически иначе полка встала бы в ящик).
-      const boxTopY = parts.slice(boxPartsStart)
+      const boxTopY = parts.slice(boxPartsStart, boxPartsEnd)
         .filter((q) => /^drawer/.test(q.kind) && q.kind !== 'drawerFront' && q.box)
         .reduce((m, q) => Math.max(m, q.box.y + q.box.h / 2), -Infinity);
       shelfEntries.push({
@@ -4045,10 +4153,78 @@ function buildModuleParts(p) {
         fixed: true, fullDepth: true, drawerTop: true,
       });
     }
+
+    // ----- Ящики ОТСЕКОВ (zone.drawers): стопка от низа ниши отсека -----
+    // Короб поднят на drawerLift над «полом» отсека (верх полки-перегородки;
+    // у нижнего отсека — верх полки над ящиками секции либо дно секции), фасады
+    // начинаются от нижней границы отсека (p0), как у секции от низа фронта.
+    // Выше стопки — несъёмная полка (если есть место и ниша не кончается тут же).
+    if (zonePlan) {
+      const roofY = innerBottomY + innerH;
+      for (let zi = 0; zi < sec.doorZoneCount; zi++) {
+        const st = zonePlan.stacks[zi];
+        if (!st) continue;
+        const lay = zonePlan.layout;
+        const zLabel = `${secName} (${zi === 0 ? 'нижняя зона' : (zi === sec.doorZoneCount - 1 ? 'верхняя зона' : `зона ${zi + 1}`)})`;
+        const zP0 = zpSlotBot + st.p0;
+        let zFloor;
+        if (zi === 0) {
+          const dts = shelfEntries.filter((e) => e.drawerTop)[0];
+          zFloor = dts ? dts.y + t / 2 : shelfZoneBottom;
+        } else {
+          zFloor = zpSlotBot + lay.nicheBottoms[zi];
+        }
+        const zNicheTop = Math.min(roofY, zpSlotBot + lay.nicheBottoms[zi] + lay.nicheHeights[zi]);
+        const zv = st.virt;
+        const zDecor = (zv.drawerDecorCode
+          && window.Modul3D.catalog.DECORS.find((d) => d.code === zv.drawerDecorCode))
+          || drawerDecor;
+        const zRunnerYs = [], zRunnerNLs = [], zBoxInfo = [];
+        const zStart = parts.length;
+        buildDrawerBoxes({
+          parts, warnings, sec: zv, secName: zLabel, secCenterX, drawerHeights: st.heights,
+          sectionOpening: secW, innerDepth: D - tb, t, decor, back, backT: tb,
+          frontZ: D / 2, boxInfo: zBoxInfo,
+          facadeBaseY: zP0, gap,
+          drawerDecor: zDecor, drawerT: effectiveDrawerThickness(zv, p),
+          baseY: zFloor + drawerLift(zv), innerTopY: zNicheTop,
+          runnerYs: zRunnerYs, runnerNLs: zRunnerNLs, innerBottomY: zFloor,
+        });
+        const zSys = window.Modul3D.catalog.DRAWER_SYSTEMS[zv.drawerSystem || 'ballBearing'];
+        if ((zv.drawerSystem || 'ballBearing') === 'innotech' && zRunnerYs.length) {
+          const secSideT = [i === 0 ? tL : t, i === n - 1 ? tR : t];
+          if (secSideT.some((v) => Math.abs(v - t) > 0.05)) {
+            warnings.push(`${zLabel}: ящики Hettich InnoTech Atira — толщина боковины `
+              + `${secSideT.filter((v) => Math.abs(v - t) > 0.05).join('/')} мм отличается от корпусной ${t} мм; `
+              + `монтажный зазор EB и присадка Atira посчитаны по толщине корпуса ${t} мм — сверьте с каталогом Hettich.`);
+          }
+        }
+        zRunnerYs.forEach((ry, ri) => {
+          drawerMounts.push({ y: ry, panels: [panelLX(i), panelRX(i)], cx: secCenterX,
+            nl: zRunnerNLs[ri], cabinetHoles: zSys && zSys.cabinetHoles,
+            altShift: zSys && zSys.altHoleShift });
+        });
+        infoRowBox.zoneDrawerBoxes[zi] = zBoxInfo;
+
+        // Жёсткая полка над стопкой отсека: только если выше неё остаётся место
+        // (граница отсека уже имеет полку-перегородку — не дублируем).
+        const zFrontTop = zP0 + st.sum;
+        st.floorAbove = zFrontTop;
+        if (zNicheTop - Math.max(zFloor, zFrontTop) >= t + 40) {
+          const zBoxTop = parts.slice(zStart)
+            .filter((q) => /^drawer/.test(q.kind) && q.kind !== 'drawerFront' && q.box)
+            .reduce((m, q) => Math.max(m, q.box.y + q.box.h / 2), -Infinity);
+          const zy = Math.max(zv.facade !== 'open' ? zFrontTop : zFrontTop - gap + 2 - t / 2,
+            zBoxTop + t / 2 + 0.6);
+          shelfEntries.push({ y: zy, fixed: true, fullDepth: true, zdt: zi });
+          st.floorAbove = zy + t / 2;
+        }
+      }
+    }
     for (let si = 0; si < shelfEntries.length; si++) {
       const y = shelfEntries[si].y;
       const isFixed = shelfEntries[si].fixed;
-      if (!shelfEntries[si].drawerTop
+      if (!shelfEntries[si].drawerTop && shelfEntries[si].zdt === undefined
         && (y < innerBottomY + drawerZoneH - 1 || y > innerBottomY + innerH + 1)) {
         warnings.push(`${secName}: полка на высоте ${Math.round(y - innerBottomY)} мм выходит за пределы секции.`);
         continue;
@@ -4085,7 +4261,7 @@ function buildModuleParts(p) {
         glass: glassShelf, fixed: isFixed,
         note: glassShelf
           ? 'Стекло 6 мм, на полкодержателях с силиконовой пяткой'
-          : (shelfEntries[si].drawerTop
+          : ((shelfEntries[si].drawerTop || shelfEntries[si].zdt !== undefined)
             ? 'Несъёмная, над ящиками, во всю глубину корпуса, крепится минификсами Rastex к боковинам'
             : isFixed && !fullDepth
             ? 'Жёсткая (несъёмная), глубина как у съёмной, крепится минификсами Rastex к боковинам и стойкам'
@@ -4103,24 +4279,34 @@ function buildModuleParts(p) {
 
     // Штанга и пантограф — два независимых выбора секции (можно оба сразу:
     // пантограф сверху, штанга ниже), у каждого своя высота от дна секции.
-    if (sec.rod || sec.pantograph) {
+    // То же самое умеет ОТСЕК многозонной секции (sec.doorZones[zi].rod/rod2/
+    // pantograph…) — те же правила, но границы = ниша отсека (решение 2026-10-07).
+    // owner — секция либо отсек (читаем rod*/pantograph* из него), o — границы:
+    // floorY — «дно» для высот (дно секции / низ ниши), secFloor — нижняя граница
+    // свободного объёма пантографа, roofY — верх, rodShelfYs/shelfYsAll — плоскости
+    // полок внутри, reachY0 — пол корпуса для проверки «выше 2100 от дна».
+    const buildRodAndPantograph = (owner, o) => {
+      const { label, floorWord, floorY, secFloor, roofY, rodShelfYs, shelfYsAll, reachY0, isZone } = o;
       const ROD_D = 25;
       const ROD_TOP_GAP = 50;      // просвет от ВЕРХНЕЙ КРОМКИ трубы до полки/крыши, мм (подтверждено 2026-10-05)
       // Минимальная высота оси штанги от дна секции по типу одежды
       const ROD_CLOTHES_MIN = ROD_CLOTHES_HEIGHT;   // и авто-высота оси при выборе «что вешаем» (решение 2026-10-06)
       const ROD_CLOTHES_NAME = { long: 'длинной одежды', mid: 'средней одежды', short: 'коротких вещей' };
       const ROD_BACK_MIN = 300;    // минимум от задней стенки до оси, мм
+      // Нижний предел оси второй штанги (авто-высоты 1000/2050 — абсолютные, от пола корпуса):
+      // в отсеке труба не ниже его дна (с просветом ROD_TOP_GAP).
+      const lowestRodY = isZone ? floorY + ROD_TOP_GAP + ROD_D / 2 : -Infinity;
 
       // По высоте: под ближайшей полкой сверху (или под крышей).
-      const above = (infoRow && infoRow.shelfYs ? infoRow.shelfYs : [])
-        .filter((y) => y > innerBottomY + 100);
-      const ceiling = above.length ? Math.min.apply(null, above) - t / 2 : innerBottomY + innerH;
+      const above = rodShelfYs
+        .filter((y) => y > floorY + 100);
+      const ceiling = above.length ? Math.min.apply(null, above) - t / 2 : roofY;
       const innerBackZ = -D / 2 + tb;          // внутренняя плоскость задней стенки
       const innerFrontZ = D / 2;               // передняя плоскость корпуса
       // Зона механизма пантографа по высоте (для проверки столкновения со штангой).
       let pgZone = null;
 
-      if (sec.pantograph) {
+      if (owner.pantograph) {
         // ----- Пантограф GTV PG-ST (опускающаяся штанга) -----
         // Размеры — инструкция GTV (assets/drawings/gtv-pantograf-pg-st*.png):
         // ось верхней трубы → низ корпуса механизма 836 мм; корпус механизма
@@ -4131,7 +4317,7 @@ function buildModuleParts(p) {
         const PG_DROP = 836, PG_BODY_W = 140, PG_BODY_H = 260;
         const PG_MIN_W = 545, PG_MAX_W = 1200, PG_FRONT_REACH = 710, PG_TOP_GAP = 30;
         const pgZ = (innerBackZ + innerFrontZ) / 2;   // ось рычага — на 1/2 глубины
-        const wantedPg = Number(sec.pantographHeight);
+        const wantedPg = Number(owner.pantographHeight);
         const manualPg = Number.isFinite(wantedPg) && wantedPg > 0;
         // Свободные отсеки секции по высоте: между верхом ящиков/дном, полками
         // (в т.ч. жёсткой над ящиками) и крышей. Механизм висит на 836 мм ниже
@@ -4140,21 +4326,20 @@ function buildModuleParts(p) {
         // отсек для одежды на плечиках (решение пользователя 2026-10-06: 1000 мм).
         const PG_NEED = PG_DROP + PG_TOP_GAP;
         const PG_COMFORT = 1000;
-        const secFloor = drawerZoneH > 0 ? Math.max(innerBottomY, baseH + drawerZoneH) : innerBottomY;
-        const shelfPlanes = shelfEntries.map((e) => e.y).filter((y) => y > secFloor).sort((x, y) => x - y);
+        const shelfPlanes = shelfYsAll.filter((y) => y > secFloor).sort((x, y) => x - y);
         const pgComps = [];
         let cBottom = secFloor;
         for (const sy of shelfPlanes) {
           pgComps.push({ bottom: cBottom, top: sy - t / 2 });
           cBottom = sy + t / 2;
         }
-        pgComps.push({ bottom: cBottom, top: innerBottomY + innerH });
+        pgComps.push({ bottom: cBottom, top: roofY });
         const compH = (c) => c.top - c.bottom;
-        const inSection = (c) => Math.round(c.bottom - innerBottomY) + '–' + Math.round(c.top - innerBottomY);
+        const inSection = (c) => Math.round(c.bottom - floorY) + '–' + Math.round(c.top - floorY);
         let comp;
         let pgY;
         if (manualPg) {
-          const wantY = innerBottomY + wantedPg;
+          const wantY = floorY + wantedPg;
           // отсек, в котором стоит заданная высота; если она попала в полку — ближайший отсек ниже
           comp = pgComps.filter((c) => c.top >= wantY - 0.5)[0] || pgComps[pgComps.length - 1];
           if (wantY < comp.bottom) {
@@ -4163,8 +4348,8 @@ function buildModuleParts(p) {
           }
           pgY = Math.min(wantY, comp.top - PG_TOP_GAP);
           if (wantY > comp.top - PG_TOP_GAP + 0.5) {
-            warnings.push(`${secName}: пантограф на ${Math.round(wantedPg)} мм упирается в полку/крышу — `
-              + `опущен до ${Math.round(pgY - innerBottomY)} мм (от оси трубы до крыши/полки не менее ${PG_TOP_GAP} мм).`);
+            warnings.push(`${label}: пантограф на ${Math.round(wantedPg)} мм упирается в полку/крышу — `
+              + `опущен до ${Math.round(pgY - floorY)} мм (от оси трубы до крыши/полки не менее ${PG_TOP_GAP} мм).`);
           }
         } else {
           // Авто: самый верхний отсек, куда механизм помещается; если такого нет — самый высокий.
@@ -4176,34 +4361,34 @@ function buildModuleParts(p) {
           pgY = comp.top - PG_TOP_GAP;
         }
         if (compH(comp) < PG_NEED - 0.5) {
-          warnings.push(`${secName}: пантограф не помещается — в отсеке на высоте ${inSection(comp)} мм `
+          warnings.push(`${label}: пантограф не помещается — в отсеке на высоте ${inSection(comp)} мм `
             + `свободно ${Math.round(compH(comp))} мм, а механизму нужно не менее ${PG_NEED} мм `
             + `(${PG_DROP} мм вниз от оси трубы + ${PG_TOP_GAP} мм до крыши/полки). `
             + `Уберите полки/ящики под ним или поставьте пантограф в другую секцию.`);
         } else if (compH(comp) < PG_COMFORT - 0.5) {
-          warnings.push(`${secName}: в отсеке пантографа на высоте ${inSection(comp)} мм свободно `
+          warnings.push(`${label}: в отсеке пантографа на высоте ${inSection(comp)} мм свободно `
             + `${Math.round(compH(comp))} мм — механизм встаёт, но для одежды на плечиках нужно не менее ${PG_COMFORT} мм.`);
         }
         if (secW < PG_MIN_W || secW > PG_MAX_W) {
-          warnings.push(`${secName}: ширина секции ${Math.round(secW)} мм вне диапазона пантографа GTV `
+          warnings.push(`${label}: ширина секции ${Math.round(secW)} мм вне диапазона пантографа GTV `
             + `(${PG_MIN_W}–${PG_MAX_W} мм) — подходящего размера нет.`);
         }
         if (D < PG_BODY_W) {
-          warnings.push(`${secName}: глубина корпуса ${Math.round(D)} мм меньше 140 мм — пантограф не встанет.`);
+          warnings.push(`${label}: глубина корпуса ${Math.round(D)} мм меньше 140 мм — пантограф не встанет.`);
         }
         const pgTop = pgY + ROD_D / 2, pgBottom = pgY - PG_DROP;
         pgZone = { top: pgTop, bottom: pgBottom };
         parts.push(makePart({
-          name: 'Пантограф (опускающаяся штанга)', section: secName, material: 'PANTOGRAPH', thickness: 0,
+          name: 'Пантограф (опускающаяся штанга)', section: label, material: 'PANTOGRAPH', thickness: 0,
           length: secW, width: PG_DROP, qty: 1, kind: 'pantograph',
-          note: `GTV PG-ST, ось трубы ${Math.round(pgY - innerBottomY)} мм от дна секции, `
+          note: `GTV PG-ST, ось трубы ${Math.round(pgY - floorY)} мм от ${floorWord}, `
             + `просвет сверху ${Math.round(comp.top - pgY)} мм; при опускании выносится на ${PG_FRONT_REACH} мм вперёд`
-            + (sec.pantographColor ? `, цвет: ${sec.pantographColor}` : ''),
+            + (owner.pantographColor ? `, цвет: ${owner.pantographColor}` : ''),
           edging: { long1: null, long2: null, short1: null, short2: null },
           x: secCenterX, y: (pgTop + pgBottom) / 2, z: pgZ,
           dims: { w: secW, h: pgTop - pgBottom, d: PG_BODY_W },
           shape: 'pantograph',
-          pantographColor: sec.pantographColor || null,
+          pantographColor: owner.pantographColor || null,
           hardware: true,
         }));
         // Присадка боковин по шаблону GTV: две колонки по 6 точек (7,5 мм от
@@ -4211,7 +4396,7 @@ function buildModuleParts(p) {
         // Диаметр на шаблоне не указан — берём Ø4 по винтам комплекта (Ø4×20).
         for (const sgn of [-1, 1]) {
           pantographPanels.push({
-            panelX: sgn < 0 ? panelLX(i) : panelRX(i), bottomY: pgBottom, z: pgZ, secName,
+            panelX: sgn < 0 ? panelLX(i) : panelRX(i), bottomY: pgBottom, z: pgZ, secName: label,
             bodyH: PG_BODY_H, bodyW: PG_BODY_W,
           });
         }
@@ -4224,7 +4409,7 @@ function buildModuleParts(p) {
       //   • от задней стенки до оси штанги — не менее 300 мм: плечики висят
       //     поперёк корпуса и упираются в заднюю стенку;
       //   • держатели (фланцы) крепятся к боковинам двумя саморезами.
-      if (sec.rod) {
+      if (owner.rod) {
         // По глубине: ось по центру внутреннего пространства, но не ближе
         // ROD_BACK_MIN к задней стенке и не ближе 80 мм к фасаду.
         let rodZ = (innerBackZ + innerFrontZ) / 2;
@@ -4233,70 +4418,74 @@ function buildModuleParts(p) {
         if (rodZ > innerFrontZ - 80) rodZ = innerFrontZ - 80;
         const backClear = rodZ - innerBackZ;
         if (backClear < ROD_BACK_MIN - 0.5) {
-          warnings.push(`${secName}: глубина корпуса ${Math.round(D)} мм мала для штанги — `
+          warnings.push(`${label}: глубина корпуса ${Math.round(D)} мм мала для штанги — `
             + `от задней стенки до оси ${Math.round(backClear)} мм вместо ${ROD_BACK_MIN}; `
             + `плечики будут упираться.`);
         }
-        const wanted = Number(sec.rodHeight);
+        const wanted = Number(owner.rodHeight);
         const manual = Number.isFinite(wanted) && wanted > 0;
         // Авто-высота оси штанги: 1500 мм от дна секции одна штанга; 2050 мм верхняя при двух штангах (нижняя 1000, зазор между трубами
         // 1000 мм + толщина труб); 1300 мм под пантографом, но не ниже механизма.
         // Две штанги (без пантографа): нижняя считается раньше верхней — размер «что вешаем»
         // у ВЕРХНЕЙ откладывается от нижней штанги, а не от дна секции (решение 2026-10-06).
-        const twoRods = !!sec.rod2 && !sec.pantograph;
+        const twoRods = !!owner.rod2 && !owner.pantograph;
         let rod2Y = 0;
         if (twoRods) {
-          const w2 = Number(sec.rod2Height);
-          rod2Y = Number.isFinite(w2) && w2 > 0 ? innerBottomY + w2
-            : (ROD_CLOTHES_MIN[sec.rod2Clothes] ? innerBottomY + ROD_CLOTHES_MIN[sec.rod2Clothes] : 1000);   // авто — по типу одежды, иначе 1000 мм от пола
+          const w2 = Number(owner.rod2Height);
+          rod2Y = Number.isFinite(w2) && w2 > 0 ? floorY + w2
+            : (ROD_CLOTHES_MIN[owner.rod2Clothes] ? floorY + ROD_CLOTHES_MIN[owner.rod2Clothes] : 1000);   // авто — по типу одежды, иначе 1000 мм от пола
+          rod2Y = Math.max(rod2Y, lowestRodY);
         }
-        const clothesH = ROD_CLOTHES_MIN[sec.rodClothes] || 0;
-        const clothesY = !clothesH ? 0 : (twoRods ? rod2Y + clothesH : innerBottomY + clothesH);   // выбран тип одежды — высота по нему
+        const clothesH = ROD_CLOTHES_MIN[owner.rodClothes] || 0;
+        const clothesY = !clothesH ? 0 : (twoRods ? rod2Y + clothesH : floorY + clothesH);   // выбран тип одежды — высота по нему
         // Без выбранного типа одежды — как для длинной (1500 от дна секции, решение 2026-10-06);
         // две штанги — верхняя 2050 от пола; рядом с пантографом — не ниже механизма.
-        const longY = innerBottomY + ROD_CLOTHES_MIN.long;
-        const rodDefaultY = pgZone ? Math.min(clothesY || longY, pgZone.bottom - 30) : (clothesY || (sec.rod2 ? 2050 : longY));
-        let rodY = manual ? innerBottomY + wanted : Math.min(rodDefaultY, ceiling - ROD_TOP_GAP - ROD_D / 2);
+        const longY = floorY + ROD_CLOTHES_MIN.long;
+        const rodDefaultY = pgZone ? Math.min(clothesY || longY, pgZone.bottom - 30) : (clothesY || (owner.rod2 ? 2050 : longY));
+        let rodY = manual ? floorY + wanted : Math.min(rodDefaultY, ceiling - ROD_TOP_GAP - ROD_D / 2);
         if (twoRods && !manual && clothesY && clothesY > ceiling - ROD_TOP_GAP - ROD_D / 2 + 0.5) {
-          warnings.push(`${secName}: верхняя штанга на ${clothesH} мм над нижней встала бы на ${Math.round(clothesY - innerBottomY)} мм `
-            + `от дна секции — выше секции (максимум ${Math.round(ceiling - ROD_TOP_GAP - ROD_D / 2 - innerBottomY)} мм). `
+          warnings.push(`${label}: верхняя штанга на ${clothesH} мм над нижней встала бы на ${Math.round(clothesY - floorY)} мм `
+            + `от ${floorWord} — выше секции (максимум ${Math.round(ceiling - ROD_TOP_GAP - ROD_D / 2 - floorY)} мм). `
             + `Установите пантограф или выберите размер меньше.`);
         }
         const topLimit = ceiling - ROD_D / 2 - 10;
         if (rodY > topLimit) {
-          warnings.push(`${secName}: штанга на ${Math.round(rodY - innerBottomY)} мм упирается в полку — `
-            + `опущена до ${Math.round(topLimit - innerBottomY)} мм.`);
+          warnings.push(`${label}: штанга на ${Math.round(rodY - floorY)} мм упирается в полку — `
+            + `опущена до ${Math.round(topLimit - floorY)} мм.`);
           rodY = topLimit;
+        }
+        if (isZone && rodY - ROD_D / 2 < floorY) {
+          warnings.push(`${label}: отсек слишком низкий для штанги — труба Ø${ROD_D} мм не помещается между дном отсека и полкой/крышей.`);
         }
         const topGap = ceiling - rodY - ROD_D / 2;
         if (manual && topGap < ROD_TOP_GAP - 0.5) {
-          warnings.push(`${secName}: просвет от трубы до полки сверху ${Math.round(topGap)} мм — `
+          warnings.push(`${label}: просвет от трубы до полки сверху ${Math.round(topGap)} мм — `
             + `для плечиков нужно не менее ${ROD_TOP_GAP} мм.`);
         }
-        const clothesMin = ROD_CLOTHES_MIN[sec.rodClothes];
-        if (clothesMin && !twoRods && rodY - innerBottomY < clothesMin - 0.5) {
-          warnings.push(`${secName}: штанга на ${Math.round(rodY - innerBottomY)} мм от дна секции — `
-            + `для ${ROD_CLOTHES_NAME[sec.rodClothes]} нужно не ниже ${clothesMin} мм.`);
+        const clothesMin = ROD_CLOTHES_MIN[owner.rodClothes];
+        if (clothesMin && !twoRods && rodY - floorY < clothesMin - 0.5) {
+          warnings.push(`${label}: штанга на ${Math.round(rodY - floorY)} мм от ${floorWord} — `
+            + `для ${ROD_CLOTHES_NAME[owner.rodClothes]} нужно не ниже ${clothesMin} мм.`);
         }
-        if (!sec.pantograph && rodY - innerBottomY > 2100) {
-          warnings.push(`${secName}: штанга выше 2100 мм от дна недоступна рукой — `
+        if (!owner.pantograph && rodY - reachY0 > 2100) {
+          warnings.push(`${label}: штанга выше 2100 мм от дна недоступна рукой — `
             + `нужен лифт-пантограф или опустите штангу.`);
         }
 
         // Штанга и пантограф в одной секции: держатели штанги не должны стоять
         // на корпусе механизма пантографа (он занимает 836 мм вниз от его трубы).
         if (pgZone && rodY + 20 > pgZone.bottom && rodY - 20 < pgZone.top) {
-          warnings.push(`${secName}: штанга на ${Math.round(rodY - innerBottomY)} мм попадает в зону механизма `
-            + `пантографа (${Math.round(pgZone.bottom - innerBottomY)}–${Math.round(pgZone.top - innerBottomY)} мм) — `
-            + `опустите штангу ниже ${Math.round(pgZone.bottom - innerBottomY)} мм.`);
+          warnings.push(`${label}: штанга на ${Math.round(rodY - floorY)} мм попадает в зону механизма `
+            + `пантографа (${Math.round(pgZone.bottom - floorY)}–${Math.round(pgZone.top - floorY)} мм) — `
+            + `опустите штангу ниже ${Math.round(pgZone.bottom - floorY)} мм.`);
         }
 
         const rodLen = secW - 2;
         const emitRod = (y, noteExtra) => {
           parts.push(makePart({
-            name: 'Штанга для одежды', section: secName, material: 'ROD-D25', thickness: 0,
+            name: 'Штанга для одежды', section: label, material: 'ROD-D25', thickness: 0,
             length: rodLen, width: ROD_D, qty: 1, kind: 'rod',
-            note: `Ø${ROD_D} мм, ${Math.round(y - innerBottomY)} мм от дна секции, `
+            note: `Ø${ROD_D} мм, ${Math.round(y - floorY)} мм от ${floorWord}, `
               + noteExtra + `от задней стенки ${Math.round(backClear)} мм`,
             edging: { long1: null, long2: null, short1: null, short2: null },
             x: secCenterX, y, z: rodZ,
@@ -4311,7 +4500,7 @@ function buildModuleParts(p) {
             // в боковину. Штанга входит в него — это нормально, они одно целое.
             const px = secCenterX + sgn * (secW / 2 - 3);
             parts.push(makePart({
-              name: 'Держатель штанги (фланец)', section: secName, material: 'ROD-H25', thickness: 0,
+              name: 'Держатель штанги (фланец)', section: label, material: 'ROD-H25', thickness: 0,
               length: 40, width: 40, qty: 1, kind: 'rodFlange',
               note: 'Крепится к панели двумя саморезами',
               edging: { long1: null, long2: null, short1: null, short2: null },
@@ -4320,7 +4509,7 @@ function buildModuleParts(p) {
               shape: 'flange',
               hardware: true,
             }));
-            rodFlanges.push({ panelX: sgn < 0 ? panelLX(i) : panelRX(i), y, z: rodZ, secName });
+            rodFlanges.push({ panelX: sgn < 0 ? panelLX(i) : panelRX(i), y, z: rodZ, secName: label });
           }
         };
         emitRod(rodY, `просвет от трубы до полки сверху ${Math.round(ceiling - rodY - ROD_D / 2)} мм, `);
@@ -4332,11 +4521,47 @@ function buildModuleParts(p) {
         if (twoRods) {
           const ROD_PAIR_MIN = 1000;
           if (rodY - rod2Y < ROD_PAIR_MIN - 0.5) {
-            warnings.push(`${secName}: расстояние между штангами ${Math.round(rodY - rod2Y)} мм — `
+            warnings.push(`${label}: расстояние между штангами ${Math.round(rodY - rod2Y)} мм — `
               + `для коротких вещей нужно не менее ${ROD_PAIR_MIN} мм.`);
           }
           emitRod(rod2Y, `нижняя штанга, до верхней ${Math.round(rodY - rod2Y)} мм, `);
         }
+      }
+    };
+    if (sec.rod || sec.pantograph) {
+      buildRodAndPantograph(sec, {
+        label: secName, floorWord: 'дна секции', floorY: innerBottomY,
+        secFloor: drawerZoneH > 0 ? Math.max(innerBottomY, baseH + drawerZoneH) : innerBottomY,
+        roofY: innerBottomY + innerH,
+        rodShelfYs: infoRow && infoRow.shelfYs ? infoRow.shelfYs : [],
+        shelfYsAll: shelfEntries.map((e) => e.y),
+        reachY0: innerBottomY, isZone: false,
+      });
+    }
+    // Штанга/пантограф ОТСЕКОВ многозонной секции: границы — ниша отсека
+    // (layoutDoorZones, как у полок отсека выше). Отсеку с техникой — не строим.
+    if (multiZone && sec.doorZones.some((z, zi) => zi < sec.doorZoneCount && z && (z.rod || z.pantograph))) {
+      const azSlotBot = zpSlotBot;
+      const azLayout = zonePlan.layout;
+      const azCount = Number(sec.doorZoneCount);
+      for (let zi = 0; zi < azCount; zi++) {
+        const dz = sec.doorZones[zi] || {};
+        if (!(dz.rod || dz.pantograph) || (dz.appliance || 'none') !== 'none') continue;
+        let zFloor = azSlotBot + azLayout.nicheBottoms[zi];
+        const zTop = azSlotBot + azLayout.nicheBottoms[zi] + azLayout.nicheHeights[zi];
+        // Отсек с ящиками: дно штанги/пантографа — верх стопки ящиков отсека
+        // (или несъёмной полки над ней).
+        const zStk = zonePlan.stacks[zi];
+        if (zStk && zStk.floorAbove !== undefined) zFloor = Math.max(zFloor, zStk.floorAbove);
+        // Нижний отсек над ящиками: дно — верх жёсткой полки над ящиками.
+        const dtShelf = shelfEntries.filter((e) => e.drawerTop)[0];
+        if (zi === 0 && dtShelf) zFloor = Math.max(zFloor, dtShelf.y + t / 2);
+        const zPlanes = shelfEntries.map((e) => e.y).filter((y) => y > zFloor + 0.5 && y < zTop - 0.5);
+        const zLabel = `${secName} (${zi === 0 ? 'нижняя зона' : (zi === azCount - 1 ? 'верхняя зона' : `зона ${zi + 1}`)})`;
+        buildRodAndPantograph(dz, {
+          label: zLabel, floorWord: 'низа отсека', floorY: zFloor, secFloor: zFloor, roofY: zTop,
+          rodShelfYs: zPlanes, shelfYsAll: zPlanes, reachY0: innerBottomY, isZone: true,
+        });
       }
     }
   }
@@ -4929,15 +5154,18 @@ function buildModuleParts(p) {
 
     // Фасады ящиков всегда начинаются от низа фронта секции: подъём короба
     // (drawerOffset) на фасад не влияет, иначе внизу зияла бы щель.
-    let dy = baseH;
+    // Тот же код строит и фасады ящиков ОТСЕКОВ (o.zoneIndex задан): o.owner —
+    // секция либо её «виртуальная секция» отсека, o.y0 — низ стопки фасадов.
+    const emitDrawerFronts = (o) => {
+    const { heights: dHeights, label: secName, dft, owner: sec } = o;
+    let dy = o.y0;
     for (let d = 0; d < dHeights.length; d++) {
       const fH = dHeights[d] - 2 * gap;
-      const dh = handleHoles({ kind: 'drawerFront', width: facadeW, height: fH, handleId: sec.handle, handleCC: sec.handleCC });
+      const dh = handleHoles({ kind: 'drawerFront', width: facadeW, height: fH, handleId: o.handleId, handleCC: o.handleCC });
       // Присадка под крепление фасада к коробу и под держатели релинга.
       // Точные шаблоны отличаются по сериям — здесь типовая схема: два
       // крепления по осям царг, релинги над ними.
-      const bi = ((secInfo.filter((x) => x.index === i)[0] || {}).boxes || [])
-        .filter((x) => x.index === d)[0];
+      const bi = (o.boxes || []).filter((x) => x.index === d)[0];
       const fixHoles = [];
       if (bi) {
         const spread = Math.max(80, (secWi - 60) / 2);
@@ -4989,6 +5217,7 @@ function buildModuleParts(p) {
       faceZ: D / 2 + dft.thickness / 2, t: dft.thickness });
       parts.push(makePart({
         name: `Фасад ящика ${d + 1}`, section: secName, sectionIndex: i,
+        ...(o.zoneIndex !== undefined ? { zoneIndex: o.zoneIndex } : {}),
         material: dft.material, thickness: dft.thickness,
         facadeType: dft.id, ...facadePartFields(dft, facadeW, fH),
         length: facadeW, width: fH, qty: 1, kind: 'drawerFront', grain: true,
@@ -5001,6 +5230,10 @@ function buildModuleParts(p) {
       drawerHardware.push({ section: secName, width: secWi, depth: D, system: sec.drawerSystem || 'ballBearing', pushToOpen: !!sec.pushToOpen });
       dy += dHeights[d];
     }
+    };
+    emitDrawerFronts({ owner: sec, heights: dHeights, label: secName, dft, y0: baseH,
+      boxes: (secInfo.filter((x) => x.index === i)[0] || {}).boxes,
+      handleId: sec.handle, handleCC: sec.handleCC });
 
     // Двери занимают фронт, свободный от ящиков. Границу считаем по
     // ФАКТИЧЕСКОМУ положению фасадов ящиков, а не по их суммарной высоте:
@@ -5030,10 +5263,15 @@ function buildModuleParts(p) {
           applianceW: (z && Number(z.applianceW)) || 0,
           applianceD: (z && Number(z.applianceD)) || 0,
           note: (z && z.note) || '',
+          // Ручка отсека: свои поля зоны поверх секции (пусто — как у секции).
+          handle: (z && z.handle) || sec.handle,
+          handleCC: (z && z.handle) ? z.handleCC : sec.handleCC,
+          handleOrient: (z && z.handleOrient) || sec.handleOrient,
         });
       }
     } else {
-      zonesRaw = [{ facade: sec.facade, height: 0, appliance: 'none', applianceW: 0, applianceD: 0, note: '' }];
+      zonesRaw = [{ facade: sec.facade, height: 0, appliance: 'none', applianceW: 0, applianceD: 0, note: '',
+        handle: sec.handle, handleCC: sec.handleCC, handleOrient: sec.handleOrient }];
     }
 
     if (zonesRaw.length > 1 && p.blindPanel && narrow) {
@@ -5041,10 +5279,33 @@ function buildModuleParts(p) {
         + `поддерживаются вместе — заглушка построена только для одной (нижней) зоны.`);
     }
 
-    const zoneLayout = layoutDoorZones(zonesRaw, slotTop - slotBot, gap, t, (w) => warnings.push(w), secName);
+    // Несколько отсеков — раскладка вместе с ящиками отсеков (planZoneLayout),
+    // иначе, как раньше, напрямую layoutDoorZones.
+    const zonePlan = zonesRaw.length > 1
+      ? planZoneLayout(sec, slotTop - slotBot, gap, t, drawerUnitH, (w) => warnings.push(w), null, secName,
+        { lo: drawerZoneH ? 0 : t, hi: t })
+      : null;
+    const zoneLayout = zonePlan
+      ? zonePlan.layout
+      : layoutDoorZones(zonesRaw, slotTop - slotBot, gap, t, (w) => warnings.push(w), secName);
 
     for (let zi = 0; zi < zonesRaw.length; zi++) {
       const zone = zonesRaw[zi];
+      // Ящики отсека: фасады стопки от нижней границы отсека, над ними — дверь.
+      const zStack = zonePlan ? zonePlan.stacks[zi] : null;
+      if (zStack) {
+        const zv = zStack.virt;
+        const zNameSec = `${secName} (${zi === 0 ? 'нижняя зона' : (zi === zonesRaw.length - 1 ? 'верхняя зона' : `зона ${zi + 1}`)})`;
+        const zDft = drawerFacadeTypeOf(
+          Object.assign({}, zoneFacadeSettings(sec, zi), {
+            drawerFacadeType: zv.drawerFacadeType, drawerFacadeMaterial: zv.drawerFacadeMaterial }),
+          decor, t, facadeMat, p.facadeThickness);
+        emitDrawerFronts({ owner: zv, heights: zStack.heights, label: zNameSec, dft: zDft,
+          y0: slotBot + zStack.p0, zoneIndex: zi,
+          boxes: ((secInfo.filter((x) => x.index === i)[0] || {}).zoneDrawerBoxes || {})[zi],
+          handleId: zone.handle, handleCC: zone.handleCC });
+      }
+      const zStackS = zStack ? zStack.sum : 0;
       // Фасад ОТСЕКА: вид/материал/алюм. настройки зоны поверх секции
       // (zoneFacadeSettings). Затеняет ft/aluNoCup секции (фасады ящиков выше
       // остаются по секции). Однозонная секция — ровно настройки секции.
@@ -5052,9 +5313,10 @@ function buildModuleParts(p) {
         ? facadeTypeOf(zoneFacadeSettings(sec, zi), decor, t, facadeMat, p.facadeThickness)
         : ftSec;
       const aluNoCup = aluSkipsHingeCup(ft);
-      const doorZoneH = zoneLayout.heights[zi];
-      if (doorZoneH <= 0) continue;  // предупреждение уже дал layoutDoorZones
-      const doorY = slotBot + zoneLayout.bottoms[zi] + doorZoneH / 2;
+      // Дверь отсека — над стопкой его ящиков (без ящиков: весь отсек, как раньше).
+      const doorZoneH = zoneLayout.heights[zi] - zStackS;
+      if (doorZoneH <= (zStack ? 0.5 : 0)) continue;  // предупреждение уже дал layoutDoorZones
+      const doorY = slotBot + zoneLayout.bottoms[zi] + zStackS + doorZoneH / 2;
       const isTopZone = zi === zonesRaw.length - 1;
       const fac = zone.facade === 'doors1' ? 'doorLeft' : zone.facade;  // старое имя
       const zoneSecName = zonesRaw.length > 1
@@ -5085,7 +5347,7 @@ function buildModuleParts(p) {
       if (fac === 'doorLeft' || fac === 'doorRight') {
         const hingeSide = fac === 'doorLeft' ? 'петли слева' : 'петли справа';
         const dh = handleHoles({ kind: 'door', width: facadeW, height: doorZoneH,
-          handleId: sec.handle, handleCC: sec.handleCC, orient: sec.handleOrient,
+          handleId: zone.handle, handleCC: zone.handleCC, orient: zone.handleOrient,
           hingeSide: fac === 'doorLeft' ? 'left' : 'right',
           floorY: (Number(p.mountBottom) || 0) + doorY - doorZoneH / 2, frame: ft.frame,
           wallHung: isWallHung(p), override: handleOverrideOf(p, i, zi, 0),
@@ -5244,7 +5506,7 @@ function buildModuleParts(p) {
           // У двустворчатой двери петли снаружи: ручки сходятся к середине,
           // поэтому у левой створки ручка справа, у правой — слева.
           const dh = handleHoles({ kind: 'door', width: leafW, height: doorZoneH,
-            handleId: sec.handle, handleCC: sec.handleCC, orient: sec.handleOrient,
+            handleId: zone.handle, handleCC: zone.handleCC, orient: zone.handleOrient,
             hingeSide: leaf === 0 ? 'left' : 'right',
             floorY: (Number(p.mountBottom) || 0) + doorY - doorZoneH / 2, frame: ft.frame,
             wallHung: isWallHung(p), override: handleOverrideOf(p, i, zi, leaf),
@@ -5286,7 +5548,7 @@ function buildModuleParts(p) {
           aluHinge: aluNoCup && !skipHinge });
       } else if (fac === 'liftUp') {
         // Фасад откидывается ВВЕРХ: петель нет, работает подъёмный механизм.
-        const dh = handleHoles({ kind: 'liftFront', width: facadeW, height: doorZoneH, handleId: sec.handle, handleCC: sec.handleCC });
+        const dh = handleHoles({ kind: 'liftFront', width: facadeW, height: doorZoneH, handleId: zone.handle, handleCC: zone.handleCC });
         if (dh.count) handleHardware.push({ id: dh.handle.id, qty: dh.count, name: dh.handle.name, cc: dh.handle.cc });
         pushHandleParts({ parts, mounts: dh.mounts, secName: zoneSecName, handleName: dh.handle.name,
           faceX: fX, faceY: doorY, faceW: facadeW, faceH: doorZoneH,
