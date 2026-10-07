@@ -2580,10 +2580,160 @@ function escapeHtml(s) {
 }
 
 /* ---------------------------------------------------------------------------
+   Калькулятор в числовых полях. Любое <input type="number"> принимает
+   выражение (1200/3, 2400-18*2, (600+50)/2): пока поле в фокусе, оно
+   становится текстовым (в number браузер не даёт ввести * / ( )), по Enter
+   или при уходе из поля выражение заменяется результатом, а поле снова
+   number — остальной код видит обычное число и ничего о калькуляторе не
+   знает. Поля создаются динамически, поэтому всё делегируется на document.
+--------------------------------------------------------------------------- */
+// Разбор + − × ÷ ( ) и унарного минуса без eval. Возвращает число или null.
+function calcEval(src) {
+  var s = String(src).replace(/\s+/g, '').replace(/,/g, '.')
+    .replace(/[×хx*]/g, '*').replace(/[÷:\/]/g, '/').replace(/[−–—]/g, '-');
+  if (!s || /[^0-9.+\-*\/()]/.test(s)) return null;
+  var i = 0;
+  function num() {
+    var m = /^(\d+\.?\d*|\.\d+)/.exec(s.slice(i));
+    if (!m) return NaN;
+    i += m[0].length;
+    return parseFloat(m[0]);
+  }
+  function atom() {
+    if (s[i] === '-') { i++; return -atom(); }
+    if (s[i] === '+') { i++; return atom(); }
+    if (s[i] === '(') {
+      i++;
+      var v = expr();
+      if (s[i] !== ')') return NaN;
+      i++;
+      return v;
+    }
+    return num();
+  }
+  function term() {
+    var v = atom();
+    while (s[i] === '*' || s[i] === '/') {
+      var op = s[i++];
+      var r = atom();
+      v = op === '*' ? v * r : v / r;
+    }
+    return v;
+  }
+  function expr() {
+    var v = term();
+    while (s[i] === '+' || s[i] === '-') {
+      var op = s[i++];
+      var r = term();
+      v = op === '+' ? v + r : v - r;
+    }
+    return v;
+  }
+  var res = expr();
+  if (i !== s.length || !isFinite(res)) return null;
+  return res;
+}
+
+function initCalcFields() {
+  var PLAIN = /^-?(\d+[.,]?\d*|[.,]\d+)$/;
+  function isCalcTarget(el) {
+    return !!(el && el.matches && el.matches('input[type="number"], input[data-calc]'));
+  }
+  function isActive(el) { return !!(el && el.matches && el.matches('input[data-calc]')); }
+  // Знаков после запятой в результате выражения — по step поля
+  // (any → 2, дробный шаг → столько же знаков, иначе целые).
+  function decimalsOf(el) {
+    var st = el.getAttribute('step');
+    if (st === 'any') return 2;
+    var m = /\.(\d+)/.exec(st || '');
+    return m ? m[1].length : 0;
+  }
+  function flashError(el) {
+    el.classList.add('calc-error');
+    setTimeout(function () { el.classList.remove('calc-error'); }, 1200);
+  }
+  // Приводит текст поля к числу. Возвращает false, если выражение неверное
+  // (значение откатывается к тому, что было при входе в поле).
+  function commitExpr(el) {
+    var t = el.value.trim();
+    if (t === '' || PLAIN.test(t)) {
+      if (t.indexOf(',') >= 0) el.value = t.replace(',', '.');
+      return true;
+    }
+    var v = calcEval(t);
+    if (v === null) {
+      el.value = el.dataset.calcOrig || '';
+      flashError(el);
+      return false;
+    }
+    var k = Math.pow(10, decimalsOf(el));
+    el.value = String(Math.round(v * k) / k);
+    return true;
+  }
+  document.addEventListener('focusin', function (e) {
+    var el = e.target;
+    if (!isCalcTarget(el) || isActive(el) || el.readOnly || el.disabled) return;
+    el.dataset.calcOrig = el.value;
+    el.setAttribute('data-calc', '1');
+    el.type = 'text';
+    el.setAttribute('inputmode', 'decimal');
+    el.setAttribute('autocomplete', 'off');
+    try { el.select(); } catch (err) { /* ignore */ }
+  }, true);
+  // Пока введено незаконченное выражение, остальному коду input не показываем:
+  // иначе пересчёт модуля запускался бы на каждом символе «1200/».
+  document.addEventListener('input', function (e) {
+    var el = e.target;
+    if (!isActive(el)) return;
+    var t = el.value.trim();
+    if (t === '' || PLAIN.test(t)) {
+      if (t.indexOf(',') >= 0) {
+        var pos = el.selectionStart;
+        el.value = t.replace(',', '.');
+        try { el.setSelectionRange(pos, pos); } catch (err) { /* ignore */ }
+      }
+      return;
+    }
+    e.stopImmediatePropagation();
+  }, true);
+  document.addEventListener('change', function (e) {
+    var el = e.target;
+    if (!isActive(el)) return;
+    if (!commitExpr(el)) { e.stopImmediatePropagation(); return; }
+    el.dataset.calcOrig = el.value;
+  }, true);
+  document.addEventListener('keydown', function (e) {
+    var el = e.target;
+    if (e.key !== 'Enter' || !isActive(el)) return;
+    var t = el.value.trim();
+    if (t === '' || PLAIN.test(t)) return;
+    // Результат считаем до того, как Enter увидит сам редактор поля
+    // (ячейки Библиотеки сохраняют значение прямо по Enter).
+    if (commitExpr(el)) {
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+      el.dispatchEvent(new Event('change', { bubbles: true }));
+      try { el.select(); } catch (err) { /* ignore */ }
+    }
+  }, true);
+  // blur не всплывает, но в фазе захвата доходит до document — раньше
+  // обработчиков самого поля (редактор ячейки Библиотеки сохраняет по blur).
+  document.addEventListener('blur', function (e) {
+    var el = e.target;
+    if (!isActive(el)) return;
+    commitExpr(el);
+    el.removeAttribute('data-calc');
+    el.removeAttribute('inputmode');
+    el.type = 'number';
+    delete el.dataset.calcOrig;
+  }, true);
+}
+
+/* ---------------------------------------------------------------------------
    Старт (вызывается из index.html после app.js)
 --------------------------------------------------------------------------- */
 function start() {
   initTheme();
+  initCalcFields();
   initTouchScheme();
   initCurrency();
   initMarkupFont();
