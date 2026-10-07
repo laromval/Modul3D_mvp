@@ -2569,6 +2569,8 @@ const SCENE_DRAG_PX = 6;
 // Ручка двери, перетаскивание по фасаду (см. _initHandleDrag):
 const HANDLE_SNAP_R = 40;    // радиус магнита к точкам примагничивания, мм
 const HANDLE_PICK_PX = 12;   // допуск захвата ручки по экрану, px
+const SHELF_PICK_PX = 8;     // допуск захвата полки по экрану, px
+const SHELF_SNAP_R = 20;     // радиус магнита полки к уровню полки соседней секции, мм
 const HANDLE_CLICK_PX = 4;   // смещение меньше этого — обычный клик, не перетаскивание
 // Полюсный порог: ближе к вертикали (phi < POLE_EPS или > π − POLE_EPS) вектор
 // «вверх» камеры берём вдоль ∓Z — иначе lookAt вырождается (см. update()).
@@ -3257,6 +3259,7 @@ class Viewer3D {
       // Двойной клик по перетаскиваемой ручке — сброс её на авто-положение
       // (onHandleMove с mode:null), а не вход в изоляцию.
       if (this._handleDblClick(e)) return;
+      if (this._shelfDblClick && this._shelfDblClick(e)) return;
       if (!this.onIsolateModule || this.controls.moved > SCENE_DRAG_PX) return;
       // Гасим отложенный одиночный клик от pointerup (см. выше) — иначе он
       // выстрелит следом за изоляцией и собьёт состояние (лишний
@@ -3321,6 +3324,7 @@ class Viewer3D {
     this.controls.hitTestProvider = (e) => this._hitTestAt(e).length > 0;
     this._initModuleDrag();
     this._initHandleDrag();
+    this._initShelfDrag();
 
     // Пользователь начал вращать САМУ СЦЕНУ, стоя в плоском виде: переходим
     // в 3D с теми же углами и сообщаем интерфейсу — ровно как при протяжке
@@ -3730,6 +3734,197 @@ class Viewer3D {
       if (this._clickTimer) { clearTimeout(this._clickTimer); this._clickTimer = null; }
       const ref = g.userData.handleRef;
       this.onHandleMove({ module: g.userData.module, si: ref.si, zi: ref.zi, leaf: ref.leaf, mode: null, floor: null });
+      return true;
+    };
+  }
+
+  /**
+   * Перетаскивание полок по вертикали — в ортогональном виде БЕЗ фасадов.
+   * Включается, только если задан колбэк this.onShelfMove(payload):
+   *   { module, ref, y, y0 } — ref = part.shelfRef (kind 'partition' | 'zone' |
+   *   'sec', si, zi, k …), y — новый центр полки (мм, координаты модуля),
+   *   y0 — прежний; для двойного клика (сброс) y = null.
+   * Пока тянем, двигается только меш полки (модель не пересчитывается) —
+   * модель обновляет app.js по колбэку. Магнит — к уровню полок соседних
+   * секций (ref.snaps), Shift — отключить магнит, Esc — отмена.
+   */
+  _initShelfDrag() {
+    this.onShelfMove = null;
+    this._sdrag = null;
+    const canvas = this.renderer.domElement;
+    const v = new THREE.Vector3();
+    const on = () => !!this.onShelfMove && this.isOrtho && !!this._hideFacades;
+    const shelfMeshes = () => this.group.children.filter((o) => o.userData && o.userData.shelfRef);
+
+    const toScreen = (p) => {
+      const rect = canvas.getBoundingClientRect();
+      v.copy(p).project(this.camera);
+      return { x: (v.x * 0.5 + 0.5) * rect.width + rect.left, y: (-v.y * 0.5 + 0.5) * rect.height + rect.top };
+    };
+    // Полка под курсором: расстояние до её переднего ребра на экране
+    const pick = (e) => {
+      if (!on()) return null;
+      let best = null, bestD = SHELF_PICK_PX;
+      for (const m of shelfMeshes()) {
+        m.updateMatrixWorld();
+        const hx = m.userData.shelfHalf, hz = m.userData.shelfHalfD;
+        const a = toScreen(m.localToWorld(new THREE.Vector3(-hx, 0, hz)));
+        const b = toScreen(m.localToWorld(new THREE.Vector3(hx, 0, hz)));
+        const abx = b.x - a.x, aby = b.y - a.y, len2 = abx * abx + aby * aby;
+        const t = len2 > 1e-6 ? Math.max(0, Math.min(1, ((e.clientX - a.x) * abx + (e.clientY - a.y) * aby) / len2)) : 0;
+        const d = Math.hypot(e.clientX - (a.x + abx * t), e.clientY - (a.y + aby * t));
+        if (d <= bestD) { bestD = d; best = m; }
+      }
+      return best;
+    };
+    // Высота (м) точки вертикальной прямой через полку, ближайшей к лучу курсора
+    const lineY = (e, m) => {
+      const rect = canvas.getBoundingClientRect();
+      const ndc = new THREE.Vector2(
+        ((e.clientX - rect.left) / rect.width) * 2 - 1,
+        -((e.clientY - rect.top) / rect.height) * 2 + 1);
+      this._raycaster.setFromCamera(ndc, this.camera);
+      const r = this._raycaster.ray;
+      const w0x = r.origin.x - m.position.x, w0z = r.origin.z - m.position.z;
+      const b = r.direction.y, den = 1 - b * b;
+      if (den < 1e-4) return null;
+      const dd = r.direction.x * w0x + r.direction.z * w0z + b * r.origin.y;
+      return (r.origin.y - b * dd) / den;
+    };
+
+    let tip = null;
+    const showTip = (e, text) => {
+      if (!tip) {
+        tip = document.createElement('div');
+        tip.style.cssText = 'position:fixed;z-index:9999;pointer-events:none;padding:3px 8px;'
+          + 'border-radius:4px;font:12px/1.3 system-ui,sans-serif;background:#1976d2;color:#fff;'
+          + 'box-shadow:0 1px 4px rgba(0,0,0,.4);white-space:nowrap';
+        document.body.appendChild(tip);
+      }
+      tip.textContent = text;
+      tip.style.left = (e.clientX + 14) + 'px';
+      tip.style.top = (e.clientY + 14) + 'px';
+      tip.style.display = 'block';
+    };
+    const hideTip = () => { if (tip) tip.style.display = 'none'; };
+
+    const place = (e) => {
+      const d = this._sdrag;
+      const yv = lineY(e, d.mesh);
+      if (yv === null) return null;
+      const ref = d.ref;
+      let y = Math.max(ref.yMin, Math.min(ref.yMax, (yv + d.offset) / MM - d.base));
+      let snap = null, bestS = SHELF_SNAP_R;
+      if (!e.shiftKey) {
+        for (const s of (ref.snaps || [])) {
+          const dist = Math.abs(y - s);
+          if (dist <= bestS) { bestS = dist; snap = s; }
+        }
+        if (snap !== null) y = Math.max(ref.yMin, Math.min(ref.yMax, snap));
+      }
+      return { y, snap };
+    };
+
+    const showSnap = (snapY) => {
+      const d = this._sdrag;
+      if (snapY === null || snapY === undefined) { if (d.line) d.line.visible = false; return; }
+      if (!d.line) {
+        const box = new THREE.Box3();
+        shelfMeshes().filter((m) => m.userData.module === d.module).forEach((m) => box.expandByObject(m));
+        const x0 = box.min.x - 0.05, x1 = box.max.x + 0.05;
+        const geo = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(x0, 0, 0), new THREE.Vector3(x1, 0, 0)]);
+        d.line = new THREE.Line(geo, new THREE.LineBasicMaterial({ color: 0x1976d2, depthTest: false }));
+        d.line.renderOrder = 6;
+        d.line.position.z = box.max.z + 0.002;
+        this.scene.add(d.line);
+      }
+      d.line.visible = true;
+      d.line.position.y = (snapY + d.base) * MM;
+    };
+
+    const finish = (restore) => {
+      const d = this._sdrag;
+      if (!d) return;
+      this._sdrag = null;
+      if (d.line) { this.scene.remove(d.line); d.line.geometry.dispose(); d.line.material.dispose(); }
+      if (restore) d.mesh.position.y = d.y0m;
+      hideTip();
+      canvas.style.cursor = '';
+    };
+
+    const prevCapture = this.controls.captureProvider;
+    this.controls.captureProvider = (e) => {
+      if (prevCapture && prevCapture(e)) return true;
+      if (!on()) return false;
+      if (this._sdrag) return true;
+      if (e.pointerType !== 'touch' && e.button !== 0) return false;
+      const m = pick(e);
+      if (!m) return false;
+      const ref = m.userData.shelfRef;
+      if (!(ref.yMax > ref.yMin)) return false;        // двигать некуда
+      const yv = lineY(e, m);
+      if (yv === null) return false;
+      this._sdrag = {
+        ref, mesh: m, module: m.userData.module,
+        y0m: m.position.y, base: m.position.y / MM - ref.y,   // сдвиг модуля по высоте относительно координат движка
+        offset: m.position.y - yv,
+        x0: e.clientX, y0px: e.clientY, pid: e.pointerId, drag: false, line: null, last: null,
+      };
+      this.controls.moved = 0;
+      return true;
+    };
+
+    canvas.addEventListener('pointermove', (e) => {
+      const d = this._sdrag;
+      if (!d) {
+        if (e.pointerType === 'touch' || e.buttons || !on() || this.controls._dragging || this._hdrag) return;
+        if (pick(e)) canvas.style.cursor = 'ns-resize';
+        else if (canvas.style.cursor === 'ns-resize') canvas.style.cursor = '';
+        return;
+      }
+      if (e.pointerId !== d.pid) return;
+      const px = Math.hypot(e.clientX - d.x0, e.clientY - d.y0px);
+      if (!d.drag) {
+        if (px <= HANDLE_CLICK_PX) { this.controls.moved = px; return; }
+        d.drag = true;
+        canvas.style.cursor = 'ns-resize';
+      }
+      this.controls.moved = 1000;
+      const p = place(e);
+      if (!p) return;
+      d.last = p;
+      d.mesh.position.y = (p.y + d.base) * MM;
+      showSnap(p.snap);
+      const ref = d.ref, dy = p.y - ref.y;
+      showTip(e, ref.kind === 'partition'
+        ? `Отсеки: ${Math.round(ref.hAbove - dy)} / ${Math.round(ref.hBelow + dy)} мм`
+        : `Полка от ${ref.kind === 'zone' ? 'низа ниши' : 'дна'}: ${Math.round(ref.heights ? ref.heights[ref.k] + dy : 0)} мм`);
+    });
+
+    const up = (e, cancelled) => {
+      const d = this._sdrag;
+      if (!d || e.pointerId !== d.pid) return;
+      const last = d.last;
+      const commit = !cancelled && d.drag && last && Math.abs(last.y - d.ref.y) > 0.05;
+      finish(!commit);
+      if (!commit) return;
+      this.onShelfMove({ module: d.module, ref: d.ref, y: last.y, y0: d.ref.y });
+    };
+    canvas.addEventListener('pointerup', (e) => up(e, false));
+    canvas.addEventListener('pointercancel', (e) => up(e, true));
+    window.addEventListener('keydown', (e) => {
+      if (e.key !== 'Escape' || !this._sdrag) return;
+      finish(true);
+      e.stopPropagation();
+    }, true);
+
+    // Двойной клик по полке — сброс на авто-положение; true = событие занято
+    this._shelfDblClick = (e) => {
+      if (!on()) return false;
+      const m = pick(e);
+      if (!m) return false;
+      if (this._clickTimer) { clearTimeout(this._clickTimer); this._clickTimer = null; }
+      this.onShelfMove({ module: m.userData.module, ref: m.userData.shelfRef, y: null, y0: m.userData.shelfRef.y });
       return true;
     };
   }
@@ -4907,6 +5102,7 @@ class Viewer3D {
     if (this._broken) return;
     this._compCache = null;   // сцену пересоберём — габарит композиции для подгонки под лист пересчитается
     const hideFacades = !!(opts && opts.hideFacades);
+    this._hideFacades = hideFacades;   // перетаскивание полок включено только без фасадов (см. _initShelfDrag)
     // Режим проверки присадки: корпус полупрозрачный, отверстия подсвечены
     const drillCheck = !!(opts && opts.drillCheck);
     // Фильтр присадки: показать метки только одного вида. Иначе нужное
@@ -5442,6 +5638,14 @@ class Viewer3D {
         // клику по отсеку БЕЗ фасада вне изоляции (см. _resolveZoneHit).
         // Съёмные полки этот флаг не получают (fixed остаётся undefined).
         if (row.kind === 'shelf') mesh.userData.fixed = !!row.fixed;
+        // Полку можно потянуть по вертикали (см. _initShelfDrag): shelfRef —
+        // данные движка (диапазон, магниты), shelfHalf/shelfHalfD — полудлина
+        // и полуглубина в локальных осях (м) для захвата по экранной близости.
+        if (row.kind === 'shelf' && row.shelfRef) {
+          mesh.userData.shelfRef = row.shelfRef;
+          mesh.userData.shelfHalf = (locW * MM) / 2;
+          mesh.userData.shelfHalfD = (locD * MM) / 2;
+        }
         mesh.position.set(box.x * MM, box.y * MM, box.z * MM);
         mesh.rotation.y = (rotDeg * Math.PI) / 180;
         // Фрезерованный МДФ: рисуем контур фрезеровки рамкой по лицу

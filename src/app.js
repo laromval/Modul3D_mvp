@@ -14304,13 +14304,7 @@ function bindZoneFieldEvents(container, mod, refresh) {
       const sec = mod.sections[Number(e.target.dataset.idx)];
       const zi = Number(e.target.dataset.zoneshelves);
       const zone = ensureZone(sec, zi);
-      zone.shelves = Number(e.target.value);
-      // Сброс на авторежим при смене количества — та же логика, что и у
-      // sec.shelves (bindShelfFieldEvents): новая полка честно делит высоту
-      // зоны поровну, а не наследует случайные ручные значения.
-      zone.shelfMode = 'auto';
-      zone.shelfHeights = [];
-      zone.shelfFixed = [];
+applyShelfCountChange(zone, Number(e.target.value));
       refreshScreen();
       recompute();
     });
@@ -14383,6 +14377,29 @@ function shelfModeSelect(sec, i) {
       <option value="auto" ${sec.shelfMode !== 'manual' ? 'selected' : ''}>Равномерно</option>
       <option value="manual" ${sec.shelfMode === 'manual' ? 'selected' : ''}>Вручную</option>
     </select>`;
+}
+
+// Смена числа полок. В авторежиме — как раньше (равномерное деление). В ручном
+// остаётся ручной режим: существующие полки стоят где стояли, новые ложатся на
+// дно стопкой (каждая на предыдущую, 0, 16, 32… мм), лишние снимаются с конца.
+function applyShelfCountChange(holder, n) {
+  const old = Number(holder.shelves) || 0;
+  holder.shelves = n;
+  if (holder.shelfMode === 'manual' && Array.isArray(holder.shelfHeights)) {
+    const hs = holder.shelfHeights.slice(0, n);
+    const fx = (holder.shelfFixed || []).slice(0, n);
+    const T = 16;
+    for (let k = Math.min(old, hs.length); k < n; k++) {
+      hs[k] = (k - Math.min(old, hs.length)) * T;
+      fx[k] = false;
+    }
+    holder.shelfHeights = hs;
+    holder.shelfFixed = fx;
+    return;
+  }
+  holder.shelfMode = 'auto';
+  holder.shelfHeights = [];
+  holder.shelfFixed = [];
 }
 
 // При переключении на «Вручную» записываем в модель высоты, на которых полки
@@ -14459,12 +14476,7 @@ function bindShelfFieldEvents(container, mod, refresh) {
   container.querySelectorAll('[data-field="shelves"]').forEach((el) => {
     el.addEventListener('change', (e) => {
       const sec = mod.sections[Number(e.target.dataset.idx)];
-      sec.shelves = Number(e.target.value);
-      // Сброс на авторежим при смене количества — см. комментарий у того же
-      // поля в общем делегате [data-field] сайдбара (renderSectionsList).
-      sec.shelfMode = 'auto';
-      sec.shelfHeights = [];
-      sec.shelfFixed = [];
+      applyShelfCountChange(sec, Number(e.target.value));
       refreshScreen();
       recompute();
     });
@@ -15511,9 +15523,9 @@ function renderSectionsList() {
       // секции) вместо равного деления доступной высоты, как ожидает
       // пользователь (тот же принцип, что и сброс фиксаций у ящиков выше).
       if (f === 'shelves') {
-        sec.shelfMode = 'auto';
-        sec.shelfHeights = [];
-        sec.shelfFixed = [];
+        const nn = Number(sec.shelves);
+        sec.shelves = Array.isArray(sec.shelfHeights) ? sec.shelfHeights.length : 0;
+        applyShelfCountChange(sec, nn);
       }
       if (f === 'shelfMode' && sec.shelfMode === 'manual') {
         fillManualShelfHeights(mod, Number(e.target.dataset.idx));
@@ -17991,6 +18003,49 @@ function initHeaderControls() {
         if (mode) { ov.mode = mode; if (mode === 'abs') ov.floor = floor; else delete ov.floor; }
         if (xMode) { ov.xMode = xMode; if (xMode === 'abs') ov.xd = xd; else delete ov.xd; }
         mm.handleOverrides[key] = ov;
+      }
+      recompute();
+    };
+
+    // Полка, перетащенная в 3D (viewer.js, _initShelfDrag; ортогональный вид без
+    // фасадов). ref — part.shelfRef из engine.js; y — новый центр полки, мм
+    // (null — двойной клик, сброс на авто). Перегородка между отсеками меняет
+    // высоты двух соседних отсеков (фасады следуют за ними), съёмные полки —
+    // переходят в «ручной» режим с новой высотой от дна/низа ниши.
+    viewer.onShelfMove = ({ module, ref, y, y0 }) => {
+      const mm = state.modules.find((m) => m.name === module);
+      const sec = mm && mm.sections && mm.sections[ref.si];
+      if (!sec) return;
+      const reset = y === null;
+      const d = reset ? 0 : y - y0;
+      if (ref.kind === 'partition') {
+        const z0 = ensureDoorZone(sec, ref.k);
+        const z1 = ensureDoorZone(sec, ref.k + 1);
+        if (!z0 || !z1) return;
+        if (reset) {
+          z0.height = 0; z1.height = 0;
+        } else {
+          const h0 = Math.round(ref.hBelow + d), h1 = Math.round(ref.hAbove - d);
+          // Единственный отсек с авто-высотой остаётся авто — он забирает остаток
+          // и держит сумму ровно по высоте секции без накопления округлений.
+          if (ref.autoK && ref.autoCount === 1) { z0.height = 0; z1.height = h1; }
+          else if (ref.autoK1 && ref.autoCount === 1) { z0.height = h0; z1.height = 0; }
+          else { z0.height = h0; z1.height = h1; }
+        }
+        // Содержимое изменённых отсеков распределяется равномерно: съёмные
+        // полки, стоявшие «вручную», возвращаются в авто-режим.
+        for (const z of [z0, z1]) if (z.shelfMode === 'manual') z.shelfMode = 'auto';
+      } else {
+        const owner = ref.kind === 'zone' ? ensureDoorZone(sec, ref.zi) : sec;
+        if (!owner) return;
+        if (reset) {
+          owner.shelfMode = 'auto';
+        } else {
+          const hs = ref.heights.slice();
+          hs[ref.k] = Math.round(ref.heights[ref.k] + d);
+          owner.shelfMode = 'manual';
+          owner.shelfHeights = hs;
+        }
       }
       recompute();
     };

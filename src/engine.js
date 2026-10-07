@@ -463,7 +463,7 @@ function planZoneLayout(sec, slotHeight, gap, t, drawerUnitH, warnLayout, warnSt
     const heights = getDrawerHeights(virt, drawerUnitH, layout.heights[zi], warnStack, label);
     return { heights, sum: heights.reduce((s, v) => s + v, 0), virt, p0: layout.bottoms[zi] - gap };
   });
-  return { layout, stacks };
+  return { layout, stacks, zones };
 }
 
 // Возвращает координаты ЦЕНТРА полок по высоте.
@@ -480,6 +480,8 @@ function planZoneLayout(sec, slotHeight, gap, t, drawerUnitH, warnLayout, warnSt
 // вызова из buildModuleParts).
 // Рекомендованные высоты по типу одежды, мм: ось штанги над опорой (дно секции / полка / нижняя штанга).
 // Для пантографа — расстояние от оси его трубы вниз до полки под ним (решение пользователя 2026-10-06).
+// Минимальный просвет между плоскостями соседних полок при перетаскивании в 3D, мм.
+const SHELF_DRAG_CLEAR = 40;
 const ROD_CLOTHES_HEIGHT = { long: 1500, mid: 1300, short: 1000 };
 
 function getShelfYs(sec, zoneBottomY, zoneH, t, originY, excludeRanges) {
@@ -1229,6 +1231,24 @@ function applyHandleSnaps(parts) {
         || seenX.some((v) => Math.abs(v - c) < 0.5)) continue;
       seenX.push(c);
       f.xSnaps.push({ kind: 'abs', c });
+    }
+  }
+}
+
+// Привязки при перетаскивании полки: уровни полок ДРУГИХ секций модуля (чтобы
+// полки соседних секций можно было поставить на одну линию), попавшие в
+// допустимый диапазон. Уровни — центр полки (как box.y), в координатах модуля.
+function applyShelfSnaps(parts) {
+  const shelves = parts.filter((r) => r.kind === 'shelf');
+  for (const r of shelves) {
+    const f = r.shelfRef;
+    if (!f) continue;
+    f.snaps = [];
+    for (const o of shelves) {
+      if (o === r || o.section === r.section) continue;
+      const y = round1(o.box.y);
+      if (y < f.yMin - 0.05 || y > f.yMax + 0.05 || f.snaps.some((v) => Math.abs(v - y) < 0.5)) continue;
+      f.snaps.push(y);
     }
   }
 }
@@ -2147,6 +2167,10 @@ function makePart(o) {
     // и applyHandleSnaps): { si, zi, leaf, faceBottomY, floorOffset, H, edge, half,
     // manual, yMin, yMax, snaps:[{kind,y}] } — y в координатах модуля. null — не двигается.
     handleRef: o.handleRef || null,
+    // Полка, которую можно перетащить в 3D (ортогональный вид без фасадов, см.
+    // applyShelfSnaps и viewer.js _initShelfDrag): { kind:'partition'|'zone'|'sec',
+    // si, zi, k, y, yMin, yMax, snaps:[y] } — y в координатах модуля. null — не двигается.
+    shelfRef: o.shelfRef || null,
     // Присадка: отверстия в системе координат детали (левый нижний угол
     // лицевой стороны), готовые к выгрузке на станок.
     holes: o.holes || [],
@@ -4085,9 +4109,15 @@ function buildModuleParts(p) {
     } else if (multiZone) {
       const azSlotBot = zpSlotBot;
       const azLayout = zonePlan.layout;
-      for (const off of azLayout.partitions) {
-        shelfEntries.push({ y: azSlotBot + off, fixed: true, fullDepth: true });
-      }
+      // drag — данные для перетаскивания полки в 3D (см. блок «ПЕРЕТАСКИВАНИЕ ПОЛОК» ниже).
+      const pzAuto = zonePlan.zones.map((d) => !(d.height > 0) && !(Number(d.fitDoorH) > 0));
+      azLayout.partitions.forEach((off, k) => {
+        shelfEntries.push({ y: azSlotBot + off, fixed: true, fullDepth: true,
+          drag: { kind: 'partition', group: 'p', k, floor: azSlotBot + azLayout.nicheBottoms[0],
+            top: azSlotBot + azLayout.nicheBottoms[sec.doorZoneCount - 1] + azLayout.nicheHeights[sec.doorZoneCount - 1],
+            hBelow: round1(azLayout.nicheHeights[k]), hAbove: round1(azLayout.nicheHeights[k + 1]),
+            autoK: pzAuto[k], autoK1: pzAuto[k + 1], autoCount: pzAuto.filter(Boolean).length } });
+      });
       // Ниша под технику (appliance !== 'none') не получает съёмных полок —
       // sec.doorZones[zi].shelves для неё в интерфейсе не показывается и
       // остаётся 0, отдельно исключать её диапазон не нужно.
@@ -4112,7 +4142,8 @@ function buildModuleParts(p) {
         // dz.shelfFixed[k] — «Жёсткая» полка вручную (индекс = shelfHeights[k]).
         const zoneFixedOk = dz.shelfMode === 'manual' && Array.isArray(dz.shelfFixed);
         zoneYs.forEach((y, k) => shelfEntries.push({
-          y, fixed: zoneFixedOk && !!dz.shelfFixed[k], zi, zb: zBottom }));
+          y, fixed: zoneFixedOk && !!dz.shelfFixed[k], zi, zb: zBottom,
+          drag: { kind: 'zone', group: 'z' + zi, zi, k, floor: zShelfBottom, top: zBottom + zHeight } }));
       }
       shelfEntries.sort((a, b) => a.y - b.y);
     } else {
@@ -4139,7 +4170,8 @@ function buildModuleParts(p) {
       // Индекс si совпадает с sec.shelfHeights[si] 1:1 (getShelfYs в ручном
       // режиме отдаёт ровно по одному Y на каждый элемент shelfHeights).
       const manualMode = sec.shelfMode === 'manual' && Array.isArray(sec.shelfFixed);
-      shelfEntries = zoneYs.map((y, si) => ({ y, fixed: manualMode && !!sec.shelfFixed[si] }));
+      shelfEntries = zoneYs.map((y, si) => ({ y, fixed: manualMode && !!sec.shelfFixed[si],
+        drag: { kind: 'sec', group: 's', k: si, floor: shelfZoneBottom, top: innerBottomY + innerH } }));
     }
     const shelfYs = shelfEntries.map((e) => e.y);
     // Запоминаем плоскости полок: по ним потом разводится присадка под петли
@@ -4256,6 +4288,27 @@ function buildModuleParts(p) {
         }
       }
     }
+    // ПЕРЕТАСКИВАНИЕ ПОЛОК В 3D: допустимый диапазон каждой полки — между
+    // соседями ТОЙ ЖЕ группы (перегородки секции / полки одного отсека / полки
+    // секции) и границами группы; между плоскостями остаётся не менее
+    // SHELF_DRAG_CLEAR мм (тот же запас 40 мм, что и в проверке «под полки не
+    // осталось места» выше). heights — высоты НИЖНИХ плоскостей всех полок группы
+    // в «ручном» виде (для зоны — от низа ниши, для секции — от дна), по индексу k.
+    {
+      const groups = {};
+      for (const e of shelfEntries) if (e.drag) (groups[e.drag.group] = groups[e.drag.group] || []).push(e);
+      for (const key of Object.keys(groups)) {
+        const g = groups[key].slice().sort((a, b) => a.y - b.y);
+        const heights = [];
+        for (const e of g) heights[e.drag.k] = round1(e.y - t / 2 - (e.drag.kind === 'zone' ? e.zb : innerBottomY));
+        g.forEach((e, gi) => {
+          const lo = gi > 0 ? g[gi - 1].y + t + SHELF_DRAG_CLEAR : e.drag.floor + SHELF_DRAG_CLEAR + t / 2;
+          const hi = gi < g.length - 1 ? g[gi + 1].y - t - SHELF_DRAG_CLEAR : e.drag.top - SHELF_DRAG_CLEAR - t / 2;
+          Object.assign(e.drag, { yMin: round1(lo), yMax: round1(hi),
+            heights: e.drag.kind === 'partition' ? null : heights.slice() });
+        });
+      }
+    }
     for (let si = 0; si < shelfEntries.length; si++) {
       const y = shelfEntries[si].y;
       const isFixed = shelfEntries[si].fixed;
@@ -4294,6 +4347,7 @@ function buildModuleParts(p) {
         thickness: glassShelf ? GL.thickness : t,
         length: isFixed ? secW : secW - 2, width, qty: 1, kind: 'shelf',
         glass: glassShelf, fixed: isFixed,
+        shelfRef: shelfEntries[si].drag ? Object.assign({ si: i, y: round1(y), t }, shelfEntries[si].drag) : null,
         note: glassShelf
           ? 'Стекло 6 мм, на полкодержателях с силиконовой пяткой'
           : ((shelfEntries[si].drawerTop || shelfEntries[si].zdt !== undefined)
@@ -5668,6 +5722,7 @@ function buildModuleParts(p) {
 
   alignBigDoorHandles(handleAlign, parts);
   applyHandleSnaps(parts);
+  applyShelfSnaps(parts);
 
   // Ручные правки конкретных деталей — см. applyPartOverrides выше. Строго
   // ПОСЛЕДНИЙ шаг: все формулы корпуса уже отработали, соседние детали
