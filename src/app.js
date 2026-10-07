@@ -14,7 +14,7 @@
 (function () {
 // Версия сборки — показывается во вкладке браузера и в шапке.
 // При выпуске новой версии меняется только эта строка.
-const APP_VERSION = 'v399';
+const APP_VERSION = 'v400';
 
 // Номер версии выводим ПЕРВЫМ делом: если дальше что-то упадёт, по нему сразу
 // видно, какая сборка открыта.
@@ -13904,7 +13904,7 @@ function zoneCardHtml(sec, i, zi, doorZoneCount, mod) {
       <div class="mini-row">
         ${Array.from({ length: zoneShelves }, (_, s) =>
           `<div class="shelf-cell">
-            <input type="number" step="10" min="0" value="${(zone.shelfHeights && zone.shelfHeights[s]) || (300 * (s + 1))}"
+            <input type="number" step="10" min="0" value="${(zone.shelfHeights && Number.isFinite(Number(zone.shelfHeights[s])) ? zone.shelfHeights[s] : 300 * (s + 1))}"
                   data-zoneshelfheight="${zi}" data-idx="${i}" data-zshelf="${s}" title="Полка ${s + 1}">
             ${shelfFixedSelect(zone.shelfFixed && zone.shelfFixed[s], `data-zoneshelffixed="${zi}" data-idx="${i}" data-zshelf="${s}"`, s)}
           </div>`
@@ -14304,7 +14304,7 @@ function bindZoneFieldEvents(container, mod, refresh) {
       const sec = mod.sections[Number(e.target.dataset.idx)];
       const zi = Number(e.target.dataset.zoneshelves);
       const zone = ensureZone(sec, zi);
-applyShelfCountChange(zone, Number(e.target.value));
+      applyShelfCountChange(zone, Number(e.target.value));
       refreshScreen();
       recompute();
     });
@@ -14381,14 +14381,14 @@ function shelfModeSelect(sec, i) {
 
 // Смена числа полок. В авторежиме — как раньше (равномерное деление). В ручном
 // остаётся ручной режим: существующие полки стоят где стояли, новые ложатся на
-// дно стопкой (каждая на предыдущую, 0, 16, 32… мм), лишние снимаются с конца.
+// дно стопкой (каждая на предыдущую: 0, T, 2T… мм, T — толщина плиты корпуса), лишние снимаются с конца.
 function applyShelfCountChange(holder, n) {
   const old = Number(holder.shelves) || 0;
   holder.shelves = n;
   if (holder.shelfMode === 'manual' && Array.isArray(holder.shelfHeights)) {
     const hs = holder.shelfHeights.slice(0, n);
     const fx = (holder.shelfFixed || []).slice(0, n);
-    const T = 16;
+    const T = Number(state.bodyThickness) || 18;
     for (let k = Math.min(old, hs.length); k < n; k++) {
       // ложим на дно или на верх уже лежащей там стопки (без наложения)
       let y = 0;
@@ -14433,7 +14433,7 @@ function shelfHeightsInputs(sec, i) {
     <div class="mini-row">
       ${Array.from({ length: sec.shelves }, (_, s) =>
         `<div class="shelf-cell">
-          <input type="number" step="10" min="0" value="${(sec.shelfHeights && sec.shelfHeights[s]) || (300 * (s + 1))}"
+          <input type="number" step="10" min="0" value="${(sec.shelfHeights && Number.isFinite(Number(sec.shelfHeights[s])) ? sec.shelfHeights[s] : 300 * (s + 1))}"
                 data-shelf="${s}" data-idx="${i}" title="Полка ${s + 1}">
           ${shelfFixedSelect(sec.shelfFixed && sec.shelfFixed[s], `data-shelffixed="${s}" data-idx="${i}"`, s)}
         </div>`
