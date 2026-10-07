@@ -1235,6 +1235,16 @@ function applyHandleSnaps(parts) {
   }
 }
 
+// Данные перетаскивания полки над стопкой ящиков (секции или отсека): тянут — меняется
+// суммарная высота S фасадов n ящиков, они делятся поровну (ручной режим). Минимум
+// высоты ящика — minFront самой низкой царги выбранной системы (или заданной царги).
+function drawerStackDrag(kind, owner, n, S) {
+  const sys = window.Modul3D.catalog.DRAWER_SYSTEMS[owner.drawerSystem || 'ballBearing'];
+  const want = owner.drawerBoxHeight && owner.drawerBoxHeight !== 'auto'
+    ? sys.heights.filter((h) => h.code === String(owner.drawerBoxHeight))[0] : null;
+  return { kind, stack: true, n, S: round1(S), minFront: (want || sys.heights[0]).minFront };
+}
+
 // Привязки при перетаскивании полки: уровни полок ДРУГИХ секций модуля (чтобы
 // полки соседних секций можно было поставить на одну линию), попавшие в
 // допустимый диапазон. Уровни — центр полки (как box.y), в координатах модуля.
@@ -4218,6 +4228,9 @@ function buildModuleParts(p) {
         y: Math.max(facadeAbove ? baseH + drawerZoneH : drawerFacadeTopY + 2 - t / 2,
           boxTopY + t / 2 + 0.6),
         fixed: true, fullDepth: true, drawerTop: true,
+        // Полка над ящиками секции: тянется — меняется высота отсека ящиков (n ящиков
+        // равной высоты, суммарно S), см. drawerStackDrag.
+        drag: drawerStackDrag('drawers', sec, drawerHeights.length, drawerZoneH),
       });
     }
 
@@ -4283,7 +4296,8 @@ function buildModuleParts(p) {
             .reduce((m, q) => Math.max(m, q.box.y + q.box.h / 2), -Infinity);
           const zy = Math.max(zv.facade !== 'open' ? zFrontTop : zFrontTop - gap + 2 - t / 2,
             zBoxTop + t / 2 + 0.6);
-          shelfEntries.push({ y: zy, fixed: true, fullDepth: true, zdt: zi });
+          shelfEntries.push({ y: zy, fixed: true, fullDepth: true, zdt: zi,
+            drag: Object.assign(drawerStackDrag('zdrawers', zv, st.heights.length, st.sum), { zi }) });
           st.floorAbove = zy + t / 2;
         }
       }
@@ -4296,7 +4310,17 @@ function buildModuleParts(p) {
     // в «ручном» виде (для зоны — от низа ниши, для секции — от дна), по индексу k.
     {
       const groups = {};
-      for (const e of shelfEntries) if (e.drag) (groups[e.drag.group] = groups[e.drag.group] || []).push(e);
+      // Полка над ящиками: диапазон — от минимальной высоты фасадов выбранной системы
+      // до ближайшей полки выше (или крыши), группы нет.
+      for (const e of shelfEntries) {
+        const dd = e.drag;
+        if (!dd || !dd.stack) continue;
+        const above = shelfEntries.filter((o) => o !== e && o.y > e.y).map((o) => o.y);
+        const hi = above.length ? Math.min.apply(null, above) - t - SHELF_DRAG_CLEAR
+          : innerBottomY + innerH - SHELF_DRAG_CLEAR - t / 2;
+        Object.assign(dd, { yMin: round1(e.y + dd.n * dd.minFront - dd.S), yMax: round1(hi), heights: null });
+      }
+      for (const e of shelfEntries) if (e.drag && !e.drag.stack) (groups[e.drag.group] = groups[e.drag.group] || []).push(e);
       for (const key of Object.keys(groups)) {
         const g = groups[key].slice().sort((a, b) => a.y - b.y);
         const heights = [];

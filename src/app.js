@@ -14,7 +14,7 @@
 (function () {
 // Версия сборки — показывается во вкладке браузера и в шапке.
 // При выпуске новой версии меняется только эта строка.
-const APP_VERSION = 'v398';
+const APP_VERSION = 'v399';
 
 // Номер версии выводим ПЕРВЫМ делом: если дальше что-то упадёт, по нему сразу
 // видно, какая сборка открыта.
@@ -14390,7 +14390,14 @@ function applyShelfCountChange(holder, n) {
     const fx = (holder.shelfFixed || []).slice(0, n);
     const T = 16;
     for (let k = Math.min(old, hs.length); k < n; k++) {
-      hs[k] = (k - Math.min(old, hs.length)) * T;
+      // ложим на дно или на верх уже лежащей там стопки (без наложения)
+      let y = 0;
+      for (let g = 0; g < hs.length; g++) {
+        const h = hs.findIndex((v, q) => q < k && Math.abs(Number(v) - y) < T);
+        if (h < 0) break;
+        y = Number(hs[h]) + T;
+      }
+      hs[k] = y;
       fx[k] = false;
     }
     holder.shelfHeights = hs;
@@ -18035,6 +18042,23 @@ function initHeaderControls() {
         // Содержимое изменённых отсеков распределяется равномерно: съёмные
         // полки, стоявшие «вручную», возвращаются в авто-режим.
         for (const z of [z0, z1]) if (z.shelfMode === 'manual') z.shelfMode = 'auto';
+      } else if (ref.stack) {
+        // Полка над ящиками: меняется высота отсека ящиков, ящики — равной высоты.
+        const owner = ref.kind === 'zdrawers' ? ensureDoorZone(sec, ref.zi) : sec;
+        if (!owner) return;
+        if (reset) {
+          owner.drawerMode = 'auto';
+          owner.drawerHeights = [];
+          owner.drawerPinned = [];
+        } else {
+          const each = Math.floor((ref.S + d) / ref.n * 10) / 10;
+          const hs = new Array(ref.n).fill(each);
+          hs[0] = Math.round(((ref.S + d) - each * (ref.n - 1)) * 10) / 10;   // остаток — нижнему, сумма точная
+          owner.drawerMode = 'manual';
+          owner.drawerHeights = hs;
+          // Все ящики зафиксированы, иначе reflowManualDrawers растянет их на весь фронт.
+          owner.drawerPinned = hs.map(() => true);
+        }
       } else {
         const owner = ref.kind === 'zone' ? ensureDoorZone(sec, ref.zi) : sec;
         if (!owner) return;

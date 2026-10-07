@@ -3898,6 +3898,8 @@ class Viewer3D {
       const ref = d.ref, dy = p.y - ref.y;
       showTip(e, ref.kind === 'partition'
         ? `Отсеки: ${Math.round(ref.hAbove - dy)} / ${Math.round(ref.hBelow + dy)} мм`
+        : ref.stack
+        ? `Ящики: ${ref.n} × ${Math.round((ref.S + dy) / ref.n)} мм`
         : `Полка от ${ref.kind === 'zone' ? 'низа ниши' : 'дна'}: ${Math.round(ref.heights ? ref.heights[ref.k] + dy : 0)} мм`);
     });
 
