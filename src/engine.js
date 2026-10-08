@@ -403,7 +403,7 @@ function nicheFromEdgeDoorHeight(doorHeight, t, gap) {
 // выше неё остаётся дверь/полки/штанга отсека. Секционные ящики (sec.drawers)
 // работают как раньше, отсеки идут выше них.
 const ZONE_DRAWER_OWN_KEYS = ['drawerSystem', 'drawerThickness', 'drawerOffset', 'drawerDecorCode',
-  'drawerFacadeType', 'drawerFacadeMaterial', 'drawerBoxHeight', 'pushToOpen'];
+  'drawerFacadeType', 'drawerFacadeMaterial', 'drawerBoxHeight', 'pushToOpen', 'drawerColor'];
 
 // «Виртуальная секция» отсека: поля секции + поля ящиков/содержимого самого
 // отсека — чтобы переиспользовать getDrawerHeights/drawerLift/buildDrawerBoxes.
@@ -553,8 +553,12 @@ function buildDrawerBoxes(o) {
   const sys = cat.DRAWER_SYSTEMS[sysId];
   if (!sys) return;
   const NL = cat.pickNL(sys, o.innerDepth);
-  if (NL + 3 > o.innerDepth) {
-    o.warnings.push(`${o.secName}: глубина корпуса мала для направляющих ${NL} мм (нужно ≥ ${NL + 3} мм внутри).`);
+  const needDepth = Math.round(sys.minCorpusDepth ? sys.minCorpusDepth(NL) : NL + 3);
+  if (needDepth > o.innerDepth) {
+    // Даже наименьшая длина направляющих системы не помещается — по глубине ящик
+    // этой системы поставить нельзя (геометрия строится по nl[0], чтобы модель не ломалась).
+    o.warnings.push(`${o.secName}: ящик такой системы в этот корпус не встаёт: минимальная длина направляющих ${NL} мм, `
+      + `нужна глубина внутри ≥ ${needDepth} мм (сейчас ${Math.round(o.innerDepth)} мм). Выберите другую систему.`);
   }
 
   // Толщина дна короба нужна ещё до подбора высоты: у Quadro дно из ЛДСП
@@ -662,7 +666,7 @@ function buildDrawerBoxes(o) {
     const tag = `${o.secName}, ящик ${i + 1}`;
 
     // Сведения о коробе — из них потом считается присадка фасада
-    if (o.boxInfo) o.boxInfo.push({ index: i, h: hh.h, code: hh.code, reling: hh.reling || 0,
+    if (o.boxInfo) o.boxInfo.push({ index: i, h: hh.h, code: hh.code, nl: NL, reling: hh.reling || 0,
       bot: BOT, metal: !!sys.metal });
     // ОСЬ КОРПУСНОГО ПРОФИЛЯ НАПРАВЛЯЮЩЕЙ:
     //   • металлическая царга (TANDEMBOX, LEGRABOX, InnoTech) — по низу царги;
@@ -5340,7 +5344,9 @@ function buildModuleParts(p) {
         x: fX, y: dy + dHeights[d] / 2, z: D / 2 + dft.thickness / 2,
         dims: { w: facadeW, h: fH, d: dft.thickness },
       }));
-      drawerHardware.push({ section: secName, width: secWi, depth: D, system: sec.drawerSystem || 'ballBearing', pushToOpen: !!sec.pushToOpen });
+      drawerHardware.push({ section: secName, width: secWi, depth: D, system: sec.drawerSystem || 'ballBearing', pushToOpen: !!sec.pushToOpen,
+        // Вариант комплекта: длина направляющих, код царги, цвет (sec.drawerColor — выбор пользователя; пусто у старых проектов)
+        nl: bi ? bi.nl : undefined, heightCode: bi ? bi.code : undefined, color: sec.drawerColor || '' });
       dy += dHeights[d];
     }
     };

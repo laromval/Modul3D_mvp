@@ -180,24 +180,66 @@ function buildSpecification(model) {
   if (legPlast) hardware.push(hwRow(HARDWARE_PRICES.legPlastic, legPlast));
   if (clipCount) hardware.push(hwRow(HARDWARE_PRICES.plinthClip, clipCount));
 
-  // Комплекты ящичных систем — по фактически применённым системам
-  const drawerSets = {};
+  // Комплекты ящичных систем — по фактически применённым вариантам:
+  // группа = (система, NL, высота царги, цвет). У позиции Библиотеки с options
+  // (catalog.resolveOption) цена и артикул берутся из варианта; без вариантов
+  // (старые проекты, ballBearing) — цена комплекта из позиции, как раньше.
+  const cat = window.Modul3D.catalog;
+  const drawerSets = new Map();
   for (const d of hardwareContext.drawerHardware) {
     const id = d.system || 'ballBearing';
-    drawerSets[id] = (drawerSets[id] || 0) + 1;
-  }
-  for (const id of Object.keys(drawerSets)) {
     const sys = DRAWER_SYSTEMS[id];
     if (!sys) continue;
+    const libItem = sys.priceKey && HARDWARE_PRICES[sys.priceKey];
+    const hasOpts = !!(libItem && cat.itemOptions(libItem).length);
+    let nlV = d.nl, hV = d.heightCode, color = '';
+    if (hasOpts) {
+      const colors = cat.optionColors(libItem);
+      color = colors.indexOf(d.color) >= 0 ? d.color : (colors.indexOf(libItem.selColor) >= 0 ? libItem.selColor : (colors[0] || ''));
+    } else if (sys.fixedColor) {
+      color = sys.fixedColor;
+    }
+    if (!hasOpts) { nlV = null; hV = null; }
+    const key = [id, nlV == null ? '' : nlV, hV == null ? '' : hV, color].join('|');
+    let g = drawerSets.get(key);
+    if (!g) { g = { id, sys, libItem, hasOpts, nl: nlV, heightCode: hV, color, qty: 0 }; drawerSets.set(key, g); }
+    g.qty++;
+  }
+  for (const g of drawerSets.values()) {
+    const { sys, libItem } = g;
     // Цена — позиция Библиотеки «Фурнитура» (sys.priceKey), чтобы её можно
     // было править там и обновлять с сайта; setPrice — у систем без позиции.
-    const libItem = sys.priceKey && HARDWARE_PRICES[sys.priceKey];
-    const setPrice = Number(libItem ? libItem.price : sys.setPrice) || 0;
-    hardware.push({
-      name: sys.setName, article: id, unit: 'компл.',
-      qty: drawerSets[id], price: setPrice,
-      sum: round2(drawerSets[id] * setPrice),
-    });
+    let setPrice = Number(libItem ? libItem.price : sys.setPrice) || 0;
+    let article = g.id;
+    let note;
+    const label = [];
+    if (g.nl != null) label.push('NL ' + g.nl);
+    if (g.heightCode != null && g.heightCode !== '') {
+      label.push(sys.metal && /^[A-Z]$/.test(String(g.heightCode)) ? 'царга ' + g.heightCode : 'высота ' + g.heightCode);
+    }
+    if (g.color) label.push(g.color);
+    if (g.hasOpts) {
+      const hasH = cat.optionHeights(libItem).length > 0;
+      const o = (g.nl != null && (g.heightCode != null || !hasH))
+        ? cat.resolveOption(libItem, { length: g.nl, height: g.heightCode, color: g.color }) : null;
+      const exact = o && o.length === g.nl && o.color === g.color && (!hasH || String(o.height) === String(g.heightCode));
+      if (exact) {
+        if (o.price != null) setPrice = Number(o.price) || 0;
+        article = o.article || '';
+      } else {
+        article = libItem.article || '';
+        note = 'нет карточки для ' + (g.nl != null ? 'NL ' + g.nl : 'этой длины')
+          + (hasH && g.heightCode ? ' / высоты ' + g.heightCode : '') + ' — цена ориентировочная';
+      }
+    }
+    const row = {
+      name: label.length ? sys.setName + ', ' + label.join(', ') : sys.setName,
+      article, unit: 'компл.',
+      qty: g.qty, price: setPrice,
+      sum: round2(g.qty * setPrice),
+    };
+    if (note) row.note = note;
+    hardware.push(row);
   }
 
   // Полкодержатели: под стеклянную полку нужен держатель с силиконовой пяткой.
