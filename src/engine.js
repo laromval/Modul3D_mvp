@@ -475,7 +475,9 @@ function planZoneLayout(sec, slotHeight, gap, t, drawerUnitH, warnLayout, warnSt
     if (virt.drawers > 0 && !(desc.height > 0) && virt.facade === 'open'
       && !virt.rod && !virt.pantograph && !(Number(virt.shelves) > 0)) {
       const typ = getDrawerHeights(Object.assign({}, virt, { facade: 'doorLeft' }), drawerUnitH, 1e6, null, '');
-      desc.fitDoorH = typ.reduce((s, v) => s + v, 0);
+      // typ — высоты ящиков С зазорами (как у секции), а fitDoorH — высота двери-
+      // эквивалента без них: стопка отсека ниже занимает fitDoorH + 2·gap.
+      desc.fitDoorH = typ.reduce((s, v) => s + v, 0) - 2 * gap;
     }
     zones.push(desc);
   }
@@ -484,8 +486,13 @@ function planZoneLayout(sec, slotHeight, gap, t, drawerUnitH, warnLayout, warnSt
     const virt = virts[zi];
     if (!(virt.drawers > 0) || !(layout.heights[zi] > 0)) return null;
     const label = `${secName}, отсек ${zi + 1}`;
-    const heights = getDrawerHeights(virt, drawerUnitH, layout.heights[zi], warnStack, label);
-    return { heights, sum: heights.reduce((s, v) => s + v, 0), virt, p0: layout.bottoms[zi] - gap };
+    // Высота ящика — вместе с зазором gap сверху и снизу (фасад = высота − 2·gap),
+    // как у секции, где стопка занимает весь фронт. Дверь отсека layout.heights[zi]
+    // — уже БЕЗ зазоров, поэтому стопке отдаём её + 2·gap: верх верхнего фасада
+    // ложится вровень с дверью/соседними секциями, а стык отсеков — gap·2, не gap·4.
+    const avail = layout.heights[zi] + 2 * gap;
+    const heights = getDrawerHeights(virt, drawerUnitH, avail, warnStack, label);
+    return { heights, avail, sum: heights.reduce((s, v) => s + v, 0), virt, p0: layout.bottoms[zi] - gap };
   });
   return { layout, stacks, zones };
 }
@@ -616,10 +623,10 @@ function buildDrawerBoxes(o) {
     // Короб поднят на технологический зазор (drawerLift), поэтому верхний
     // ящик может выйти за крышу, даже если по шагу фасадов он проходит.
     // Ограничиваем высоту короба ещё и остатком до внутреннего верха секции.
-    // Просвет над верхним коробом до крышки/столешницы/планки: 10 мм
-    // (подтверждено пользователем 2026-10-08, для всех систем), чтобы короб
+    // Просвет над верхним коробом до крышки/столешницы/планки: 5 мм
+    // (решение пользователя 2026-10-08, для всех систем; было 25, потом 10), чтобы короб
     // можно было сделать выше.
-    const TOP_GAP = 10;
+    const TOP_GAP = 5;
     // ПРАВИЛО: короб ящика всегда НИЖЕ своего фасада минимум на BELOW_FRONT.
     // Фасад перекрывает короб сверху, иначе при закрывании он бьёт по кромке
     // соседнего фасада. Из этого правила и выводится высота короба.
@@ -4137,7 +4144,7 @@ function buildModuleParts(p) {
     if (zonePlan) {
       zonePlan.stacks.forEach((st, zi) => {
         if (!st) return;
-        infoRowBox.zoneDrawerAvail[zi] = zonePlan.layout.heights[zi];
+        infoRowBox.zoneDrawerAvail[zi] = st.avail;
         infoRowBox.zoneDrawerHeights[zi] = st.heights.slice();
       });
     }

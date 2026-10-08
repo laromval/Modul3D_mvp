@@ -13761,7 +13761,7 @@ function drawersPanelBlock(mod, secIndex, zi) {
                 `<option value="${h.code}" ${sec.drawerBoxHeight === h.code ? 'selected' : ''}>${h.code} — ${h.h} мм${h.reling ? ', с релингом' : ''} (фасад от ${h.minFront})</option>`).join('')
             : ''}
         </select>
-        <div class="hint">Просвет над верхним коробом — не менее 25 мм.</div>
+        <div class="hint">Просвет над верхним коробом — не менее 5 мм.</div>
       </div>
       <div class="field">
         <label>Высота ящика от дна, мм</label>
