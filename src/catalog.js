@@ -1384,14 +1384,14 @@
     "categoryPathEdited": true
   },
   "drawerBlumLegrabox": {
-    "name": "Legrabox 500mm C (Белый,Графит)",
+    "name": "Blum LEGRABOX — комплект ящика (NL × высота × цвет)",
     "unit": "компл.",
     "image": "https://tehmob.md/image/catalog/products/2025/Legrabox-C-height-deep-drawer-box-set-available-in-standard-and-bespoke-sizes-with-next-day-delivery__19677.jpg",
-    "price": 1593,
-    "article": "750C500",
+    "price": 1174,
+    "article": "750M500",
     "drawing": "assets/drawings/blum-legrabox-pure.png",
     "category": "runner",
-    "sourceUrl": "https://tehmob.md/15562-legrabox-500mm-c-belyjgrafit.html",
+    "sourceUrl": "https://tehmob.md/15559-legrabox-500mm-m-belyjgrafit.html",
     "sourceName": "Legrabox 500mm C (Белый,Графит)",
     "verifiedAt": "2026-10-02T09:30:00.000Z",
     "drawingFull": "assets/drawings/blum-legrabox-pure-big.png",
@@ -1400,17 +1400,26 @@
       "Blum"
     ],
     "sourceSiteId": "tehmobMd",
-    "sourceArticle": "750C500"
+    "sourceArticle": "750C500",
+    "selLength": 500,
+    "selHeight": "M",
+    "selColor": "Белый",
+    "options": [
+      {"length":500,"height":"M","color":"Белый","price":1174,"article":"750M500","sourceUrl":"https://tehmob.md/15559-legrabox-500mm-m-belyjgrafit.html"},
+      {"length":500,"height":"M","color":"Графит","price":1174,"article":"750M500","sourceUrl":"https://tehmob.md/15559-legrabox-500mm-m-belyjgrafit.html"},
+      {"length":500,"height":"C","color":"Белый","price":1593,"article":"750C500","sourceUrl":"https://tehmob.md/15562-legrabox-500mm-c-belyjgrafit.html"},
+      {"length":500,"height":"C","color":"Графит","price":1593,"article":"750C500","sourceUrl":"https://tehmob.md/15562-legrabox-500mm-c-belyjgrafit.html"}
+    ]
   },
   "drawerHettichAtira": {
-    "name": "Комплект для ящиков ATIRA, полного выдвижения L=420 мм H=144 мм, антрацит Hettich",
+    "name": "Hettich InnoTech Atira — комплект ящика (NL × высота × цвет)",
     "unit": "компл.",
     "image": "https://dask-centru.md/image/cache/catalog/dask/products/96356_1-1200x800.jpg",
-    "price": 900,
+    "price": 740,
     "article": "",
     "drawing": "assets/drawings/hettich-innotech-atira-h144.png",
     "category": "runner",
-    "sourceUrl": "https://dask-centru.md/index.php?route=product/product&path=1000_1005_10055&product_id=96356",
+    "sourceUrl": "https://dask-centru.md/index.php?route=product/product&product_id=96362",
     "sourceName": "Комплект для ящиков ATIRA, полного выдвижения L=420 мм H=144 мм, антрацит Hettich",
     "verifiedAt": "2026-10-02T09:30:00.000Z",
     "drawingFull": "assets/drawings/hettich-innotech-atira-h144-big.png",
@@ -1418,7 +1427,30 @@
     "categoryPath": [
       "Hettich"
     ],
-    "sourceSiteId": "daskCentruMd"
+    "sourceSiteId": "daskCentruMd",
+    "selLength": 420,
+    "selHeight": "70",
+    "selColor": "Антрацит",
+    "options": [
+      {"length":420,"height":"70","color":"Антрацит","price":740,"article":"","sourceUrl":"https://dask-centru.md/index.php?route=product/product&product_id=96362"},
+      {"length":420,"height":"70","color":"Белый","price":740,"article":"","sourceUrl":"https://dask-centru.md/index.php?route=product/product&product_id=96363"},
+      {"length":420,"height":"70","color":"Серый","price":740,"article":"","sourceUrl":"https://dask-centru.md/index.php?route=product/product&product_id=96364"},
+      {"length":420,"height":"144","color":"Антрацит","price":900,"article":"","sourceUrl":"https://dask-centru.md/index.php?route=product/product&product_id=96356"},
+      {"length":420,"height":"144","color":"Белый","price":900,"article":"","sourceUrl":"https://dask-centru.md/index.php?route=product/product&product_id=96357"},
+      {"length":420,"height":"144","color":"Серый","price":900,"article":"","sourceUrl":"https://dask-centru.md/index.php?route=product/product&product_id=96358"},
+      {"length":420,"height":"176","color":"Антрацит","price":930,"article":"","sourceUrl":"https://dask-centru.md/index.php?route=product/product&product_id=96359"},
+      {"length":420,"height":"176","color":"Белый","price":930,"article":"","sourceUrl":"https://dask-centru.md/index.php?route=product/product&product_id=96360"},
+      {"length":420,"height":"176","color":"Серый","price":930,"article":"","sourceUrl":"https://dask-centru.md/index.php?route=product/product&product_id=96361"},
+      {"length":470,"height":"70","color":"Антрацит","price":758,"article":"","sourceUrl":"https://dask-centru.md/index.php?route=product/product&product_id=96371"},
+      {"length":470,"height":"70","color":"Белый","price":758,"article":"","sourceUrl":"https://dask-centru.md/index.php?route=product/product&product_id=96372"},
+      {"length":470,"height":"70","color":"Серый","price":758,"article":"","sourceUrl":"https://dask-centru.md/index.php?route=product/product&product_id=96373"},
+      {"length":470,"height":"144","color":"Антрацит","price":925,"article":"","sourceUrl":"https://dask-centru.md/index.php?route=product/product&product_id=96365"},
+      {"length":470,"height":"144","color":"Белый","price":925,"article":"","sourceUrl":"https://dask-centru.md/index.php?route=product/product&product_id=96366"},
+      {"length":470,"height":"144","color":"Серый","price":925,"article":"","sourceUrl":"https://dask-centru.md/index.php?route=product/product&product_id=96367"},
+      {"length":470,"height":"176","color":"Антрацит","price":950,"article":"","sourceUrl":"https://dask-centru.md/index.php?route=product/product&product_id=96368"},
+      {"length":470,"height":"176","color":"Белый","price":950,"article":"","sourceUrl":"https://dask-centru.md/index.php?route=product/product&product_id=96369"},
+      {"length":470,"height":"176","color":"Серый","price":950,"article":"","sourceUrl":"https://dask-centru.md/index.php?route=product/product&product_id=96370"}
+    ]
   },
   "countertopCornerTie": {
     "name": "Угловая стяжка для столешницы Egger 38 (LMB-KAT38-20M)",
@@ -1433,14 +1465,14 @@
     "sourceSiteId": "mobilierMd"
   },
   "drawerBlumTandembox": {
-    "name": "TANDEMBOX 500M, Белый, 30 кг",
+    "name": "Blum TANDEMBOX antaro — комплект ящика (NL × высота × цвет)",
     "unit": "компл.",
     "image": "https://dask-centru.md/image/cache/catalog/dask/products/96821_1-1200x800.jpg",
     "price": 837,
     "article": "",
     "drawing": "assets/drawings/blum-tandembox-antaro-m.png",
     "category": "runner",
-    "sourceUrl": "https://dask-centru.md/index.php?route=product/product&path=1000_1005_10053&product_id=96821",
+    "sourceUrl": "https://dask-centru.md/index.php?route=product/product&product_id=96820",
     "sourceName": "TANDEMBOX 500M, Белый, 30 кг",
     "verifiedAt": "2026-10-02T09:30:00.000Z",
     "drawingFull": "assets/drawings/blum-tandembox-antaro-m-big.png",
@@ -1448,17 +1480,28 @@
     "categoryPath": [
       "Blum"
     ],
-    "sourceSiteId": "daskCentruMd"
+    "sourceSiteId": "daskCentruMd",
+    "selLength": 450,
+    "selHeight": "M",
+    "selColor": "Белый",
+    "options": [
+      {"length":450,"height":"M","color":"Белый","price":837,"article":"","sourceUrl":"https://dask-centru.md/index.php?route=product/product&product_id=96820"},
+      {"length":450,"height":"C","color":"Белый","price":1027,"article":"","sourceUrl":"https://dask-centru.md/index.php?route=product/product&product_id=96822"},
+      {"length":450,"height":"D","color":"Белый","price":1027,"article":"","sourceUrl":"https://dask-centru.md/index.php?route=product/product&product_id=96824"},
+      {"length":500,"height":"M","color":"Белый","price":837,"article":"","sourceUrl":"https://dask-centru.md/index.php?route=product/product&product_id=96821"},
+      {"length":500,"height":"C","color":"Белый","price":1027,"article":"","sourceUrl":"https://dask-centru.md/index.php?route=product/product&product_id=96823"},
+      {"length":500,"height":"D","color":"Белый","price":1027,"article":"","sourceUrl":"https://dask-centru.md/index.php?route=product/product&product_id=96825"}
+    ]
   },
   "drawerHettichQuadro": {
-    "name": "Направляющая Quadro V6 Silent System L=500 мм L+P Hettich — под ЛДСП 16 мм, насадной монтаж (цена по аналогу «18 мм»)",
+    "name": "Hettich Quadro V6 Silent System EB20 — направляющие (пара), под ЛДСП 16 мм, насадной монтаж (цена по аналогу «18 мм»)",
     "unit": "компл.",
     "image": "https://dask-centru.md/image/cache/catalog/dask/products/96309_1-1200x800.jpg",
-    "price": 652,
+    "price": 600,
     "article": "",
     "drawing": "assets/drawings/hettich-quadro-v6-eb20-plug-on.png",
     "category": "runner",
-    "sourceUrl": "https://dask-centru.md/index.php?product_id=96309&route=product%2Fproduct",
+    "sourceUrl": "https://dask-centru.md/index.php?route=product/product&product_id=96304",
     "sourceName": "Направляющая Quadro V6. 18 мм Silent System L=500 мм полного выдв.L+P Hettich (9225731+9225732)",
     "verifiedAt": "2026-10-02T09:30:00.000Z",
     "drawingFull": "assets/drawings/hettich-quadro-v6-eb20-plug-on-big.png",
@@ -1466,7 +1509,17 @@
     "categoryPath": [
       "Hettich"
     ],
-    "sourceSiteId": "daskCentruMd"
+    "sourceSiteId": "daskCentruMd",
+    "selLength": 250,
+    "selColor": "Оцинкованный",
+    "options": [
+      {"length":250,"color":"Оцинкованный","price":600,"article":"","sourceUrl":"https://dask-centru.md/index.php?route=product/product&product_id=96304"},
+      {"length":300,"color":"Оцинкованный","price":606,"article":"","sourceUrl":"https://dask-centru.md/index.php?route=product/product&product_id=96305"},
+      {"length":350,"color":"Оцинкованный","price":616,"article":"","sourceUrl":"https://dask-centru.md/index.php?route=product/product&product_id=96306"},
+      {"length":400,"color":"Оцинкованный","price":630,"article":"","sourceUrl":"https://dask-centru.md/index.php?route=product/product&product_id=96307"},
+      {"length":450,"color":"Оцинкованный","price":640,"article":"","sourceUrl":"https://dask-centru.md/index.php?route=product/product&product_id=96308"},
+      {"length":500,"color":"Оцинкованный","price":652,"article":"","sourceUrl":"https://dask-centru.md/index.php?route=product/product&product_id=96309"}
+    ]
   },
   "countertopStraightTie": {
     "name": "Стяжка для прямого стыка столешницы (эксцентрик Ø20)",
@@ -1483,14 +1536,14 @@
     "category": "countertop"
   },
   "drawerHettichQuadroSlide": {
-    "name": "Направляющая Quadro V6 Silent System L=500 мм L+P Hettich — под ЛДСП 16 мм, надвижной монтаж (цена по аналогу «18 мм»)",
+    "name": "Hettich Quadro V6 Silent System EB20 — направляющие (пара), под ЛДСП 16 мм, надвижной монтаж (цена по аналогу «18 мм»)",
     "unit": "компл.",
     "image": "https://dask-centru.md/image/cache/catalog/dask/products/96309_1-1200x800.jpg",
-    "price": 652,
+    "price": 600,
     "article": "",
     "drawing": "assets/drawings/hettich-quadro-v6-eb20-slide-on.png",
     "category": "runner",
-    "sourceUrl": "https://dask-centru.md/index.php?product_id=96309&route=product%2Fproduct",
+    "sourceUrl": "https://dask-centru.md/index.php?route=product/product&product_id=96304",
     "sourceName": "Направляющая Quadro V6. 18 мм Silent System L=500 мм полного выдв.L+P Hettich (9225731+9225732)",
     "verifiedAt": "2026-10-02T09:30:00.000Z",
     "drawingFull": "assets/drawings/hettich-quadro-v6-eb20-slide-on-big.png",
@@ -1498,7 +1551,17 @@
     "categoryPath": [
       "Hettich"
     ],
-    "sourceSiteId": "daskCentruMd"
+    "sourceSiteId": "daskCentruMd",
+    "selLength": 250,
+    "selColor": "Оцинкованный",
+    "options": [
+      {"length":250,"color":"Оцинкованный","price":600,"article":"","sourceUrl":"https://dask-centru.md/index.php?route=product/product&product_id=96304"},
+      {"length":300,"color":"Оцинкованный","price":606,"article":"","sourceUrl":"https://dask-centru.md/index.php?route=product/product&product_id=96305"},
+      {"length":350,"color":"Оцинкованный","price":616,"article":"","sourceUrl":"https://dask-centru.md/index.php?route=product/product&product_id=96306"},
+      {"length":400,"color":"Оцинкованный","price":630,"article":"","sourceUrl":"https://dask-centru.md/index.php?route=product/product&product_id=96307"},
+      {"length":450,"color":"Оцинкованный","price":640,"article":"","sourceUrl":"https://dask-centru.md/index.php?route=product/product&product_id=96308"},
+      {"length":500,"color":"Оцинкованный","price":652,"article":"","sourceUrl":"https://dask-centru.md/index.php?route=product/product&product_id=96309"}
+    ]
   },
   "link_hinge_1790325382612": {
     "name": "Петля внутренняя Clip Top Blumotion Blum",
@@ -1534,14 +1597,14 @@
     "sourceArticle": "PB-3D0SHX18-250-PRO"
   },
   "drawerHettichQuadroSlide23": {
-    "name": "Направляющая Quadro V6. 18 мм Silent System L=500 мм полного выдв.L+P Hettich (9225731+9225732)",
+    "name": "Hettich Quadro V6 Silent System EB23 — направляющие (пара), 18 мм, надвижной монтаж",
     "unit": "компл.",
     "image": "https://dask-centru.md/image/cache/catalog/dask/products/96309_1-1200x800.jpg",
-    "price": 652,
-    "article": "9225731+9225732",
+    "price": 600,
+    "article": "9292827+9292828",
     "drawing": "assets/drawings/hettich-quadro-v6-eb23-slide-on.png",
     "category": "runner",
-    "sourceUrl": "https://dask-centru.md/index.php?product_id=96309&route=product%2Fproduct",
+    "sourceUrl": "https://dask-centru.md/index.php?route=product/product&product_id=96304",
     "sourceName": "Направляющая Quadro V6. 18 мм Silent System L=500 мм полного выдв.L+P Hettich (9225731+9225732)",
     "verifiedAt": "2026-10-02T09:30:00.000Z",
     "drawingFull": "assets/drawings/hettich-quadro-v6-eb23-slide-on-big.png",
@@ -1549,7 +1612,17 @@
     "categoryPath": [
       "Hettich"
     ],
-    "sourceSiteId": "daskCentruMd"
+    "sourceSiteId": "daskCentruMd",
+    "selLength": 250,
+    "selColor": "Оцинкованный",
+    "options": [
+      {"length":250,"color":"Оцинкованный","price":600,"article":"9292827+9292828","sourceUrl":"https://dask-centru.md/index.php?route=product/product&product_id=96304"},
+      {"length":300,"color":"Оцинкованный","price":606,"article":"9225673+9225674","sourceUrl":"https://dask-centru.md/index.php?route=product/product&product_id=96305"},
+      {"length":350,"color":"Оцинкованный","price":616,"article":"9225675+9225676","sourceUrl":"https://dask-centru.md/index.php?route=product/product&product_id=96306"},
+      {"length":400,"color":"Оцинкованный","price":630,"article":"9225677+9225678","sourceUrl":"https://dask-centru.md/index.php?route=product/product&product_id=96307"},
+      {"length":450,"color":"Оцинкованный","price":640,"article":"9225729+9225730","sourceUrl":"https://dask-centru.md/index.php?route=product/product&product_id=96308"},
+      {"length":500,"color":"Оцинкованный","price":652,"article":"9225731+9225732","sourceUrl":"https://dask-centru.md/index.php?route=product/product&product_id=96309"}
+    ]
   }
 };
 
@@ -1864,11 +1937,9 @@
       //   задняя стенка — ширина LW − 87, высота по высоте царги.
       name: 'Blum TANDEMBOX antaro',
       metal: true,                                   // царги металлические
-      nl: [270, 300, 350, 400, 450, 500, 550, 650],
+      nl: [450, 500],            // только то, что есть в продаже (dask-centru.md)
       heights: [
-        { code: 'N', h: 68.5,  minFront: 100, backH: 69 },
         { code: 'M', h: 83.6,  minFront: 115, backH: 84 },
-        { code: 'K', h: 115.5, minFront: 147, backH: 116 },
         // C и D — исполнения с продольным релингом (gallery)
         { code: 'C', h: 172,   minFront: 205, backH: 167, reling: 1 },
         { code: 'D', h: 204,   minFront: 237, backH: 199, reling: 2 },
@@ -1884,7 +1955,7 @@
       assumed: [],
       name: 'Blum LEGRABOX',
       metal: true,
-      nl: [270, 350, 400, 450, 500, 550, 600],
+      nl: [500],                 // только NL 500 есть в продаже (tehmob.md)
       heights: [
         { code: 'M', h: 90.5, minFront: 120, backH: 63 },
         { code: 'C', h: 177,  minFront: 205, backH: 148, reling: 1 },
@@ -1904,7 +1975,7 @@
       //   16 мм → 12,5   ·   18 мм → 10,5   ·   19 мм → 9,5
       name: 'Hettich InnoTech Atira',
       metal: true,
-      nl: [260, 300, 350, 420, 470, 520],
+      nl: [420, 470],            // только то, что есть в продаже (dask-centru.md)
       ebFor: (t) => (t >= 19 ? 9.5 : (t >= 18 ? 10.5 : 12.5)),
       eb: 10.5,
       heights: [
@@ -2064,7 +2135,7 @@
       docUrl: 'https://web2.hettich.com/hbh/addon/montage/MTA_929680200_QV6_SFD_SiSy_EB23.pdf',
       assumed: [],
       metal: false,
-      nl: [250, 300, 350, 400, 450, 500, 550, 600],
+      nl: [250, 300, 350, 400, 450, 500],   // 550/600 в продаже нет
       clearanceFor: () => 23,     // 23 мм до ВНУТРЕННЕЙ грани боковины ящика
       clearancePerSide: 23,
       clearanceToInner: true,
@@ -2095,6 +2166,7 @@
       src: 'практика цеха: шариковые направляющие, ящик из ЛДСП',
       assumed: [],
       name: 'Ящик из ЛДСП на шариковых направляющих',
+      fixedColor: 'Оцинкованный',                    // цвет направляющих один
       metal: false,                                  // ящик собирается из ЛДСП
       nl: [250, 300, 350, 400, 450, 500, 550, 600],
       clearancePerSide: 13,                          // проём − 26 мм на пару
@@ -2514,6 +2586,8 @@
   }
   function optionLengths(item) { return _uniq(itemOptions(item).map((o) => o.length)); }
   function optionColors(item) { return _uniq(itemOptions(item).map((o) => o.color)); }
+  // Коды высот (царга) у позиций, где варианты различаются по высоте.
+  function optionHeights(item) { return _uniq(itemOptions(item).map((o) => o.height)); }
   // Вариант по выбору. sel: { length?, width?, color? } — width (мм) подбирает
   // длину по диапазону lengthMin..lengthMax (так секция сама находит свой
   // размер пантографа); без цвета берём selColor позиции, без длины — selLength.
@@ -2525,6 +2599,11 @@
     const color = sel.color != null ? sel.color : item.selColor;
     let pool = opts;
     if (color) { const byColor = pool.filter((o) => o.color === color); if (byColor.length) pool = byColor; }
+    // Высота (код царги) — фильтр только если у позиции есть варианты с height.
+    if (opts.some((o) => o.height != null)) {
+      const height = sel.height != null ? sel.height : item.selHeight;
+      if (height != null) { const byH = pool.filter((o) => o.height === String(height)); if (byH.length) pool = byH; }
+    }
     if (Number.isFinite(sel.width)) {
       return pool.find((o) => Number.isFinite(o.lengthMin) && Number.isFinite(o.lengthMax)
         && sel.width >= o.lengthMin && sel.width <= o.lengthMax) || null;
@@ -2543,7 +2622,7 @@
 
   window.Modul3D = window.Modul3D || {};
   window.Modul3D.catalog = {
-    itemOptions, optionLengths, optionColors, resolveOption, syncItemToOption,
+    itemOptions, optionLengths, optionColors, optionHeights, resolveOption, syncItemToOption,
     CATALOG_SOURCE,
     DECORS, BACK_MATERIALS, COUNTERTOP_MATERIALS, EDGE_PRICES, HARDWARE_PRICES, FASTENER_PRICES, JOINT_LABEL,
     DRAWER_SYSTEMS, DRAWER_SYSTEM_ORDER, pickNL, GLASS,

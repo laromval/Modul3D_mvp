@@ -14,7 +14,7 @@
 (function () {
 // Версия сборки — показывается во вкладке браузера и в шапке.
 // При выпуске новой версии меняется только эта строка.
-const APP_VERSION = 'v415';
+const APP_VERSION = 'v416';
 
 // Номер версии выводим ПЕРВЫМ делом: если дальше что-то упадёт, по нему сразу
 // видно, какая сборка открыта.
@@ -220,6 +220,8 @@ function newSection() {
     // корпус), см. effectiveDrawerDecorCode; код пишется только ручным
     // выбором в «Ящиках».
     drawerDecorCode: null, drawerThickness: 16, drawerSystem: 'ballBearing',
+    // Цвет ящичной системы (название цвета из вариантов позиции Библиотеки); '' — по умолчанию.
+    drawerColor: '',
     widthMode: 'auto', width: 400,
   };
 }
@@ -1223,6 +1225,13 @@ function mergeCatalogItem(savedItem, freshItem) {
   // каталога, пометка остаётся снятой, пока он не сбросит каталог к
   // заводским настройкам целиком (см. restoreCatalogFrom(CATALOG_DEFAULTS)).
   if (merged.priceNoteCleared) delete merged.priceNote;
+  // Заводское общее название (name !== sourceName, например «Blum TANDEMBOX antaro — комплект ящика»):
+  // если пользователь своё название не правил (в снимке name == sourceName — старое конкретное
+  // исполнение), берём новое заводское.
+  if (freshItem.name && freshItem.sourceName && freshItem.name !== freshItem.sourceName
+      && savedItem.sourceName === freshItem.sourceName && savedItem.name === savedItem.sourceName) {
+    merged.name = freshItem.name;
+  }
   // Варианты «длина × цвет» (item.options, selLength/selColor): сохранённые
   // правки пользователя главнее — Object.assign выше уже оставил их как есть.
   // Если в сохранённой копии вариантов нет (снимок до их появления), а в
@@ -1233,6 +1242,7 @@ function mergeCatalogItem(savedItem, freshItem) {
     merged.options = JSON.parse(JSON.stringify(freshItem.options));
     if (freshItem.selLength !== undefined) merged.selLength = freshItem.selLength;
     if (freshItem.selColor !== undefined) merged.selColor = freshItem.selColor;
+    if (freshItem.selHeight !== undefined) merged.selHeight = freshItem.selHeight;
     if (window.Modul3D.catalog.syncItemToOption) window.Modul3D.catalog.syncItemToOption(merged);
   }
   // categoryPathEdited — пользователь САМ переименовал или перенёс категорию,
@@ -5415,23 +5425,40 @@ function libHwOptionSelectsHtml(group, key, it) {
   if (!opts.length) return '';
   const lens = cat.optionLengths(it);
   const cols = cat.optionColors(it);
+  const hts = cat.optionHeights ? cat.optionHeights(it) : [];
   const cur = cat.resolveOption(it);
-  const exact = opts.some((o) => o.length === it.selLength && o.color === it.selColor);
+  const exact = opts.some((o) => o.length === it.selLength && o.color === it.selColor
+    && (!hts.length || it.selHeight == null || String(o.height) === String(it.selHeight)));
   const selLen = lens.indexOf(it.selLength) >= 0 ? it.selLength : (cur && cur.length);
   const selCol = cols.indexOf(it.selColor) >= 0 ? it.selColor : (cur && cur.color);
-  const mk = (field, list, selected, title) => `<select class="lib-opt-select" data-opt-field="${field}" data-opt-group="${esc(group)}" data-opt-key="${esc(key)}" title="${esc(title)}">`
-    + list.map((v) => `<option value="${esc(v)}" ${v === selected ? 'selected' : ''}>${esc(v)}</option>`).join('') + '</select>';
+  const selHt = hts.indexOf(it.selHeight) >= 0 ? it.selHeight : (cur && cur.height);
+  // Нет значений (у позиции нет длины/цвета/высоты) — прочерк «—», а не пустой список.
+  const mk = (field, list, selected, title) => {
+    if (!list.length) {
+      return `<select class="lib-opt-select" disabled title="${esc(title)}"><option>—</option></select>`;
+    }
+    return `<select class="lib-opt-select" data-opt-field="${field}" data-opt-group="${esc(group)}" data-opt-key="${esc(key)}" title="${esc(title)}">`
+      + list.map((v) => `<option value="${esc(v)}" ${v === selected ? 'selected' : ''}>${esc(v)}</option>`).join('') + '</select>';
+  };
   const note = exact ? '' : '<div class="lib-opt-note">Такого сочетания нет — показан ближайший вариант</div>';
   const price = cur && cur.price != null ? `<div class="lib-opt-price">${esc(cur.price)} ${esc(curSym())}</div>` : '';
-  return `<div class="lib-opt-cell">${mk('selLength', lens, selLen, 'Длина, мм')}${mk('selColor', cols, selCol, 'Цвет')}${price}${note}</div>`;
+  // «Высота» — код царги (M, C, 144…); список только у позиций, где варианты различаются по высоте.
+  const htSel = hts.length ? mk('selHeight', hts, selHt, 'Высота (царга)') : '';
+  return `<div class="lib-opt-cell">${mk('selLength', lens, selLen, 'Длина, мм')}${htSel}${mk('selColor', cols, selCol, 'Цвет')}${price}${note}</div>`;
 }
 
 // Смена «Длина»/«Цвет» в строке — тот же путь сохранения, что и у правки ячейки.
 function libSetOptionSelection(group, key, field, value) {
   if (!requireLibraryEditAuth()) { renderLibraryPanel(); return; }
   const it = libFindItem(group, key);
-  if (!it || (field !== 'selLength' && field !== 'selColor')) return;
-  it[field] = value;
+  if (!it || (field !== 'selLength' && field !== 'selColor' && field !== 'selHeight')) return;
+  // selLength — число (option.length у ящичных систем — число, у остальных строка): сверяем с вариантами.
+  if (field === 'selLength') {
+    const match = window.Modul3D.catalog.optionLengths(it).filter((v) => String(v) === String(value))[0];
+    it[field] = match !== undefined ? match : value;
+  } else {
+    it[field] = value;
+  }
   window.Modul3D.catalog.syncItemToOption(it);
   recompute();
   scheduleCatalogSave();
@@ -5459,7 +5486,7 @@ function libVarGuessFromName(name) {
 function libVarFormFor(group, key) {
   const f = state.libVarForm;
   if (f && f.group === group && f.key === key) return f;
-  state.libVarForm = { group, key, length: '', min: '', max: '', color: '', price: '', article: '', url: '', seed: true, busy: false, msg: '', err: false };
+  state.libVarForm = { group, key, length: '', height: '', min: '', max: '', color: '', price: '', article: '', url: '', seed: true, busy: false, msg: '', err: false };
   return state.libVarForm;
 }
 
@@ -5471,7 +5498,9 @@ function libHwVariantsBlockHtml(group, key, it) {
   const f = libVarFormFor(group, key);
   const rows = opts.map((o, i) => {
     const range = Number.isFinite(o.lengthMin) && Number.isFinite(o.lengthMax) && String(o.length).indexOf(String(o.lengthMin)) < 0 ? ` (${o.lengthMin}–${o.lengthMax} мм)` : '';
-    const txt = `${o.length}${range} · ${o.color} · ${o.price != null ? o.price + ' ' + curSym() : '—'}${o.article ? ' · ' + o.article : ''}`;
+    const dash = (v) => (v != null && String(v) !== '' ? v : '—');
+    const hTxt = o.height != null && String(o.height) !== '' ? ` · высота ${o.height}` : '';
+    const txt = `${dash(o.length)}${range}${hTxt} · ${dash(o.color)} · ${o.price != null ? o.price + ' ' + curSym() : '—'}${o.article ? ' · ' + o.article : ''}`;
     return `<div class="lib-var-row${o === cur ? ' current' : ''}"><span class="lib-var-txt" title="${esc(txt)}">${esc(txt)}</span><button type="button" class="lib-var-del" data-var-idx="${i}" title="Удалить вариант">×</button></div>`;
   }).join('');
   const inp = (field, label, type, ph) => `<label class="lib-var-field"><span>${esc(label)}</span><input class="lib-var-f" data-vf="${field}" type="${type}" ${type === 'number' ? 'step="any" min="0"' : ''} placeholder="${esc(ph || '')}" value="${esc(f[field])}"></label>`;
@@ -5483,6 +5512,7 @@ function libHwVariantsBlockHtml(group, key, it) {
       ${rows || '<p class="hint">Вариантов пока нет — позиция с одной ценой.</p>'}
       <div class="lib-var-form">
         ${inp('length', 'Длина', 'text', '645–910')}
+        ${inp('height', 'Высота (царга)', 'text', 'M, 144 — пусто, если нет')}
         ${inp('min', 'От, мм', 'number', '')}
         ${inp('max', 'До, мм', 'number', '')}
         ${inp('color', 'Цвет', 'text', 'антрацит')}
@@ -5523,10 +5553,16 @@ function libVarAdd() {
   if ((min == null) !== (max == null)) return fail('Диапазон «от/до» нужно заполнить целиком — или оставить оба поля пустыми.');
   if (min != null && !(min > 0 && max >= min)) return fail('«От» должно быть больше нуля и не больше «до».');
   const hadOptions = cat.itemOptions(it).length > 0;
-  if (hadOptions && it.options.some((o) => o && o.length === length && o.color === color)) {
-    return fail('Вариант с такой длиной и цветом уже есть — удалите его или измените поля.');
+  const height = String(f.height || '').trim();
+  const sameVariant = (o) => o && String(o.length) === length && o.color === color
+    && String(o.height == null ? '' : o.height) === height;
+  if (hadOptions && it.options.some(sameVariant)) {
+    return fail('Вариант с такой длиной, высотой и цветом уже есть — удалите его или измените поля.');
   }
-  const opt = { length, color, price };
+  // У ящичных систем длина — число (NL): новый вариант должен быть числом, иначе движок его не найдёт.
+  const numericLens = hadOptions && it.options.some((o) => o && typeof o.length === 'number') && /^\d+(\.\d+)?$/.test(length);
+  const opt = { length: numericLens ? Number(length) : length, color, price };
+  if (height && height !== '—') opt.height = height;
   if (min != null) { opt.lengthMin = min; opt.lengthMax = max; }
   const article = String(f.article || '').trim();
   if (article) opt.article = article;
@@ -5542,8 +5578,9 @@ function libVarAdd() {
       it.selLength = base.length;
       it.selColor = base.color;
     } else {
-      it.selLength = length;
+      it.selLength = opt.length;
       it.selColor = color;
+      if (opt.height) it.selHeight = opt.height;
     }
   }
   it.options.push(opt);
@@ -5566,10 +5603,11 @@ function libVarDelete(idx) {
   it.options.splice(idx, 1);
   if (!it.options.length) {
     // Вариантов не осталось — позиция снова простая (цена/артикул остаются).
-    delete it.options; delete it.selLength; delete it.selColor;
+    delete it.options; delete it.selLength; delete it.selColor; delete it.selHeight;
   } else if (wasCurrent) {
     it.selLength = it.options[0].length;
     it.selColor = it.options[0].color;
+    if (it.options[0].height != null) it.selHeight = it.options[0].height; else delete it.selHeight;
     cat.syncItemToOption(it);
   }
   recompute();
@@ -5688,7 +5726,12 @@ function libLinkOptionsFromVariants(form) {
 // два списка «Длина»/«Цвет»; у остальных без чертежа — «—».
 function libHwCharsCellHtml(group, key, it) {
   const drawing = it.drawing ? libDrawingSwatchHtml(group, key, it.drawing, it.drawingFull, it.name) : '';
-  const selects = libHwOptionSelectsHtml(group, key, it);
+  let selects = libHwOptionSelectsHtml(group, key, it);
+  // Шариковые направляющие (система «Ящик из ЛДСП»): цвет один и не выбирается.
+  const pt = state.libPickTarget;
+  if (!selects && pt && pt.role === 'drawerSystem' && key === DRAWER_BALL_PICK_KEY) {
+    selects = '<div class="lib-opt-cell"><div class="lib-opt-note">Ящик из ЛДСП. Цвет: Оцинкованный</div></div>';
+  }
   return `<td class="lib-hw-chars-cell">${drawing}${selects}${drawing || selects ? '' : '—'}</td>`;
 }
 
@@ -5706,7 +5749,10 @@ function libHardwareLeafTableHtml(topCode, path, entries, opts) {
   // libHwCharsVisible), НЕЗАВИСИМАЯ от suppliersVisible выше и от
   // state.libCharsCollapsed (та вообще про таблицу материалов) — миниатюра
   // чертежа присадки конкретной позиции (it.drawing, см. libDrawingSwatchHtml).
-  const hwCharsVisible = !!state.libHwCharsVisible;
+  // В режиме подбора ящичной системы колонка «Характеристики» показана всегда:
+  // там выбирается цвет, который запишется в секцию вместе с системой.
+  const hwCharsVisible = !!state.libHwCharsVisible
+    || !!(state.libPickTarget && state.libPickTarget.role === 'drawerSystem');
   // Колонка «Выбрать» — режим подбора Библиотеки (state.libPickTarget), тот
   // же приём, что и у листовых материалов (см. libLeafTableHtml/
   // libPickRowAllowed): видна, если хоть одна строка листа годится текущей
@@ -8949,6 +8995,33 @@ function libPickMaterial(rowGroup, code) {
     libPickReturnToParams(target, null);
     return;
   }
+  if (target.role === 'drawerSystem') {
+    // «Система ящиков» секции/отсека — code это item.key позиции «Направляющих»
+    // (см. drawerSystemIdByPickKey). Пишем систему и цвет в владельца ящиков
+    // (секция или отсек). Цвет — выбранный в «Характеристиках» строки (selColor);
+    // у шариковых направляющих — единственный «Оцинкованный».
+    const sysId = drawerSystemIdByPickKey(code);
+    if (!sysId) return;
+    const mod = state.modules[target.moduleIdx];
+    const ctx = mod && drawersCtx(mod, target.secIdx, target.zi);
+    if (!ctx) { state.libPickTarget = null; renderLibraryPanel(); return; }
+    const row = libFindItem(rowGroup, code);
+    const info = drawerSystemLibInfo(sysId);
+    const picked = row && info.colors.indexOf(row.selColor) >= 0 ? row.selColor : info.def;
+    const owner = ctx.owner;
+    owner.drawerSystem = sysId;
+    owner.drawerColor = picked || '';
+    // Высота короба — код из списка ЭТОЙ системы; чужой код → снова «авто».
+    const hs = (DRAWER_SYSTEMS[sysId].heights || []).map((h) => h.code);
+    if (owner.drawerBoxHeight && owner.drawerBoxHeight !== 'auto' && hs.indexOf(owner.drawerBoxHeight) < 0) {
+      owner.drawerBoxHeight = 'auto';
+    }
+    state.activeModule = target.moduleIdx;
+    state.drawersSectionIndex = target.secIdx;
+    state.drawersZone = target.zi;
+    libPickReturnToParams(target, null);
+    return;
+  }
   if (target.role === 'hangerSystem') {
     // «Навес для верхних модулей» — code это item.key одной из 4 позиций
     // навеса (см. HANGER_SYSTEM_PICK_KEYS/libPickRowAllowed), а не code
@@ -9086,7 +9159,7 @@ function libPickReturnToParams(target, info) {
     info.mod.activeSection = info.mod.sections.indexOf(info.sec);
     if (target.returnTo === 'materials') setMatFacadeZone(info.zi);
   }
-  if (target.returnTo === 'materials' || target.returnTo === 'module') state.panelView = target.returnTo;
+  if (target.returnTo === 'materials' || target.returnTo === 'module' || target.returnTo === 'drawers') state.panelView = target.returnTo;
   // Экран «Деталь» — только если выбранная деталь всё ещё в этом модуле
   // (иначе renderParamsPanel сам откатит на параметры модуля).
   if (target.returnTo === 'part' && state.selectedPart) state.panelView = 'part';
@@ -9101,6 +9174,8 @@ function libPickReturnToParams(target, info) {
   let el = null;
   if (target.returnTo === 'materials') {
     el = info ? document.getElementById('matFacadeField') : document.querySelector(`#paramsPanel [data-mat-pick="${target.role}"]`);
+  } else if (target.returnTo === 'drawers') {
+    el = document.getElementById('drawersSystemCard');
   } else if (target.returnTo === 'part') {
     el = document.getElementById('partMaterial') || document.getElementById('partFacadeField');
   } else if (target.returnTo === 'module' && info) {
@@ -13474,6 +13549,11 @@ function libPickRowAllowed(topCode, entry) {
   const sheetLike = topCode === 'sheet' || String(topCode).indexOf('matcustom-') === 0;
   if (t.role === 'aluFill') return topCode !== 'countertop' && aluFillPickAllowed(code);
   if (t.role === 'partMaterial') return topCode !== 'countertop' && partMaterialOptionsOf(t.kind).some((o) => o.code === code);
+  if (t.role === 'drawerSystem') {
+    // Ящичные системы лежат в «Направляющих» (HARDWARE_PRICES, group 'hw:hw'):
+    // «Выбрать» у позиций с priceKey систем и у шариковых направляющих GTV.
+    return entry.group === 'hw:hw' && !!drawerSystemIdByPickKey(it.key);
+  }
   if (t.role === 'hangerSystem') {
     // Фурнитура (HARDWARE_PRICES) хранит позиции по ключу объекта (it.key,
     // см. libHardwareTopEntries), а не it.code — libRowKeyOf выше для этой
@@ -13528,7 +13608,7 @@ function drawersCtx(mod, si, zi) {
     drawerPinned: owner.drawerPinned || [],
   });
   ['drawerSystem', 'drawerThickness', 'drawerOffset', 'drawerDecorCode', 'drawerFacadeType',
-    'drawerFacadeMaterial', 'drawerBoxHeight', 'pushToOpen'].forEach((k) => {
+    'drawerFacadeMaterial', 'drawerBoxHeight', 'pushToOpen', 'drawerColor'].forEach((k) => {
     if (owner[k] !== undefined && owner[k] !== null && owner[k] !== '') view[k] = owner[k];
   });
   return { sec, owner, view, zi };
@@ -13536,6 +13616,71 @@ function drawersCtx(mod, si, zi) {
 
 function zoneTitleOf(zi, count) {
   return zi === 0 ? 'Нижний отсек' : (zi === count - 1 ? 'Верхний отсек' : `Отсек ${zi + 1}`);
+}
+
+// ---------------------------------------------------------------------------
+// СИСТЕМА ЯЩИКОВ — карточка + выбор в Библиотеке (Фурнитура → Направляющие).
+// Раньше здесь был выпадающий список систем; теперь, как у материалов и навеса,
+// кнопка открывает Библиотеку в режиме подбора (роль 'drawerSystem'), а
+// «Выбрать» в строке системы пишет в секцию/отсек sec.drawerSystem и
+// sec.drawerColor. NL подбирает движок по глубине корпуса, высоту царги — по
+// высоте фасада; пользователь выбирает только систему и цвет.
+// ---------------------------------------------------------------------------
+// Строка «Шариковых направляющих» (GTV, drawerRunnerPair) — единственная позиция
+// Библиотеки у системы ballBearing (у неё нет своего priceKey): её «Выбрать»
+// выбирает «Ящик из ЛДСП на шариковых направляющих», цвет один — «Оцинкованный».
+const DRAWER_BALL_PICK_KEY = 'drawerRunnerPair';
+// Система ящиков по ключу позиции HARDWARE_PRICES (priceKey) или null.
+function drawerSystemIdByPickKey(key) {
+  if (key === DRAWER_BALL_PICK_KEY) return 'ballBearing';
+  return DRAWER_SYSTEM_ORDER.filter((id) => DRAWER_SYSTEMS[id] && DRAWER_SYSTEMS[id].priceKey === key)[0] || null;
+}
+// Позиция Библиотеки системы, её цвета и цвет по умолчанию.
+function drawerSystemLibInfo(sysId) {
+  const cat = window.Modul3D.catalog;
+  const sys = DRAWER_SYSTEMS[sysId] || {};
+  const item = cat.HARDWARE_PRICES[sys.priceKey || DRAWER_BALL_PICK_KEY] || null;
+  let colors = sys.priceKey && item ? cat.optionColors(item) : [];
+  if (!colors.length && sys.fixedColor) colors = [sys.fixedColor];
+  const def = sys.fixedColor || (item && colors.indexOf(item.selColor) >= 0 ? item.selColor : colors[0]) || '';
+  return { sys, item, colors, def };
+}
+function drawerSystemCardHtml(sec) {
+  const sysId = sec.drawerSystem || 'ballBearing';
+  const info = drawerSystemLibInfo(sysId);
+  const name = (info.sys && info.sys.name) || sysId;
+  const own = sec.drawerColor && info.colors.indexOf(sec.drawerColor) >= 0 ? sec.drawerColor : '';
+  const colorTxt = own ? `Цвет: ${own}` : (info.def ? `Цвет: по умолчанию (${info.def})` : '');
+  const img = info.item && info.item.image ? info.item.image : (info.sys && info.sys.image) || '';
+  const sw = img
+    ? `<span class="alu-fill-sw" style="background:#fff center/contain no-repeat url('${esc(img)}')"></span>`
+    : '<span class="alu-fill-sw alu-fill-sw-sheet"></span>';
+  const colorSel = info.colors.length > 1
+    ? `<select id="drawersColor" title="Цвет ящичной системы">
+         <option value="" ${own ? '' : 'selected'}>по умолчанию (${esc(info.def)})</option>
+         ${info.colors.map((c) => `<option value="${esc(c)}" ${c === own ? 'selected' : ''}>${esc(c)}</option>`).join('')}
+       </select>` : '';
+  return `<button type="button" class="alu-fill-pick mat-pick" id="drawersSystemCard" data-mat-pick="drawerSystem"
+          title="Выбрать в Библиотеке" aria-label="${esc(`${name}. Выбрать в Библиотеке`)}">
+          ${sw}
+          <span class="alu-fill-txt"><span class="alu-fill-name">${esc(name)}</span>
+            <span class="alu-fill-sub" id="drawersColorText">${esc(colorTxt)}</span>
+            <span class="alu-fill-sub">Изменить в Библиотеке →</span></span>
+        </button>
+        ${colorSel ? `<div class="field" style="margin-top:6px"><label>Цвет ящиков</label>${colorSel}</div>` : ''}`;
+}
+// Клик по карточке → Библиотека: Фурнитура → Направляющие → фирма текущей системы.
+function openDrawerSystemPicker() {
+  const mod = state.modules[state.activeModule];
+  const ctx = mod && drawersCtx(mod, state.drawersSectionIndex, state.drawersZone);
+  if (!ctx) return;
+  state.libPickTarget = { role: 'drawerSystem', returnTo: 'drawers', moduleIdx: state.activeModule,
+    secIdx: state.drawersSectionIndex, zi: ctx.zi };
+  const info = drawerSystemLibInfo(ctx.view.drawerSystem || 'ballBearing');
+  const it = info.item;
+  const sub = it && (it.subcategory || it.brand);
+  const path = it && Array.isArray(it.categoryPath) && it.categoryPath.length ? it.categoryPath : (sub ? [sub] : []);
+  libOpenPickLocation('hw:runner', path);
 }
 
 function drawersPanelBlock(mod, secIndex, zi) {
@@ -13626,11 +13771,7 @@ function drawersPanelBlock(mod, secIndex, zi) {
       </div>
       <div class="field">
         <label>Система ящиков</label>
-        <select id="drawersSystem">
-          ${DRAWER_SYSTEM_ORDER.map(id =>
-            `<option value="${id}" ${id === sys ? 'selected' : ''}>${esc(DRAWER_SYSTEMS[id].name)}</option>`
-          ).join('')}
-        </select>
+        ${drawerSystemCardHtml(sec)}
       </div>
     </div>`;
 }
@@ -16358,6 +16499,7 @@ function bindPanelEvents() {
         else if (role === 'partFacade') openFacadeMaterialPicker(partFacadeTarget(mod), 'part', { pinDrawers: true });
         else if (role === 'partDrawerFacade') openDrawerFacadeMaterialPicker(partFacadeTarget(mod));
         else if (role === 'hangerSystem') openHangerSystemPicker();
+        else if (role === 'drawerSystem') openDrawerSystemPicker();
         else openMaterialPicker(role);
       });
     });
@@ -16609,11 +16751,10 @@ function bindPanelEvents() {
         sec.pushToOpen = e.target.checked;
         recompute();
       });
-      on('drawersSystem', 'change', (e) => {
-        sec.drawerSystem = e.target.value;
-        // Список опций «Высота короба ящика» зависит от системы — как и у
-        // drawerMode выше, перерисовываем экран целиком, чтобы список сразу
-        // совпал с новой системой.
+      // Цвет ящичной системы (выпадающий «Цвет ящиков» в карточке системы).
+      // Сама система выбирается в Библиотеке (openDrawerSystemPicker → libPickMaterial).
+      on('drawersColor', 'change', (e) => {
+        sec.drawerColor = e.target.value || '';
         renderParamsPanel();
         recompute();
       });

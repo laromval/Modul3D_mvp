@@ -80,9 +80,13 @@ function inspect(model, label) {
   // такую опору кухонной, см. комментарий у `kitchen` в buildModuleParts).
   const embracing = (a, b) => a.k === 'rodFlange' || b.k === 'rodFlange' || a.groove || b.groove
     || (a.k === 'leg' && b.k === 'plinth') || (a.k === 'plinth' && b.k === 'leg');
+  // Ящик системы, которая по глубине не встаёт (предупреждение «не встаёт»), строится по nl[0]
+  // и может пересекаться — это известное «нельзя поставить», а не ошибка геометрии.
+  const noFit = model.warnings.some((w) => /ящик такой системы в этот корпус не встаёт/.test(w));
   for (let i = 0; i < boxes.length; i++) {
     for (let j = i + 1; j < boxes.length; j++) {
       if (embracing(boxes[i], boxes[j])) continue;
+      if (noFit && (/ящик/i.test(boxes[i].n) || /ящик/i.test(boxes[j].n))) continue;
       if (overlaps(boxes[i], boxes[j])) problems.push(`${label}: пересекаются «${boxes[i].n}» и «${boxes[j].n}»`);
     }
   }
@@ -1154,7 +1158,7 @@ for (const sys of ['ballBearing', 'quadro', 'tandembox', 'innotech', 'legrabox']
   if (!fr.holes.some((h) => h.kind === 'relingFix')) {
     problems.push('релинг: нет отверстий под держатели на фасаде');
   }
-  const noRel = mkF('tandembox', 'N');
+  const noRel = mkF('tandembox', 'M');
   const fn = noRel.parts.filter((p) => /Фасад ящика 1/.test(p.name))[0];
   if (fn.holes.some((h) => h.kind === 'relingFix')) {
     problems.push('релинг: отверстия появились у царги без релинга');
