@@ -14,7 +14,7 @@
 (function () {
 // Версия сборки — показывается во вкладке браузера и в шапке.
 // При выпуске новой версии меняется только эта строка.
-const APP_VERSION = 'v417';
+const APP_VERSION = 'v418';
 
 // Номер версии выводим ПЕРВЫМ делом: если дальше что-то упадёт, по нему сразу
 // видно, какая сборка открыта.
@@ -2229,7 +2229,7 @@ function libModThumbDataUrl(groupId, it) {
         name: m.name, width: m.width, height: m.height, depth: m.depth,
         rotation: m.rotation || 0, corner: !!m.corner, family: m.family || 'custom',
         topType: m.topType, railWidth: m.railWidth, noBack: !!m.noBack,
-        backMount: m.backMount, backGroove: m.backGroove, wallHung: m.wallHung,
+        backMount: m.backMount, backMaterialCode: m.backMaterialCode, backGroove: m.backGroove, wallHung: m.wallHung,
         // Отметка верха навесного модуля от пола (engine.js, mountBottom).
         mountTop: m.mountTop,
         blindPanel: !!m.blindPanel, blindStrip: m.blindStrip,
@@ -2281,7 +2281,7 @@ function libModProjectModuleOf(m) {
     name: m.name, width: m.width, height: m.height, depth: m.depth,
     rotation: m.rotation || 0, corner: !!m.corner, family: m.family || 'custom',
     topType: m.topType, railWidth: m.railWidth, noBack: !!m.noBack,
-    backMount: m.backMount, backGroove: m.backGroove, wallHung: m.wallHung,
+    backMount: m.backMount, backMaterialCode: m.backMaterialCode, backGroove: m.backGroove, wallHung: m.wallHung,
     // Отметка верха навесного модуля от пола (engine.js, mountBottom).
     mountTop: m.mountTop,
     blindPanel: !!m.blindPanel, blindStrip: m.blindStrip,
@@ -12235,12 +12235,19 @@ function backGrooveHasAnyPart(parts, topBlocked) {
 // повторяем его условия здесь — тут легко разойтись с реальной логикой (сама
 // resolveBackMount учитывает больше нюансов, например обе боковины «на дно»
 // у обычной мебели, чем прежний текстовый хинт ниже).
+// Стенка модуля из ЛДСП («как видимая боковина»)? Вкладная подразумевает ЛДСП.
+function modBackIsLdsp(mod) {
+  const engine = window.Modul3D.engine;
+  if (mod.backMount === 'inset') return true;
+  return !!(engine && mod.backMaterialCode === engine.BACK_MATERIAL_VISIBLE_SIDE);
+}
+
 function autoBackMountMode(mod) {
   const engine = window.Modul3D.engine;
   if (!engine || typeof engine.resolveBackMount !== 'function') return 'overlay';
   try {
     const sides = engine.normalizeSides(Object.assign({}, mod, { wallHung: moduleIsWallHung(mod) }));
-    return engine.resolveBackMount(Object.assign({ backMount: undefined }, mod), sides, state.backThickness).mode;
+    return engine.resolveBackMount(Object.assign({ backMount: undefined, backLdsp: modBackIsLdsp(mod) }, mod), sides, state.backThickness).mode;
   } catch (err) {
     return 'overlay';
   }
@@ -12254,7 +12261,7 @@ function autoGroovePartsOf(mod) {
   if (!engine || typeof engine.resolveBackMount !== 'function') return null;
   try {
     const sides = engine.normalizeSides(Object.assign({}, mod, { wallHung: moduleIsWallHung(mod) }));
-    const r = engine.resolveBackMount(Object.assign({}, mod, { backMount: undefined }), sides, state.backThickness);
+    const r = engine.resolveBackMount(Object.assign({}, mod, { backMount: undefined, backLdsp: modBackIsLdsp(mod) }), sides, state.backThickness);
     if (r.mode === 'groove') return Object.assign({ left: false, right: false, top: false, bottom: false }, r.parts);
     const tall = Number(mod.height) > (engine.BACK_GROOVE_TALL_H || 1600) && mod.family !== 'kitchen';
     return { left: true, right: true, top: !tall, bottom: true };
@@ -12281,7 +12288,11 @@ function backMountBlock(mod) {
   // см. её комментарий) показали бы не те детали, что реально уйдут в паз по
   // авто-правилу (оно смотрит на боковины/высоту/навес, а не «все подряд»),
   // вводя в заблуждение ещё до того как пользователь вообще что-то выбрал.
-  const mode = (mod.backMount === 'overlay' || mod.backMount === 'groove' || mod.backMount === 'none') ? mod.backMount : autoBackMountMode(mod);
+  const ldsp = modBackIsLdsp(mod);
+  const mode = (mod.backMount === 'overlay' || mod.backMount === 'groove' || mod.backMount === 'inset' || mod.backMount === 'none') ? mod.backMount : autoBackMountMode(mod);
+  const metalLegs = mod.baseType === 'legs' && (mod.legType || 'metal') === 'metal';
+  const insetHint = mode === 'inset'
+    ? `<div class="hint">Остров: стенка ЛДСП между боковинами на растексах; ${metalLegs ? 'цоколь не нужен (металлические опоры).' : 'сзади добавляется цоколь (на опорах/с цоколем кухонными).'}</div>` : '';
   const manualGroove = mod.backMount === 'groove';
   const g = backGrooveOf(mod);
   const topBlocked = backGrooveTopBlockedReason(mod);
@@ -12292,11 +12303,13 @@ function backMountBlock(mod) {
         <label>Задняя стенка</label>
         <select id="m-backMount">
           <option value="overlay" ${mode === 'overlay' ? 'selected' : ''}>Накладная</option>
-          <option value="groove" ${mode === 'groove' ? 'selected' : ''}>В паз</option>
+          ${ldsp ? '' : `<option value="groove" ${mode === 'groove' ? 'selected' : ''}>В паз</option>`}
+          ${ldsp ? `<option value="inset" ${mode === 'inset' ? 'selected' : ''}>Вкладная (остров)</option>` : ''}
           <option value="none" ${mode === 'none' ? 'selected' : ''}>Без задней стенки</option>
         </select>
       </div>
     </div>
+    ${insetHint}
     ${manualGroove ? `
     <div class="field-row3 back-groove-row">
       <div class="field"><label>Отступ от края, мм</label><input id="m-grooveOffset" type="number" min="0" step="1" value="${g.offset}"></div>
@@ -12854,10 +12867,22 @@ function materialsBlock(mod) {
       <label>Материал фасада (ЛДСП, по умолчанию)</label>
       ${matPickPlashkaHtml('facadeMat', 'p-facadeMat', state.facadeMatCode)}
     </div>
-    <div class="field">
+    ${mod.noBack ? `<div class="field">
       <label>Задняя стенка</label>
       ${matPickPlashkaHtml('back', 'p-back', state.backCode)}
+    </div>` : `<div class="field">
+      <label>Материал стенки</label>
+      <select id="m-backMaterial">
+        <option value="" ${modBackIsLdsp(mod) ? '' : 'selected'}>ХДФ (из проекта)</option>
+        <option value="visibleSide" ${modBackIsLdsp(mod) ? 'selected' : ''}>ЛДСП (как видимая боковина)</option>
+      </select>
     </div>
+    ${modBackIsLdsp(mod)
+      ? '<div class="hint">Стенка из материала «Видимая боковина». ХДФ проекта для этого модуля не используется.</div>'
+      : `<div class="field">
+      <label>Задняя стенка</label>
+      ${matPickPlashkaHtml('back', 'p-back', state.backCode)}
+    </div>`}`}
     ${backMountBlock(mod)}`;
 }
 
@@ -13711,7 +13736,7 @@ function drawersPanelBlock(mod, secIndex, zi) {
           // «верхнего» уходила в нижний ящик.
           const d = sec.drawers - 1 - k;
           const pinned = !!(sec.drawerPinned && sec.drawerPinned[d]);
-          return `<input type="number" step="10" min="50" value="${manualHeights(secIndex, sec, ctx.zi)[d]}"
+          return `<input type="number" step="10" min="50" value="${Math.round((manualHeights(secIndex, sec, ctx.zi)[d] - drawerFacadeGap2()) * 10) / 10}"
                   class="${pinned ? 'pinned' : ''}" data-drawer="${d}"
                   title="${k === 0 ? 'Верхний ящик' : (k === sec.drawers - 1 ? 'Нижний ящик' : 'Ящик ' + (k + 1) + ' сверху')}${pinned ? ' — задан вручную, автоматически не меняется' : ' — подстраивается автоматически'}">`;
         }).join('')}
@@ -13726,6 +13751,7 @@ function drawersPanelBlock(mod, secIndex, zi) {
     ${zoneMode ? backLinkBlock() : materialsBackLinkBlock()}
     <h3>Ящики — ${esc(mod.name)} — Секция ${secIndex + 1}${zoneMode ? ' — ' + esc(zoneTitleOf(ctx.zi, Number(ctx.sec.doorZoneCount) || 1)) : ''}</h3>
     <div id="drawersPanelRoot">
+      ${drawerAddWarnHtml(state.activeModule, secIndex, zoneMode ? ctx.zi : null)}
       ${heightsBlock}
 
       <h3>Материал ящиков</h3>
@@ -13892,6 +13918,15 @@ function secCalc(secIndex, zi) {
 // Значения полей ручного режима. Если пользователь ещё ничего не задавал,
 // берутся высоты, только что распределённые автоматически, — переключение
 // режима больше не обнуляет ящики.
+// Зазоры фасада ящика с двух сторон (2·gap): та же настройка модуля, что
+// использует движок (по умолчанию 1.5 мм на сторону). В модели хранится шаг
+// фасада, а в полях ввода — реальная высота фасада = шаг − 2·gap.
+function drawerFacadeGap2() {
+  const m = currentModel && currentModel.modules[state.activeModule];
+  const g = m && m.dims && Number(m.dims.gap);
+  return 2 * (Number.isFinite(g) && g >= 0 ? g : 1.5);
+}
+
 function manualHeights(secIndex, sec, zi) {
   const auto = secCalc(secIndex, zi).drawerHeights || [];
   const out = [];
@@ -13914,11 +13949,15 @@ function fitDrawerHeights(cur, fixed, avail) {
 
   const fixedSum = fixed.reduce((a, d) => a + out[d], 0);
   const rest = avail - fixedSum;
-  const base = Math.max(MIN_DRAWER_H, Math.floor(rest / free.length / 10) * 10);
+  // Свободные ящики делят остаток ПОРОВНУ (до 0,1 мм), без округления до
+  // десятков: иначе весь «хвост» доставался бы одному ящику (решение
+  // пользователя 2026-10-08 — одинаковые фасады).
+  const base = Math.max(MIN_DRAWER_H, Math.round(rest / free.length * 10) / 10);
   free.forEach((d) => { out[d] = base; });
-  // неделимый остаток отдаём первому свободному ящику
-  const diff = Math.round((avail - out.reduce((a, v) => a + v, 0)) * 10) / 10;
-  out[free[0]] = Math.max(MIN_DRAWER_H, out[free[0]] + diff);
+  // неделимый на 0,1 мм остаток (не больше сотых мм) — последнему свободному
+  const diff = Math.round((avail - out.reduce((a, v) => a + v, 0)) * 100) / 100;
+  const last = free[free.length - 1];
+  out[last] = Math.max(MIN_DRAWER_H, Math.round((out[last] + diff) * 100) / 100);
   return out;
 }
 
@@ -13988,6 +14027,132 @@ function reflowManualDrawers() {
   });
   return changed;
 }
+
+// ---------------------------------------------------------------------------
+// Смена ЧИСЛА ящиков секции/отсека. Высоты, заданные вручную (drawerPinned),
+// остаются прежними; новый ящик и все незафиксированные делят остаток поровну
+// (fitDrawerHeights). Если фиксированные + минимум для остальных не помещаются
+// в фронт — число НЕ меняется, показывается предупреждение с тремя вариантами
+// (drawerAddPending). При удалении ящика конфликтов нет.
+// Высоты хранятся как шаг фасада (см. drawerFacadeGap2) — перевод не затронут.
+// ---------------------------------------------------------------------------
+let drawerAddPending = null;   // { mi, si, zi, newN }
+
+function planDrawerCount(owner, si, zi, newN) {
+  const oldN = Number(owner.drawers) || 0;
+  const pin = owner.drawerPinned || [];
+  const hasPins = owner.drawerMode === 'manual' && oldN > 0 && newN > 0
+    && pin.slice(0, oldN).some(Boolean);
+  if (!hasPins) return { mode: 'reset' };
+  const cur = manualHeights(si, owner, zi);
+  const pins = Array.from({ length: oldN }, (_, d) => !!pin[d]);
+  while (cur.length > newN) {
+    // удаляем верхний автоматический ящик, если все ручные — верхний вообще
+    let idx = cur.length - 1;
+    for (let d = cur.length - 1; d >= 0; d--) if (!pins[d]) { idx = d; break; }
+    cur.splice(idx, 1); pins.splice(idx, 1);
+  }
+  while (cur.length < newN) {
+    // Позиция нового ящика (индексы снизу вверх): ручной остаётся на своём месте.
+    // Правили нижний -> новый сверху; правили верхний -> снизу; иначе рядом с
+    // автоматическими (после верхнего автоматического); автоматических нет -> снизу.
+    const n = pins.length;
+    let at;
+    let lastAuto = -1;
+    pins.forEach((p, d) => { if (!p) lastAuto = d; });
+    if (pins[0] && !pins[n - 1]) at = n;
+    else if (pins[n - 1] && !pins[0]) at = 0;
+    else if (lastAuto < 0) at = 0;
+    else at = lastAuto + 1;
+    cur.splice(at, 0, 200); pins.splice(at, 0, false);
+  }
+  const fixed = [];
+  pins.forEach((p, d) => { if (p) fixed.push(d); });
+  const avail = Number(secCalc(si, zi).drawerAvail) || 0;
+  if (avail > 0 && newN > oldN) {
+    const fixedSum = fixed.reduce((a, d) => a + cur[d], 0);
+    if (fixedSum + MIN_DRAWER_H * (newN - fixed.length) > avail + 0.5) {
+      return { mode: 'conflict', cur, pins, fixed, avail };
+    }
+  }
+  return { mode: 'apply', heights: fitDrawerHeights(cur, fixed, avail), pins };
+}
+
+// true — число изменено; false — ждёт выбора пользователя (конфликт).
+function setDrawerCount(owner, si, zi, newN) {
+  drawerAddPending = null;
+  const plan = planDrawerCount(owner, si, zi, newN);
+  if (plan.mode === 'conflict') {
+    drawerAddPending = { mi: state.activeModule, si, zi, newN };
+    return false;
+  }
+  owner.drawers = newN;
+  if (plan.mode === 'apply') {
+    owner.drawerHeights = plan.heights;
+    owner.drawerPinned = plan.pins;
+  } else {
+    owner.drawerPinned = [];
+    owner.drawerHeights = [];
+  }
+  return true;
+}
+
+function drawerAddWarnHtml(mi, si, zi) {
+  const p = drawerAddPending;
+  if (!p || p.mi !== mi || p.si !== si || (p.zi === null ? zi !== null && zi !== undefined : p.zi !== zi)) return '';
+  return `<div class="drawers-add-warn" role="alert">
+      <div>⚠ Ящик (${p.newN}-й) не помещается: заданные вручную высоты занимают слишком много места. Число ящиков пока не изменено.</div>
+      <div class="drawers-add-warn-btns">
+        <button type="button" class="btn" data-drawer-add-choice="equal">Разделить все поровну</button>
+        <button type="button" class="btn" data-drawer-add-choice="shrink">Уменьшить ручные пропорционально</button>
+        <button type="button" class="btn" data-drawer-add-choice="cancel">Отменить добавление</button>
+      </div>
+    </div>`;
+}
+
+function resolveDrawerAdd(choice) {
+  const p = drawerAddPending;
+  drawerAddPending = null;
+  const mod = p && state.modules[p.mi];
+  const ctx = mod && drawersCtx(mod, p.si, p.zi);
+  if (!ctx) { renderParamsPanel(); return; }
+  const owner = ctx.owner;
+  if (choice === 'equal' || choice === 'shrink') {
+    let done = false;
+    if (choice === 'shrink') {
+      const plan = planDrawerCount(owner, p.si, p.zi, p.newN);
+      if (plan.mode === 'conflict') {
+        const freeN = p.newN - plan.fixed.length;
+        const target = plan.avail - MIN_DRAWER_H * freeN;          // место под ручные
+        const fixedSum = plan.fixed.reduce((a, d) => a + plan.cur[d], 0);
+        if (target >= MIN_DRAWER_H * plan.fixed.length && fixedSum > 0) {
+          const k = target / fixedSum;
+          const cur = plan.cur.slice();
+          plan.fixed.forEach((d) => { cur[d] = Math.max(MIN_DRAWER_H, Math.floor(cur[d] * k * 10) / 10); });
+          owner.drawers = p.newN;
+          owner.drawerHeights = fitDrawerHeights(cur, plan.fixed, plan.avail);
+          owner.drawerPinned = plan.pins;
+          done = true;
+        }
+      }
+    }
+    if (!done) {   // «поровну» (или пропорционально невозможно): сброс ручных
+      owner.drawers = p.newN;
+      owner.drawerMode = 'auto';
+      owner.drawerPinned = [];
+      owner.drawerHeights = [];
+    }
+    renderParamsPanel();
+    recompute();
+  } else {
+    renderParamsPanel();
+  }
+}
+
+document.addEventListener('click', (e) => {
+  const b = e.target && e.target.closest && e.target.closest('[data-drawer-add-choice]');
+  if (b && drawerAddPending) resolveDrawerAdd(b.dataset.drawerAddChoice);
+});
 
 // Список фасадов, реально применённых к секции: обычно один (sec.facade),
 // но при нескольких вертикальных зонах (doorZoneCount > 1, пенал под
@@ -14126,6 +14291,7 @@ function zoneCardHtml(sec, i, zi, doorZoneCount, mod) {
         <button class="btn materials-link-btn field-row-btn" data-zonedrawers-open="${zi}" data-idx="${i}" type="button" ${(Number(zone.drawers) || 0) > 0 ? '' : 'disabled'}>Редактировать ящики <span class="arrow">→</span></button>
       </div>
     </div>
+    ${drawerAddWarnHtml(state.activeModule, i, zi)}
     <div class="field-row field-row-wide-action mt6">
       <div class="field"><label>Полки, шт</label><input type="number" min="0" max="12" value="${zoneShelves}" data-zoneshelves="${zi}" data-idx="${i}"></div>
       ${zoneShelves > 0 ? `<div class="field field-row-action">
@@ -14466,10 +14632,9 @@ function bindZoneFieldEvents(container, mod, refresh) {
     el.addEventListener('change', (e) => {
       const sec = mod.sections[Number(e.target.dataset.idx)];
       const zone = ensureZone(sec, Number(e.target.dataset.zonedrawers));
-      zone.drawers = Math.max(0, Math.min(8, Math.floor(Number(e.target.value) || 0)));
-      // как у секции: смена числа снимает все фиксации высот фасадов
-      zone.drawerPinned = [];
-      zone.drawerHeights = [];
+      // ручные (зафиксированные) высоты сохраняются, см. setDrawerCount
+      setDrawerCount(zone, Number(e.target.dataset.idx), Number(e.target.dataset.zonedrawers),
+        Math.max(0, Math.min(8, Math.floor(Number(e.target.value) || 0))));
       refreshScreen();
       recompute();
     });
@@ -15493,6 +15658,14 @@ function bindSectionFieldEvents(list, mod, refresh) {
     el.addEventListener('change', (e) => {
       const sec = mod.sections[Number(e.target.dataset.idx)];
       const f = e.target.dataset.field;
+      if (f === 'drawers') {
+        // ручные (зафиксированные) высоты сохраняются, см. setDrawerCount
+        setDrawerCount(sec, Number(e.target.dataset.idx), null,
+          Math.max(0, Math.min(8, Math.floor(Number(e.target.value) || 0))));
+        refresh();
+        recompute();
+        return;
+      }
       sec[f] = (f === 'facade' || f === 'shelfMode'
                 || f === 'widthMode'
                 || f === 'handle' || f === 'lift' || f === 'handleOrient'
@@ -15659,7 +15832,7 @@ function singleZoneCardHtml(mod, sec, i, widthInCard) {
     </div>
     ${nicheOnly ? '<div class="hint">Ниша без фасада — техника показывает свою лицевую панель.</div>' : sectionHandleBlockHtml(sec, i)}
     ${appliance === 'none' ? `
-    <div class="mt6">${sectionDrawersRowHtml(sec, i)}</div>
+    ${topShelf ? '' : `<div class="mt6">${sectionDrawersRowHtml(sec, i)}</div>`}
     <div class="field mt6"><label>Полки, шт</label><input type="number" min="0" max="12" value="${sec.shelves}" data-field="shelves" data-idx="${i}"></div>
     ${shelfDetailBlock(sec, i)}
     ${(mod && mod.family === 'kitchen') ? '' : rodBlockHtml(sec, (f) => `data-field="${f}" data-idx="${i}"`, 'дна секции', 'секции')}` : `
@@ -15715,7 +15888,7 @@ function sectionDrawersRowHtml(sec, i) {
         <label>&nbsp;</label>
         <button class="btn materials-link-btn field-row-btn" data-drawers-open="${i}" type="button" ${sec.drawers > 0 ? '' : 'disabled'}>Редактировать ящики <span class="arrow">→</span></button>
       </div>
-    </div>`;
+    </div>${drawerAddWarnHtml(state.activeModule, i, null)}`;
 }
 
 // Подсветка в 3D выбранной в панели секции (zi = null) или её отсека (zi = номер).
@@ -16453,7 +16626,7 @@ function bindPanelEvents() {
   // Смена режима перерисовывает панель — поля паза видны только при «В паз».
   on('m-backMount', 'change', (e) => {
     const v = e.target.value;
-    if (v === 'overlay' || v === 'groove' || v === 'none') mod.backMount = v; else delete mod.backMount;
+    if (v === 'overlay' || v === 'groove' || v === 'inset' || v === 'none') mod.backMount = v; else delete mod.backMount;
     // Поля паза заводим сразу с дефолтами — чтобы сохранённый модуль/проект
     // нёс явные числа, которые видит пользователь, а не «пусто».
     if (v === 'groove' && !mod.backGroove) {
@@ -16462,6 +16635,18 @@ function bindPanelEvents() {
       // выше 1600 мм — крыша накладная, она сверху не видна), а не «все 4».
       const ap = autoGroovePartsOf(mod);
       if (ap) mod.backGroove.parts = ap;
+    }
+    renderParamsPanel();
+    recompute();
+  });
+  // Материал стенки модуля: ХДФ из проекта / ЛДСП (как видимая боковина).
+  on('m-backMaterial', 'change', (e) => {
+    if (e.target.value === 'visibleSide') {
+      mod.backMaterialCode = window.Modul3D.engine.BACK_MATERIAL_VISIBLE_SIDE;
+      if (mod.backMount === 'groove') mod.backMount = 'overlay';
+    } else {
+      delete mod.backMaterialCode;
+      if (mod.backMount === 'inset') mod.backMount = 'overlay';
     }
     renderParamsPanel();
     recompute();
@@ -16766,7 +16951,7 @@ function bindPanelEvents() {
       });
       drawersRoot.querySelectorAll('[data-drawer]').forEach((el) => {
         el.addEventListener('change', (e) => {
-          sec.drawerHeights = redistributeDrawers(si, sec, Number(e.target.dataset.drawer), Number(e.target.value), dzi);
+          sec.drawerHeights = redistributeDrawers(si, sec, Number(e.target.dataset.drawer), Number(e.target.value) + drawerFacadeGap2(), dzi);
           renderParamsPanel();
           recompute();
         });
@@ -16856,7 +17041,7 @@ function recompute(isRetry) {
       // смещение по полу, мм (engine.js, раскладка по группам).
       groupStart: !!m.groupStart, gx: Number(m.gx) || 0, gz: Number(m.gz) || 0,
       topType: m.topType, railWidth: m.railWidth, noBack: !!m.noBack,
-      backMount: m.backMount, backGroove: m.backGroove, wallHung: m.wallHung,
+      backMount: m.backMount, backMaterialCode: m.backMaterialCode, backGroove: m.backGroove, wallHung: m.wallHung,
       // Отметка верха навесного модуля от пола (engine.js, mountBottom).
       mountTop: m.mountTop,
       blindPanel: !!m.blindPanel, blindStrip: m.blindStrip,

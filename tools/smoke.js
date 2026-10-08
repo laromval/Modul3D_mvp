@@ -949,6 +949,7 @@ for (const id of Array.from(registry.keys())) {
   // registry (см. комментарий у document.querySelectorAll выше в файле).
   const inputs = () => $('paramsPanel').querySelectorAll('[data-drawer]');
   const AVAIL = 700;
+  const G2 = 2 * ((((sandbox.__lastModel || {}).modules || [{}])[0].dims || {}).gap ?? 1.5);
 
   check('подготовка модуля', () => setTop('m-height', 800) && setTop('m-baseType', 'plinth') && setTop('m-baseHeight', 100));
   check('секция: 3 ящика без дверей', () => secMode('zones') && set('facade', 'open') && set('shelves', 0) && set('drawers', 3));
@@ -978,14 +979,15 @@ for (const id of Array.from(registry.keys())) {
   });
   check('ручной режим не обнулил ящики', () => docsTab('detailing').innerHTML.indexOf('NaN') === -1);
   check('стартовые высоты = автораспределение, остаток нижнему', () => {
-    const v = inputs().map((x) => Number(x.attrs.value));
+    const v = inputs().map((x) => Number(x.attrs.value) + G2);
     // поля идут сверху вниз, неделимый остаток достаётся НИЖНЕМУ ящику
     return v.length === 3 && Math.abs(v.reduce((a, b) => a + b, 0) - AVAIL) < 1.5 && v[2] === 240;
   });
 
   // Поля идут сверху вниз, поэтому для сравнения приводим их к порядку модели
-  const setDrawer = (d, v) => { const el = inputs()[d]; if (!el) return; el.value = v; el.dispatch('change', { target: el }); };
-  const heights = () => inputs().map((x) => Number(x.attrs.value));
+  const setDrawer = (d, v) => { const el = inputs()[d]; if (!el) return; el.value = v - G2; el.dispatch('change', { target: el }); };
+  // поля показывают реальный фасад (шаг − 2·gap); тесты считают в шаге
+  const heights = () => inputs().map((x) => Number(x.attrs.value) + G2);
 
   check('поля высот идут сверху вниз', () => {
     const idx = inputs().map((x) => Number(x.attrs['data-drawer']));
@@ -1039,6 +1041,95 @@ for (const id of Array.from(registry.keys())) {
     if (!setTop('drawersOffset', 0)) return false;
     return Number(document.getElementById('drawersOffset').attrs.value) >= 10;
   });
+
+  // --- смена ЧИСЛА ящиков при ручных высотах (2026-10-08) ---
+  const app = sandbox.Modul3D.app;
+  const gotoPanel = (v) => app.setPanelView(v);
+  const sumOk = (v, n) => v.length === n && Math.abs(v.reduce((a, b) => a + b, 0) - AVAIL) < 1.5;
+  const warnHtml = () => document.getElementById('sectionsList').innerHTML;
+  const choose = (kind) => {
+    const b = document.getElementById('sectionsList').querySelectorAll('[data-drawer-add-choice]')
+      .filter((x) => x.attrs['data-drawer-add-choice'] === kind)[0];
+    if (!b) return false;
+    document.dispatch('click', { target: b });
+    return true;
+  };
+  check('счёт: 3 ящика, верхний задан вручную 150', () => {
+    gotoPanel('module'); set('drawers', 0); set('drawers', 3);
+    gotoPanel('drawers'); setTop('drawersMode', 'manual');
+    setDrawer(0, 150);
+    const v = heights();
+    return sumOk(v, 3) && v[0] === 150;
+  });
+  check('+1 ящик: ручной 150 остаётся, остальные делят поровну', () => {
+    gotoPanel('module'); set('drawers', 4); gotoPanel('drawers');
+    const v = heights();
+    const cls = inputs().map((x) => x.attrs.class || '');
+    // правили ВЕРХНИЙ ящик -> он остаётся верхним (поле 0), новый добавлен снизу
+    return sumOk(v, 4) && v[0] === 150 && cls[0].indexOf('pinned') !== -1
+      && cls.filter((c) => c.indexOf('pinned') !== -1).length === 1
+      && Math.abs(v[1] - v[2]) <= 10 && Math.abs(v[2] - v[3]) <= 10;
+  });
+  check('-1 ящик: ручной 150 остаётся, остаток делят автоматические', () => {
+    gotoPanel('module'); set('drawers', 3); gotoPanel('drawers');
+    const v = heights();
+    const cls = inputs().map((x) => x.attrs.class || '');
+    return sumOk(v, 3) && v[0] === 150 && cls[0].indexOf('pinned') !== -1;
+  });
+  check('правили нижний ящик: +1 -> новый сверху, нижний остаётся 150', () => {
+    gotoPanel('module'); set('drawers', 0); set('drawers', 3);
+    gotoPanel('drawers'); setTop('drawersMode', 'manual');
+    setDrawer(2, 150);                       // нижнее поле
+    gotoPanel('module'); set('drawers', 4); gotoPanel('drawers');
+    let v = heights();
+    const cls = inputs().map((x) => x.attrs.class || '');
+    const ok = sumOk(v, 4) && v[3] === 150 && cls[3].indexOf('pinned') !== -1;
+    gotoPanel('module'); set('drawers', 3); gotoPanel('drawers');
+    v = heights();
+    // восстановить состояние для следующей проверки: верхний 150
+    return ok && sumOk(v, 3) && v[2] === 150;
+  });
+  check('вернуть: верхний ручной 150', () => {
+    gotoPanel('module'); set('drawers', 0); set('drawers', 3);
+    gotoPanel('drawers'); setTop('drawersMode', 'manual'); setDrawer(0, 150);
+    return heights()[0] === 150;
+  });
+  check('не хватает места: число не меняется, показано предупреждение', () => {
+    setDrawer(1, 300); setDrawer(2, 300);
+    // конфликт: три ручных ящика занимают весь фронт
+    const before = heights().length;
+    gotoPanel('module');
+    set('drawers', 8);
+    const html = warnHtml();
+    gotoPanel('drawers');
+    return before === 3 && inputs().length === 3 && /data-drawer-add-choice="cancel"/.test(html)
+      && /data-drawer-add-choice="shrink"/.test(html) && /data-drawer-add-choice="equal"/.test(html);
+  });
+  check('«Отменить добавление» оставляет всё как было', () => {
+    gotoPanel('module');
+    const ok = choose('cancel');
+    gotoPanel('drawers');
+    return ok && inputs().length === 3 && !/data-drawer-add-choice/.test(warnHtml());
+  });
+  check('«Уменьшить ручные пропорционально» добавляет ящик, все >= 50', () => {
+    gotoPanel('module'); set('drawers', 8);
+    const ok = choose('shrink');
+    gotoPanel('drawers');
+    const v = heights();
+    return ok && sumOk(v, 8) && v.every((x) => x >= 50 - 0.01);
+  });
+  check('«Разделить все поровну» сбрасывает ручные и добавляет ящик', () => {
+    gotoPanel('module'); set('drawers', 3); gotoPanel('drawers'); setTop('drawersMode', 'manual');
+    setDrawer(0, 300); setDrawer(1, 300);
+    gotoPanel('module'); set('drawers', 8);
+    const ok = choose('equal');
+    gotoPanel('drawers');
+    const cls = inputs().map((x) => x.attrs.class || '');
+    return ok && !/data-drawer-add-choice/.test(warnHtml()) && cls.length === 0;
+  });
+  check('нет NaN после смены числа ящиков', () => docsTab('detailing').innerHTML.indexOf('NaN') === -1);
+  // вернуть состояние, которое ждут следующие сценарии: 3 ящика на всю секцию
+  gotoPanel('module'); set('drawers', 3); gotoPanel('drawers'); setTop('drawersMode', 'manual'); gotoPanel('module');
 })();
 
 // --- материал ящиков шкафа/тумбы (2026-09-26): «как корпус», пока его не

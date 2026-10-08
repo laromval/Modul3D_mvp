@@ -4875,6 +4875,168 @@ for (const glass of [false, true]) {
   }
 }
 
+// --- ЛДСП-стенка (решение 2026-10-08): накладная (шкаф), вкладная (остров) ---
+{
+  const eng = window.Modul3D.engine;
+  const approx = (a, b, tol) => Math.abs(a - b) <= (tol === undefined ? 0.11 : tol);
+  // Шаг присадки: 2 / 3 (по центру) / 4+ с интервалом ≤ 300, отступ 50 от краёв.
+  for (const [L, n] of [[120, 1], [250, 2], [300, 2], [301, 3], [450, 3], [600, 3], [601, 4], [900, 4], [1000, 4], [1001, 5], [1500, 6]]) {
+    const pts = eng.backFixPoints(L);
+    if (pts.length !== n) problems.push(`шаг присадки стенки: линия ${L} мм — ${pts.length} шт вместо ${n}`);
+    if (n >= 2) {
+      if (!approx(pts[0], 50) || !approx(pts[pts.length - 1], L - 50)) problems.push(`шаг присадки стенки: линия ${L} мм — отступ не 50 мм (${pts.join(',')})`);
+      for (let i = 1; i < pts.length; i++) {
+        if (pts[i] - pts[i - 1] > 300.2) problems.push(`шаг присадки стенки: линия ${L} мм — интервал > 300 мм`);
+      }
+    }
+    if (L === 450 && !approx(pts[1], 225)) problems.push('шаг присадки стенки: 3-я точка не по центру');
+    cases += 1;
+  }
+  const findMat = (code) => DECORS.concat(Object.values(FACADE_MATERIALS)).filter((q) => q.code === code)[0] || null;
+  const vis = findMat('H1180ST37');   // ЛДСП 18,6 мм — «Видимая боковина» другой толщины, чем корпус (18)
+  if (!vis) problems.push('ЛДСП-стенка: в каталоге нет листа H1180ST37 для теста');
+  const mkL = (mod, extra) => buildModel(Object.assign({}, base, { facadeDecor: vis || undefined }, extra || {}, {
+    modules: [Object.assign({
+      name: 'M', width: 1200, height: 850, depth: 600,
+      sideUserSet: { left: true, right: true },
+      sections: [{ shelves: 1, drawers: 0, facade: 'doors2' }, { shelves: 1, drawers: 0, facade: 'open' }],
+    }, mod)],
+  }));
+  const raw = (m, k) => m.partsRaw.filter((q) => q.kind === k);
+  const byName = (m, re) => m.partsRaw.filter((q) => re.test(q.name));
+  const count = (q, kind) => (q.holes || []).filter((h) => h.kind === kind).length;
+  const TB = vis ? Number(vis.thickness) : 18;
+
+  // ОСТРОВ: вкладная стенка, цоколь со всех сторон.
+  for (const [L, R] of [['floor', 'floor'], ['besideBottom', 'besideBottom'], ['floor', 'besideBottom']])
+  for (const bt of ['plinth', 'legsPlinth']) for (const W of [900, 1200]) {
+    const lab = `остров ${L}/${R} ${bt} W${W}`;
+    const m = mkL({ width: W, backMount: 'inset', leftSide: L, rightSide: R,
+      base: bt === 'plinth' ? { type: 'plinth', plinthHeight: 100 } : { type: bt, legHeight: 100 } });
+    inspect(m, lab);
+    const bk = raw(m, 'back')[0];
+    if (!bk) { problems.push(`${lab}: нет задней стенки`); continue; }
+    if (!approx(bk.thickness, TB) || bk.material !== (vis ? vis.code : base.decor.code)) problems.push(`${lab}: стенка не из «Видимой боковины» (${bk.material}/${bk.thickness})`);
+    if (Object.values(bk.edging).some((e) => !e)) problems.push(`${lab}: у стенки кромка не по всем 4 торцам`);
+    if (m.partsRaw.some((r) => (r.grooves || []).some((g) => g.kind === 'backGroove'))) problems.push(`${lab}: остался паз под стенку`);
+    if (bk.screws !== 0) problems.push(`${lab}: у ЛДСП-стенки остались шурупы (${bk.screws})`);
+    // Заподлицо с задними кромками боковин; боковины — D + толщина стенки.
+    const sides = raw(m, 'side');
+    for (const s of sides) {
+      if (!approx(s.box.d, 600 + TB) || !approx(s.box.z - s.box.d / 2, bk.box.z - bk.box.d / 2)) problems.push(`${lab}: «${s.name}» глубина ${s.box.d} / задняя кромка не заподлицо со стенкой`);
+    }
+    // Дно и крыша не удлиняются (глубина D), стенка позади них закрывает их
+    // задние торцы: от низа дна (y = высота основания) до верха корпуса.
+    for (const q of raw(m, 'bottom').concat(raw(m, 'top'))) {
+      if (!approx(q.box.d, 600)) problems.push(`${lab}: «${q.name}» удлинена (${q.box.d})`);
+      if (!approx(q.box.z - q.box.d / 2, bk.box.z + bk.box.d / 2)) problems.push(`${lab}: «${q.name}» не вплотную к стенке`);
+    }
+    if (!approx(bk.box.y - bk.box.h / 2, 100) || !approx(bk.box.y + bk.box.h / 2, 850)) problems.push(`${lab}: стенка по высоте не от низа дна до верха (${bk.box.y - bk.box.h / 2}..${bk.box.y + bk.box.h / 2})`);
+    // Растекс только в боковины: 2 линии × шаг по высоте стенки.
+    const nPts = eng.backFixPoints(bk.width).length;
+    if (count(bk, 'minifixCam') !== 2 * nPts || count(bk, 'minifixBolt') !== 2 * nPts) problems.push(`${lab}: растексов в стенке ${count(bk, 'minifixCam')} вместо ${2 * nPts}`);
+    if (count(bk, 'confirmatThrough')) problems.push(`${lab}: у вкладной стенки конфираты`);
+    for (const s of sides) if (count(s, 'minifixDowel') < nPts) problems.push(`${lab}: «${s.name}» без дюбелей под растексы стенки`);
+    // Цоколь.
+    const fr = byName(m, /Цоколь \(планка передняя\)/)[0];
+    const rr = byName(m, /Цоколь \(планка задняя\)/)[0];
+    if (!fr || !rr) { problems.push(`${lab}: нет переднего или заднего цоколя`); continue; }
+    if (!approx(fr.length, rr.length) || fr.material !== rr.material || fr.thickness !== rr.thickness || fr.width !== rr.width) problems.push(`${lab}: задний цоколь не зеркален переднему`);
+    const D = 600;
+    if (!approx(fr.box.z + fr.box.d / 2, D / 2 - 50)) problems.push(`${lab}: передний цоколь не утоплен на 50`);
+    if (!approx(rr.box.z - rr.box.d / 2, -D / 2 - TB + 50)) problems.push(`${lab}: задний цоколь не утоплен на 50 от задней плоскости`);
+    for (const [key, s] of [['левая', L], ['правая', R]]) {
+      const sp = byName(m, new RegExp(`Цоколь \\(планка боковая ${key}\\)`));
+      if (s === 'besideBottom') {
+        if (sp.length !== 1) { problems.push(`${lab}: боковой цоколь ${key} — ${sp.length} шт`); continue; }
+        if (count(sp[0], 'dowelEdge') !== 4) problems.push(`${lab}: боковой цоколь ${key}: шкантов в торцах ${count(sp[0], 'dowelEdge')} вместо 4`);
+        if (!approx(Math.abs(sp[0].box.x) + sp[0].box.w / 2, W / 2 - 50)) problems.push(`${lab}: боковой цоколь ${key} не утоплен на 50`);
+        if (!approx(sp[0].box.z + sp[0].box.d / 2, fr.box.z - fr.box.d / 2) || !approx(sp[0].box.z - sp[0].box.d / 2, rr.box.z + rr.box.d / 2)) problems.push(`${lab}: боковой цоколь ${key} не упирается встык в передний/задний`);
+        if (count(fr, 'dowelFace') < 2 || count(rr, 'dowelFace') < 2) problems.push(`${lab}: нет шкантов в пластях переднего/заднего цоколя`);
+      } else if (sp.length) problems.push(`${lab}: боковой цоколь ${key} при боковине «${s}»`);
+    }
+    // Клипсы заднего цоколя.
+    const rearLegs = m.partsRaw.filter((q) => q.kind === 'leg' && q.clipRear);
+    if (bt === 'legsPlinth') {
+      const frontClip = m.partsRaw.filter((q) => q.kind === 'leg' && q.hasClip && !q.clipRear).length;
+      if (!rearLegs.length || rearLegs.length !== frontClip) problems.push(`${lab}: клипс заднего цоколя ${rearLegs.length}, переднего ${frontClip}`);
+      if (count(rr, 'legFix') !== 2 * rearLegs.length) problems.push(`${lab}: присадка клипс в заднем цоколе ${count(rr, 'legFix')} вместо ${2 * rearLegs.length}`);
+      const spc = buildSpecification(m);
+      const clipRow = spc.hardware.filter((r) => /Крепление цоколя/.test(r.name))[0];
+      const wantClips = Math.max(2, Math.round(W / 400)) + rearLegs.length;
+      if (!clipRow || clipRow.qty !== wantClips) problems.push(`${lab}: клипсы в смете ${clipRow && clipRow.qty} вместо ${wantClips}`);
+    } else if (rearLegs.length) problems.push(`${lab}: клипсы заднего цоколя у несущего цоколя`);
+    // Шканты бокового цоколя — в смете.
+    const nSide = [L, R].filter((s) => s === 'besideBottom').length;
+    if (nSide) {
+      const dw = buildSpecification(m).fasteners.filter((r) => /Шкант/.test(r.name))[0];
+      if (!dw || dw.qty < 4 * nSide) problems.push(`${lab}: шканты бокового цоколя не попали в смету`);
+    }
+  }
+
+  // ОСТРОВ на металлических опорах: цоколя нет, стенка вкладная.
+  {
+    const lab = 'остров на металлических опорах';
+    const m = mkL({ backMount: 'inset', legType: 'metal', leftSide: 'floor', rightSide: 'floor', base: { type: 'legs', legHeight: 100 } });
+    inspect(m, lab);
+    if (m.partsRaw.some((q) => q.kind === 'plinth')) problems.push(`${lab}: появился цоколь`);
+    if (m.partsRaw.some((q) => q.kind === 'leg' && (q.hasClip || q.clipRear))) problems.push(`${lab}: у металлической опоры клипса`);
+    if (!raw(m, 'back').length || !raw(m, 'side').every((s) => approx(s.box.d, 600 + TB))) problems.push(`${lab}: стенка не вкладная`);
+  }
+
+  // ШКАФ: накладная ЛДСП-стенка — конфираты по периметру и в стойки, без паза,
+  // без заднего цоколя; боковина до пола/сбоку дна закрывает торец (D + tb).
+  for (const [L, R] of [['floor', 'floor'], ['onBottom', 'onBottom'], ['floor', 'onBottom'], ['besideBottom', 'floor']])
+  for (const bt of ['plinth', 'legsPlinth']) for (const H of [850, 2100]) for (const ct of [false, true]) {
+    const lab = `ЛДСП-накладная ${ct ? 'тумба(столешница)' : 'шкаф'} ${L}/${R} ${bt} H${H}`;
+    const m = mkL({ height: H, countertop: ct ? { enabled: true } : undefined, backMaterialCode: eng.BACK_MATERIAL_VISIBLE_SIDE, leftSide: L, rightSide: R,
+      base: bt === 'plinth' ? { type: 'plinth', plinthHeight: 100 } : { type: bt, legHeight: 100 } });
+    inspect(m, lab);
+    const bk = raw(m, 'back')[0];
+    if (!bk) { problems.push(`${lab}: нет задней стенки`); continue; }
+    if (!approx(bk.thickness, TB) || bk.material !== (vis ? vis.code : base.decor.code)) problems.push(`${lab}: стенка не из «Видимой боковины»`);
+    if (Object.values(bk.edging).some((e) => !e)) problems.push(`${lab}: у стенки кромка не по всем 4 торцам`);
+    if (m.partsRaw.some((r) => (r.grooves || []).some((g) => g.kind === 'backGroove'))) problems.push(`${lab}: остался паз под стенку`);
+    if (!approx(bk.box.w, 1200) || !approx(bk.box.x, 0)) problems.push(`${lab}: накладная стенка не на всю ширину корпуса (${bk.box.w})`);
+    if (count(bk, ct ? 'confirmatThrough' : 'minifixDowel')) problems.push(`${lab}: крепёж стенки не того типа (со столешницей Растекс, без — конфирматы)`);
+    // Остров = ЛДСП-стенка + столешница: задний цоколь (от наружной задней
+    // плоскости с выступающей накладной стенкой), боковые при «сбоку дна»,
+    // клипсы заднего ряда. Шкаф без столешницы — ничего этого.
+    const rrP = m.partsRaw.filter((q) => q.kind === 'plinth' && /задняя/.test(q.name));
+    const sidePl = m.partsRaw.filter((q) => q.kind === 'plinth' && /боковая/.test(q.name));
+    const wantSide = [L, R].filter((v) => v === 'besideBottom').length;
+    if (ct) {
+      if (rrP.length !== 1) problems.push(`${lab}: у острова нет заднего цоколя`);
+      else if (!approx(rrP[0].box.z - rrP[0].box.d / 2, -300 - TB + 50)) problems.push(`${lab}: задний цоколь не утоплен на 50 от задней плоскости стенки`);
+      if (sidePl.length !== wantSide) problems.push(`${lab}: боковых цоколей ${sidePl.length} вместо ${wantSide}`);
+      const nClip = m.partsRaw.filter((q) => q.clipRear).length;
+      if (bt === 'legsPlinth' ? !nClip : nClip) problems.push(`${lab}: клипсы заднего цоколя ${nClip}`);
+    } else {
+      if (rrP.length || sidePl.length) problems.push(`${lab}: у шкафа появился задний/боковой цоколь`);
+      if (m.partsRaw.some((q) => q.clipRear)) problems.push(`${lab}: клипсы заднего цоколя у шкафа`);
+    }
+    for (const [s, v] of [[raw(m, 'side').filter((q) => q.box.x < 0)[0], L], [raw(m, 'side').filter((q) => q.box.x > 0)[0], R]]) {
+      const want = 600;   // накладная: боковины не удлиняются
+      if (!approx(s.box.d, want)) problems.push(`${lab}: «${s.name}» глубина ${s.box.d} вместо ${want}`);
+    }
+    // Число конфирматов — по таблице шага, линии: дно, крыша, боковины на
+    // задней плоскости («на дно»), стойка между секциями.
+    const bB = bk.box.y - bk.box.h / 2, bT = bB + bk.width, bL = bk.box.x - bk.box.w / 2, bR = bL + bk.length;
+    let want = 0;
+    for (const q of m.partsRaw.filter((r) => r.kind === 'bottom' || (r.kind === 'top' && r.name === 'Крыша (топ)'))) {
+      const lo = Math.max(bL, q.box.x - q.box.w / 2), hi = Math.min(bR, q.box.x + q.box.w / 2);
+      if (hi - lo > 1) want += eng.backFixPoints(hi - lo).length;
+    }
+    for (const q of m.partsRaw.filter((r) => r.kind === 'divider' || r.kind === 'side')) {
+      const lo = Math.max(bB, q.box.y - q.box.h / 2), hi = Math.min(bT, q.box.y + q.box.h / 2);
+      if (hi - lo > 1) want += eng.backFixPoints(hi - lo).length;
+    }
+    const gotFix = count(bk, ct ? 'minifixDowel' : 'confirmatThrough');
+    if (gotFix !== want) problems.push(`${lab}: крепежей стенки ${gotFix} вместо ${want}`);
+    if (bk.screws !== 0) problems.push(`${lab}: у ЛДСП-стенки остались шурупы`);
+  }
+}
+
 // --- пустой проект: программа стартует без модулей -------------------------
 {
   const empty = buildModel(Object.assign({}, base, { modules: [] }));
@@ -4885,6 +5047,36 @@ for (const glass of [false, true]) {
   const html = String(buildDrawings(empty));
   if (/NaN|Infinity/.test(html)) problems.push('пустой проект: NaN в чертежах');
   if (html.indexOf('Проект пуст') === -1) problems.push('пустой проект: нет подсказки на чертежах');
+  cases += 1;
+}
+
+// --- шариковые направляющие: низ короба на 25 мм выше низа СВОЕГО фасада ----
+// (решение пользователя 2026-10-08), одинаково в секции и в отсеке.
+{
+  const m = buildModel(Object.assign({}, base, {
+    modules: [{ name: 'Т', width: 1200, height: 820, depth: 560, topType: 'rails',
+      leftSide: 'onBottom', rightSide: 'onBottom', base: { type: 'legsPlinth', legHeight: 100 },
+      sections: [
+        { shelves: 0, drawers: 2, facade: 'drawers', drawerSystem: 'ballBearing',
+          drawerMode: 'manual', drawerHeights: [200, 150] },
+        { shelves: 0, drawers: 0, facade: 'doorLeft', drawerSystem: 'ballBearing', doorZoneCount: 2,
+          doorZones: [{ facade: 'doorLeft', height: 0, shelves: 0 },
+            { facade: 'open', height: 0, shelves: 0, drawers: 1, drawerMode: 'manual', drawerHeights: [150] }] },
+      ] }],
+  }));
+  const fr = m.partsRaw.filter((q) => q.kind === 'drawerFront');
+  const bt = m.partsRaw.filter((q) => q.kind === 'drawerBottom');
+  if (fr.length !== 3 || bt.length !== 3) problems.push(`25 мм: ожидалось 3 фасада и 3 дна, есть ${fr.length}/${bt.length}`);
+  else {
+    // сопоставление по секции и порядку: у каждого фасада свой короб с тем же X
+    for (const f of fr) {
+      const b = bt.filter((q) => Math.abs(q.box.x - f.box.x) < 20 && q.box.y > f.box.y - f.box.h / 2 - 1
+        && q.box.y < f.box.y + f.box.h / 2)[0];
+      if (!b) { problems.push('25 мм: не найдено дно под ' + f.name); continue; }
+      const gap = (b.box.y - b.box.h / 2) - (f.box.y - f.box.h / 2);
+      if (Math.abs(gap - 25) > 0.6) problems.push(`25 мм: ${f.name} — низ короба выше низа фасада на ${gap.toFixed(1)}, нужно 25`);
+    }
+  }
   cases += 1;
 }
 

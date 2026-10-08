@@ -2954,3 +2954,11 @@ body.is-focus .scrim { opacity: 0 !important; }
 
 /* Калькулятор в числовых полях: неверное выражение (ui-shell.js: initCalcFields) */
 input.calc-error { outline: 2px solid #d33; outline-offset: -1px; }
+
+/* Предупреждение «ящик не помещается» (панель секции/отсека и экран «Ящики») */
+.drawers-add-warn {
+  margin: 8px 0; padding: 8px 10px;
+  font-size: var(--fs-sm); line-height: 1.45; color: var(--danger);
+  border: 1px solid var(--danger); border-left-width: 3px; border-radius: var(--r-md);
+}
+.drawers-add-warn-btns { display: flex; flex-direction: column; gap: 4px; margin-top: 6px; }

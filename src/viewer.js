@@ -2421,7 +2421,7 @@ function makeClipTabGeo(d, THREE) {
   return geo;
 }
 
-function makeKitchenLeg(box, moduleName, isActive, hasClip, dimmed, rot) {
+function makeKitchenLeg(box, moduleName, isActive, hasClip, dimmed, rot, clipRear) {
   const g = new THREE.Group();
   const d = Math.max(box.w, box.d) * MM;
   const h = Math.max(box.h * MM, 0.001);
@@ -2535,7 +2535,9 @@ function makeKitchenLeg(box, moduleName, isActive, hasClip, dimmed, rot) {
   // асимметричной клипсы (в отличие от круглого ствола опоры) нужно
   // довернуть отдельно, иначе на повёрнутом модуле она продолжает смотреть
   // в старом мировом направлении, а не на цоколь рядом с ней.
-  if (hasClip) g.rotation.y = -Math.PI / 2 + ((rot || 0) * Math.PI) / 180;
+  // ОСТРОВ: клипса заднего ряда держит ЗАДНИЙ цоколь — разворот ещё на 180°
+  // (смотрит назад, зазор до цоколя тот же, что у переднего ряда).
+  if (hasClip) g.rotation.y = -Math.PI / 2 + ((rot || 0) * Math.PI) / 180 + (clipRear ? Math.PI : 0);
   g.userData.module = moduleName;
   g.traverse((o) => { o.userData.module = moduleName; });
   return g;
@@ -5301,7 +5303,7 @@ class Viewer3D {
             // см. engine.js part.rot) — клипсе он нужен, чтобы разворачиваться
             // вместе с модулем; у металлической опоры (makeLeg) он не нужен —
             // её площадка 4-кратно симметрична, поворот на ней незаметен.
-            ? makeKitchenLeg(box, row.module, isActive, !!row.hasClip, dimmed, row.rot || 0)
+            ? makeKitchenLeg(box, row.module, isActive, !!row.hasClip, dimmed, row.rot || 0, !!row.clipRear)
             : makeLeg(box, row.module, isActive, dimmed));
         }
         continue;
@@ -6547,7 +6549,7 @@ function renderThumbnail(model, opts) {
             // (kitchenLegSplitCache/clipTabGeoCache); он помечен markShared,
             // и очистка в finally его не тронет.
             const leg = row.legType === 'kitchen'
-              ? makeKitchenLeg(legBox, row.module, false, !!row.hasClip, false, row.rot || 0)
+              ? makeKitchenLeg(legBox, row.module, false, !!row.hasClip, false, row.rot || 0, !!row.clipRear)
               : makeLeg(legBox, row.module, false, false);
             group.add(leg);
           }

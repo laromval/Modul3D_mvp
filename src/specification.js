@@ -176,6 +176,14 @@ function buildSpecification(model) {
       clipCount += Math.max(2, Math.round(Number(m.width) / 400));
     }
   }
+  // ОСТРОВ: у заднего цоколя свои клипсы (engine.js, leg.clipRear) — считаем
+  // по факту построенных опор с клипсой заднего цоколя (передний ряд — формулой
+  // выше, как и раньше). Боковые цоколи острова крепятся шкантами, не клипсами.
+  // (partsRaw — до склейки одинаковых деталей: в склеенной строке опор признак
+  // clipRear потерялся бы вместе с первой деталью.)
+  clipCount += (model.partsRaw || parts)
+    .filter((r) => r.kind === 'leg' && r.clipRear && r.hasClip)
+    .reduce((s, r) => s + (r.qty || 1), 0);
   if (legChrome) hardware.push(hwRow(HARDWARE_PRICES.leg, legChrome));
   if (legPlast) hardware.push(hwRow(HARDWARE_PRICES.legPlastic, legPlast));
   if (clipCount) hardware.push(hwRow(HARDWARE_PRICES.plinthClip, clipCount));
