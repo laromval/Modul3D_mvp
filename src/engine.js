@@ -4413,7 +4413,7 @@ function buildModuleParts(p) {
       // По высоте: под ближайшей полкой сверху (или под крышей).
       const above = rodShelfYs
         .filter((y) => y > floorY + 100);
-      const ceiling = above.length ? Math.min.apply(null, above) - t / 2 : roofY;
+      let ceiling = above.length ? Math.min.apply(null, above) - t / 2 : roofY;
       const innerBackZ = -D / 2 + tb;          // внутренняя плоскость задней стенки
       const innerFrontZ = D / 2;               // передняя плоскость корпуса
       // Зона механизма пантографа по высоте (для проверки столкновения со штангой).
@@ -4555,7 +4555,23 @@ function buildModuleParts(p) {
         // две штанги — верхняя 2050 от пола; рядом с пантографом — не ниже механизма.
         const longY = floorY + ROD_CLOTHES_MIN.long;
         const rodDefaultY = pgZone ? Math.min(clothesY || longY, pgZone.bottom - 30) : (clothesY || (owner.rod2 ? 2050 : longY));
+        // Отсек штанги определяется ЖЕЛАЕМОЙ высотой (заданной или авто), а не нижней полкой секции:
+        // верх — ближайшая полка над желаемой осью, низ — ближайшая под ней (иначе при ручных
+        // полках штанга 1550 уезжала под нижнюю полку на 318 мм).
+        const wantY = manual ? floorY + wanted : rodDefaultY;
+        const shelfAboveWant = above.filter((y) => y - t / 2 >= wantY - 0.5);
+        ceiling = shelfAboveWant.length ? Math.min.apply(null, shelfAboveWant) - t / 2 : roofY;
+        const shelfBelowWant = above.filter((y) => y - t / 2 < wantY - 0.5);
+        const compBottom = shelfBelowWant.length ? Math.max.apply(null, shelfBelowWant) + t / 2 : -Infinity;
         let rodY = manual ? floorY + wanted : Math.min(rodDefaultY, ceiling - ROD_TOP_GAP - ROD_D / 2);
+        if (rodY - ROD_D / 2 < compBottom) {
+          if (manual) {
+            warnings.push(`${label}: штанга на ${Math.round(rodY - floorY)} мм стоит на полке/внутри полки под ней — `
+              + `поднимите штангу или уберите полку.`);
+          } else {
+            rodY = compBottom + ROD_D / 2;   // авто: поднимаем из полки на её верх
+          }
+        }
         if (twoRods && !manual && clothesY && clothesY > ceiling - ROD_TOP_GAP - ROD_D / 2 + 0.5) {
           warnings.push(`${label}: верхняя штанга на ${clothesH} мм над нижней встала бы на ${Math.round(clothesY - floorY)} мм `
             + `от ${floorWord} — выше секции (максимум ${Math.round(ceiling - ROD_TOP_GAP - ROD_D / 2 - floorY)} мм). `
