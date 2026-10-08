@@ -1132,7 +1132,25 @@ for (const id of Array.from(registry.keys())) {
   check('в панели нет выбора «Верх модуля»', () => panelHtml().indexOf('m-topType') === -1);
   check('в панели нет «Ширина планки»', () => panelHtml().indexOf('m-railWidth') === -1);
   const sectionsHtml = () => $('sectionsList').innerHTML;
-  check('у обычного модуля штанга предлагается', () => /Штанга для одежды/.test(sectionsHtml()));
+  const secField = (name) => $('sectionsList').querySelectorAll('[data-field]').filter((e) => e.attrs['data-field'] === name)[0];
+  const setSec = (name, v) => { const el = secField(name); if (!el) return false; el.value = v; el.dispatch('change', { target: el }); return true; };
+  // К этому месту секция осталась с тремя ящиками на весь фронт (сценарий ящиков выше).
+  check('ящики на всю секцию: отсеков нет, подсказка вместо фасада/полок/штанги', () => {
+    const h = sectionsHtml();
+    return /Ящики занимают всю секцию/.test(h) && !/data-sec-sub=/.test(h) && !/Штанга для одежды/.test(h);
+  });
+  // два ящика и свободное место над ними: несъёмная полка делит секцию на два отсека-вкладки
+  check('два ящика: вкладки «Отсек 1 (ящики)» / «Отсек 2»', () => {
+    if (!setSec('drawers', 2)) return false;
+    const h = sectionsHtml();
+    return /data-sec-sub="drawers"/.test(h) && /data-sec-sub="upper"/.test(h) && /Редактировать ящики/.test(h) && !/Штанга для одежды/.test(h);
+  });
+  check('у обычного модуля штанга предлагается (вкладка «Отсек 2»)', () => {
+    const up = $('sectionsList').querySelectorAll('[data-sec-sub]').filter((e) => e.dataset.secSub === 'upper')[0];
+    if (!up) return false;
+    up.click();
+    return /Штанга для одежды/.test(sectionsHtml());
+  });
 
   // ставим кухонный модуль из базы и проверяем, что штанги там нет
   // чистим проект, чтобы в деталировке остался ТОЛЬКО модуль под мойку

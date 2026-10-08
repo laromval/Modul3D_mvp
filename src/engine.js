@@ -4270,6 +4270,8 @@ function buildModuleParts(p) {
         // равной высоты, суммарно S), см. drawerStackDrag.
         drag: drawerStackDrag('drawers', sec, drawerHeights.length, drawerZoneH),
       });
+      // Панель показывает такую секцию двумя отсеками: «ящики» и «над ящиками».
+      if (infoRowBox) infoRowBox.drawerTopShelf = true;
     }
 
     // ----- Ящики ОТСЕКОВ (zone.drawers): стопка от низа ниши отсека -----

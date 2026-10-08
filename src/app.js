@@ -15587,13 +15587,52 @@ function singleZoneCardHtml(mod, sec, i, widthInCard) {
   const appliance = sec.appliance || 'none';
   const nicheOnly = appliance === 'oven' || appliance === 'microwave';
   const facadeRow = !nicheOnly ? partDoorFacadeRowHtml(mod) : '';
-  return `
-  <div class="sub">
+  // Секция с ящиками без разделения на отсеки. Над ящиками движок ставит
+  // несъёмную полку (info.drawerTopShelf) — она делит секцию на два отсека:
+  // «Отсек 1» — ящики, «Отсек 2» — всё, что над ними (фасад, полки, штанга).
+  // Если ящики занимают весь фронт, полки нет: верхнего отсека тоже нет,
+  // фасад/полки/штанга не показываются. Данные те же поля секции.
+  const drawersOn = appliance === 'none' && sec.drawers > 0;
+  const calc = secCalc(i) || {};
+  const topShelf = drawersOn && !!calc.drawerTopShelf;
+  // «Ящики на всю секцию» — только если движок уже посчитал именно эту секцию.
+  const fullDrawers = drawersOn && !topShelf && calc.index === i;
+  const ui = secUiOf(mod, i);
+  const sub = topShelf ? (ui.sub === 'upper' ? 'upper' : 'drawers') : null;
+  const titleRow = topShelf ? `
+    <div class="sec-tabs-row">
+      <div class="sec-tabs sec-zone-tabs" id="secSubTabs">
+        <button type="button" class="sec-tab ${sub === 'drawers' ? 'active' : ''}" data-sec-sub="drawers" data-idx="${i}">Отсек 1 (ящики)</button>
+        <button type="button" class="sec-tab ${sub === 'upper' ? 'active' : ''}" data-sec-sub="upper" data-idx="${i}">Отсек 2</button>
+      </div>
+      <button class="sec-add tip tip-down" data-add-zone="${i}" type="button" data-tip="Добавить отсек" aria-label="Добавить отсек">+</button>
+    </div>` : `
     <div class="zone-title-row">
       <label><strong>Отсек 1</strong></label>
       <span class="zone-add-text">Добавить отсек</span>
       <button class="sec-add" data-add-zone="${i}" type="button" title="Добавить отсек" aria-label="Добавить отсек">+</button>
-    </div>
+    </div>`;
+  if (topShelf && sub === 'drawers') {
+    return `
+  <div class="sub">
+    ${titleRow}
+    <div class="mt6">${sectionDrawersRowHtml(sec, i)}</div>
+    ${sectionHandleBlockHtml(sec, i)}
+    <div class="hint mt6">Над ящиками стоит несъёмная полка (на Rastex, на всю глубину) — она отделяет ящики от отсека 2.</div>
+  </div>`;
+  }
+  if (fullDrawers) {
+    return `
+  <div class="sub">
+    ${titleRow}
+    <div class="mt6">${sectionDrawersRowHtml(sec, i)}</div>
+    ${sectionHandleBlockHtml(sec, i)}
+    <div class="hint mt6">Ящики занимают всю секцию — полки над ними и фасада нет.</div>
+  </div>`;
+  }
+  return `
+  <div class="sub">
+    ${titleRow}
     ${widthInCard ? `<div class="mt6">${singleFacadeWidthFieldHtml(mod, sec, i)}</div>` : ''}
     ${facadeRow}
     <div class="field-row mt6">
@@ -15688,6 +15727,7 @@ function setUiHighlight(mod, si, zi) {
 // Состояние переключателя карточки секции («Секция» / «Отсеки») и выбранного
 // отсека — только интерфейс, в проект не сохраняется.
 const secUiStore = {};
+let lastDrawerShelfSig = '';
 function secUiOf(mod, i) {
   const k = `${mod.name}#${i}`;
   return secUiStore[k] || (secUiStore[k] = { tab: 'section', zi: 0 });
@@ -15909,6 +15949,13 @@ function renderSectionsList() {
   list.querySelectorAll('[data-mat-pick="partFacade"]').forEach((btn) => {
     btn._facadeBound = true;
     btn.addEventListener('click', () => openFacadeMaterialPicker(partFacadeTarget(mod), 'part', { pinDrawers: true }));
+  });
+  // Отсеки неразделённой секции с ящиками («ящики» / «над ящиками») — только интерфейс.
+  list.querySelectorAll('[data-sec-sub]').forEach((el) => {
+    el.addEventListener('click', (e) => {
+      secUiOf(mod, activeIdx).sub = e.currentTarget.dataset.secSub === 'upper' ? 'upper' : 'drawers';
+      renderSectionsList();
+    });
   });
   // Вкладки отсеков под вкладками секций — только интерфейс.
   list.querySelectorAll('[data-sec-zone]').forEach((el) => {
@@ -16846,6 +16893,19 @@ function recompute(isRetry) {
   state.backCode = project.backMaterial.code;
 
   currentModel = buildModel(project);
+
+  // Панель секции (вкладки «Отсек 1 (ящики)» / «Отсек 2») зависит от того, поставил ли
+  // движок полку над ящиками, — а это известно только после пересчёта. Если признак
+  // изменился с прошлого раза, перерисовываем список секций уже по свежей модели.
+  {
+    const cm = currentModel.modules[state.activeModule];
+    const shelfSig = state.activeModule + ':' + (((cm && cm.dims && cm.dims.sections) || [])
+      .map((x) => (x.drawerTopShelf ? 1 : 0)).join(''));
+    if (shelfSig !== lastDrawerShelfSig) {
+      lastDrawerShelfSig = shelfSig;
+      if (state.panelView === 'module' && document.getElementById('sectionsList')) renderSectionsList();
+    }
+  }
 
   // Изменились габариты или основание — свободные (незафиксированные) ящики
   // подстраиваются под новый фронт, после чего модель пересобирается один раз.
