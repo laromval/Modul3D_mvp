@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="ru" data-theme="light" data-rail-pos="bottom-left" data-vt-pos="bottom-center">
+<html lang="ru" data-theme="light" data-rail-pos="header" data-vt-pos="bottom-center">
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
@@ -7,7 +7,7 @@
 <title>Modul3D — параметрический конструктор корпусной мебели</title>
 
 <link rel="icon" type="image/svg+xml" href="favicon.svg" />
-<link rel="stylesheet" href="style.css?v418" />
+<link rel="stylesheet" href="style.css?v421" />
 
 <!-- Положение панели режимов 3D-вида (#viewToolbar; data-vt-pos на <html>:
      bottom-center — по умолчанию | bottom-left | header-start (в шапке после
@@ -31,7 +31,7 @@
 })();
 </script>
 
-<script src="src/errorBanner.js?v418"></script>
+<script src="src/errorBanner.js?v421"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <!-- Paddle.js — оверлей оплаты подписки (см. app.js: requestCheckout/initPaddle).
      Обычный скрипт без defer, как остальные CDN-подключения выше. -->
@@ -424,6 +424,15 @@
     </button>
 
   </nav>
+  <!-- Рейка стоит в шапке слева, на месте логотипа (style.css, раздел 7в):
+       переносим сразу, до первой отрисовки. -->
+  <script>
+  (function () {
+    var rail = document.getElementById('rail');
+    var bar = document.getElementById('topbar');
+    if (rail && bar) bar.insertBefore(rail, bar.firstChild);
+  })();
+  </script>
 
   <!-- Виды камеры переключает навигационная гизма в правом нижнем углу
        3D-сцены: её создаёт viewer.js (canvas.view-gizmo рядом с #viewer3d, в .stage). -->
@@ -732,16 +741,16 @@
 
 </main>
 
-<script src="src/catalog.js?v418"></script>
-<script src="src/presets.js?v418"></script>
-<script src="src/engine.js?v418"></script>
-<script src="src/specification.js?v418"></script>
-<script src="src/legMeshes.js?v418"></script>
-<script src="src/csg.js?v418"></script>
-<script src="src/decorTiles.js?v418"></script>
-<script src="src/userTextures.js?v418"></script>
-<script src="src/viewer.js?v418"></script>
-<script src="src/ui-shell.js?v418"></script>
+<script src="src/catalog.js?v421"></script>
+<script src="src/presets.js?v421"></script>
+<script src="src/engine.js?v421"></script>
+<script src="src/specification.js?v421"></script>
+<script src="src/legMeshes.js?v421"></script>
+<script src="src/csg.js?v421"></script>
+<script src="src/decorTiles.js?v421"></script>
+<script src="src/userTextures.js?v421"></script>
+<script src="src/viewer.js?v421"></script>
+<script src="src/ui-shell.js?v421"></script>
 <!-- markup.js ДОЛЖЕН грузиться раньше app.js: он вешает свой document
      keydown-обработчик (Delete/Escape по ручной разметке) СРАЗУ при загрузке
      файла, и stopImmediatePropagation() там останавливает только слушатели,
@@ -749,15 +758,15 @@
      тегов. Переставишь эту строку после app.js — Delete по выделенному
      ручному размеру снова начнёт заодно удалять активный 3D-модуль
      (см. app.js: обработчик Delete рядом с deleteModule). -->
-<script src="src/markup.js?v418"></script>
-<script src="src/drawings.js?v418"></script>
-<script src="src/export.js?v418"></script>
-<script src="src/cnc.js?v418"></script>
-<script src="src/sketchAI.js?v418"></script>
+<script src="src/markup.js?v421"></script>
+<script src="src/drawings.js?v421"></script>
+<script src="src/export.js?v421"></script>
+<script src="src/cnc.js?v421"></script>
+<script src="src/sketchAI.js?v421"></script>
 <!-- app.js — ПОСЛЕ markup.js (см. пометку у markup.js выше): его глобальный
      keydown на Delete (удаление активного модуля) не должен получить событие
      раньше markup.js — иначе перехват Delete ручной разметкой не работает. -->
-<script src="src/app.js?v418"></script>
+<script src="src/app.js?v421"></script>
 <script>if (window.Modul3D && window.Modul3D.uiShell) window.Modul3D.uiShell.start();</script>
 </body>
 </html>

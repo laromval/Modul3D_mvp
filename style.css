@@ -839,6 +839,51 @@ body.has-modal-drawer .scrim { opacity: 1; pointer-events: auto; }
   [data-rail-pos='bottom-left'] .drawer.open { transform: none; }
 }
 
+/* ---------- 7в. РЕЙКА В ШАПКЕ (data-rail-pos="header") ---------------------
+   Рейка стоит в шапке слева, на месте логотипа (логотип скрыт). В DOM её
+   переносит скрипт после <nav id="rail"> в index.html (первый ребёнок
+   #topbar). Подъёма рейки над панелью нет: панели занимают сцену целиком
+   от верхнего края, а рейка всегда на виду в шапке. На телефоне рейки нет
+   (.rail { display: none }, раздел 17), правила — только для компьютера. */
+@media not all and (max-width: 820px) {
+  [data-rail-pos='header'] .brand { display: none; }
+  [data-rail-pos='header'] .rail {
+    position: relative; left: auto; top: auto; bottom: auto;
+    transform: none;
+    flex-direction: row; align-items: center;
+    gap: 4px; padding: 4px;
+    border-radius: var(--r-md);
+    box-shadow: none;
+    opacity: 1;
+  }
+  [data-rail-pos='header'] .rail-btn { width: 36px; height: 36px; border-radius: var(--r-sm); }
+  [data-rail-pos='header'] .rail-grip { width: 22px; align-self: stretch; }
+  [data-rail-pos='header'] .rail-sep { width: 1px; height: auto; margin: 6px 2px; }
+  /* индикатор активной кнопки — снизу, на краю, обращённом к сцене */
+  [data-rail-pos='header'] .rail .rail-btn.active::before {
+    left: 50%; top: auto; bottom: -4px; transform: translateX(-50%);
+    width: 18px; height: 3px;
+  }
+  /* подсказки — под кнопкой (шапка у верхнего края окна) */
+  [data-rail-pos='header'] .rail .tip::after {
+    left: 50%; top: calc(100% + 10px); bottom: auto;
+    width: max-content;
+    transform: translateX(-50%) scale(.96);
+  }
+  [data-rail-pos='header'] .rail .tip:hover::after { transform: translateX(-50%) scale(1); }
+  [data-rail-pos='header'] .rail > .rail-grip::after { left: 0; transform: scale(.96); }
+  [data-rail-pos='header'] .rail > .rail-grip:hover::after { transform: scale(1); }
+
+  /* Панели — от левого края сцены, на всю высоту */
+  [data-rail-pos='header'] .drawer-left {
+    left: var(--sp-3);
+    margin-left: 0;
+    transform: translateX(calc(-100% - var(--sp-3) - var(--sp-4)));
+  }
+  [data-rail-pos='header'] .drawer-bottom { left: var(--sp-3); }
+  [data-rail-pos='header'] .drawer.open { transform: none; }
+}
+
 /* ---------- 6в. ПАНЕЛЬ РЕЖИМОВ 3D-ВИДА (#viewToolbar) --------------------- */
 /* Три иконки-переключателя: прозрачный режим / скрыть фасады / проверка
    присадки (клики — app.js: toggleXray/toggleHideFacades/toggleDrillCheck).
