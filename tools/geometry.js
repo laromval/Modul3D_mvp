@@ -187,6 +187,20 @@ const base = {
   jointType: 'confirmat',
 };
 
+// --- «Без задней стенки» (backMount: 'none'): детали стенки нет, пазов нет ---
+for (const L of SIDES) for (const R of SIDES) for (const H of [500, 2100]) {
+  const m = buildModel(Object.assign({}, base, {
+    modules: [{
+      name: 'M', width: 1200, height: H, depth: 600, leftSide: L, rightSide: R,
+      backMount: 'none', base: { type: 'plinth', plinthHeight: 100 },
+      sections: [{ shelves: 2, drawers: 0, facade: FACADES[0] }],
+    }],
+  }));
+  inspect(m, `без задней стенки ${L}/${R} H${H}`);
+  if (m.partsRaw.some((r) => r.kind === 'back')) problems.push(`без задней стенки ${L}/${R} H${H}: деталь задней стенки осталась`);
+  if (m.partsRaw.some((r) => (r.grooves || []).some((g) => g.kind === 'backGroove'))) problems.push(`без задней стенки ${L}/${R} H${H}: остался паз под стенку`);
+}
+
 // --- одиночный модуль: полный перебор ключевых сочетаний --------------------
 for (const L of SIDES) for (const R of SIDES)
 for (const bt of ['plinth', 'legs', 'legsPlinth']) for (const bh of [0, 100, 150])

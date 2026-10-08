@@ -2657,7 +2657,10 @@ const BACK_GROOVE_TALL_H = 1600;
 // buildModel передаёт в buildModuleParts, — иначе раскладка ряда и
 // геометрия модуля разойдутся.
 function resolveBackMount(p, sides, tb) {
-  if (p.noBack) return { mode: 'none', E: 0 };
+  // 'none' у backMount — выбор пользователя «Без задней стенки»: деталь стенки
+  // не строится, пазов нет; видимая боковина остаётся удлинённой (sideDepth),
+  // но без паза (см. гард mode !== 'none' в buildModuleParts).
+  if (p.noBack || p.backMount === 'none') return { mode: 'none', E: 0 };
   const overlay = { mode: 'overlay', E: 0 };
   const mount = (p.backMount === 'overlay' || p.backMount === 'groove') ? p.backMount : 'auto';
   if (mount === 'overlay') return overlay;
@@ -3432,7 +3435,7 @@ function buildModuleParts(p) {
       // поправки на ХДФ — трогать не нужно (подтверждено пользователем).
       // Стенка В ПАЗ (resolveBackMount): детали с пазом удлинены назад на E
       // = отступ паза + его ширина — столешница закрывает их целиком, +E.
-      const backPanelExtra = (p.noBack || p.family === 'kitchen') ? 0
+      const backPanelExtra = (p.noBack || bm.mode === 'none' || p.family === 'kitchen') ? 0
         : (bm.mode === 'groove' ? bm.E : tb);
       // «Свес сзади» по умолчанию зависит от типа мебели, а не только от
       // материала:
@@ -5931,6 +5934,7 @@ function buildModel(project) {
       topType: m.topType, countertop: m.countertop, height: m.height,
     }, normalizeSides({ leftSide: m.leftSide, rightSide: m.rightSide, scheme: m.scheme,
       wallHung: m.wallHung, family: m.family, base: m.base }), tBack);
+    if (bmm.mode === 'none' && !m.noBack) return 0;   // «Без задней стенки» — выступа нет
     return bmm.mode === 'groove' ? bmm.E : tBack;
   };
   const extent = (m) => {

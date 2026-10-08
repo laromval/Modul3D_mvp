@@ -14,7 +14,7 @@
 (function () {
 // Версия сборки — показывается во вкладке браузера и в шапке.
 // При выпуске новой версии меняется только эта строка.
-const APP_VERSION = 'v416';
+const APP_VERSION = 'v417';
 
 // Номер версии выводим ПЕРВЫМ делом: если дальше что-то упадёт, по нему сразу
 // видно, какая сборка открыта.
@@ -12281,7 +12281,7 @@ function backMountBlock(mod) {
   // см. её комментарий) показали бы не те детали, что реально уйдут в паз по
   // авто-правилу (оно смотрит на боковины/высоту/навес, а не «все подряд»),
   // вводя в заблуждение ещё до того как пользователь вообще что-то выбрал.
-  const mode = (mod.backMount === 'overlay' || mod.backMount === 'groove') ? mod.backMount : autoBackMountMode(mod);
+  const mode = (mod.backMount === 'overlay' || mod.backMount === 'groove' || mod.backMount === 'none') ? mod.backMount : autoBackMountMode(mod);
   const manualGroove = mod.backMount === 'groove';
   const g = backGrooveOf(mod);
   const topBlocked = backGrooveTopBlockedReason(mod);
@@ -12293,6 +12293,7 @@ function backMountBlock(mod) {
         <select id="m-backMount">
           <option value="overlay" ${mode === 'overlay' ? 'selected' : ''}>Накладная</option>
           <option value="groove" ${mode === 'groove' ? 'selected' : ''}>В паз</option>
+          <option value="none" ${mode === 'none' ? 'selected' : ''}>Без задней стенки</option>
         </select>
       </div>
     </div>
@@ -16405,7 +16406,7 @@ function bindPanelEvents() {
   // Смена режима перерисовывает панель — поля паза видны только при «В паз».
   on('m-backMount', 'change', (e) => {
     const v = e.target.value;
-    if (v === 'overlay' || v === 'groove') mod.backMount = v; else delete mod.backMount;
+    if (v === 'overlay' || v === 'groove' || v === 'none') mod.backMount = v; else delete mod.backMount;
     // Поля паза заводим сразу с дефолтами — чтобы сохранённый модуль/проект
     // нёс явные числа, которые видит пользователь, а не «пусто».
     if (v === 'groove' && !mod.backGroove) {
