@@ -214,12 +214,36 @@ function getDrawerHeights(sec, drawerUnitH, avail, warn, secName) {
   return raw.map(v => Math.floor(v * k * 10) / 10);
 }
 
+// Режим дверных зон: секция разделена на отсеки (doorZoneCount > 1) ЛИБО
+// неразделённая секция со встроенной техникой — normalizeSingleZoneSection
+// превращает её в одну зону (singleZone). Все места, читающие sec.doorZones,
+// спрашивают это, а не голое «doorZoneCount > 1».
+function zonesOn(sec) {
+  return (Number(sec.doorZoneCount) > 1 || sec.singleZone === true)
+    && Array.isArray(sec.doorZones) && sec.doorZones.length > 0;
+}
+// Неразделённая секция с техникой (sec.appliance, поле «Техника» в редакторе
+// отсека) строится как секция из ОДНОЙ зоны: фасад, габариты техники и заметка
+// переезжают в doorZones[0]. Без техники секция не меняется (прежний путь).
+function normalizeSingleZoneSection(sec) {
+  if (!sec || Number(sec.doorZoneCount) > 1) return sec;
+  if (!sec.appliance || sec.appliance === 'none') return sec;
+  return Object.assign({}, sec, {
+    doorZoneCount: 1, singleZone: true,
+    doorZones: [{
+      facade: sec.facade, height: 0, appliance: sec.appliance,
+      applianceW: Number(sec.applianceW) || 0, applianceD: Number(sec.applianceD) || 0,
+      note: sec.note || '',
+    }],
+  });
+}
+
 // Секция считается «без фасада» (открытой), только если у неё нет ни
 // одной непустой дверной зоны — при нескольких зонах (doorZoneCount > 1)
 // одиночного sec.facade больше нет, поэтому такие места кода не могут
 // читать его напрямую.
 function sectionHasAnyFacade(sec) {
-  if (Number(sec.doorZoneCount) > 1 && Array.isArray(sec.doorZones) && sec.doorZones.length) {
+  if (zonesOn(sec)) {
     // Ящики отсека тоже закрывают передний торец, даже если дверь отсека 'open'.
     return sec.doorZones.some((z) => z && (z.facade !== 'open' || Number(z.drawers) > 0));
   }
@@ -230,7 +254,7 @@ function sectionHasAnyFacade(sec) {
 // секцию (например, к какому краю жмётся узкий фасад углового модуля).
 // При нескольких зонах берём фасад НИЖНЕЙ (первой) зоны.
 function primaryFacade(sec) {
-  if (Number(sec.doorZoneCount) > 1 && Array.isArray(sec.doorZones) && sec.doorZones.length) {
+  if (zonesOn(sec)) {
     return (sec.doorZones[0] || {}).facade;
   }
   return sec.facade;
@@ -588,9 +612,10 @@ function buildDrawerBoxes(o) {
     // Короб поднят на технологический зазор (drawerLift), поэтому верхний
     // ящик может выйти за крышу, даже если по шагу фасадов он проходит.
     // Ограничиваем высоту короба ещё и остатком до внутреннего верха секции.
-    // Просвет над верхним коробом до крышки/планок. 2 мм было слишком мало:
-    // короб вставал впритык, руку между ним и верхом не просунуть.
-    const TOP_GAP = 25;
+    // Просвет над верхним коробом до крышки/столешницы/планки: 10 мм
+    // (подтверждено пользователем 2026-10-08, для всех систем), чтобы короб
+    // можно было сделать выше.
+    const TOP_GAP = 10;
     // ПРАВИЛО: короб ящика всегда НИЖЕ своего фасада минимум на BELOW_FRONT.
     // Фасад перекрывает короб сверху, иначе при закрывании он бьёт по кромке
     // соседнего фасада. Из этого правила и выводится высота короба.
@@ -1819,7 +1844,7 @@ const ZONE_FACADE_KEYS = ['facadeType', 'facadeMaterial', 'aluProfile', 'aluColo
 function zoneFacadeSettings(sec, zoneIdx) {
   const s = sec || {};
   const out = Object.assign({}, s);
-  const multi = Number(s.doorZoneCount) > 1 && Array.isArray(s.doorZones) && s.doorZones.length;
+  const multi = zonesOn(s);
   const z = multi && zoneIdx !== null && zoneIdx !== undefined ? s.doorZones[zoneIdx] : null;
   if (!z || typeof z !== 'object') return out;
   const has = (k) => z[k] !== undefined && z[k] !== null && z[k] !== '';
@@ -2063,7 +2088,7 @@ function sectionFrontHidden(sec, decor, t, facadeMat, facadeThickness) {
 // Есть ли стекло хоть за одним фасадом секции: сама секция (фасады ящиков и
 // однозонная дверь) или любая дверная зона, у которой реально есть фасад.
 function sectionGlassInside(sec, decor, t, facadeMat, facadeThickness) {
-  const multi = Number(sec.doorZoneCount) > 1 && Array.isArray(sec.doorZones) && sec.doorZones.length;
+  const multi = zonesOn(sec);
   if (!multi) return facadeTypeOf(sec, decor, t, facadeMat, facadeThickness).glassInside;
   if (Number(sec.drawers) > 0
     && facadeTypeOf(sec, decor, t, facadeMat, facadeThickness).glassInside) return true;
@@ -3037,7 +3062,7 @@ function buildModuleParts(p) {
   // «до пола»/«сбоку дна», тоже делает дно вкладным с этой стороны.
   const leftInset = effLeft !== 'onBottom';
   const rightInset = effRight !== 'onBottom';
-  const sections = p.sections;
+  const sections = p.sections.map(normalizeSingleZoneSection);
   const n = sections.length;
   const dividers = n - 1;
 
@@ -4095,8 +4120,7 @@ function buildModuleParts(p) {
     // вызова на каждой сборке модели, разойтись им нечем. Однозонная секция
     // (doorZoneCount<=1) не имеет понятия «зона» вовсе — там полки, как и
     // раньше, одним плоским набором на sec.shelves/shelfHeights/shelfFixed.
-    const multiZone = Number(sec.doorZoneCount) > 1
-      && Array.isArray(sec.doorZones) && sec.doorZones.length > 0;
+    const multiZone = zonesOn(sec);
     // Раскладка отсеков (+ ящики отсеков) — одна на все места модели.
     const zpSlotBot = drawerZoneH ? baseH + drawerZoneH : baseH;
     const zonePlan = multiZone
@@ -5381,7 +5405,7 @@ function buildModuleParts(p) {
     // заполненного sec.doorZones) — одна зона на весь слот: это в точности
     // старое поведение, обязательная обратная совместимость.
     let zonesRaw;
-    if (Number(sec.doorZoneCount) > 1 && Array.isArray(sec.doorZones) && sec.doorZones.length) {
+    if (zonesOn(sec)) {
       zonesRaw = [];
       for (let zi = 0; zi < sec.doorZoneCount; zi++) {
         const z = sec.doorZones[zi];
@@ -5391,6 +5415,7 @@ function buildModuleParts(p) {
           appliance: (z && z.appliance) || 'none',
           applianceW: (z && Number(z.applianceW)) || 0,
           applianceD: (z && Number(z.applianceD)) || 0,
+          facadeWidth: (z && Number(z.facadeWidth)) || 0,
           note: (z && z.note) || '',
           // Ручка отсека: свои поля зоны поверх секции (пусто — как у секции).
           handle: (z && z.handle) || sec.handle,
@@ -5418,8 +5443,18 @@ function buildModuleParts(p) {
       ? zonePlan.layout
       : layoutDoorZones(zonesRaw, slotTop - slotBot, gap, t, (w) => warnings.push(w), secName);
 
+    // Ширина фасада ОТСЕКА (zone.facadeWidth, только выбранного отсека): уже
+    // проёма секции — фасад прижимается к стороне открывания отсека, как у
+    // узкого фасада секции. Не задана — ширина секции (secFacadeW/secFX).
+    const secFacadeW = facadeW;
+    const secFX = fX;
     for (let zi = 0; zi < zonesRaw.length; zi++) {
       const zone = zonesRaw[zi];
+      const zoneFW = Number(zone.facadeWidth);
+      const zoneNarrow = Number.isFinite(zoneFW) && zoneFW > 0 && zoneFW < fullW - 0.5;
+      const facadeW = zoneNarrow ? zoneFW : secFacadeW;
+      const fX = !zoneNarrow ? secFX
+        : (zone.facade === 'doorRight' ? bnd[i + 1] - gap - facadeW / 2 : bnd[i] + gap + facadeW / 2);
       // Ящики отсека: фасады стопки от нижней границы отсека, над ними — дверь.
       const zStack = zonePlan ? zonePlan.stacks[zi] : null;
       if (zStack) {

@@ -695,8 +695,11 @@ check('тип опоры при цоколе с ножками — только 
   // основании выбор типа опоры не показывается (нечего выбирать).
   return !/id="m-legType"/.test($('paramsPanel').innerHTML);
 });
-check('в секции есть выбор ручек', () => /data-field="handle"/.test($('sectionsList').innerHTML));
-check('в списке фасадов есть открывание вверх', () => /value="liftUp"/.test($('sectionsList').innerHTML));
+// Карточка секции — неразделённая секция — одна панель с карточкой отсека (app.js renderSectionsList):
+// ручки и ширины на вкладке «Секция», открывание/ящики/полки/штанга — на «Отсеки».
+const secMode = (m) => { if (m !== 'zones') { return true; } const b = document.querySelectorAll('[data-sec-zone="0"]')[0]; if (b) b.click(); return true; };
+check('в секции есть выбор ручек', () => /data-sechandle/.test($('sectionsList').innerHTML));
+check('в списке фасадов есть открывание вверх', () => secMode('zones') && /value="liftUp"/.test($('sectionsList').innerHTML) && secMode('section'));
 // Алюминиевый рамочный фасад (2026-09-26; вход переехал на экран «Материалы»
 // 2026-09-29 вместе с «Вид фасада»/«Материал фасада» секции, см.
 // matFacadeFieldHtml — дубль этих же полей в «Конструктиве модуля» убран):
@@ -866,8 +869,8 @@ check('кнопка «скрыть фасады» переключается', (
 // Иерархия в подписях: заголовок «Модуль N — секции» над списком секций
 // убран (v213, дублировал активную вкладку модуля) — хватает подписи
 // карточки секции «Модуль N · Секция M», где имя модуля тоже видно.
-check('карточка секции подписана «Модуль N · Секция M»', () =>
-  /Модуль \d+ · Секция 1/.test($('sectionsList').innerHTML));
+check('карточка секции: неразделённая секция — одна панель с карточкой отсека', () =>
+  /Отсек 1/.test($('sectionsList').innerHTML));
 
 for (const id of ['m-leftSide', 'm-rightSide', 'm-baseType']) {
   const el0 = document.getElementById(id);
@@ -903,12 +906,12 @@ check('добавление секции', () => {
   return b ? (b.click(), true) : false;
 });
 check('вкладки секций: после добавления раскрыта новая (Секция 2)', () =>
-  /Модуль \d+ · Секция 2/.test($('sectionsList').innerHTML));
+  /class="sec-tab active"\s+data-sec="1"/.test($('sectionsList').innerHTML));
 check('вкладки секций: переключение на первую вкладку раскрывает Секцию 1', () => {
   const tabs = document.querySelectorAll('.sec-tab');
   if (!tabs.length) return false;
   tabs[0].click();
-  return /Модуль \d+ · Секция 1/.test($('sectionsList').innerHTML);
+  return /class="sec-tab active"\s+data-sec="0"/.test($('sectionsList').innerHTML);
 });
 check('вкладки секций: крестик есть только у активной вкладки', () => {
   const removers = document.querySelectorAll('[data-remove-sec]');
@@ -948,7 +951,7 @@ for (const id of Array.from(registry.keys())) {
   const AVAIL = 700;
 
   check('подготовка модуля', () => setTop('m-height', 800) && setTop('m-baseType', 'plinth') && setTop('m-baseHeight', 100));
-  check('секция: 3 ящика без дверей', () => set('facade', 'open') && set('shelves', 0) && set('drawers', 3));
+  check('секция: 3 ящика без дверей', () => secMode('zones') && set('facade', 'open') && set('shelves', 0) && set('drawers', 3));
   check('нет NaN в деталировке (авто)', () => docsTab('detailing').innerHTML.indexOf('NaN') === -1);
 
   // «Редактировать →» в карточке секции открывает отдельную панель
@@ -1239,7 +1242,7 @@ for (const id of Array.from(registry.keys())) {
   // `<button class="mod-tab ... active" ...>${esc(m.name)}${rotation}</button>`
   // (см. app.js moduleTabsBlock). Хвост «↻N°» (поворот) отрезаем отдельно.
   const activeModuleName = () => {
-    const r = /<button class="mod-tab[^"]*\bactive\b[^"]*"[\s\S]*?>([^<]*)<\/button>/.exec($('paramsPanel').innerHTML);
+    const r = /<button class="mod-tab[^"]*\bactive\b[^"]*"[\s\S]*?>([^<]*)(?:<span[\s\S]*?<\/span>)?<\/button>/.exec($('paramsPanel').innerHTML);
     return r ? r[1].replace(/\s*↻\d+°\s*$/, '') : '';
   };
 
@@ -1327,7 +1330,7 @@ for (const id of Array.from(registry.keys())) {
   // Имя активной вкладки модуля — см. тот же приём и комментарий в
   // moduleOrderScenario() выше (заголовок секций с именем модуля убран в v213).
   const activeModuleName = () => {
-    const r = /<button class="mod-tab[^"]*\bactive\b[^"]*"[\s\S]*?>([^<]*)<\/button>/.exec($('paramsPanel').innerHTML);
+    const r = /<button class="mod-tab[^"]*\bactive\b[^"]*"[\s\S]*?>([^<]*)(?:<span[\s\S]*?<\/span>)?<\/button>/.exec($('paramsPanel').innerHTML);
     return r ? r[1].replace(/\s*↻\d+°\s*$/, '') : '';
   };
   const before = projSize();
@@ -1492,7 +1495,7 @@ for (const id of ['hideFacades', 'addModule', 'saveProjectBtn', 'openProjectBtn'
   const v = sandbox.__viewer;
   // Имя берём с вкладки модуля ДО перехода в «Материалы» (там вкладок нет) —
   // тот же приём, что activeModuleName() в сценарии поворота выше.
-  const r = /<button class="mod-tab[^"]*\bactive\b[^"]*"[\s\S]*?>([^<]*)<\/button>/.exec(String($('paramsPanel').innerHTML || ''));
+  const r = /<button class="mod-tab[^"]*\bactive\b[^"]*"[\s\S]*?>([^<]*)(?:<span[\s\S]*?<\/span>)?<\/button>/.exec(String($('paramsPanel').innerHTML || ''));
   const name = r ? r[1].replace(/\s*↻\d+°\s*$/, '').trim() : '';
   const openBtn = document.getElementById('materialsLinkBtn');
   if (openBtn) openBtn.click();
@@ -1523,7 +1526,7 @@ for (const id of ['hideFacades', 'addModule', 'saveProjectBtn', 'openProjectBtn'
   const cat = sandbox.Modul3D.catalog;
   const panelHtml = () => String($('paramsPanel').innerHTML || '');
   const pickBtns = () => libPanelEl().querySelectorAll('.lib-pick-btn');
-  const r = /<button class="mod-tab[^"]*\bactive\b[^"]*"[\s\S]*?>([^<]*)<\/button>/.exec(panelHtml());
+  const r = /<button class="mod-tab[^"]*\bactive\b[^"]*"[\s\S]*?>([^<]*)(?:<span[\s\S]*?<\/span>)?<\/button>/.exec(panelHtml());
   const name = r ? r[1].replace(/\s*↻\d+°\s*$/, '').trim() : '';
   const model = () => sandbox.__lastModel;
   const sideOf = (m, mod, side) => (m.partsRaw || []).filter((q) => q.module === mod && q.kind === 'side'

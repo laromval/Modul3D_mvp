@@ -1405,6 +1405,11 @@ input[type='number']::-webkit-outer-spin-button {
   transition: border-color var(--dur) var(--ease), box-shadow var(--dur) var(--ease);
 }
 .section-card:hover { border-color: var(--border-strong); }
+/* Вкладки отсеков внутри карточки секции. */
+.sec-zone-tabs { margin-bottom: var(--sp-2); }
+.zone-title-row { display: flex; align-items: center; gap: var(--sp-2); }
+.zone-title-row label { margin: 0; }
+.zone-add-text { margin-left: auto; font-size: var(--fs-sm); color: var(--muted); }
 .section-card-title {
   display: flex; justify-content: space-between; align-items: center;
   font-weight: 600; font-size: var(--fs-md); color: var(--text);
