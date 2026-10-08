@@ -361,26 +361,6 @@
     "categoryPathEdited": true
   },
   {
-    "code": "H1180ST37",
-    "name": "ЛДСП Egger H1180 ST37 Дуб Халифакс натуральный",
-    "unit": "м²",
-    "image": "https://mobilier.md/image/cache/catalog/products/23949/37de281fd09df8ce907afbcf155ae164-520x350.png",
-    "sheetH": 2070,
-    "sheetW": 2800,
-    "matKind": "ldsp",
-    "sourceUrl": "https://mobilier.md/ru/plitnye-materialy/dsp/dsp_egger/h1180-st37-dub-galifaks-naturalnyy-2800x2070x186-eg-dsp-laminirovannyy.html",
-    "thickness": 18.6,
-    "sheetPrice": 3535.56,
-    "sourceName": "H1180 ST37 Дуб Галифакс натуральный 2800x2070x18.6 (EG) Дсп ламинированный",
-    "verifiedAt": "2026-09-24T17:35:55.811Z",
-    "categoryPath": [
-      "ДСП",
-      "Egger"
-    ],
-    "sourceSiteId": "mobilierMd",
-    "categoryPathEdited": true
-  },
-  {
     "code": "LINK-1791048957049",
     "name": "Дсп K351 RT Ржавый камень",
     "unit": "м²",
@@ -777,21 +757,6 @@
       "Стекло"
     ]
   },
-  "MIRROR-4": {
-    "code": "MIRROR-4",
-    "name": "Зеркало 4 мм",
-    "unit": "м²",
-    "image": null,
-    "matKind": "glass",
-    "mirror": true,
-    "priceNote": "цена уточняется — запрос в RADEVA и DETA отправлен 2026-10-05",
-    "thickness": 4,
-    "sheetPrice": null,
-    "customOrder": true,
-    "categoryPath": [
-      "Стекло"
-    ]
-  },
   "FAC-LDSP": {
     "code": "FAC-LDSP",
     "name": "W1000 ST9 Белый Премиум",
@@ -811,6 +776,21 @@
     ],
     "sourceSiteId": "mobilierMd",
     "categoryPathEdited": true
+  },
+  "MIRROR-4": {
+    "code": "MIRROR-4",
+    "name": "Зеркало 4 мм",
+    "unit": "м²",
+    "image": null,
+    "mirror": true,
+    "matKind": "glass",
+    "priceNote": "цена уточняется — запрос в RADEVA и DETA отправлен 2026-10-05",
+    "thickness": 4,
+    "sheetPrice": null,
+    "customOrder": true,
+    "categoryPath": [
+      "Стекло"
+    ]
   },
   "FAC-VENEER": {
     "code": "FAC-VENEER",
@@ -1241,41 +1221,6 @@
     "sourceSiteId": "mobilierMd",
     "sourceArticle": "MR-WP-010-01"
   },
-  // Пантограф — штанга, опускающаяся вниз ручкой (GTV PG-ST, масляный
-  // амортизатор, 8 кг). Размеры и присадка — по инструкции производителя
-  // (assets/drawings/gtv-pantograf-pg-st*.png, страницы «Планирование» и
-  // «Шаблон»). Длина = ширина корпуса в свету (545–700 / 645–910 / 875–1200),
-  // у каждой комбинации «длина × цвет» свой артикул и своя цена (options);
-  // item.price/article показывают выбранный вариант (selLength/selColor), см.
-  // catalog.resolveOption. Цена с mobilier.md на 2026-10-06 зависит от цвета,
-  // от длины — нет.
-  "pantograph": {
-    "name": "Пантограф GTV PG-ST (штанга опускающаяся, 8 кг)",
-    "unit": "шт",
-    "image": "https://mobilier.md/image/cache/catalog/products/17352/317d42815bfc5e15ae971a46121b4e32-1200x800.png",
-    "price": 751,
-    "article": "PG-ST6083-60",
-    "category": "rod",
-    "sourceUrl": "https://mobilier.md/index.php?product_id=17352&route=product%2Fproduct",
-    "sourceName": "PG-ST6083-60 Pantograf cu ridicator cu ulei, 645-910mm, 8 kg, antracit",
-    "verifiedAt": "2026-10-06T00:00:00.000Z",
-    "sourceSiteId": "mobilierMd",
-    "drawing": "assets/drawings/gtv-pantograf-pg-st.png",
-    "drawingFull": "assets/drawings/gtv-pantograf-pg-st-big.png",
-    "selLength": "645–910",
-    "selColor": "антрацит",
-    "options": [
-      { "length": "545–700", "lengthMin": 545, "lengthMax": 700, "color": "белый", "price": 749, "article": "PG-ST4560-10A", "sourceUrl": "https://mobilier.md/index.php?product_id=17346&route=product%2Fproduct" },
-      { "length": "545–700", "lengthMin": 545, "lengthMax": 700, "color": "хром/чёрный", "price": 686, "article": "PG-ST4560-20", "sourceUrl": "https://mobilier.md/index.php?product_id=17347&route=product%2Fproduct" },
-      { "length": "545–700", "lengthMin": 545, "lengthMax": 700, "color": "антрацит", "price": 751, "article": "PG-ST4560-60", "sourceUrl": "https://mobilier.md/index.php?product_id=17348&route=product%2Fproduct" },
-      { "length": "645–910", "lengthMin": 645, "lengthMax": 910, "color": "белый", "price": 749, "article": "PG-ST6083-10A", "sourceUrl": "https://mobilier.md/index.php?product_id=17350&route=product%2Fproduct" },
-      { "length": "645–910", "lengthMin": 645, "lengthMax": 910, "color": "хром/чёрный", "price": 686, "article": "PG-ST6083-20", "sourceUrl": "https://mobilier.md/index.php?product_id=17351&route=product%2Fproduct" },
-      { "length": "645–910", "lengthMin": 645, "lengthMax": 910, "color": "антрацит", "price": 751, "article": "PG-ST6083-60", "sourceUrl": "https://mobilier.md/index.php?product_id=17352&route=product%2Fproduct" },
-      { "length": "875–1200", "lengthMin": 875, "lengthMax": 1200, "color": "белый", "price": 749, "article": "PG-ST83115-10A", "sourceUrl": "https://mobilier.md/index.php?product_id=17354&route=product%2Fproduct" },
-      { "length": "875–1200", "lengthMin": 875, "lengthMax": 1200, "color": "хром/чёрный", "price": 686, "article": "PG-ST8311520", "sourceUrl": "https://mobilier.md/index.php?product_id=17355&route=product%2Fproduct" },
-      { "length": "875–1200", "lengthMin": 875, "lengthMax": 1200, "color": "антрацит", "price": 751, "article": "PG-ST83115-60", "sourceUrl": "https://mobilier.md/index.php?product_id=17356&route=product%2Fproduct" }
-    ]
-  },
   "hingeGlass": {
     "name": "Петля для стеклянной двери (отверстие Ø26)",
     "unit": "шт",
@@ -1300,6 +1245,105 @@
     "sourceUrl": "https://mobilier.md/ru/mebelnaya-furnitura/licevaya-furnitura/mebelnye-nozhki-i-kolesnye-opory-roliki/nm-dak27-100-10-nozhka-mebelnaya-dak-27-dak-26-h-100-s-regulirovkoy-belyy.html",
     "sourceName": "NM-DAK27-100-10 Ножка мебельная DAK-27 / DAK-26, H-100, с регулировкой, белый",
     "verifiedAt": "2026-09-24T17:35:55.812Z",
+    "sourceSiteId": "mobilierMd"
+  },
+  "pantograph": {
+    "name": "Пантограф GTV PG-ST (штанга опускающаяся, 8 кг)",
+    "unit": "шт",
+    "image": "https://mobilier.md/image/cache/catalog/products/17352/317d42815bfc5e15ae971a46121b4e32-1200x800.png",
+    "price": 751,
+    "article": "PG-ST6083-60",
+    "drawing": "assets/drawings/gtv-pantograf-pg-st.png",
+    "options": [
+      {
+        "color": "белый",
+        "price": 749,
+        "length": "545–700",
+        "article": "PG-ST4560-10A",
+        "lengthMax": 700,
+        "lengthMin": 545,
+        "sourceUrl": "https://mobilier.md/index.php?product_id=17346&route=product%2Fproduct"
+      },
+      {
+        "color": "хром/чёрный",
+        "price": 686,
+        "length": "545–700",
+        "article": "PG-ST4560-20",
+        "lengthMax": 700,
+        "lengthMin": 545,
+        "sourceUrl": "https://mobilier.md/index.php?product_id=17347&route=product%2Fproduct"
+      },
+      {
+        "color": "антрацит",
+        "price": 751,
+        "length": "545–700",
+        "article": "PG-ST4560-60",
+        "lengthMax": 700,
+        "lengthMin": 545,
+        "sourceUrl": "https://mobilier.md/index.php?product_id=17348&route=product%2Fproduct"
+      },
+      {
+        "color": "белый",
+        "price": 749,
+        "length": "645–910",
+        "article": "PG-ST6083-10A",
+        "lengthMax": 910,
+        "lengthMin": 645,
+        "sourceUrl": "https://mobilier.md/index.php?product_id=17350&route=product%2Fproduct"
+      },
+      {
+        "color": "хром/чёрный",
+        "price": 686,
+        "length": "645–910",
+        "article": "PG-ST6083-20",
+        "lengthMax": 910,
+        "lengthMin": 645,
+        "sourceUrl": "https://mobilier.md/index.php?product_id=17351&route=product%2Fproduct"
+      },
+      {
+        "color": "антрацит",
+        "price": 751,
+        "length": "645–910",
+        "article": "PG-ST6083-60",
+        "lengthMax": 910,
+        "lengthMin": 645,
+        "sourceUrl": "https://mobilier.md/index.php?product_id=17352&route=product%2Fproduct"
+      },
+      {
+        "color": "белый",
+        "price": 749,
+        "length": "875–1200",
+        "article": "PG-ST83115-10A",
+        "lengthMax": 1200,
+        "lengthMin": 875,
+        "sourceUrl": "https://mobilier.md/index.php?product_id=17354&route=product%2Fproduct"
+      },
+      {
+        "color": "хром/чёрный",
+        "price": 686,
+        "length": "875–1200",
+        "article": "PG-ST8311520",
+        "lengthMax": 1200,
+        "lengthMin": 875,
+        "sourceUrl": "https://mobilier.md/index.php?product_id=17355&route=product%2Fproduct"
+      },
+      {
+        "color": "антрацит",
+        "price": 751,
+        "length": "875–1200",
+        "article": "PG-ST83115-60",
+        "lengthMax": 1200,
+        "lengthMin": 875,
+        "sourceUrl": "https://mobilier.md/index.php?product_id=17356&route=product%2Fproduct"
+      }
+    ],
+    "category": "rod",
+    "selColor": "антрацит",
+    "selLength": "645–910",
+    "sourceUrl": "https://mobilier.md/index.php?product_id=17352&route=product%2Fproduct",
+    "sourceName": "PG-ST6083-60 Pantograf cu ridicator cu ulei, 645-910mm, 8 kg, antracit",
+    "verifiedAt": "2026-10-06T00:00:00.000Z",
+    "drawingFull": "assets/drawings/gtv-pantograf-pg-st-big.png",
     "sourceSiteId": "mobilierMd"
   },
   "plinthClip": {
@@ -1390,7 +1434,44 @@
     "price": 1174,
     "article": "750M500",
     "drawing": "assets/drawings/blum-legrabox-pure.png",
+    "options": [
+      {
+        "color": "Белый",
+        "price": 1174,
+        "height": "M",
+        "length": 500,
+        "article": "750M500",
+        "sourceUrl": "https://tehmob.md/15559-legrabox-500mm-m-belyjgrafit.html"
+      },
+      {
+        "color": "Графит",
+        "price": 1174,
+        "height": "M",
+        "length": 500,
+        "article": "750M500",
+        "sourceUrl": "https://tehmob.md/15559-legrabox-500mm-m-belyjgrafit.html"
+      },
+      {
+        "color": "Белый",
+        "price": 1593,
+        "height": "C",
+        "length": 500,
+        "article": "750C500",
+        "sourceUrl": "https://tehmob.md/15562-legrabox-500mm-c-belyjgrafit.html"
+      },
+      {
+        "color": "Графит",
+        "price": 1593,
+        "height": "C",
+        "length": 500,
+        "article": "750C500",
+        "sourceUrl": "https://tehmob.md/15562-legrabox-500mm-c-belyjgrafit.html"
+      }
+    ],
     "category": "runner",
+    "selColor": "Белый",
+    "selHeight": "M",
+    "selLength": 500,
     "sourceUrl": "https://tehmob.md/15559-legrabox-500mm-m-belyjgrafit.html",
     "sourceName": "Legrabox 500mm C (Белый,Графит)",
     "verifiedAt": "2026-10-02T09:30:00.000Z",
@@ -1400,25 +1481,165 @@
       "Blum"
     ],
     "sourceSiteId": "tehmobMd",
-    "sourceArticle": "750C500",
-    "selLength": 500,
-    "selHeight": "M",
-    "selColor": "Белый",
-    "options": [
-      {"length":500,"height":"M","color":"Белый","price":1174,"article":"750M500","sourceUrl":"https://tehmob.md/15559-legrabox-500mm-m-belyjgrafit.html"},
-      {"length":500,"height":"M","color":"Графит","price":1174,"article":"750M500","sourceUrl":"https://tehmob.md/15559-legrabox-500mm-m-belyjgrafit.html"},
-      {"length":500,"height":"C","color":"Белый","price":1593,"article":"750C500","sourceUrl":"https://tehmob.md/15562-legrabox-500mm-c-belyjgrafit.html"},
-      {"length":500,"height":"C","color":"Графит","price":1593,"article":"750C500","sourceUrl":"https://tehmob.md/15562-legrabox-500mm-c-belyjgrafit.html"}
-    ]
+    "sourceArticle": "750C500"
   },
   "drawerHettichAtira": {
     "name": "Hettich InnoTech Atira — комплект ящика (NL × высота × цвет)",
     "unit": "компл.",
     "image": "https://dask-centru.md/image/cache/catalog/dask/products/96356_1-1200x800.jpg",
-    "price": 740,
+    "price": 950,
     "article": "",
     "drawing": "assets/drawings/hettich-innotech-atira-h144.png",
+    "options": [
+      {
+        "color": "Антрацит",
+        "price": 740,
+        "height": "70",
+        "length": 420,
+        "article": "",
+        "sourceUrl": "https://dask-centru.md/index.php?route=product/product&product_id=96362"
+      },
+      {
+        "color": "Белый",
+        "price": 740,
+        "height": "70",
+        "length": 420,
+        "article": "",
+        "sourceUrl": "https://dask-centru.md/index.php?route=product/product&product_id=96363"
+      },
+      {
+        "color": "Серый",
+        "price": 740,
+        "height": "70",
+        "length": 420,
+        "article": "",
+        "sourceUrl": "https://dask-centru.md/index.php?route=product/product&product_id=96364"
+      },
+      {
+        "color": "Антрацит",
+        "price": 900,
+        "height": "144",
+        "length": 420,
+        "article": "",
+        "sourceUrl": "https://dask-centru.md/index.php?route=product/product&product_id=96356"
+      },
+      {
+        "color": "Белый",
+        "price": 900,
+        "height": "144",
+        "length": 420,
+        "article": "",
+        "sourceUrl": "https://dask-centru.md/index.php?route=product/product&product_id=96357"
+      },
+      {
+        "color": "Серый",
+        "price": 900,
+        "height": "144",
+        "length": 420,
+        "article": "",
+        "sourceUrl": "https://dask-centru.md/index.php?route=product/product&product_id=96358"
+      },
+      {
+        "color": "Антрацит",
+        "price": 930,
+        "height": "176",
+        "length": 420,
+        "article": "",
+        "sourceUrl": "https://dask-centru.md/index.php?route=product/product&product_id=96359"
+      },
+      {
+        "color": "Белый",
+        "price": 930,
+        "height": "176",
+        "length": 420,
+        "article": "",
+        "sourceUrl": "https://dask-centru.md/index.php?route=product/product&product_id=96360"
+      },
+      {
+        "color": "Серый",
+        "price": 930,
+        "height": "176",
+        "length": 420,
+        "article": "",
+        "sourceUrl": "https://dask-centru.md/index.php?route=product/product&product_id=96361"
+      },
+      {
+        "color": "Антрацит",
+        "price": 758,
+        "height": "70",
+        "length": 470,
+        "article": "",
+        "sourceUrl": "https://dask-centru.md/index.php?route=product/product&product_id=96371"
+      },
+      {
+        "color": "Белый",
+        "price": 758,
+        "height": "70",
+        "length": 470,
+        "article": "",
+        "sourceUrl": "https://dask-centru.md/index.php?route=product/product&product_id=96372"
+      },
+      {
+        "color": "Серый",
+        "price": 758,
+        "height": "70",
+        "length": 470,
+        "article": "",
+        "sourceUrl": "https://dask-centru.md/index.php?route=product/product&product_id=96373"
+      },
+      {
+        "color": "Антрацит",
+        "price": 925,
+        "height": "144",
+        "length": 470,
+        "article": "",
+        "sourceUrl": "https://dask-centru.md/index.php?route=product/product&product_id=96365"
+      },
+      {
+        "color": "Белый",
+        "price": 925,
+        "height": "144",
+        "length": 470,
+        "article": "",
+        "sourceUrl": "https://dask-centru.md/index.php?route=product/product&product_id=96366"
+      },
+      {
+        "color": "Серый",
+        "price": 925,
+        "height": "144",
+        "length": 470,
+        "article": "",
+        "sourceUrl": "https://dask-centru.md/index.php?route=product/product&product_id=96367"
+      },
+      {
+        "color": "Антрацит",
+        "price": 950,
+        "height": "176",
+        "length": 470,
+        "article": "",
+        "sourceUrl": "https://dask-centru.md/index.php?route=product/product&product_id=96368"
+      },
+      {
+        "color": "Белый",
+        "price": 950,
+        "height": "176",
+        "length": 470,
+        "article": "",
+        "sourceUrl": "https://dask-centru.md/index.php?route=product/product&product_id=96369"
+      },
+      {
+        "color": "Серый",
+        "price": 950,
+        "height": "176",
+        "length": 470,
+        "article": "",
+        "sourceUrl": "https://dask-centru.md/index.php?route=product/product&product_id=96370"
+      }
+    ],
     "category": "runner",
+    "selColor": "Серый",
+    "selHeight": "176",
+    "selLength": 470,
     "sourceUrl": "https://dask-centru.md/index.php?route=product/product&product_id=96362",
     "sourceName": "Комплект для ящиков ATIRA, полного выдвижения L=420 мм H=144 мм, антрацит Hettich",
     "verifiedAt": "2026-10-02T09:30:00.000Z",
@@ -1427,30 +1648,7 @@
     "categoryPath": [
       "Hettich"
     ],
-    "sourceSiteId": "daskCentruMd",
-    "selLength": 420,
-    "selHeight": "70",
-    "selColor": "Антрацит",
-    "options": [
-      {"length":420,"height":"70","color":"Антрацит","price":740,"article":"","sourceUrl":"https://dask-centru.md/index.php?route=product/product&product_id=96362"},
-      {"length":420,"height":"70","color":"Белый","price":740,"article":"","sourceUrl":"https://dask-centru.md/index.php?route=product/product&product_id=96363"},
-      {"length":420,"height":"70","color":"Серый","price":740,"article":"","sourceUrl":"https://dask-centru.md/index.php?route=product/product&product_id=96364"},
-      {"length":420,"height":"144","color":"Антрацит","price":900,"article":"","sourceUrl":"https://dask-centru.md/index.php?route=product/product&product_id=96356"},
-      {"length":420,"height":"144","color":"Белый","price":900,"article":"","sourceUrl":"https://dask-centru.md/index.php?route=product/product&product_id=96357"},
-      {"length":420,"height":"144","color":"Серый","price":900,"article":"","sourceUrl":"https://dask-centru.md/index.php?route=product/product&product_id=96358"},
-      {"length":420,"height":"176","color":"Антрацит","price":930,"article":"","sourceUrl":"https://dask-centru.md/index.php?route=product/product&product_id=96359"},
-      {"length":420,"height":"176","color":"Белый","price":930,"article":"","sourceUrl":"https://dask-centru.md/index.php?route=product/product&product_id=96360"},
-      {"length":420,"height":"176","color":"Серый","price":930,"article":"","sourceUrl":"https://dask-centru.md/index.php?route=product/product&product_id=96361"},
-      {"length":470,"height":"70","color":"Антрацит","price":758,"article":"","sourceUrl":"https://dask-centru.md/index.php?route=product/product&product_id=96371"},
-      {"length":470,"height":"70","color":"Белый","price":758,"article":"","sourceUrl":"https://dask-centru.md/index.php?route=product/product&product_id=96372"},
-      {"length":470,"height":"70","color":"Серый","price":758,"article":"","sourceUrl":"https://dask-centru.md/index.php?route=product/product&product_id=96373"},
-      {"length":470,"height":"144","color":"Антрацит","price":925,"article":"","sourceUrl":"https://dask-centru.md/index.php?route=product/product&product_id=96365"},
-      {"length":470,"height":"144","color":"Белый","price":925,"article":"","sourceUrl":"https://dask-centru.md/index.php?route=product/product&product_id=96366"},
-      {"length":470,"height":"144","color":"Серый","price":925,"article":"","sourceUrl":"https://dask-centru.md/index.php?route=product/product&product_id=96367"},
-      {"length":470,"height":"176","color":"Антрацит","price":950,"article":"","sourceUrl":"https://dask-centru.md/index.php?route=product/product&product_id=96368"},
-      {"length":470,"height":"176","color":"Белый","price":950,"article":"","sourceUrl":"https://dask-centru.md/index.php?route=product/product&product_id=96369"},
-      {"length":470,"height":"176","color":"Серый","price":950,"article":"","sourceUrl":"https://dask-centru.md/index.php?route=product/product&product_id=96370"}
-    ]
+    "sourceSiteId": "daskCentruMd"
   },
   "countertopCornerTie": {
     "name": "Угловая стяжка для столешницы Egger 38 (LMB-KAT38-20M)",
@@ -1468,10 +1666,63 @@
     "name": "Blum TANDEMBOX antaro — комплект ящика (NL × высота × цвет)",
     "unit": "компл.",
     "image": "https://dask-centru.md/image/cache/catalog/dask/products/96821_1-1200x800.jpg",
-    "price": 837,
+    "price": 1027,
     "article": "",
     "drawing": "assets/drawings/blum-tandembox-antaro-m.png",
+    "options": [
+      {
+        "color": "Белый",
+        "price": 837,
+        "height": "M",
+        "length": 450,
+        "article": "",
+        "sourceUrl": "https://dask-centru.md/index.php?route=product/product&product_id=96820"
+      },
+      {
+        "color": "Белый",
+        "price": 1027,
+        "height": "C",
+        "length": 450,
+        "article": "",
+        "sourceUrl": "https://dask-centru.md/index.php?route=product/product&product_id=96822"
+      },
+      {
+        "color": "Белый",
+        "price": 1027,
+        "height": "D",
+        "length": 450,
+        "article": "",
+        "sourceUrl": "https://dask-centru.md/index.php?route=product/product&product_id=96824"
+      },
+      {
+        "color": "Белый",
+        "price": 837,
+        "height": "M",
+        "length": 500,
+        "article": "",
+        "sourceUrl": "https://dask-centru.md/index.php?route=product/product&product_id=96821"
+      },
+      {
+        "color": "Белый",
+        "price": 1027,
+        "height": "C",
+        "length": 500,
+        "article": "",
+        "sourceUrl": "https://dask-centru.md/index.php?route=product/product&product_id=96823"
+      },
+      {
+        "color": "Белый",
+        "price": 1027,
+        "height": "D",
+        "length": 500,
+        "article": "",
+        "sourceUrl": "https://dask-centru.md/index.php?route=product/product&product_id=96825"
+      }
+    ],
     "category": "runner",
+    "selColor": "Белый",
+    "selHeight": "C",
+    "selLength": 450,
     "sourceUrl": "https://dask-centru.md/index.php?route=product/product&product_id=96820",
     "sourceName": "TANDEMBOX 500M, Белый, 30 кг",
     "verifiedAt": "2026-10-02T09:30:00.000Z",
@@ -1480,27 +1731,62 @@
     "categoryPath": [
       "Blum"
     ],
-    "sourceSiteId": "daskCentruMd",
-    "selLength": 450,
-    "selHeight": "M",
-    "selColor": "Белый",
-    "options": [
-      {"length":450,"height":"M","color":"Белый","price":837,"article":"","sourceUrl":"https://dask-centru.md/index.php?route=product/product&product_id=96820"},
-      {"length":450,"height":"C","color":"Белый","price":1027,"article":"","sourceUrl":"https://dask-centru.md/index.php?route=product/product&product_id=96822"},
-      {"length":450,"height":"D","color":"Белый","price":1027,"article":"","sourceUrl":"https://dask-centru.md/index.php?route=product/product&product_id=96824"},
-      {"length":500,"height":"M","color":"Белый","price":837,"article":"","sourceUrl":"https://dask-centru.md/index.php?route=product/product&product_id=96821"},
-      {"length":500,"height":"C","color":"Белый","price":1027,"article":"","sourceUrl":"https://dask-centru.md/index.php?route=product/product&product_id=96823"},
-      {"length":500,"height":"D","color":"Белый","price":1027,"article":"","sourceUrl":"https://dask-centru.md/index.php?route=product/product&product_id=96825"}
-    ]
+    "sourceSiteId": "daskCentruMd"
   },
   "drawerHettichQuadro": {
-    "name": "Hettich Quadro V6 Silent System EB20 — направляющие (пара), под ЛДСП 16 мм, насадной монтаж (цена по аналогу «18 мм»)",
+    "name": "Направляющая Quadro V6 Silent System L=500 мм L+P Hettich — под ЛДСП 16 мм, насадной монтаж (цена по аналогу «18 мм»)",
     "unit": "компл.",
     "image": "https://dask-centru.md/image/cache/catalog/dask/products/96309_1-1200x800.jpg",
     "price": 600,
     "article": "",
     "drawing": "assets/drawings/hettich-quadro-v6-eb20-plug-on.png",
+    "options": [
+      {
+        "color": "Оцинкованный",
+        "price": 600,
+        "length": 250,
+        "article": "",
+        "sourceUrl": "https://dask-centru.md/index.php?route=product/product&product_id=96304"
+      },
+      {
+        "color": "Оцинкованный",
+        "price": 606,
+        "length": 300,
+        "article": "",
+        "sourceUrl": "https://dask-centru.md/index.php?route=product/product&product_id=96305"
+      },
+      {
+        "color": "Оцинкованный",
+        "price": 616,
+        "length": 350,
+        "article": "",
+        "sourceUrl": "https://dask-centru.md/index.php?route=product/product&product_id=96306"
+      },
+      {
+        "color": "Оцинкованный",
+        "price": 630,
+        "length": 400,
+        "article": "",
+        "sourceUrl": "https://dask-centru.md/index.php?route=product/product&product_id=96307"
+      },
+      {
+        "color": "Оцинкованный",
+        "price": 640,
+        "length": 450,
+        "article": "",
+        "sourceUrl": "https://dask-centru.md/index.php?route=product/product&product_id=96308"
+      },
+      {
+        "color": "Оцинкованный",
+        "price": 652,
+        "length": 500,
+        "article": "",
+        "sourceUrl": "https://dask-centru.md/index.php?route=product/product&product_id=96309"
+      }
+    ],
     "category": "runner",
+    "selColor": "Оцинкованный",
+    "selLength": 250,
     "sourceUrl": "https://dask-centru.md/index.php?route=product/product&product_id=96304",
     "sourceName": "Направляющая Quadro V6. 18 мм Silent System L=500 мм полного выдв.L+P Hettich (9225731+9225732)",
     "verifiedAt": "2026-10-02T09:30:00.000Z",
@@ -1509,17 +1795,7 @@
     "categoryPath": [
       "Hettich"
     ],
-    "sourceSiteId": "daskCentruMd",
-    "selLength": 250,
-    "selColor": "Оцинкованный",
-    "options": [
-      {"length":250,"color":"Оцинкованный","price":600,"article":"","sourceUrl":"https://dask-centru.md/index.php?route=product/product&product_id=96304"},
-      {"length":300,"color":"Оцинкованный","price":606,"article":"","sourceUrl":"https://dask-centru.md/index.php?route=product/product&product_id=96305"},
-      {"length":350,"color":"Оцинкованный","price":616,"article":"","sourceUrl":"https://dask-centru.md/index.php?route=product/product&product_id=96306"},
-      {"length":400,"color":"Оцинкованный","price":630,"article":"","sourceUrl":"https://dask-centru.md/index.php?route=product/product&product_id=96307"},
-      {"length":450,"color":"Оцинкованный","price":640,"article":"","sourceUrl":"https://dask-centru.md/index.php?route=product/product&product_id=96308"},
-      {"length":500,"color":"Оцинкованный","price":652,"article":"","sourceUrl":"https://dask-centru.md/index.php?route=product/product&product_id=96309"}
-    ]
+    "sourceSiteId": "daskCentruMd"
   },
   "countertopStraightTie": {
     "name": "Стяжка для прямого стыка столешницы (эксцентрик Ø20)",
@@ -1536,13 +1812,59 @@
     "category": "countertop"
   },
   "drawerHettichQuadroSlide": {
-    "name": "Hettich Quadro V6 Silent System EB20 — направляющие (пара), под ЛДСП 16 мм, надвижной монтаж (цена по аналогу «18 мм»)",
+    "name": "Направляющая Quadro V6 Silent System L=500 мм L+P Hettich — под ЛДСП 16 мм, надвижной монтаж (цена по аналогу «18 мм»)",
     "unit": "компл.",
     "image": "https://dask-centru.md/image/cache/catalog/dask/products/96309_1-1200x800.jpg",
     "price": 600,
     "article": "",
     "drawing": "assets/drawings/hettich-quadro-v6-eb20-slide-on.png",
+    "options": [
+      {
+        "color": "Оцинкованный",
+        "price": 600,
+        "length": 250,
+        "article": "",
+        "sourceUrl": "https://dask-centru.md/index.php?route=product/product&product_id=96304"
+      },
+      {
+        "color": "Оцинкованный",
+        "price": 606,
+        "length": 300,
+        "article": "",
+        "sourceUrl": "https://dask-centru.md/index.php?route=product/product&product_id=96305"
+      },
+      {
+        "color": "Оцинкованный",
+        "price": 616,
+        "length": 350,
+        "article": "",
+        "sourceUrl": "https://dask-centru.md/index.php?route=product/product&product_id=96306"
+      },
+      {
+        "color": "Оцинкованный",
+        "price": 630,
+        "length": 400,
+        "article": "",
+        "sourceUrl": "https://dask-centru.md/index.php?route=product/product&product_id=96307"
+      },
+      {
+        "color": "Оцинкованный",
+        "price": 640,
+        "length": 450,
+        "article": "",
+        "sourceUrl": "https://dask-centru.md/index.php?route=product/product&product_id=96308"
+      },
+      {
+        "color": "Оцинкованный",
+        "price": 652,
+        "length": 500,
+        "article": "",
+        "sourceUrl": "https://dask-centru.md/index.php?route=product/product&product_id=96309"
+      }
+    ],
     "category": "runner",
+    "selColor": "Оцинкованный",
+    "selLength": 250,
     "sourceUrl": "https://dask-centru.md/index.php?route=product/product&product_id=96304",
     "sourceName": "Направляющая Quadro V6. 18 мм Silent System L=500 мм полного выдв.L+P Hettich (9225731+9225732)",
     "verifiedAt": "2026-10-02T09:30:00.000Z",
@@ -1551,17 +1873,7 @@
     "categoryPath": [
       "Hettich"
     ],
-    "sourceSiteId": "daskCentruMd",
-    "selLength": 250,
-    "selColor": "Оцинкованный",
-    "options": [
-      {"length":250,"color":"Оцинкованный","price":600,"article":"","sourceUrl":"https://dask-centru.md/index.php?route=product/product&product_id=96304"},
-      {"length":300,"color":"Оцинкованный","price":606,"article":"","sourceUrl":"https://dask-centru.md/index.php?route=product/product&product_id=96305"},
-      {"length":350,"color":"Оцинкованный","price":616,"article":"","sourceUrl":"https://dask-centru.md/index.php?route=product/product&product_id=96306"},
-      {"length":400,"color":"Оцинкованный","price":630,"article":"","sourceUrl":"https://dask-centru.md/index.php?route=product/product&product_id=96307"},
-      {"length":450,"color":"Оцинкованный","price":640,"article":"","sourceUrl":"https://dask-centru.md/index.php?route=product/product&product_id=96308"},
-      {"length":500,"color":"Оцинкованный","price":652,"article":"","sourceUrl":"https://dask-centru.md/index.php?route=product/product&product_id=96309"}
-    ]
+    "sourceSiteId": "daskCentruMd"
   },
   "link_hinge_1790325382612": {
     "name": "Петля внутренняя Clip Top Blumotion Blum",
@@ -1603,7 +1915,53 @@
     "price": 600,
     "article": "9292827+9292828",
     "drawing": "assets/drawings/hettich-quadro-v6-eb23-slide-on.png",
+    "options": [
+      {
+        "color": "Оцинкованный",
+        "price": 600,
+        "length": 250,
+        "article": "9292827+9292828",
+        "sourceUrl": "https://dask-centru.md/index.php?route=product/product&product_id=96304"
+      },
+      {
+        "color": "Оцинкованный",
+        "price": 606,
+        "length": 300,
+        "article": "9225673+9225674",
+        "sourceUrl": "https://dask-centru.md/index.php?route=product/product&product_id=96305"
+      },
+      {
+        "color": "Оцинкованный",
+        "price": 616,
+        "length": 350,
+        "article": "9225675+9225676",
+        "sourceUrl": "https://dask-centru.md/index.php?route=product/product&product_id=96306"
+      },
+      {
+        "color": "Оцинкованный",
+        "price": 630,
+        "length": 400,
+        "article": "9225677+9225678",
+        "sourceUrl": "https://dask-centru.md/index.php?route=product/product&product_id=96307"
+      },
+      {
+        "color": "Оцинкованный",
+        "price": 640,
+        "length": 450,
+        "article": "9225729+9225730",
+        "sourceUrl": "https://dask-centru.md/index.php?route=product/product&product_id=96308"
+      },
+      {
+        "color": "Оцинкованный",
+        "price": 652,
+        "length": 500,
+        "article": "9225731+9225732",
+        "sourceUrl": "https://dask-centru.md/index.php?route=product/product&product_id=96309"
+      }
+    ],
     "category": "runner",
+    "selColor": "Оцинкованный",
+    "selLength": 250,
     "sourceUrl": "https://dask-centru.md/index.php?route=product/product&product_id=96304",
     "sourceName": "Направляющая Quadro V6. 18 мм Silent System L=500 мм полного выдв.L+P Hettich (9225731+9225732)",
     "verifiedAt": "2026-10-02T09:30:00.000Z",
@@ -1612,17 +1970,7 @@
     "categoryPath": [
       "Hettich"
     ],
-    "sourceSiteId": "daskCentruMd",
-    "selLength": 250,
-    "selColor": "Оцинкованный",
-    "options": [
-      {"length":250,"color":"Оцинкованный","price":600,"article":"9292827+9292828","sourceUrl":"https://dask-centru.md/index.php?route=product/product&product_id=96304"},
-      {"length":300,"color":"Оцинкованный","price":606,"article":"9225673+9225674","sourceUrl":"https://dask-centru.md/index.php?route=product/product&product_id=96305"},
-      {"length":350,"color":"Оцинкованный","price":616,"article":"9225675+9225676","sourceUrl":"https://dask-centru.md/index.php?route=product/product&product_id=96306"},
-      {"length":400,"color":"Оцинкованный","price":630,"article":"9225677+9225678","sourceUrl":"https://dask-centru.md/index.php?route=product/product&product_id=96307"},
-      {"length":450,"color":"Оцинкованный","price":640,"article":"9225729+9225730","sourceUrl":"https://dask-centru.md/index.php?route=product/product&product_id=96308"},
-      {"length":500,"color":"Оцинкованный","price":652,"article":"9225731+9225732","sourceUrl":"https://dask-centru.md/index.php?route=product/product&product_id=96309"}
-    ]
+    "sourceSiteId": "daskCentruMd"
   }
 };
 

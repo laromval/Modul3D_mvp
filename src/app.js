@@ -798,7 +798,7 @@ const state = {
   },
   {
     "id": "modplace-1791188112702-mizp28",
-    "name": "Пенал 2400*600*520",
+    "name": "Пенал 2400*600*520 четыре полки",
     "group": "kitchen",
     "params": {
       "uid": "mmuuz4ft5i6qq0h",
