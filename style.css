@@ -3012,3 +3012,13 @@ input.calc-error { outline: 2px solid #d33; outline-offset: -1px; }
 @media (max-width: 480px) {
   .brand .ver { display: none; }
 }
+
+/* ---------- Меню «⋯» (сохранить / открыть / обновить) на планшете и телефоне ---------- */
+.more-wrap { position: relative; display: none; }
+.more-wrap .icon-btn svg { width: 18px; height: 18px; }
+.more-wrap .popover { position: absolute; right: 0; top: calc(100% + 8px); width: 240px; z-index: 55; padding: var(--sp-2); }
+.more-popover { flex-direction: column; gap: 2px; }
+.more-popover .ctx-item { width: 100%; text-align: left; padding: 12px 12px; font-size: var(--fs-md); }
+@media (max-width: 820px) {
+  .more-wrap { display: inline-flex; }
+}

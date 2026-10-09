@@ -2729,6 +2729,47 @@ function initCalcFields() {
 }
 
 /* ---------------------------------------------------------------------------
+   Меню «⋯» в шапке (планшет/телефон): Сохранить / Открыть / Обновить страницу.
+   Кнопки «Сохранить» и «Открыть» в шапке на ≤820 px скрыты стилем, поэтому
+   пункты меню просто нажимают их же (#saveProjectBtn/#openProjectBtn) —
+   логика сохранения и открытия остаётся в app.js в одном экземпляре.
+--------------------------------------------------------------------------- */
+function initMoreMenu() {
+  var btn = document.getElementById('moreMenuBtn');
+  var pop = document.getElementById('moreMenuPopover');
+  if (!btn || !pop) return;
+  function close() { pop.style.display = 'none'; btn.setAttribute('aria-expanded', 'false'); }
+  btn.addEventListener('click', function (e) {
+    e.stopPropagation();
+    var willOpen = pop.style.display === 'none';
+    pop.style.display = willOpen ? 'flex' : 'none';
+    btn.setAttribute('aria-expanded', willOpen ? 'true' : 'false');
+  });
+  pop.addEventListener('click', function (e) {
+    e.stopPropagation();
+    var item = e.target.closest ? e.target.closest('[data-more]') : null;
+    if (!item) return;
+    var act = item.getAttribute('data-more');
+    close();
+    if (act === 'save') {
+      var s = document.getElementById('saveProjectBtn');
+      if (s) s.click();
+    } else if (act === 'open') {
+      var o = document.getElementById('openProjectBtn');
+      if (o) o.click();
+    } else if (act === 'reload') {
+      if (window.confirm('Обновить страницу? Несохранённые изменения проекта пропадут — сначала сохраните проект.')) {
+        window.location.reload();
+      }
+    }
+  });
+  document.addEventListener('click', function (e) {
+    if (pop.style.display !== 'none' && !pop.contains(e.target) && e.target !== btn) close();
+  });
+  document.addEventListener('keydown', function (e) { if (e.key === 'Escape') close(); });
+}
+
+/* ---------------------------------------------------------------------------
    Старт (вызывается из index.html после app.js)
 --------------------------------------------------------------------------- */
 function start() {
@@ -2736,6 +2777,7 @@ function start() {
   initCalcFields();
   initTouchScheme();
   initCurrency();
+  initMoreMenu();
   initMarkupFont();
   initDrawers();
   initRail();

@@ -74,6 +74,23 @@
               data-tip="Удалить активный модуль" aria-label="Удалить модуль" disabled>✕</button>
     </div>
 
+    <!-- «⋯» — меню действий с проектом для планшета/телефона (≤820 px): там
+         кнопки «Сохранить»/«Открыть» в шапке скрыты. Пункты нажимают те же
+         #saveProjectBtn/#openProjectBtn, обработчики не дублируются
+         (см. ui-shell.js: initMoreMenu). На десктопе кнопка скрыта. -->
+    <div class="more-wrap" id="moreWrap">
+      <button id="moreMenuBtn" class="icon-btn tip tip-down" type="button" data-tip="Меню" aria-label="Меню проекта" aria-haspopup="true" aria-expanded="false">
+        <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+          <circle cx="5" cy="12" r="1.9"/><circle cx="12" cy="12" r="1.9"/><circle cx="19" cy="12" r="1.9"/>
+        </svg>
+      </button>
+      <div id="moreMenuPopover" class="popover more-popover" style="display:none" role="menu">
+        <button type="button" class="ctx-item" data-more="save" role="menuitem">↓ Сохранить проект</button>
+        <button type="button" class="ctx-item" data-more="open" role="menuitem">↑ Открыть проект</button>
+        <button type="button" class="ctx-item" data-more="reload" role="menuitem">⟳ Обновить страницу</button>
+      </div>
+    </div>
+
     <!-- Настройки: валюта проекта (свёрнуто по умолчанию), тема, горячие
          клавиши — общая кнопка-шестерёнка (см. ui-shell.js: initCurrency,
          renderCurrencyOptions, initTheme). -->
