@@ -2595,7 +2595,6 @@ body.is-focus .scrim { opacity: 0 !important; }
      здесь отключаем, чтобы не отличаться от остальных панелей */
   #drawer-library.lib-wide { width: 100%; max-width: 100%; }
 
-  .brand .ver { display: none; }
   /* Скрываем только Сохранить/Открыть (текстовые кнопки, не помещаются) —
      #historyBtns (Отменить/Вернуть/Удалить, компактные icon-btn) остаются
      видимыми, иначе на мобильном пропадает доступ к undo/redo/удалению. */
@@ -3007,3 +3006,9 @@ input.calc-error { outline: 2px solid #d33; outline-offset: -1px; }
   border: 1px solid var(--danger); border-left-width: 3px; border-radius: var(--r-md);
 }
 .drawers-add-warn-btns { display: flex; flex-direction: column; gap: 4px; margin-top: 6px; }
+
+/* Номер версии виден на планшете (по нему проверяют, обновилась ли страница);
+   прячем только на узких телефонах, где шапке не хватает места. */
+@media (max-width: 480px) {
+  .brand .ver { display: none; }
+}
