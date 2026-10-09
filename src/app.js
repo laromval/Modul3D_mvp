@@ -14,7 +14,7 @@
 (function () {
 // Версия сборки — показывается во вкладке браузера и в шапке.
 // При выпуске новой версии меняется только эта строка.
-const APP_VERSION = 'v421';
+const APP_VERSION = 'v422';
 
 // Номер версии выводим ПЕРВЫМ делом: если дальше что-то упадёт, по нему сразу
 // видно, какая сборка открыта.
@@ -2750,18 +2750,87 @@ function libModSaveModule(mod) {
 // карточки — «Сохранить» сразу следом доступно и пишет уже в неё.
 function libModSaveModuleAs(mod) {
   if (!requireLibraryEditAuth()) return;
-  const target = libModActiveCategoryTarget() || libModOriginTarget(mod) || libModDefaultTarget(mod);
+  const defTarget = libModActiveCategoryTarget() || libModOriginTarget(mod) || libModDefaultTarget(mod);
   const raw = window.prompt('Название модуля в «Базе модулей»:', mod.name || 'Модуль');
   if (raw == null) return;
   const name = String(raw).trim() || (mod.name || 'Модуль');
-  const newId = libModNewPlacementId();
-  state.libModPlacements.push({
-    id: newId, group: target.group, categoryPath: target.categoryPath.slice(),
-    name, params: libModCloneModuleParams(mod), materialSnapshot: libModMaterialSnapshotOf(),
+  // Снимок параметров и материалов — ДО открытия меню выбора категории.
+  const params = libModCloneModuleParams(mod);
+  const materialSnapshot = libModMaterialSnapshotOf();
+  libModChooseSaveTarget(name, defTarget, (target) => {
+    const newId = libModNewPlacementId();
+    state.libModPlacements.push({
+      id: newId, group: target.group, categoryPath: target.categoryPath.slice(),
+      name, params, materialSnapshot,
+    });
+    mod.libOrigin = newId;
+    libModRevealSaved(target);
+    scheduleCatalogSave();
+    renderLibraryPanel();
   });
-  mod.libOrigin = newId;
-  scheduleCatalogSave();
-  renderLibraryPanel();
+}
+
+// Выбор категории «Базы модулей» при сохранении нового модуля/комплекта.
+// Раньше категория определялась молча (см. libModActiveCategoryTarget/
+// libModOriginTarget/libModDefaultTarget), и у модуля без происхождения всё
+// падало в «Кухонный модуль» — приходилось потом переносить через ⇄.
+// Теперь после ввода названия открывается тот же пикер целей, что и у ⇄
+// (openLibMoveMenu/libRowMoveTargets): любая категория или подкатегория
+// вкладки. Прежний «молчаливый» выбор (defTarget) стоит в списке первым с
+// пометкой. Клик мимо / Escape — отмена, ничего не сохраняется.
+// Меню встаёт в верхней трети экрана по центру: у вызывающих действий
+// (меню модуля в 3D, кнопка в шапке библиотеки) нет значка-якоря.
+function libModChooseSaveTarget(name, defTarget, onPick) {
+  const topCode = 'mod:' + defTarget.group;
+  // categoryPath-заглушка, которая не совпадёт ни с одним реальным путём:
+  // иначе libRowMoveTargetsIn выкинул бы корень текущей группы как «место,
+  // где позиция уже лежит» (у новой карточки такого места нет).
+  const entry = { group: 'modplace', item: { categoryPath: ['\u0000new'] } };
+  let targets = libRowMoveTargets(topCode, entry);
+  const sameAsDef = (t) => t.top === topCode
+    && (t.path || []).join('::') === (defTarget.categoryPath || []).join('::');
+  const defIdx = targets.findIndex(sameAsDef);
+  if (defIdx > 0) targets = [targets[defIdx]].concat(targets.slice(0, defIdx), targets.slice(defIdx + 1));
+  const w = window.innerWidth;
+  const h = window.innerHeight;
+  const anchor = { getBoundingClientRect: () => ({
+    left: Math.max(4, w / 2 - 140), right: w / 2 + 140,
+    top: h / 4, bottom: h / 4, width: 280, height: 0,
+  }) };
+  openLibMoveMenu(anchor, {
+    titleHtml: `Сохранить «${esc(name)}» в категорию:`,
+    targets,
+    rootLabel: 'В корень категории',
+    labelOf: (t) => libRowMoveTargetLabel('', t, 'В корень категории') + (sameAsDef(t) ? ' (по умолчанию)' : ''),
+    onPick: (t) => onPick({
+      group: String(t.top).slice(4),
+      categoryPath: (t.path || []).slice(),
+    }),
+  });
+}
+
+// Показать, КУДА легла новая карточка: фокус на её категории и раскрытая
+// цепочка родителей — иначе результат оказался бы внутри свёрнутого раздела
+// и выглядел бы как пропажа (та же логика, что в конце libMoveEntry).
+function libModRevealSaved(target) {
+  const top = 'mod:' + target.group;
+  const path = target.categoryPath || [];
+  const isLeaf = !!path.length && !libChildSegments(top, path).length;
+  if (isLeaf) {
+    state.libActiveLeaf[top] = path.join('::');
+  } else {
+    state.libActiveLeaf[top] = null;
+    state.libCatOpen[top] = true;
+    for (let i = 1; i <= path.length; i += 1) {
+      state.libCollapsed[libNodeKey(top, path.slice(0, i))] = false;
+    }
+  }
+  state.libCatOpen[top] = true;
+  let parentCode = libTopParentOf(libTabOfTopCode(top), top);
+  while (parentCode) {
+    state.libCatOpen[parentCode] = true;
+    parentCode = libTopParentOf(libTabOfTopCode(top), parentCode);
+  }
 }
 
 // «Добавить модуль» в шапке «Базы модулей» (см. libraryBlock) — сохраняет
@@ -2785,7 +2854,7 @@ function libModSaveProjectAsKit() {
   if (raw == null) return;
   const name = String(raw).trim();
   if (!name) { window.alert('Введите название комплекта.'); return; }
-  const target = libModActiveCategoryTarget() || libModDefaultTarget(state.modules[0]);
+  const defTarget = libModActiveCategoryTarget() || libModDefaultTarget(state.modules[0]);
   const kitProject = Object.assign({}, libModThumbBase(), {
     countertopCornerJoint: state.countertopCornerJoint,
     modules: state.modules.map((m) => libModProjectModuleOf(m)),
@@ -2800,12 +2869,16 @@ function libModSaveProjectAsKit() {
       z: Math.round(((placed ? placed.offsetZ : 0) - base.offsetZ) * 10) / 10,
     };
   });
-  state.libModPlacements.push({
-    id: libModNewPlacementId(), group: target.group, categoryPath: target.categoryPath.slice(),
-    name, kit, materialSnapshot: libModMaterialSnapshotOf(),
+  const materialSnapshot = libModMaterialSnapshotOf();
+  libModChooseSaveTarget(name, defTarget, (target) => {
+    state.libModPlacements.push({
+      id: libModNewPlacementId(), group: target.group, categoryPath: target.categoryPath.slice(),
+      name, kit, materialSnapshot,
+    });
+    libModRevealSaved(target);
+    scheduleCatalogSave();
+    renderLibraryPanel();
   });
-  scheduleCatalogSave();
-  renderLibraryPanel();
 }
 
 // Удаление своей верхнеуровневой категории «Базы модулей» (× в строке
