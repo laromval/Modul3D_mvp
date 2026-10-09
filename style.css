@@ -3016,8 +3016,9 @@ input.calc-error { outline: 2px solid #d33; outline-offset: -1px; }
 /* ---------- Меню «⋮» (сохранить / открыть / обновить) на планшете и телефоне ----------
    Стоит последним в шапке, в правом углу; вертикальные точки без рамки и фона. */
 .more-wrap { position: relative; display: none; }
-.more-wrap .icon-btn svg { width: 20px; height: 20px; }
-.more-wrap .more-btn { width: 30px; border-color: transparent; background: transparent; box-shadow: none; }
+.more-wrap .icon-btn svg { width: 18px; height: 18px; }
+.more-wrap { margin-left: -6px; }
+.more-wrap .more-btn { width: 20px; padding: 0; border-color: transparent; background: transparent; box-shadow: none; }
 .more-wrap .more-btn:hover, .more-wrap .more-btn[aria-expanded='true'] { background: var(--surface-2); }
 .more-wrap .popover { position: absolute; right: 0; top: calc(100% + 8px); width: 240px; z-index: 55; padding: var(--sp-2); }
 .more-popover { flex-direction: column; gap: 2px; }
