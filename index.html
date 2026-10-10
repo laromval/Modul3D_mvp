@@ -432,6 +432,12 @@
       </svg>
     </button>
 
+    <button class="rail-btn tip" type="button" data-panel="clients" data-tip="Клиенты" aria-label="Клиенты">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="9" cy="8" r="3.2"/><path d="M3 20c0-3.3 2.7-6 6-6s6 2.7 6 6"/><path d="M16 5.2a3.2 3.2 0 0 1 0 5.6M18 14.3c1.9.9 3.2 2.9 3.2 5.2"/>
+      </svg>
+    </button>
+
     <div class="rail-sep"></div>
 
     <button class="rail-btn tip" type="button" data-panel="docs" data-tip="Документы" aria-label="Документы">
@@ -546,6 +552,22 @@
     </div>
     <div class="drawer-body">
       <div class="panel" id="countertopPanel"><!-- заполняется app.js --></div>
+    </div>
+  </aside>
+
+  <!-- ---------- Панель: Клиенты ----------
+       Личный раздел каждого пользователя: клиент → проекты → заметки
+       (сервер: routes/clients.js). Содержимое #clientsPanel рисует
+       src/clients.js. -->
+  <aside class="drawer drawer-left" id="drawer-clients" data-drawer-panel="clients" aria-hidden="true">
+    <div class="drawer-head">
+      <h2 class="drawer-title" id="clientsDrawerTitle">Клиенты</h2>
+      <button class="drawer-close" type="button" data-close aria-label="Закрыть">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
+      </button>
+    </div>
+    <div class="drawer-body">
+      <div class="panel" id="clientsPanel"><!-- заполняется clients.js --></div>
     </div>
   </aside>
 
@@ -780,6 +802,7 @@
 <script src="src/export.js?v426"></script>
 <script src="src/cnc.js?v426"></script>
 <script src="src/sketchAI.js?v426"></script>
+<script src="src/clients.js?v428"></script>
 <!-- app.js — ПОСЛЕ markup.js (см. пометку у markup.js выше): его глобальный
      keydown на Delete (удаление активного модуля) не должен получить событие
      раньше markup.js — иначе перехват Delete ручной разметкой не работает. -->
