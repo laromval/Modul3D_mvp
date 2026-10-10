@@ -27,6 +27,7 @@ const tasksRouter = require('./src/routes/tasks');
 const pushRouter = require('./src/routes/push');
 const filesRouter = require('./src/routes/files');
 const { startReminderLoop } = require('./src/services/taskReminders');
+const { ensureSchema } = require('./src/services/ensureSchema');
 
 const app = express();
 
@@ -102,6 +103,7 @@ app.use((err, req, res, next) => {
   res.status(500).json({ error: 'Внутренняя ошибка сервера.' });
 });
 
+ensureSchema(); // колонка is_avatar (миграция 011) нужна сразу — не ждём ручного `npm run migrate`
 app.listen(config.port, () => {
   console.log(`Modul3D server слушает на http://localhost:${config.port}`);
   // Раз в 30 секунд отправляет наступившие напоминания о задачах.
