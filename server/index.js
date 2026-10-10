@@ -23,6 +23,9 @@ const catalogPublishRouter = require('./src/routes/catalogPublish');
 const textureSourcesRouter = require('./src/routes/textureSources');
 const workflowRouter = require('./src/routes/workflow');
 const clientsRouter = require('./src/routes/clients');
+const tasksRouter = require('./src/routes/tasks');
+const pushRouter = require('./src/routes/push');
+const { startReminderLoop } = require('./src/services/taskReminders');
 
 const app = express();
 
@@ -74,6 +77,9 @@ app.use('/workflow', workflowRouter);
 // Личный раздел «Клиенты» каждого пользователя (клиент → проекты → заметки).
 // Не путать с /workflow — это доска разработки, доступная только владельцу.
 app.use('/clients', clientsRouter);
+// Задачи клиентов со сроком и напоминанием, подписки на push-уведомления.
+app.use('/tasks', tasksRouter);
+app.use('/push', pushRouter);
 // catalogLinksRouter монтируется БЕЗ префикса — его собственные пути уже
 // полные ("/catalog-link-sources" и т.п., см. ТЗ-ПАРСЕР-МАТЕРИАЛОВ.md).
 // express.json()/requireAuth внутри него подключены по каждому роуту
@@ -96,4 +102,6 @@ app.use((err, req, res, next) => {
 
 app.listen(config.port, () => {
   console.log(`Modul3D server слушает на http://localhost:${config.port}`);
+  // Раз в 30 секунд отправляет наступившие напоминания о задачах.
+  startReminderLoop();
 });

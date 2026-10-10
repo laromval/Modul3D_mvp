@@ -18,10 +18,13 @@ var root = document.getElementById('clientsPanel');
 var drawer = document.getElementById('drawer-clients');
 if (!root || !drawer || typeof root.setAttribute !== 'function' || !drawer.classList) return;
 
+// Расширения, которые регистрирует src/clientTasks.js (задачи и уведомления).
+var EXT = {};
+
 var STATUS_LABEL = { active: 'В работе', done: 'Готов' };
 
 var S = {
-  view: 'list',          // 'list' | 'client' | 'project'
+  view: 'list',          // 'list' | 'client' | 'project' | 'tasks' (все задачи)
   tab: 'notes',          // вкладка проекта
   clients: null,         // список клиентов (null — ещё не грузили)
   client: null,          // открытый клиент
@@ -125,6 +128,7 @@ function loadList() {
 }
 
 function openClient(id) {
+  if (EXT.reset) EXT.reset();
   S.view = 'client'; S.adding = null; S.editingNote = null; S.editingName = false; S.draft = null;
   S.client = (S.clients || []).filter(function (c) { return c.id === id; })[0] || null;
   S.projects = []; S.notes = []; S.project = null;
@@ -136,6 +140,7 @@ function openClient(id) {
 }
 
 function openProject(p) {
+  if (EXT.reset) EXT.reset();
   S.view = 'project'; S.tab = 'notes'; S.adding = null; S.editingNote = null; S.editingName = false; S.draft = null;
   S.project = p; S.notes = [];
   return guarded(async function () {
@@ -530,6 +535,8 @@ function viewList() {
       onclick: function () { S.adding = 'client'; render(); } }));
   }
 
+  if (EXT.listTop) wrap.appendChild(EXT.listTop());
+
   var list = h('div', { class: 'cl-list', id: 'clList' });
   wrap.appendChild(list);
   fillList(list, clients);
@@ -600,6 +607,8 @@ function viewClient() {
   });
   wrap.appendChild(plist);
 
+  if (EXT.tasksBlock) wrap.appendChild(EXT.tasksBlock({ clientId: c.id, projectId: null, title: 'Задачи по клиенту' }));
+
   wrap.appendChild(notesBlock('Заметки по клиенту'));
 
   wrap.appendChild(h('div', { class: 'cl-footer' },
@@ -621,7 +630,7 @@ function viewProject() {
       onclick: toggleProjectStatus })));
 
   var tabs = h('div', { class: 'cl-tabs', role: 'tablist' });
-  [['notes', 'Заметки', true], ['files', 'Файлы', false], ['tasks', 'Задачи', false]].forEach(function (t) {
+  [['notes', 'Заметки', true], ['files', 'Файлы', false], ['tasks', 'Задачи', !!EXT.tasksBlock]].forEach(function (t) {
     tabs.appendChild(h('button', { type: 'button', role: 'tab', 'aria-selected': S.tab === t[0] ? 'true' : 'false',
       class: 'cl-tab' + (S.tab === t[0] ? ' active' : ''),
       onclick: function () { S.tab = t[0]; render(); } }, t[1], t[2] ? null : h('span', { class: 'cl-soon', text: 'скоро' })));
@@ -632,8 +641,10 @@ function viewProject() {
     wrap.appendChild(notesBlock('Заметки по проекту'));
   } else if (S.tab === 'files') {
     wrap.appendChild(h('div', { class: 'cl-empty', text: 'Здесь будут готовые файлы проекта (Excel, DXF, чертежи) — они сохранятся на вашем Google Диске. Появится в следующем обновлении.' }));
+  } else if (EXT.tasksBlock) {
+    wrap.appendChild(EXT.tasksBlock({ clientId: S.client.id, projectId: p.id, title: 'Задачи по проекту' }));
   } else {
-    wrap.appendChild(h('div', { class: 'cl-empty', text: 'Здесь будет доска задач проекта: «К выполнению», «В работе», «Готово». Появится в следующем обновлении.' }));
+    wrap.appendChild(h('div', { class: 'cl-empty', text: 'Задачи недоступны.' }));
   }
 
   wrap.appendChild(h('div', { class: 'cl-footer' },
@@ -673,7 +684,8 @@ function render() {
   }
   if (S.loading) root.classList.add('is-loading'); else root.classList.remove('is-loading');
 
-  if (S.view === 'client') root.appendChild(viewClient());
+  if (S.view === 'tasks' && EXT.viewAll) root.appendChild(EXT.viewAll());
+  else if (S.view === 'client') root.appendChild(viewClient());
   else if (S.view === 'project') root.appendChild(viewProject());
   else root.appendChild(viewList());
 }
@@ -689,7 +701,8 @@ function sync() {
     S.adding = null; S.error = ''; S.filter = '';
   }
   if (!token) { render(); return; }
-  if (S.view === 'client' && S.client) openClient(S.client.id);
+  if (S.view === 'tasks' && EXT.viewAll) { if (EXT.reload) EXT.reload(); render(); }
+  else if (S.view === 'client' && S.client) openClient(S.client.id);
   else if (S.view === 'project' && S.project) openProject(S.project);
   else loadList();
 }
@@ -705,4 +718,10 @@ render();
 
 window.Modul3D = window.Modul3D || {};
 window.Modul3D.clients = { refresh: sync };
+// Набор для расширений (clientTasks.js): общее состояние и помощники.
+window.Modul3D.clientsKit = {
+  S: S, EXT: EXT, h: h, call: call, plural: plural, render: render, getToken: getToken, api: api,
+  openClient: openClient, openProject: openProject, loadList: loadList,
+  open: function () { var b = document.querySelector('.rail-btn[data-panel="clients"]'); if (b) b.click(); }
+};
 })();

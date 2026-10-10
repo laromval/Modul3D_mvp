@@ -3140,3 +3140,32 @@ input.calc-error { outline: 2px solid #d33; outline-offset: -1px; }
 .cl-act-main { background: var(--accent-soft); border-color: transparent; color: var(--accent); }
 .cl-contact-foot { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-2); }
 .cl-pick { width: 100%; }
+
+/* --- Клиенты: задачи, сроки, уведомления (src/clientTasks.js) --- */
+.cl-all-tasks { width: 100%; display: flex; align-items: center; justify-content: center; gap: 8px; }
+.cl-badge { min-width: 20px; padding: 0 6px; border-radius: 999px; background: var(--accent); color: #fff;
+  font-size: var(--fs-xs); font-weight: 700; line-height: 20px; text-align: center; }
+.cl-badge.is-overdue { background: var(--danger); }
+.cl-task { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px;
+  border: 1px solid var(--border); border-radius: var(--r-md); background: var(--surface-solid); }
+.cl-task.is-overdue { border-color: var(--danger); }
+.cl-task.is-done .cl-task-title { text-decoration: line-through; color: var(--muted); }
+.cl-check { flex: none; width: 24px; height: 24px; margin-top: 1px; padding: 0; border: 2px solid var(--border-strong);
+  border-radius: 6px; background: transparent; color: #fff; font-size: 14px; line-height: 1; cursor: pointer; }
+.cl-check.is-done { background: var(--ok); border-color: var(--ok); }
+.cl-task-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.cl-task-title { font-size: var(--fs-md); font-weight: 600; overflow-wrap: anywhere; }
+.cl-task-details { font-size: var(--fs-sm); color: var(--text-2); white-space: pre-wrap; overflow-wrap: anywhere; }
+.cl-task-meta { display: flex; flex-wrap: wrap; gap: 4px 10px; font-size: var(--fs-xs); }
+.cl-due { font-weight: 600; color: var(--text-2); }
+.cl-due.is-overdue { color: var(--danger); }
+.cl-where { align-self: flex-start; padding-left: 0; text-align: left; overflow-wrap: anywhere; }
+.cl-task-form { padding: 10px 12px; border: 1px solid var(--accent); border-radius: var(--r-md); background: var(--surface-solid); }
+.cl-row2 { display: grid; grid-template-columns: 1fr 1fr; gap: var(--sp-2); }
+.cl-field { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.cl-field-label { font-size: var(--fs-xs); font-weight: 600; color: var(--muted); }
+.cl-group.is-overdue { color: var(--danger); }
+.cl-check-row { display: flex; align-items: center; gap: 8px; font-size: var(--fs-sm); color: var(--text-2); }
+.cl-push { display: flex; flex-direction: column; gap: 6px; margin-top: var(--sp-2); padding: 10px 12px;
+  border: 1px dashed var(--border-strong); border-radius: var(--r-md); font-size: var(--fs-sm); }
+.cl-push-title { font-weight: 700; color: var(--text); }
