@@ -1033,10 +1033,50 @@
       setTimeout(() => textarea.focus(), 0);
     } else {
       addRow.className = 'add-row';
-      addRow.innerHTML = `<button class="add-btn">+ Добавить заметку</button>`;
+      addRow.innerHTML = `<button class="add-btn">+ Добавить заметку</button>
+        <div class="edit-actions" style="margin-top:10px">
+          <button class="btn" data-action="export-notes" title="Скачать заметки файлом на это устройство">Сохранить заметки в файл</button>
+          <button class="btn" data-action="import-notes" title="Добавить заметки из ранее сохранённого файла">Загрузить из файла</button>
+          <input type="file" accept="application/json,.json" hidden data-role="import-file">
+        </div>`;
       addRow.querySelector('.add-btn').addEventListener('click', () => {
         addingNote = true;
         renderNotes();
+      });
+      addRow.querySelector('[data-action="export-notes"]').addEventListener('click', () => {
+        if (!state.notes.length) { alert('Пока нет заметок для сохранения.'); return; }
+        const blob = new Blob([JSON.stringify({ app: 'modul3d-workflow-notes', notes: state.notes }, null, 2)], { type: 'application/json' });
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = 'modul3d-notes.json';
+        document.body.appendChild(a); a.click(); a.remove();
+        setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+      });
+      const fileInput = addRow.querySelector('[data-role="import-file"]');
+      addRow.querySelector('[data-action="import-notes"]').addEventListener('click', () => fileInput.click());
+      fileInput.addEventListener('change', () => {
+        const f = fileInput.files && fileInput.files[0];
+        if (!f) return;
+        const reader = new FileReader();
+        reader.onload = () => {
+          try {
+            const data = JSON.parse(reader.result);
+            const incoming = Array.isArray(data) ? data : data.notes;
+            if (!Array.isArray(incoming)) throw new Error('bad format');
+            const have = new Set(state.notes.map(n => n.text));
+            let added = 0;
+            incoming.forEach(n => {
+              if (n && typeof n.text === 'string' && n.text.trim() && !have.has(n.text)) {
+                state.notes.push({ id: uid(), text: n.text, createdAt: n.createdAt || Date.now() });
+                have.add(n.text); added++;
+              }
+            });
+            saveState();
+            renderNotes();
+            alert('Добавлено заметок: ' + added);
+          } catch (e) { alert('Не удалось прочитать файл заметок.'); }
+        };
+        reader.readAsText(f);
       });
     }
     notesWrap.appendChild(addRow);
