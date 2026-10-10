@@ -136,6 +136,11 @@ module.exports = {
   // Railway — реальный случай 2026-09-20, из-за него isAdmin молчаливо
   // был false при верном на вид email).
   adminEmail: (process.env.ADMIN_EMAIL || '').trim().toLowerCase() || undefined,
+  // Ключ шифрования личных данных страницы Workflow (заметки, доска задач) —
+  // см. services/workflowCrypto.js и routes/workflow.js. Любая случайная
+  // строка от 16 символов; ПОТЕРЯ или смена ключа делает сохранённые данные
+  // нечитаемыми. Не задан — /workflow отвечает 503, открытым текстом не храним.
+  workflowEncKey: (process.env.WORKFLOW_ENC_KEY || '').trim() || undefined,
   // Personal Access Token GitHub с правом Contents:write на репозиторий
   // ниже — сервер сам коммитит и пушит в master через GitHub Contents API
   // (routes/catalogPublish.js). Временное решение, пока в проекте один

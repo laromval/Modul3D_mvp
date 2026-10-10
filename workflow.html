@@ -497,6 +497,24 @@
     border-radius: 10px;
   }
 
+  [data-locked] #board, [data-locked] #notesWrap { display: none !important; }
+  .gate {
+    max-width: 420px; margin: 40px auto; padding: 22px 20px;
+    background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius, 14px);
+    display: flex; flex-direction: column; gap: 12px;
+  }
+  .gate[hidden], .gate .gate-actions[hidden] { display: none; }
+  .gate h2 { margin: 0; font-size: 17px; }
+  .gate p { margin: 0; color: var(--muted); font-size: 13.5px; }
+  .gate input {
+    font: inherit; font-size: 15px; padding: 10px 12px; border-radius: 10px;
+    border: 1px solid var(--border); background: transparent; color: var(--text);
+  }
+  .gate .gate-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+  .gate .gate-error { color: #e5484d; min-height: 1.2em; }
+  .sync-line { margin-top: 4px; }
+  .sync-line.error { color: #e5484d; }
+  .link-btn { background: none; border: none; color: var(--muted); text-decoration: underline; cursor: pointer; font: inherit; padding: 0; }
   footer {
     text-align: center;
     color: var(--muted);
@@ -535,11 +553,30 @@
 </header>
 
 <main>
+  <div class="gate" id="gate" hidden>
+    <h2 id="gateTitle">Вход</h2>
+    <p id="gateText">Доска и заметки хранятся на сервере и доступны только владельцу проекта.</p>
+    <form id="loginForm" class="gate" style="margin:0;padding:0;border:0;background:none">
+      <input type="email" id="loginEmail" placeholder="Email" autocomplete="username" required>
+      <input type="password" id="loginPassword" placeholder="Пароль" autocomplete="current-password" required>
+      <div class="gate-actions">
+        <button class="btn primary" type="submit">Войти</button>
+        <a class="btn" href="index.html" style="text-decoration:none">В программу</a>
+      </div>
+    </form>
+    <div class="gate-actions" id="gateRetry" hidden>
+      <button class="btn primary" type="button" id="retryBtn">Повторить</button>
+      <button class="btn" type="button" id="localModeBtn" title="Работать с копией в этом браузере, без сервера">Открыть локальную копию</button>
+    </div>
+    <div class="gate-error" id="gateError"></div>
+  </div>
   <div class="board" id="board"></div>
   <div class="notes-wrap" id="notesWrap" hidden></div>
 </main>
 
-<footer>Modul3D · доска задач и заметки (изначально собрано из Workflow.xlsx)</footer>
+<footer>Modul3D · доска задач и заметки (изначально собрано из Workflow.xlsx)
+  <div class="sync-line" id="syncLine"></div>
+</footer>
 
 <script>
   const STORAGE_KEY = 'modul3d-workflow-data-v3';
@@ -640,12 +677,202 @@
     return buildDefaultState();
   }
 
-  function saveState() {
-    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch (e) {}
+  // ----- Хранение на сервере (Railway): доска и заметки доступны только после
+  // входа под аккаунтом владельца и лежат в базе в зашифрованном виде. В режиме
+  // «локальная копия» (если сервер недоступен) всё как раньше — в localStorage.
+  const API_BASE = 'https://modul3dmvp-production.up.railway.app';
+  const TOKEN_KEY = 'modul3dAuthToken';
+  const remote = { active: false, revision: 0 };
+  let dirty = false, saving = false, saveTimer = null, retryTimer = null;
+
+  function getToken() { try { return localStorage.getItem(TOKEN_KEY); } catch (e) { return null; } }
+
+  async function api(method, path, body) {
+    const token = getToken();
+    let res;
+    try {
+      res = await fetch(API_BASE + path, {
+        method,
+        headers: Object.assign({ 'content-type': 'application/json' }, token ? { authorization: 'Bearer ' + token } : {}),
+        body: body ? JSON.stringify(body) : undefined
+      });
+    } catch (e) { const err = new Error('network'); err.status = 0; throw err; }
+    let json = null;
+    try { json = await res.json(); } catch (e) {}
+    if (!res.ok) { const err = new Error((json && json.error) || ('HTTP ' + res.status)); err.status = res.status; err.body = json; throw err; }
+    return json;
   }
 
+  const syncLine = document.getElementById('syncLine');
+  function setSync(kind) {
+    const map = { saved: 'Сохранено на сервере ✓', saving: 'Сохраняю…', error: 'Не удалось сохранить — повторю автоматически', local: 'Локальная копия в этом браузере (без сервера)', '': '' };
+    syncLine.textContent = map[kind] || '';
+    syncLine.className = 'sync-line' + (kind === 'error' ? ' error' : '');
+    if (kind === 'saved' && localCopyExists()) {
+      const b = document.createElement('button');
+      b.className = 'link-btn'; b.type = 'button'; b.style.marginLeft = '10px';
+      b.textContent = 'Стереть копию в этом браузере';
+      b.addEventListener('click', () => {
+        if (confirm('Стереть старую локальную копию заметок и доски в этом браузере? На сервере данные останутся.')) {
+          try { localStorage.removeItem(STORAGE_KEY); localStorage.removeItem(OLD_KEY_V2); localStorage.removeItem(OLD_KEY_V1); } catch (e) {}
+          setSync('saved');
+        }
+      });
+      syncLine.appendChild(b);
+    }
+  }
+  function localCopyExists() {
+    try { return !!(localStorage.getItem(STORAGE_KEY) || localStorage.getItem(OLD_KEY_V2) || localStorage.getItem(OLD_KEY_V1)); } catch (e) { return false; }
+  }
+
+  function saveState() {
+    if (!remote.active) {
+      try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch (e) {}
+      return;
+    }
+    dirty = true;
+    setSync('saving');
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(flushRemote, 600);
+  }
+
+  async function flushRemote() {
+    if (saving || !dirty || !remote.active) return;
+    saving = true; dirty = false;
+    try {
+      const r = await api('PUT', '/workflow', { data: state, revision: remote.revision });
+      remote.revision = r.revision;
+      if (!dirty) setSync('saved');
+    } catch (e) {
+      if (e.status === 409) {
+        dirty = false;
+        const mine = (state.notes || []).slice();
+        await pullFromServer(false);
+        // заметки, которые были только на этом экране, возвращаем к свежей версии
+        const have = new Set(state.notes.map(n => n.text));
+        let restored = 0;
+        mine.forEach(n => { if (n && n.text && !have.has(n.text)) { state.notes.push(n); have.add(n.text); restored++; } });
+        renderBoard(); if (activeTab === 'notes') renderNotes();
+        if (restored) saveState(); else setSync('saved');
+        alert('С другого устройства уже сохранялись более свежие данные — загружена свежая версия.' +
+          (restored ? ' Ваши новые заметки (' + restored + ') добавлены к ней. Правки задач на этом экране могли не сохраниться, проверьте.' : ' Правки задач на этом экране могли не сохраниться, проверьте.'));
+      } else if (e.status === 401 || e.status === 403) {
+        remote.active = false;
+        showGate('login', 'Сессия истекла — войдите снова.');
+      } else {
+        dirty = true; setSync('error');
+        clearTimeout(retryTimer); retryTimer = setTimeout(flushRemote, 5000);
+      }
+    } finally {
+      saving = false;
+      if (dirty && !retryTimer) saveTimer = setTimeout(flushRemote, 300);
+      retryTimer = null;
+    }
+  }
+
+  async function pullFromServer(rerender) {
+    const r = await api('GET', '/workflow');
+    if (r.data) {
+      state = r.data;
+      if (!Array.isArray(state.notes)) state.notes = [];
+    }
+    remote.revision = r.revision;
+    if (rerender) { renderBoard(); if (activeTab === 'notes') renderNotes(); setSync('saved'); }
+  }
+
+  const gate = document.getElementById('gate');
+  function showGate(mode, message) {
+    document.body.setAttribute('data-locked', '1');
+    gate.hidden = false;
+    const login = mode === 'login';
+    document.getElementById('gateTitle').textContent = login ? 'Вход' : 'Не удалось подключиться';
+    document.getElementById('loginForm').hidden = !login;
+    document.getElementById('gateRetry').hidden = login;
+    document.getElementById('gateError').textContent = message || '';
+  }
+  function hideGate() { document.body.removeAttribute('data-locked'); gate.hidden = true; }
+
+  // Первый запуск после подключения сервера: что лежит в браузере, переносим на сервер
+  // (а заметки, которых ещё нет на сервере, — добавляем к серверным).
+  function readLocalState() {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (raw) { const p = JSON.parse(raw); if (p && Array.isArray(p.columns)) { if (!Array.isArray(p.notes)) p.notes = []; return p; } }
+    } catch (e) {}
+    return null;
+  }
+
+  async function bootstrap() {
+    if (!getToken()) { showGate('login'); return; }
+    let r;
+    try { r = await api('GET', '/workflow'); }
+    catch (e) {
+      if (e.status === 401) { try { localStorage.removeItem(TOKEN_KEY); } catch (x) {} showGate('login', 'Войдите, чтобы открыть доску и заметки.'); return; }
+      if (e.status === 403) { showGate('error', 'Этот аккаунт не является владельцем проекта.'); return; }
+      showGate('error', e.status === 0 ? 'Нет связи с сервером.' : e.message);
+      return;
+    }
+    const local = readLocalState();
+    if (r.data) {
+      state = r.data;
+      if (!Array.isArray(state.notes)) state.notes = [];
+      remote.revision = r.revision;
+      remote.active = true;
+      if (local && local.notes.length) {
+        const have = new Set(state.notes.map(n => n.text));
+        let added = 0;
+        local.notes.forEach(n => { if (n && n.text && !have.has(n.text)) { state.notes.push({ id: uid(), text: n.text, createdAt: n.createdAt || Date.now() }); have.add(n.text); added++; } });
+        if (added) saveState();
+      }
+    } else {
+      // на сервере пусто — переносим то, что есть в браузере (или стартовую доску)
+      state = local || state;
+      remote.revision = 0;
+      remote.active = true;
+      dirty = true;
+      await flushRemote();
+    }
+    hideGate();
+    renderBoard();
+    switchTab(activeTab);
+    setSync('saved');
+  }
+
+  document.getElementById('loginForm').addEventListener('submit', async (ev) => {
+    ev.preventDefault();
+    const errBox = document.getElementById('gateError');
+    errBox.textContent = '';
+    try {
+      const r = await api('POST', '/auth/login', {
+        email: document.getElementById('loginEmail').value,
+        password: document.getElementById('loginPassword').value
+      });
+      try { localStorage.setItem(TOKEN_KEY, r.token); } catch (e) {}
+      document.getElementById('loginPassword').value = '';
+      await bootstrap();
+    } catch (e) { errBox.textContent = e.status === 401 ? 'Неверный email или пароль.' : (e.status === 0 ? 'Нет связи с сервером.' : e.message); }
+  });
+  document.getElementById('retryBtn').addEventListener('click', bootstrap);
+  document.getElementById('localModeBtn').addEventListener('click', () => {
+    remote.active = false;
+    hideGate(); renderBoard(); switchTab(activeTab); setSync('local');
+  });
+
+  // Вернулись на вкладку — подтягиваем свежую версию с другого устройства
+  // (если нет несохранённых правок и не открыта форма редактирования).
+  document.addEventListener('visibilitychange', async () => {
+    if (document.visibilityState === 'hidden') {
+      if (dirty && remote.active) { try { fetch(API_BASE + '/workflow', { method: 'PUT', keepalive: true, headers: { 'content-type': 'application/json', authorization: 'Bearer ' + getToken() }, body: JSON.stringify({ data: state, revision: remote.revision }) }); } catch (e) {} }
+      return;
+    }
+    if (!remote.active || dirty || saving || addingNote || editingNoteId || editing || Object.keys(adding).some(k => adding[k])) return;
+    try {
+      const r = await api('GET', '/workflow');
+      if (r.data && r.revision !== remote.revision) { state = r.data; if (!Array.isArray(state.notes)) state.notes = []; remote.revision = r.revision; renderBoard(); if (activeTab === 'notes') renderNotes(); }
+    } catch (e) {}
+  });
+
   let state = loadState();
-  saveState();
 
   // transient UI state (not persisted)
   const filters = {};    // colIndex -> 'all' | 'pending' | 'in-progress' | 'done'
@@ -1082,8 +1309,8 @@
     notesWrap.appendChild(addRow);
   }
 
-  renderBoard();
-  switchTab('board');
+  document.body.setAttribute('data-locked', '1');
+  bootstrap();
 
   // Theme handling
   const themeBtn = document.getElementById('themeToggle');
