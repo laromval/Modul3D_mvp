@@ -3177,3 +3177,12 @@ input.calc-error { outline: 2px solid #d33; outline-offset: -1px; }
 .cl-section-head .cl-filter { margin-right: var(--sp-2); }
 .cl-card-top { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-2); width: 100%; }
 .cl-card.has-overdue .cl-card-name { color: var(--danger); }
+
+/* --- форма клиента: несколько номеров (v432) --- */
+.cl-phones { display: flex; flex-direction: column; gap: var(--sp-2); }
+.cl-phone-row { display: flex; align-items: center; gap: 6px; }
+.cl-phone-row .cl-input { flex: 1; min-width: 0; }
+.cl-x { flex: none; width: 32px; height: 32px; padding: 0; border: 1px solid var(--border); border-radius: var(--r-sm);
+  background: transparent; color: var(--danger); font-size: 18px; line-height: 1; cursor: pointer; }
+.cl-x:hover { background: var(--danger-soft); }
+.cl-add-phone { align-self: flex-start; }

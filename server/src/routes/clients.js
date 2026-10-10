@@ -6,9 +6,9 @@
 //
 // Контракт (везде Authorization: Bearer <JWT>, подтверждённый email):
 //   GET    /clients                          -> { clients: [...] } (+ счётчики)
-//   POST   /clients { name, phone?, email? } -> { client }
+//   POST   /clients { name, phones?[до 3] | phone?, email? } -> { client } (в ответе phones[] и phone — первый)
 //   GET    /clients/:id                      -> { client, projects: [...] }
-//   PATCH  /clients/:id { name?, phone?, email?, archived? }
+//   PATCH  /clients/:id { name?, phones?[]|phone?, email?, archived? }
 //          (phone/email: пустая строка или null — очистить; не переданное не меняется)
 //   DELETE /clients/:id                      (каскадом проекты и заметки)
 //   POST   /clients/:id/projects { name }    -> { project }
@@ -45,6 +45,7 @@ const MAX_NOTES_PER_CLIENT = 1000;
 const MAX_NAME = 120;
 const MAX_CONTACT = 500; // только для старого поля contact (строка)
 const MAX_PHONE = 40;
+const MAX_PHONES = 3;
 const MAX_EMAIL = 120;
 const MAX_NOTE = 20000;
 const PROJECT_STATUSES = ['active', 'done'];
@@ -60,11 +61,15 @@ function strOrNull(v) {
 // иначе телефон).
 function normalizeContact(value) {
   if (value && typeof value === 'object') {
-    return { phone: strOrNull(value.phone), email: strOrNull(value.email) };
+    let phones = [];
+    if (Array.isArray(value.phones)) phones = value.phones.map(strOrNull).filter(Boolean);
+    else if (strOrNull(value.phone)) phones = [strOrNull(value.phone)];
+    phones = phones.slice(0, MAX_PHONES);
+    return { phones, phone: phones[0] || null, email: strOrNull(value.email) };
   }
   const v = strOrNull(value);
-  if (!v) return { phone: null, email: null };
-  return v.includes('@') ? { phone: null, email: v } : { phone: v, email: null };
+  if (!v) return { phones: [], phone: null, email: null };
+  return v.includes('@') ? { phones: [], phone: null, email: v } : { phones: [v], phone: v, email: null };
 }
 
 // Телефон: цифры, пробелы, + - ( ) . ; от 5 до 18 цифр. Возвращает
@@ -91,7 +96,18 @@ function cleanEmail(raw) {
 // очистить), либо { error }.
 function readContactFields(body) {
   const out = {};
-  if (body.phone !== undefined) {
+  if (body.phones !== undefined) {
+    // Список номеров целиком (до MAX_PHONES): пустые строки отбрасываются.
+    if (!Array.isArray(body.phones)) return { error: 'Телефоны: ожидается список.' };
+    const list = [];
+    for (const raw of body.phones) {
+      const r = cleanPhone(raw);
+      if (r.error) return { error: r.error };
+      if (r.value) list.push(r.value);
+    }
+    if (list.length > MAX_PHONES) return { error: `Телефоны: не больше ${MAX_PHONES}.` };
+    out.phones = list;
+  } else if (body.phone !== undefined) {
     const r = cleanPhone(body.phone);
     if (r.error) return { error: r.error };
     out.phone = r.value;
@@ -101,7 +117,7 @@ function readContactFields(body) {
     if (r.error) return { error: r.error };
     out.email = r.value;
   }
-  if (body.contact !== undefined && out.phone === undefined && out.email === undefined) {
+  if (body.contact !== undefined && out.phone === undefined && out.phones === undefined && out.email === undefined) {
     const r = cleanText(body.contact, MAX_CONTACT, 'контакт', { required: false });
     if (r.error) return { error: r.error };
     const n = normalizeContact(r.value);
@@ -111,8 +127,22 @@ function readContactFields(body) {
   return out;
 }
 
-function packContact({ phone, email }) {
-  return phone || email ? encryptJson({ phone: phone || null, email: email || null }) : null;
+// Итоговый список номеров: phones — целиком; phone (старый клиент API) —
+// заменяет только первый номер, остальные сохраняются.
+function mergePhones(current, contact) {
+  if (contact.phones !== undefined) return contact.phones;
+  if (contact.phone !== undefined) {
+    const rest = current.slice(1);
+    return (contact.phone ? [contact.phone] : []).concat(rest).slice(0, MAX_PHONES);
+  }
+  return current;
+}
+
+function packContact({ phones, email }) {
+  const list = (phones || []).filter(Boolean).slice(0, MAX_PHONES);
+  return list.length || email
+    ? encryptJson({ phones: list, phone: list[0] || null, email: email || null })
+    : null;
 }
 
 function clientDto(row, contact) {
@@ -121,6 +151,7 @@ function clientDto(row, contact) {
     id: row.id,
     name: row.name,
     phone: c.phone,
+    phones: c.phones,
     email: c.email,
     contactUnreadable: !!contact.unreadable,
     archived: row.archived_at !== null,
@@ -200,7 +231,7 @@ router.post('/', async (req, res) => {
   if (name.error) return res.status(400).json({ error: name.error });
   const contact = readContactFields(body);
   if (contact.error) return res.status(400).json({ error: contact.error });
-  const phone = contact.phone || null;
+  const phones = mergePhones([], contact);
   const email = contact.email || null;
 
   try {
@@ -208,12 +239,12 @@ router.post('/', async (req, res) => {
     if (cnt.rows[0].n >= MAX_CLIENTS_PER_USER) {
       return res.status(409).json({ error: `Достигнут предел: не более ${MAX_CLIENTS_PER_USER} клиентов.` });
     }
-    const encContact = packContact({ phone, email });
+    const encContact = packContact({ phones, email });
     const { rows } = await db.query(
       'INSERT INTO clients (user_id, name, contact) VALUES ($1, $2, $3) RETURNING *',
       [req.user.id, name.value, encContact]
     );
-    return res.status(201).json({ client: { ...clientDto(rows[0], { value: { phone, email } }), projectsCount: 0, notesCount: 0 } });
+    return res.status(201).json({ client: { ...clientDto(rows[0], { value: { phones, email } }), projectsCount: 0, notesCount: 0 } });
   } catch (err) {
     return handleError(err, res, 'create');
   }
@@ -257,11 +288,11 @@ router.patch('/:id', async (req, res) => {
     }
     const contact = readContactFields(body);
     if (contact.error) return res.status(400).json({ error: contact.error });
-    if (contact.phone !== undefined || contact.email !== undefined) {
-      // Меняем только переданное: второе поле остаётся как было.
+    if (contact.phone !== undefined || contact.phones !== undefined || contact.email !== undefined) {
+      // Меняем только переданное: остальное остаётся как было.
       const current = normalizeContact(safeDecrypt(client.contact).value);
       add('contact', packContact({
-        phone: contact.phone !== undefined ? contact.phone : current.phone,
+        phones: mergePhones(current.phones, contact),
         email: contact.email !== undefined ? contact.email : current.email,
       }));
     }
