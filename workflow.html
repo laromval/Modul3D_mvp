@@ -164,6 +164,22 @@
     font-size: 16px;
   }
   .icon-btn:hover { border-color: var(--accent); }
+  .back-btn {
+    border: 1px solid var(--accent);
+    background: var(--accent-soft);
+    color: var(--text);
+    border-radius: 10px;
+    height: 36px;
+    padding: 0 14px;
+    display: inline-flex;
+    align-items: center;
+    font-size: 13px;
+    font-weight: 600;
+    text-decoration: none;
+    white-space: nowrap;
+    cursor: pointer;
+  }
+  .back-btn:hover { background: var(--accent); color: #fff; }
   main {
     padding: 24px 16px;
   }
@@ -493,6 +509,7 @@
     <button class="tab-btn" data-tab="notes">Заметки</button>
   </div>
   <div class="controls">
+    <a class="back-btn" href="index.html" title="Вернуться в программу">← В программу</a>
     <span class="progress-pill" id="progress">0 / 0 выполнено</span>
     <button class="icon-btn" id="themeToggle" title="Переключить тему">🌙</button>
   </div>
