@@ -25,6 +25,7 @@ const workflowRouter = require('./src/routes/workflow');
 const clientsRouter = require('./src/routes/clients');
 const tasksRouter = require('./src/routes/tasks');
 const pushRouter = require('./src/routes/push');
+const filesRouter = require('./src/routes/files');
 const { startReminderLoop } = require('./src/services/taskReminders');
 
 const app = express();
@@ -80,6 +81,7 @@ app.use('/clients', clientsRouter);
 // Задачи клиентов со сроком и напоминанием, подписки на push-уведомления.
 app.use('/tasks', tasksRouter);
 app.use('/push', pushRouter);
+app.use('/files', filesRouter);
 // catalogLinksRouter монтируется БЕЗ префикса — его собственные пути уже
 // полные ("/catalog-link-sources" и т.п., см. ТЗ-ПАРСЕР-МАТЕРИАЛОВ.md).
 // express.json()/requireAuth внутри него подключены по каждому роуту

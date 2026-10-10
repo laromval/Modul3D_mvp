@@ -25,7 +25,7 @@ var STATUS_LABEL = { active: 'В работе', done: 'Готов' };
 
 var S = {
   view: 'list',          // 'list' | 'client' | 'project' | 'tasks' (все задачи)
-  tab: 'notes',          // вкладка проекта
+  tab: 'tasks',          // вкладка проекта: tasks | files | notes
   clients: null,         // список клиентов (null — ещё не грузили)
   client: null,          // открытый клиент
   projects: [],          // проекты открытого клиента
@@ -141,7 +141,7 @@ function openClient(id) {
 
 function openProject(p) {
   if (EXT.reset) EXT.reset();
-  S.view = 'project'; S.tab = 'notes'; S.adding = null; S.editingNote = null; S.editingName = false; S.draft = null;
+  S.view = 'project'; S.tab = 'tasks'; S.adding = null; S.editingNote = null; S.editingName = false; S.draft = null;
   S.project = p; S.notes = [];
   return guarded(async function () {
     S.notes = (await call('GET', '/clients/' + S.client.id + '/notes?project=' + p.id)).notes;
@@ -661,11 +661,11 @@ function viewProject() {
   wrap.appendChild(nameHeader(p.name, renameProject));
   wrap.appendChild(h('div', { class: 'cl-contact' },
     h('span', { class: 'cl-chip cl-chip-' + p.status, text: STATUS_LABEL[p.status] || p.status }),
-    h('button', { type: 'button', class: 'cl-link', text: p.status === 'done' ? 'Вернуть в работу' : 'Отметить готовым',
+    h('button', { type: 'button', class: 'cl-link', 'data-role': 'project-status', text: p.status === 'done' ? 'Вернуть в работу' : 'Завершить проект',
       onclick: toggleProjectStatus })));
 
   var tabs = h('div', { class: 'cl-tabs', role: 'tablist' });
-  [['notes', 'Заметки', true], ['files', 'Файлы', false], ['tasks', 'Задачи', !!EXT.tasksBlock]].forEach(function (t) {
+  [['tasks', 'Задачи', !!EXT.tasksBlock], ['files', 'Файлы', !!EXT.filesBlock], ['notes', 'Заметки', true]].forEach(function (t) {
     tabs.appendChild(h('button', { type: 'button', role: 'tab', 'aria-selected': S.tab === t[0] ? 'true' : 'false',
       class: 'cl-tab' + (S.tab === t[0] ? ' active' : ''),
       onclick: function () { S.tab = t[0]; render(); } }, t[1], t[2] ? null : h('span', { class: 'cl-soon', text: 'скоро' })));
@@ -675,7 +675,9 @@ function viewProject() {
   if (S.tab === 'notes') {
     wrap.appendChild(notesBlock('Заметки по проекту'));
   } else if (S.tab === 'files') {
-    wrap.appendChild(h('div', { class: 'cl-empty', text: 'Здесь будут готовые файлы проекта (Excel, DXF, чертежи) — они сохранятся на вашем Google Диске. Появится в следующем обновлении.' }));
+    wrap.appendChild(EXT.filesBlock
+      ? EXT.filesBlock({ clientId: S.client.id, projectId: p.id })
+      : h('div', { class: 'cl-empty', text: 'Файлы недоступны.' }));
   } else if (EXT.tasksBlock) {
     wrap.appendChild(EXT.tasksBlock({ clientId: S.client.id, projectId: p.id, title: 'Задачи по проекту' }));
   } else {
