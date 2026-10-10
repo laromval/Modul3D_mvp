@@ -553,9 +553,12 @@ function fillList(list, clients) {
   clients.forEach(function (c) {
     var meta = c.projectsCount + ' ' + plural(c.projectsCount, 'проект', 'проекта', 'проектов') +
       ' · ' + c.notesCount + ' ' + plural(c.notesCount, 'заметка', 'заметки', 'заметок');
-    list.appendChild(h('button', { type: 'button', class: 'cl-card' + (c.archived ? ' is-archived' : ''),
+    list.appendChild(h('button', { type: 'button', class: 'cl-card' + (c.archived ? ' is-archived' : '') + (c.overdueTasks ? ' has-overdue' : ''),
       onclick: function () { openClient(c.id); } },
-      h('span', { class: 'cl-card-name', text: c.name }),
+      h('span', { class: 'cl-card-top' },
+        h('span', { class: 'cl-card-name', text: c.name }),
+        c.openTasks ? h('span', { class: 'cl-badge' + (c.overdueTasks ? ' is-overdue' : ''), 'data-role': 'client-badge', text: String(c.openTasks),
+          title: c.overdueTasks ? 'Текущих задач: ' + c.openTasks + ', просрочено: ' + c.overdueTasks : 'Текущих задач: ' + c.openTasks }) : null),
       h('span', { class: 'cl-card-meta', text: meta + (c.archived ? ' · в архиве' : '') })));
   });
 }

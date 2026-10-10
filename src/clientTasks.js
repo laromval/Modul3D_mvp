@@ -23,7 +23,7 @@ var T = {
   loading: false,
   error: '',
   form: null,       // { id|null, key, title, details, date, time, remind } — открытая форма
-  showDone: false,  // на экране «Все задачи» показывать и выполненные
+  filter: 'open',   // 'open' (текущие) | 'done' (выполненные) — выбор в выпадающем списке
   summary: null,    // { open, overdue } для значка на кнопке «Все задачи»
   push: { state: 'unknown', busy: false, msg: '' }
 };
@@ -60,7 +60,7 @@ function isOverdue(t) { return t.status !== 'done' && t.dueAt && new Date(t.dueA
 // ------------------------------------------------------------------ загрузка
 
 function scopeOf(key) {
-  if (key === 'all') return '/tasks?status=' + (T.showDone ? 'all' : 'open');
+  if (key === 'all') return '/tasks?status=' + T.filter;
   var kind = key.charAt(0), id = key.slice(2);
   if (kind === 'p') return '/tasks?status=all&client=' + S.client.id + '&project=' + id;
   return '/tasks?status=all&client=' + id + '&project=none';
@@ -110,6 +110,23 @@ function toggleDone(t) {
 function removeTask(t) {
   if (!window.confirm('Удалить задачу «' + t.title + '»?')) return;
   return act(function () { return call('DELETE', '/tasks/' + t.id); });
+}
+
+// Удалить все выполненные: query — отбор ('' = у всего пользователя), what — для вопроса.
+function clearDone(query, what, count) {
+  var msg = 'Удалить ' + count + ' ' + plural(count, 'выполненную задачу', 'выполненные задачи', 'выполненных задач') +
+    (what ? ' ' + what : '') + '? Это нельзя отменить.';
+  if (!window.confirm(msg)) return;
+  return act(function () { return call('DELETE', '/tasks' + query); });
+}
+
+function filterSelect(label) {
+  var sel = h('select', { class: 'cl-filter', 'data-role': 'task-filter', 'aria-label': 'Какие задачи показывать',
+    onchange: function (e) { T.filter = e.target.value; if (T.key === 'all') T.key = null; kit.render(); } });
+  sel.appendChild(h('option', { value: 'open', text: label + ' · текущие' }));
+  sel.appendChild(h('option', { value: 'done', text: label + ' · выполненные' }));
+  sel.value = T.filter;
+  return sel;
 }
 
 function openForm(scope, task) {
@@ -238,16 +255,24 @@ function goTo(t) {
 function tasksBlock(scope) {
   var key = scope.projectId ? 'p:' + scope.projectId : 'c:' + scope.clientId;
   ensure(key);
-  var kids = [h('div', { class: 'cl-section-head' }, h('h3', { class: 'drawer-section', text: scope.title }),
-    T.form ? null : h('button', { type: 'button', class: 'cl-link', text: '＋ Задача', onclick: function () { openForm(scope, null); } }))];
+  var kids = [h('div', { class: 'cl-section-head' }, filterSelect(scope.title),
+    T.form || T.filter === 'done' ? null : h('button', { type: 'button', class: 'cl-link', text: '＋ Задача', onclick: function () { openForm(scope, null); } }))];
   if (T.error) kids.push(h('div', { class: 'cl-error', role: 'alert', text: T.error }));
   if (T.form && !T.form.id) kids.push(taskForm());
-  var items = T.items.slice().sort(function (a, b) {
-    if ((a.status === 'done') !== (b.status === 'done')) return a.status === 'done' ? 1 : -1;
+  var wantDone = T.filter === 'done';
+  var items = T.items.filter(function (t) { return (t.status === 'done') === wantDone; }).sort(function (a, b) {
+    if (wantDone) return new Date(b.doneAt || 0) - new Date(a.doneAt || 0);
     if (a.dueAt && b.dueAt) return new Date(a.dueAt) - new Date(b.dueAt);
     return a.dueAt ? -1 : (b.dueAt ? 1 : 0);
   });
-  if (!items.length && !T.form && !T.loading) kids.push(h('div', { class: 'cl-empty', text: 'Задач пока нет. Можно указать срок и включить напоминание.' }));
+  if (!items.length && !T.form && !T.loading) {
+    kids.push(h('div', { class: 'cl-empty', text: wantDone ? 'Выполненных задач нет.' : 'Текущих задач нет. Можно указать срок и включить напоминание.' }));
+  }
+  if (wantDone && items.length) {
+    var q = scope.projectId ? '?client=' + scope.clientId + '&project=' + scope.projectId : '?client=' + scope.clientId + '&project=none';
+    kids.push(h('button', { type: 'button', class: 'btn cl-btn-danger', 'data-role': 'clear-done', text: 'Удалить все выполненные',
+      onclick: function () { clearDone(q, scope.projectId ? 'этого проекта' : 'этого клиента', items.length); } }));
+  }
   items.forEach(function (t) {
     if (T.form && T.form.id === t.id) kids.push(taskForm());
     else kids.push(taskRow(t, scope, false));
@@ -271,14 +296,16 @@ function viewAll() {
   var wrap = h('div', { class: 'cl-view' });
   wrap.appendChild(h('button', { type: 'button', class: 'cl-back', onclick: function () { T.key = null; S.view = 'list'; kit.loadList(); } },
     h('span', { 'aria-hidden': 'true', text: '←' }), ' Все клиенты'));
-  wrap.appendChild(h('h3', { class: 'cl-title', text: 'Все задачи' }));
-  wrap.appendChild(h('label', { class: 'cl-check-row' },
-    h('input', { type: 'checkbox', checked: T.showDone ? 'checked' : null, 'data-role': 'show-done',
-      onchange: function (e) { T.showDone = e.target.checked; T.key = null; kit.render(); } }),
-    ' Показывать выполненные'));
+  wrap.appendChild(filterSelect('Все задачи'));
   if (T.error) wrap.appendChild(h('div', { class: 'cl-error', role: 'alert', text: T.error }));
   var items = T.items;
-  if (!items.length && !T.loading) wrap.appendChild(h('div', { class: 'cl-empty', text: 'Задач нет. Добавить задачу можно на странице клиента или проекта.' }));
+  if (!items.length && !T.loading) {
+    wrap.appendChild(h('div', { class: 'cl-empty', text: T.filter === 'done' ? 'Выполненных задач нет.' : 'Текущих задач нет. Добавить задачу можно на странице клиента или проекта.' }));
+  }
+  if (T.filter === 'done' && items.length) {
+    wrap.appendChild(h('button', { type: 'button', class: 'btn cl-btn-danger', 'data-role': 'clear-done', text: 'Удалить все выполненные',
+      onclick: function () { clearDone('', 'по всем клиентам', items.length); } }));
+  }
   var groups = [['Просрочено', function (t) { return isOverdue(t); }],
     ['Сегодня', function (t) { return t.status !== 'done' && !isOverdue(t) && t.dueAt && dateStr(new Date(t.dueAt)) === dateStr(new Date()); }],
     ['Позже', function (t) { return t.status !== 'done' && !isOverdue(t) && t.dueAt && dateStr(new Date(t.dueAt)) > dateStr(new Date()); }],
@@ -303,10 +330,8 @@ function listTop() {
   var s = T.summary;
   var btn = h('button', { type: 'button', class: 'btn cl-all-tasks', 'data-role': 'all-tasks', onclick: openAll },
     '☑ Все задачи');
-  if (s && s.open) {
-    btn.appendChild(h('span', { class: 'cl-badge' + (s.overdue ? ' is-overdue' : ''), text: String(s.overdue || s.open),
-      title: s.overdue ? 'Просрочено: ' + s.overdue : 'Открытых: ' + s.open }));
-  }
+  if (s && s.open) btn.appendChild(h('span', { class: 'cl-badge', 'data-role': 'badge-open', text: String(s.open), title: 'Текущих задач: ' + s.open }));
+  if (s && s.overdue) btn.appendChild(h('span', { class: 'cl-badge is-overdue', 'data-role': 'badge-overdue', text: String(s.overdue), title: 'Просрочено: ' + s.overdue }));
   return btn;
 }
 

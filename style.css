@@ -3169,3 +3169,11 @@ input.calc-error { outline: 2px solid #d33; outline-offset: -1px; }
 .cl-push { display: flex; flex-direction: column; gap: 6px; margin-top: var(--sp-2); padding: 10px 12px;
   border: 1px dashed var(--border-strong); border-radius: var(--r-md); font-size: var(--fs-sm); }
 .cl-push-title { font-weight: 700; color: var(--text); }
+
+/* --- фильтр задач, цифры у клиентов (v431) --- */
+.cl-filter { flex: 1; min-width: 0; padding: 6px 28px 6px 10px; border: 1px solid var(--border); border-radius: var(--r-sm);
+  background: var(--surface-2); color: var(--text); font: inherit; font-size: var(--fs-sm); font-weight: 700; cursor: pointer; }
+.cl-filter:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.cl-section-head .cl-filter { margin-right: var(--sp-2); }
+.cl-card-top { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-2); width: 100%; }
+.cl-card.has-overdue .cl-card-name { color: var(--danger); }

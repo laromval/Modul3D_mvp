@@ -10,6 +10,7 @@
 //   POST   /tasks { clientId, projectId?, title, details?, dueAt?, remindBeforeMin? }
 //   PATCH  /tasks/:id { title?, details?, status?, projectId?, dueAt?, remindBeforeMin? }
 //   DELETE /tasks/:id
+//   DELETE /tasks?client=&project=            -> { deleted } (только выполненные)
 //
 // dueAt — ISO-время (с часовым поясом), null убирает срок. remindBeforeMin —
 // за сколько минут до срока напомнить (0 — в момент срока), null — не
@@ -274,6 +275,28 @@ router.patch('/:id', async (req, res) => {
     return res.json({ task: taskDto(full.rows[0]) });
   } catch (err) {
     return handleError(err, res, 'tasks-update');
+  }
+});
+
+// Удалить все ВЫПОЛНЕННЫЕ задачи (только свои): ?client=<uuid>&project=<uuid|none>
+// — по клиенту/проекту, без параметров — все выполненные пользователя.
+router.delete('/', async (req, res) => {
+  const where = ['user_id = $1', "status = 'done'"];
+  const params = [req.user.id];
+  if (req.query.client !== undefined) {
+    if (!isUuid(req.query.client)) return res.json({ deleted: 0 });
+    params.push(req.query.client); where.push(`client_id = $${params.length}`);
+  }
+  if (req.query.project !== undefined) {
+    if (req.query.project === 'none') where.push('project_id IS NULL');
+    else if (!isUuid(req.query.project)) return res.json({ deleted: 0 });
+    else { params.push(req.query.project); where.push(`project_id = $${params.length}`); }
+  }
+  try {
+    const r = await db.query(`DELETE FROM client_tasks WHERE ${where.join(' AND ')}`, params);
+    return res.json({ deleted: r.rowCount });
+  } catch (err) {
+    return handleError(err, res, 'tasks-delete-done');
   }
 });
 
