@@ -154,10 +154,11 @@ function backToClient() {
 
 // ------------------------------------------------------------------ действия
 
-function addClient(name, contact) {
+function addClient(name, phone, email) {
   return guarded(async function () {
     var body = { name: name };
-    if (contact) body.contact = contact;
+    if (phone) body.phone = phone;
+    if (email) body.email = email;
     var r = await call('POST', '/clients', body);
     S.adding = null;
     S.clients = (await call('GET', '/clients')).clients;
@@ -206,9 +207,10 @@ function renameClient(name) {
   });
 }
 
-function saveContact(contact) {
+function saveContact(phone, email) {
   return guarded(async function () {
-    S.client = (await call('PATCH', '/clients/' + S.client.id, { contact: contact })).client;
+    // Пустая строка очищает поле на сервере.
+    S.client = (await call('PATCH', '/clients/' + S.client.id, { phone: phone, email: email })).client;
     S.adding = null;
   });
 }
@@ -274,27 +276,169 @@ function inlineForm(opts) {
   var input = h('input', { type: 'text', class: 'cl-input', maxlength: String(opts.max || 120),
     placeholder: opts.placeholder, autocomplete: 'off' });
   input.value = d ? d.a : (opts.value || '');
-  var contact = opts.contactPlaceholder
-    ? h('input', { type: 'text', class: 'cl-input', maxlength: '500', placeholder: opts.contactPlaceholder, autocomplete: 'off' })
-    : null;
-  if (contact && d) contact.value = d.b || '';
   function submit() {
     var v = input.value.trim();
     if (!v) { input.focus(); return; }
-    S.draft = { kind: opts.kind, a: v, b: contact ? contact.value.trim() : '' };
-    opts.onSubmit(v, contact ? contact.value.trim() : '');
+    S.draft = { kind: opts.kind, a: v, b: '' };
+    opts.onSubmit(v);
+  }
+  input.addEventListener('keydown', function (e) {
+    if (e.key === 'Enter') { e.preventDefault(); submit(); }
+    else if (e.key === 'Escape') { e.preventDefault(); opts.onCancel(); }
+  });
+  setTimeout(function () { input.focus(); }, 0);
+  return h('div', { class: 'cl-form' }, input,
+    h('div', { class: 'cl-form-actions' },
+      h('button', { type: 'button', class: 'btn btn-primary', onclick: submit, text: opts.submitLabel || 'Добавить' }),
+      h('button', { type: 'button', class: 'btn', onclick: opts.onCancel, text: 'Отмена' })));
+}
+
+// ------------------------------------------------- телефон и почта клиента
+
+// Цифры номера. Для ссылок мессенджеров нужен международный формат: если
+// номер не начинается с «+» или «00», код страны неизвестен — не гадаем
+// и возвращаем null (тогда показывается только «Позвонить»).
+function intlDigits(phone) {
+  var t = String(phone || '').trim();
+  var digits = t.replace(/\D/g, '');
+  if (t.charAt(0) === '+') return digits;
+  if (digits.indexOf('00') === 0) return digits.slice(2);
+  return null;
+}
+
+function dialHref(phone) {
+  var t = String(phone || '').trim();
+  return 'tel:' + (t.charAt(0) === '+' ? '+' : '') + t.replace(/\D/g, '');
+}
+
+function vcardEscape(v) {
+  return String(v).replace(/\\/g, '\\\\').replace(/\n/g, '\\n').replace(/;/g, '\\;').replace(/,/g, '\\,');
+}
+
+// Имя файла только латиницей: кириллица и пробелы в именах скачиваемых
+// файлов на части телефонов и браузеров теряются («download»).
+var TRANSLIT = { 'а':'a','б':'b','в':'v','г':'g','д':'d','е':'e','ё':'e','ж':'zh','з':'z','и':'i','й':'y','к':'k','л':'l','м':'m','н':'n','о':'o','п':'p','р':'r','с':'s','т':'t','у':'u','ф':'f','х':'kh','ц':'ts','ч':'ch','ш':'sh','щ':'shch','ъ':'','ы':'y','ь':'','э':'e','ю':'yu','я':'ya','ă':'a','â':'a','î':'i','ș':'s','ț':'t' };
+function vcfFileName(name) {
+  var out = String(name || '').toLowerCase().split('').map(function (ch) {
+    return Object.prototype.hasOwnProperty.call(TRANSLIT, ch) ? TRANSLIT[ch] : ch;
+  }).join('');
+  out = out.replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+  return (out || 'client') + '.vcf';
+}
+
+// Карточка контакта (vCard 3.0): телефон открывает системное «Сохранить в
+// контакты». Напрямую писать в книгу контактов из браузера нельзя.
+function downloadVcard(c) {
+  var lines = ['BEGIN:VCARD', 'VERSION:3.0', 'FN:' + vcardEscape(c.name), 'N:' + vcardEscape(c.name) + ';;;;'];
+  if (c.phone) lines.push('TEL;TYPE=CELL:' + vcardEscape(c.phone));
+  if (c.email) lines.push('EMAIL:' + vcardEscape(c.email));
+  lines.push('END:VCARD');
+  var blob = new Blob([lines.join('\r\n') + '\r\n'], { type: 'text/vcard;charset=utf-8' });
+  var url = URL.createObjectURL(blob);
+  var a = h('a', { href: url, download: vcfFileName(c.name) });
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(function () { document.body.removeChild(a); URL.revokeObjectURL(url); }, 1000);
+}
+
+// Выбор человека из книги контактов телефона (Chrome на Android, только по
+// нажатию и только того, кого выберет пользователь).
+function pickerSupported() {
+  return !!(window.isSecureContext && navigator.contacts && typeof navigator.contacts.select === 'function');
+}
+
+async function pickContact() {
+  var res = await navigator.contacts.select(['name', 'tel', 'email'], { multiple: false });
+  var r = res && res[0];
+  if (!r) return null;
+  function first(a) { return a && a.length ? String(a[0]) : ''; }
+  return {
+    name: first(r.name).trim(),
+    phone: first(r.tel).replace(/[^+\d\s()\-.]/g, '').trim().slice(0, 40),
+    email: first(r.email).trim().slice(0, 120)
+  };
+}
+
+// Форма «имя (необязательно) + телефон + почта + выбор из контактов».
+function contactForm(opts) {
+  var d = draftFor(opts.kind);
+  var name = opts.withName
+    ? h('input', { type: 'text', class: 'cl-input', maxlength: '120', placeholder: 'Имя клиента', autocomplete: 'off' })
+    : null;
+  var phone = h('input', { type: 'tel', inputmode: 'tel', class: 'cl-input', maxlength: '40',
+    placeholder: 'Телефон, например +373 69 123 456', autocomplete: 'off' });
+  var email = h('input', { type: 'email', inputmode: 'email', class: 'cl-input', maxlength: '120',
+    placeholder: 'Почта', autocomplete: 'off' });
+  if (name) name.value = d ? d.a : '';
+  phone.value = d ? d.b : (opts.phone || '');
+  email.value = d ? d.c : (opts.email || '');
+
+  function submit() {
+    var n = name ? name.value.trim() : '';
+    if (name && !n) { name.focus(); return; }
+    S.draft = { kind: opts.kind, a: n, b: phone.value.trim(), c: email.value.trim() };
+    opts.onSubmit(n, phone.value.trim(), email.value.trim());
   }
   function onKey(e) {
     if (e.key === 'Enter') { e.preventDefault(); submit(); }
     else if (e.key === 'Escape') { e.preventDefault(); opts.onCancel(); }
   }
-  input.addEventListener('keydown', onKey);
-  if (contact) contact.addEventListener('keydown', onKey);
-  setTimeout(function () { input.focus(); }, 0);
-  return h('div', { class: 'cl-form' }, input, contact,
+  [name, phone, email].forEach(function (el) { if (el) el.addEventListener('keydown', onKey); });
+
+  var pickRow = null;
+  if (pickerSupported()) {
+    pickRow = h('button', { type: 'button', class: 'btn cl-pick', text: '📇 Выбрать из контактов телефона',
+      onclick: function () {
+        pickContact().then(function (c) {
+          if (!c) return;
+          if (name && !name.value.trim() && c.name) name.value = c.name;
+          if (c.phone) phone.value = c.phone;
+          if (c.email) email.value = c.email;
+        }).catch(function () { /* закрыл окно выбора — ничего не делаем */ });
+      } });
+  }
+  setTimeout(function () { (name || phone).focus(); }, 0);
+  return h('div', { class: 'cl-form' }, name, pickRow, phone, email,
+    pickRow ? null : h('div', { class: 'cl-hint', text: 'Выбор из контактов телефона доступен в Chrome на Android.' }),
     h('div', { class: 'cl-form-actions' },
-      h('button', { type: 'button', class: 'btn btn-primary', onclick: submit, text: opts.submitLabel || 'Добавить' }),
+      h('button', { type: 'button', class: 'btn btn-primary', onclick: submit, text: opts.submitLabel || 'Сохранить' }),
       h('button', { type: 'button', class: 'btn', onclick: opts.onCancel, text: 'Отмена' })));
+}
+
+// Показ контакта: телефон с кнопками «позвонить/написать», почта, сохранение
+// в контакты.
+function contactView(c) {
+  var wrap = h('div', { class: 'cl-contact-box' });
+  if (c.contactUnreadable) {
+    wrap.appendChild(h('div', { class: 'cl-contact' }, h('span', { class: 'cl-muted', text: 'Контакт не расшифровался' }),
+      h('button', { type: 'button', class: 'cl-link', text: 'Указать заново', onclick: function () { S.adding = 'contact'; render(); } })));
+    return wrap;
+  }
+  if (!c.phone && !c.email) {
+    wrap.appendChild(h('div', { class: 'cl-contact' }, h('span', { class: 'cl-muted', text: 'Телефон и почта не указаны' }),
+      h('button', { type: 'button', class: 'cl-link', text: 'Указать', onclick: function () { S.adding = 'contact'; render(); } })));
+    return wrap;
+  }
+  if (c.phone) {
+    var intl = intlDigits(c.phone);
+    var acts = [h('a', { class: 'cl-act cl-act-main', href: dialHref(c.phone), text: '📞 Позвонить' })];
+    if (intl) {
+      acts.push(h('a', { class: 'cl-act', href: 'https://wa.me/' + intl, target: '_blank', rel: 'noopener', text: 'WhatsApp' }));
+      acts.push(h('a', { class: 'cl-act', href: 'viber://chat?number=%2B' + intl, text: 'Viber' }));
+      acts.push(h('a', { class: 'cl-act', href: 'https://t.me/+' + intl, target: '_blank', rel: 'noopener', text: 'Telegram' }));
+    }
+    var actsBox = h('div', { class: 'cl-acts' });
+    acts.forEach(function (a) { actsBox.appendChild(a); });
+    wrap.appendChild(h('div', { class: 'cl-contact-row' }, h('span', { class: 'cl-contact-val', text: c.phone }), actsBox));
+  }
+  if (c.email) {
+    wrap.appendChild(h('div', { class: 'cl-contact-row' }, h('span', { class: 'cl-contact-val', text: c.email }),
+      h('div', { class: 'cl-acts' }, h('a', { class: 'cl-act cl-act-main', href: 'mailto:' + encodeURI(c.email), text: '✉ Написать' }))));
+  }
+  wrap.appendChild(h('div', { class: 'cl-contact-foot' },
+    h('button', { type: 'button', class: 'cl-link', text: 'Сохранить в контакты', onclick: function () { downloadVcard(c); } }),
+    h('button', { type: 'button', class: 'cl-link', text: 'Изменить', onclick: function () { S.adding = 'contact'; render(); } })));
+  return wrap;
 }
 
 function noteForm(opts) {
@@ -379,7 +523,7 @@ function viewList() {
       oninput: function (e) { S.filter = e.target.value; renderListOnly(); } })));
 
   if (S.adding === 'client') {
-    wrap.appendChild(inlineForm({ kind: 'client-new', placeholder: 'Имя клиента', contactPlaceholder: 'Контакт (телефон, почта) — необязательно',
+    wrap.appendChild(contactForm({ kind: 'client-new', withName: true, submitLabel: 'Добавить',
       onSubmit: addClient, onCancel: function () { S.adding = null; S.draft = null; render(); } }));
   } else {
     wrap.appendChild(h('button', { type: 'button', class: 'btn btn-primary cl-add', text: '＋ Добавить клиента',
@@ -427,14 +571,11 @@ function viewClient() {
 
   // контакт
   if (S.adding === 'contact') {
-    wrap.appendChild(inlineForm({ kind: 'contact', value: c.contact || '', placeholder: 'Телефон, почта…', max: 500,
-      submitLabel: 'Сохранить', onSubmit: function (v) { saveContact(v); },
+    wrap.appendChild(contactForm({ kind: 'contact', phone: c.phone || '', email: c.email || '',
+      onSubmit: function (n, phone, email) { saveContact(phone, email); },
       onCancel: function () { S.adding = null; S.draft = null; render(); } }));
   } else {
-    wrap.appendChild(h('div', { class: 'cl-contact' },
-      h('span', { class: c.contact ? '' : 'cl-muted', text: c.contactUnreadable ? 'Контакт не расшифровался' : (c.contact || 'Контакт не указан') }),
-      h('button', { type: 'button', class: 'cl-link', text: c.contact ? 'Изменить' : 'Указать',
-        onclick: function () { S.adding = 'contact'; render(); } })));
+    wrap.appendChild(contactView(c));
   }
 
   // проекты

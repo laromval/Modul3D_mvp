@@ -3125,3 +3125,18 @@ input.calc-error { outline: 2px solid #d33; outline-offset: -1px; }
 @media (prefers-reduced-motion: reduce) {
   .cl-card, .cl-card:hover { transition: none; transform: none; }
 }
+
+/* Клиенты: телефон, почта, кнопки связи */
+.cl-contact-box { display: flex; flex-direction: column; gap: var(--sp-2); }
+.cl-contact-row { display: flex; flex-direction: column; gap: 6px; padding: var(--sp-2) 0; border-bottom: 1px solid var(--border); }
+.cl-contact-val { font-size: var(--fs-md); color: var(--text); overflow-wrap: anywhere; }
+.cl-acts { display: flex; flex-wrap: wrap; gap: 6px; }
+.cl-act {
+  display: inline-flex; align-items: center; min-height: 32px; padding: 0 12px;
+  border: 1px solid var(--border); border-radius: 999px; background: var(--surface-2);
+  font-size: var(--fs-sm); font-weight: 600; color: var(--text-2); text-decoration: none;
+}
+.cl-act:hover { background: var(--accent-soft); color: var(--accent); }
+.cl-act-main { background: var(--accent-soft); border-color: transparent; color: var(--accent); }
+.cl-contact-foot { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-2); }
+.cl-pick { width: 100%; }

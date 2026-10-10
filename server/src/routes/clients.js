@@ -6,9 +6,10 @@
 //
 // Контракт (везде Authorization: Bearer <JWT>, подтверждённый email):
 //   GET    /clients                          -> { clients: [...] } (+ счётчики)
-//   POST   /clients { name, contact? }       -> { client }
+//   POST   /clients { name, phone?, email? } -> { client }
 //   GET    /clients/:id                      -> { client, projects: [...] }
-//   PATCH  /clients/:id { name?, contact?, archived? }
+//   PATCH  /clients/:id { name?, phone?, email?, archived? }
+//          (phone/email: пустая строка или null — очистить; не переданное не меняется)
 //   DELETE /clients/:id                      (каскадом проекты и заметки)
 //   POST   /clients/:id/projects { name }    -> { project }
 //   PATCH  /clients/:id/projects/:pid { name?, status? }
@@ -18,7 +19,8 @@
 //   PATCH  /clients/:id/notes/:nid { body }
 //   DELETE /clients/:id/notes/:nid
 //
-// Контакт клиента и текст заметок хранятся зашифрованными
+// Контакт клиента (телефон и почта — один зашифрованный объект
+// { phone, email }; старые записи — просто строка, читаются тоже) и текст заметок хранятся зашифрованными
 // (services/workflowCrypto.js, ключ WORKFLOW_ENC_KEY). Если ключ не задан,
 // операции с контактом/заметками отвечают 503 — открытым текстом не храним;
 // клиенты и проекты без них работают.
@@ -40,7 +42,9 @@ const MAX_CLIENTS_PER_USER = 500;
 const MAX_PROJECTS_PER_CLIENT = 200;
 const MAX_NOTES_PER_CLIENT = 1000;
 const MAX_NAME = 120;
-const MAX_CONTACT = 500;
+const MAX_CONTACT = 500; // только для старого поля contact (строка)
+const MAX_PHONE = 40;
+const MAX_EMAIL = 120;
 const MAX_NOTE = 20000;
 const PROJECT_STATUSES = ['active', 'done'];
 
@@ -61,6 +65,72 @@ function cleanText(raw, max, label, { required }) {
   if (!value) return required ? { error: `Не указано: ${label}.` } : { value: null };
   if (value.length > max) return { error: `${label}: не более ${max} символов.` };
   return { value };
+}
+
+// ---- контакт клиента: телефон + почта -------------------------------------
+
+function strOrNull(v) {
+  return typeof v === 'string' && v.trim() ? v.trim() : null;
+}
+
+// Из расшифрованного значения колонки contact делает { phone, email }.
+// Новый формат — объект; старый — одна строка (почта, если есть «@»,
+// иначе телефон).
+function normalizeContact(value) {
+  if (value && typeof value === 'object') {
+    return { phone: strOrNull(value.phone), email: strOrNull(value.email) };
+  }
+  const v = strOrNull(value);
+  if (!v) return { phone: null, email: null };
+  return v.includes('@') ? { phone: null, email: v } : { phone: v, email: null };
+}
+
+// Телефон: цифры, пробелы, + - ( ) . ; от 5 до 18 цифр. Возвращает
+// { value } или { error }.
+function cleanPhone(raw) {
+  const t = cleanText(raw, MAX_PHONE, 'телефон', { required: false });
+  if (t.error || t.value === null) return t;
+  if (!/^[+\d\s()\-.]+$/.test(t.value)) return { error: 'Телефон: допустимы только цифры, пробелы и символы + - ( ).' };
+  const digits = t.value.replace(/\D/g, '').length;
+  if (digits < 5 || digits > 18) return { error: 'Телефон: от 5 до 18 цифр.' };
+  return t;
+}
+
+function cleanEmail(raw) {
+  const t = cleanText(raw, MAX_EMAIL, 'почта', { required: false });
+  if (t.error || t.value === null) return t;
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(t.value)) return { error: 'Почта: неверный формат.' };
+  return t;
+}
+
+// Читает из тела запроса телефон и почту. Для обратной совместимости
+// принимает и старое поле contact (строка). Возвращает
+// { phone?, email? } — ключ есть только если поле передано (значение null =
+// очистить), либо { error }.
+function readContactFields(body) {
+  const out = {};
+  if (body.phone !== undefined) {
+    const r = cleanPhone(body.phone);
+    if (r.error) return { error: r.error };
+    out.phone = r.value;
+  }
+  if (body.email !== undefined) {
+    const r = cleanEmail(body.email);
+    if (r.error) return { error: r.error };
+    out.email = r.value;
+  }
+  if (body.contact !== undefined && out.phone === undefined && out.email === undefined) {
+    const r = cleanText(body.contact, MAX_CONTACT, 'контакт', { required: false });
+    if (r.error) return { error: r.error };
+    const n = normalizeContact(r.value);
+    out.phone = n.phone;
+    out.email = n.email;
+  }
+  return out;
+}
+
+function packContact({ phone, email }) {
+  return phone || email ? encryptJson({ phone: phone || null, email: email || null }) : null;
 }
 
 function handleError(err, res, what) {
@@ -84,10 +154,12 @@ function safeDecrypt(payload) {
 }
 
 function clientDto(row, contact) {
+  const c = normalizeContact(contact.value);
   return {
     id: row.id,
     name: row.name,
-    contact: contact.value,
+    phone: c.phone,
+    email: c.email,
     contactUnreadable: !!contact.unreadable,
     archived: row.archived_at !== null,
     createdAt: row.created_at,
@@ -159,20 +231,22 @@ router.post('/', async (req, res) => {
   const body = req.body || {};
   const name = cleanText(body.name, MAX_NAME, 'имя клиента', { required: true });
   if (name.error) return res.status(400).json({ error: name.error });
-  const contact = cleanText(body.contact, MAX_CONTACT, 'контакт', { required: false });
+  const contact = readContactFields(body);
   if (contact.error) return res.status(400).json({ error: contact.error });
+  const phone = contact.phone || null;
+  const email = contact.email || null;
 
   try {
     const cnt = await db.query('SELECT COUNT(*)::int AS n FROM clients WHERE user_id = $1', [req.user.id]);
     if (cnt.rows[0].n >= MAX_CLIENTS_PER_USER) {
       return res.status(409).json({ error: `Достигнут предел: не более ${MAX_CLIENTS_PER_USER} клиентов.` });
     }
-    const encContact = contact.value === null ? null : encryptJson(contact.value);
+    const encContact = packContact({ phone, email });
     const { rows } = await db.query(
       'INSERT INTO clients (user_id, name, contact) VALUES ($1, $2, $3) RETURNING *',
       [req.user.id, name.value, encContact]
     );
-    return res.status(201).json({ client: { ...clientDto(rows[0], { value: contact.value }), projectsCount: 0, notesCount: 0 } });
+    return res.status(201).json({ client: { ...clientDto(rows[0], { value: { phone, email } }), projectsCount: 0, notesCount: 0 } });
   } catch (err) {
     return handleError(err, res, 'create');
   }
@@ -214,10 +288,15 @@ router.patch('/:id', async (req, res) => {
       if (name.error) return res.status(400).json({ error: name.error });
       add('name', name.value);
     }
-    if (body.contact !== undefined) {
-      const contact = cleanText(body.contact, MAX_CONTACT, 'контакт', { required: false });
-      if (contact.error) return res.status(400).json({ error: contact.error });
-      add('contact', contact.value === null ? null : encryptJson(contact.value));
+    const contact = readContactFields(body);
+    if (contact.error) return res.status(400).json({ error: contact.error });
+    if (contact.phone !== undefined || contact.email !== undefined) {
+      // Меняем только переданное: второе поле остаётся как было.
+      const current = normalizeContact(safeDecrypt(client.contact).value);
+      add('contact', packContact({
+        phone: contact.phone !== undefined ? contact.phone : current.phone,
+        email: contact.email !== undefined ? contact.email : current.email,
+      }));
     }
     if (body.archived !== undefined) {
       if (typeof body.archived !== 'boolean') return res.status(400).json({ error: 'archived: ожидается true или false.' });
