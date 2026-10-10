@@ -3273,3 +3273,4 @@ a.cl-file-title:hover { text-decoration: underline; }
 .cl-title-row:has(.cl-avatar-wrap) { align-items: center; }
 .cl-file-open { background: none; border: 0; padding: 0; font: inherit; font-weight: 600; text-align: left; cursor: pointer; color: var(--accent); }
 .cl-file-open:hover { text-decoration: underline; }
+.cl-menu-pop .ctx-item.cl-danger { color: #c62828; }

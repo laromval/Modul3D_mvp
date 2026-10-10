@@ -472,7 +472,11 @@ function clientMenu(c) {
       h('button', { type: 'button', class: 'ctx-item', role: 'menuitem', 'data-role': 'client-edit', text: '✎ Изменить',
         onclick: function () { S.clientMenu = false; S.adding = 'edit'; S.draft = null; render(); } }),
       h('button', { type: 'button', class: 'ctx-item', role: 'menuitem', 'data-role': 'client-vcard', text: '☎ Сохранить в контакты',
-        onclick: function () { S.clientMenu = false; render(); downloadVcard(c); } })));
+        onclick: function () { S.clientMenu = false; render(); downloadVcard(c); } }),
+      h('button', { type: 'button', class: 'ctx-item', role: 'menuitem', 'data-role': 'client-archive', text: c.archived ? '↩ Вернуть из архива' : '🗄 В архив',
+        onclick: function () { S.clientMenu = false; render(); toggleArchive(); } }),
+      h('button', { type: 'button', class: 'ctx-item cl-danger', role: 'menuitem', 'data-role': 'client-delete', text: '🗑 Удалить клиента',
+        onclick: function () { S.clientMenu = false; render(); deleteClient(); } })));
   }
   return box;
 }
@@ -718,9 +722,6 @@ function viewClient() {
 
   wrap.appendChild(notesBlock('Заметки по клиенту'));
 
-  wrap.appendChild(h('div', { class: 'cl-footer' },
-    h('button', { type: 'button', class: 'btn', text: c.archived ? 'Вернуть из архива' : 'В архив', onclick: toggleArchive }),
-    h('button', { type: 'button', class: 'btn cl-btn-danger', text: 'Удалить клиента', onclick: deleteClient })));
   return wrap;
 }
 
