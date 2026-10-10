@@ -4177,12 +4177,14 @@ for (const glass of [false, true]) {
 
 // --- столешница «свой материал» толщиной ≤18мм — крышка НЕ убирается -------
 // Тонкий «свой материал» ведёт себя как компакт-плита: клеится к крышке,
-// растикса нет (см. skipTopPanel: ctCustomThick требует >18мм). U702ST9 —
-// декор с thickness:18 в каталоге (DECORS[0] тоже с валидной толщиной,
-// но её временно снимают в регресс-тесте ниже, чтобы проверить декор без
-// thickness).
+// растикса нет (см. skipTopPanel: ctCustomThick требует >18мм). Лист — тестовый
+// TEST-CT-18 толщиной 18, создаётся в самом тесте (каталог не используется).
 {
-  const decCode = DECORS.find((d) => d.code === 'U702ST9').code;
+  // Лист ТЕСТОВЫЙ, не из каталога: позиции каталога пользователь удаляет, тест от них
+  // зависеть не должен. Кладём в DECORS на время блока (резолвер ищет там) и убираем.
+  const testCtDec = Object.assign({}, DECORS[0], { code: 'TEST-CT-18', name: 'Тестовый лист 18', thickness: 18 });
+  DECORS.push(testCtDec);
+  const decCode = testCtDec.code;
   const mod1 = {
     name: 'Тумба', width: 600, height: 850, depth: 560,
     leftSide: 'floor', rightSide: 'floor',
@@ -4201,6 +4203,7 @@ for (const glass of [false, true]) {
   if (sidePanels.some((sp) => sp.holes.some((h) => h.kind === 'minifixCam'))) {
     problems.push('столешница-свой материал тонкий: у боковины есть гнездо Ø15 растикса, хотя материал тонкий — крепёж должен быть клеевым');
   }
+  DECORS.splice(DECORS.indexOf(testCtDec), 1);
   cases += 1;
 }
 
@@ -4284,10 +4287,14 @@ for (const glass of [false, true]) {
 // растикс в торец боковины, как у ldsp38. Исправлено 2026-09-07: раньше
 // «сдвоенная» ошибочно удваивала общий decor корпуса вместо decorCode с
 // панели столешницы — теперь decorCode ОБЯЗАТЕЛЕН для сдвоенной (без него —
-// noDecor, см. отдельный регресс-тест ниже). U702ST9 — декор с thickness:18
-// в каталоге (см. тест «свой материал 18мм» выше).
+// noDecor, см. отдельный регресс-тест ниже). Лист — тестовый TEST-CT-18 толщиной 18
+// (см. тест «свой материал 18мм» выше), каталог не используется.
 {
-  const decCode = DECORS.find((d) => d.code === 'U702ST9').code;
+  // Лист ТЕСТОВЫЙ, не из каталога: позиции каталога пользователь удаляет, тест от них
+  // зависеть не должен. Кладём в DECORS на время блока (резолвер ищет там) и убираем.
+  const testCtDec = Object.assign({}, DECORS[0], { code: 'TEST-CT-18', name: 'Тестовый лист 18', thickness: 18 });
+  DECORS.push(testCtDec);
+  const decCode = testCtDec.code;
   const mod1 = {
     name: 'Тумба', width: 600, height: 850, depth: 560,
     leftSide: 'floor', rightSide: 'floor',
@@ -4297,7 +4304,7 @@ for (const glass of [false, true]) {
     sections: [{ shelves: 1, drawers: 0, facade: 'doorLeft' }],
   };
   const model = buildModel(Object.assign({}, base, { modules: [mod1] }));
-  inspect(model, 'столешница: «сдвоенная» (double:true, decorCode=U702ST9) — крышки нет, растикс, толщина 2×18');
+  inspect(model, 'столешница: «сдвоенная» (double:true, decorCode=тестовый лист 18) — крышки нет, растикс, толщина 2×18');
 
   if (model.parts.some((p) => p.kind === 'top')) {
     problems.push('столешница-сдвоенная: крышка корпуса построена — не должно быть, толщина 2×18 > 18');
@@ -4316,6 +4323,7 @@ for (const glass of [false, true]) {
     const cams = sp.holes.filter((h) => h.kind === 'minifixCam');
     if (cams.length !== 2) problems.push(`столешница-сдвоенная: у "${sp.name}" ${cams.length} гнёзд Ø15 вместо 2`);
   }
+  DECORS.splice(DECORS.indexOf(testCtDec), 1);
   cases += 1;
 }
 
@@ -4893,8 +4901,10 @@ for (const glass of [false, true]) {
     cases += 1;
   }
   const findMat = (code) => DECORS.concat(Object.values(FACADE_MATERIALS)).filter((q) => q.code === code)[0] || null;
-  const vis = findMat('H1180ST37');   // ЛДСП 18,6 мм — «Видимая боковина» другой толщины, чем корпус (18)
-  if (!vis) problems.push('ЛДСП-стенка: в каталоге нет листа H1180ST37 для теста');
+  // «Видимая боковина» другой толщины, чем корпус (18). Лист ТЕСТОВЫЙ, из каталога
+  // не берётся: позиции каталога пользователь чистит (H1180ST37 удалял не раз), и
+  // тест не должен от них зависеть. Копия декора корпуса с толщиной 16 мм.
+  const vis = Object.assign({}, base.decor, { code: 'TEST-VIS-16', name: 'Тестовый ЛДСП 16', thickness: 16 });
   const mkL = (mod, extra) => buildModel(Object.assign({}, base, { facadeDecor: vis || undefined }, extra || {}, {
     modules: [Object.assign({
       name: 'M', width: 1200, height: 850, depth: 600,

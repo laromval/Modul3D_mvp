@@ -165,7 +165,7 @@ const PRESETS = [
     // tier сам встанет в свою секцию — правкой этого файла, без app.js/
     // style.css. Новый tier (третья подгруппа сверх lower/upper/appliance)
     // — добавь его сюда И подпись в TIER_LABELS в app.js.
-    tierOrder: ['lower', 'upper', 'appliance'],
+    tierOrder: ['lower', 'upper', 'island', 'appliance'],
     items: [
       {
         id: 'lower600',
@@ -255,6 +255,34 @@ const PRESETS = [
           baseType: 'legsPlinth', legHeight: 100,
           leftSide: 'onBottom', rightSide: 'onBottom',
           sections: [sec({ handle: 'bow160', facade: 'doorLeft', shelves: 4 })],
+        }),
+      },
+      {
+        id: 'island1400',
+        tier: 'island',
+        // Карточка по умолчанию лежит в подкатегории «Остров» (см. libModAllPlacements).
+        defaultPath: ['Остров'],
+        name: 'Остров 1400 (духовка + ящики)',
+        note: '1376×822×560, столешница 1400×600 · слева дверь с двумя полками, в центре проём под духовку 568 с ящиком под ней, справа три ящика; ЛДСП-стенка вкладная',
+        // По чертежу с sdmeb.ru («Остров для кухни»): ЛДСП 16, корпус 1376×560,
+        // высота 822 вместе с цоколем 100 (+ столешница 38 = 860), столешница
+        // 1400×600 — свес 12 по бокам и 24 спереди. Проёмы 268 / 568 / 476
+        // (268+16+568+16+476 = 1344 между боковинами). Фасады: дверь 718×281,
+        // ящик под духовкой 140 (на чертеже 117 — движок строит короб от фасада 140 при посадке 25 мм) × 597, правые ящики 140 / 287 / 287 (сверху вниз).
+        // Барная перегородка 132 мм и техника (духовка, варка) не входят —
+        // в движке их пока нет.
+        make: () => mod({
+          family: 'kitchen',
+          name: 'Остров 1400', width: 1376, height: 822, depth: 560,
+          baseType: 'legsPlinth', legHeight: 100,
+          leftSide: 'floor', rightSide: 'floor', topType: 'rails',
+          backMount: 'inset', backMaterialCode: 'visibleSide',
+          countertopOverhang: { front: 24, left: 12, right: 12 },
+          sections: [
+            sec({ handle: 'bow160', facade: 'doorLeft', shelves: 2, widthMode: 'fixed', width: 268 }),
+            sec({ handle: 'bow160', facade: 'open', drawers: 1, drawerMode: 'manual', drawerHeights: [140], widthMode: 'fixed', width: 568 }),
+            sec({ handle: 'bow160', facade: 'open', drawers: 3, drawerMode: 'manual', drawerHeights: [287, 287, 140] }),
+          ],
         }),
       },
       {

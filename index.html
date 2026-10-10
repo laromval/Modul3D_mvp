@@ -7,7 +7,7 @@
 <title>Modul3D — параметрический конструктор корпусной мебели</title>
 
 <link rel="icon" type="image/svg+xml" href="favicon.svg" />
-<link rel="stylesheet" href="style.css?v450" />
+<link rel="stylesheet" href="style.css?v451" />
 
 <!-- Положение панели режимов 3D-вида (#viewToolbar; data-vt-pos на <html>:
      bottom-center — по умолчанию | bottom-left | header-start (в шапке после
@@ -31,7 +31,7 @@
 })();
 </script>
 
-<script src="src/errorBanner.js?v450"></script>
+<script src="src/errorBanner.js?v451"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <!-- Paddle.js — оверлей оплаты подписки (см. app.js: requestCheckout/initPaddle).
      Обычный скрипт без defer, как остальные CDN-подключения выше. -->
@@ -786,16 +786,16 @@
 
 </main>
 
-<script src="src/catalog.js?v450"></script>
-<script src="src/presets.js?v450"></script>
-<script src="src/engine.js?v450"></script>
-<script src="src/specification.js?v450"></script>
-<script src="src/legMeshes.js?v450"></script>
-<script src="src/csg.js?v450"></script>
-<script src="src/decorTiles.js?v450"></script>
-<script src="src/userTextures.js?v450"></script>
-<script src="src/viewer.js?v450"></script>
-<script src="src/ui-shell.js?v450"></script>
+<script src="src/catalog.js?v451"></script>
+<script src="src/presets.js?v451"></script>
+<script src="src/engine.js?v451"></script>
+<script src="src/specification.js?v451"></script>
+<script src="src/legMeshes.js?v451"></script>
+<script src="src/csg.js?v451"></script>
+<script src="src/decorTiles.js?v451"></script>
+<script src="src/userTextures.js?v451"></script>
+<script src="src/viewer.js?v451"></script>
+<script src="src/ui-shell.js?v451"></script>
 <!-- markup.js ДОЛЖЕН грузиться раньше app.js: он вешает свой document
      keydown-обработчик (Delete/Escape по ручной разметке) СРАЗУ при загрузке
      файла, и stopImmediatePropagation() там останавливает только слушатели,
@@ -803,21 +803,21 @@
      тегов. Переставишь эту строку после app.js — Delete по выделенному
      ручному размеру снова начнёт заодно удалять активный 3D-модуль
      (см. app.js: обработчик Delete рядом с deleteModule). -->
-<script src="src/markup.js?v450"></script>
-<script src="src/drawings.js?v450"></script>
-<script src="src/export.js?v450"></script>
-<script src="src/cnc.js?v450"></script>
-<script src="src/sketchAI.js?v450"></script>
-<script src="src/selectMenu.js?v450"></script>
-<script src="src/cloudDrive.js?v450"></script>
-<script src="src/clients.js?v450"></script>
-<script src="src/clientTasks.js?v450"></script>
-<script src="src/clientFiles.js?v450"></script>
-<script src="src/clientAvatar.js?v450"></script>
+<script src="src/markup.js?v451"></script>
+<script src="src/drawings.js?v451"></script>
+<script src="src/export.js?v451"></script>
+<script src="src/cnc.js?v451"></script>
+<script src="src/sketchAI.js?v451"></script>
+<script src="src/selectMenu.js?v451"></script>
+<script src="src/cloudDrive.js?v451"></script>
+<script src="src/clients.js?v451"></script>
+<script src="src/clientTasks.js?v451"></script>
+<script src="src/clientFiles.js?v451"></script>
+<script src="src/clientAvatar.js?v451"></script>
 <!-- app.js — ПОСЛЕ markup.js (см. пометку у markup.js выше): его глобальный
      keydown на Delete (удаление активного модуля) не должен получить событие
      раньше markup.js — иначе перехват Delete ручной разметкой не работает. -->
-<script src="src/app.js?v450"></script>
+<script src="src/app.js?v451"></script>
 <script>if (window.Modul3D && window.Modul3D.uiShell) window.Modul3D.uiShell.start();</script>
 </body>
 </html>

@@ -591,16 +591,19 @@ check('материалы по умолчанию: корпус/боковина
     const btns = pickBtns();
     return btns.length > 0 && btns.every((x) => allowed.indexOf(x.attrs['data-pick-code']) !== -1);
   });
+  // Код не зашит: берём первую доступную кнопку — пользователь удаляет листы из каталога.
+  let chosenFacadeCode = null;
   check('материалы: фасад секции — выбранный материал в поле «Фасад»', () => {
-    const pb = pickBy('U702ST9') || pickBtns()[0];
+    const pb = pickBtns()[0];
     const code = pb && pb.attrs['data-pick-code'];
+    chosenFacadeCode = code;
     return choose(pb) && new RegExp(`data-mat-pick="facade" data-code="${code}"`).test(panelHtml());
   });
   check('материалы: «Заменить фасады на весь проект» есть и не падает', () => {
     const b = document.getElementById('p-facadeApplyAll');
     if (!b) return false;
     b.click();
-    return !/Ошибка/.test(panelHtml()) && /data-mat-pick="facade" data-code="U702ST9"/.test(panelHtml());
+    return !/Ошибка/.test(panelHtml()) && new RegExp(`data-mat-pick="facade" data-code="${chosenFacadeCode}"`).test(panelHtml());
   });
   // Отсеки: при doorZoneCount > 1 — переключатель «Секция N / Отсек K» и свой
   // вид фасада отсека (p-zoneFacadeType), «как у секции» — без переопределения.

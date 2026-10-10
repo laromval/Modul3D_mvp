@@ -14,7 +14,7 @@
 (function () {
 // Версия сборки — показывается во вкладке браузера и в шапке.
 // При выпуске новой версии меняется только эта строка.
-const APP_VERSION = 'v450';
+const APP_VERSION = 'v451';
 
 // Номер версии выводим ПЕРВЫМ делом: если дальше что-то упадёт, по нему сразу
 // видно, какая сборка открыта.
@@ -426,6 +426,9 @@ const state = {
     ],
     [
       "Нижний модуль"
+    ],
+    [
+      "Остров"
     ]
   ]
 },
@@ -476,7 +479,8 @@ const state = {
   "mod:kitchen": {
     "": [
       "Нижний модуль",
-      "Верхние модули"
+      "Верхние модули",
+      "Остров"
     ]
   }
 },
@@ -1087,6 +1091,7 @@ function snapshotCatalogCollections() {
     lifts: JSON.parse(JSON.stringify(cat.LIFTS)),
     fasteners: JSON.parse(JSON.stringify(cat.FASTENER_PRICES)),
     libExtraNodes: JSON.parse(JSON.stringify(state.libExtraNodes)),
+    libIslandCatSeeded: true,
     // Свой порядок подкатегорий, заданный перетаскиванием (2026-09-17) —
     // тем же способом и по той же причине, что libExtraNodes выше: это
     // такая же правка дерева каталога, как заведённая руками пустая
@@ -1352,6 +1357,13 @@ function restoreCatalogFrom(blob) {
     Object.assign(cat.FASTENER_PRICES, mergeCatalogObject(blob.fasteners, fresh.fasteners));
   }
   if (blob.libExtraNodes) state.libExtraNodes = JSON.parse(JSON.stringify(blob.libExtraNodes));
+  // Подкатегория «Остров» в «Кухонном модуле» заводится один раз (2026-10-09):
+  // в снимках, сохранённых раньше, её нет; флаг не даёт ей воскресать после
+  // удаления пользователем.
+  if (!blob.libIslandCatSeeded) {
+    const kn = (state.libExtraNodes['mod:kitchen'] = state.libExtraNodes['mod:kitchen'] || []);
+    if (!kn.some((pth) => pth[0] === 'Остров')) kn.push(['Остров']);
+  }
   // Порядок подкатегорий, заданный перетаскиванием (см. state.libNodeOrder).
   // В снимках до 2026-09-17 этого ключа нет — тогда порядок остаётся
   // «как в данных», ровно как было до появления перетаскивания.
@@ -1884,11 +1896,63 @@ function showToastSafe(msg) {
   } catch (_) { console.warn(msg); }
 }
 
+// Тип модуля по названию категории Библиотеки, где лежит его карточка
+// (решение пользователя 2026-10-09): «Верхние модули» → навесной, «Остров» →
+// остров, «Пенал», «Нижний модуль»/«Тумба» → напольный. Смотрим от самой
+// глубокой подкатегории к верхней группе — «Кухонный модуль → Остров» даёт
+// остров, а не просто кухню. Пустая строка — название ни о чём не говорит.
+function libKindFromNames(names) {
+  const rules = [
+    ['island', /остров/i], ['upper', /верх|навес/i], ['tall', /пенал|колонн/i],
+    ['lower', /нижн|напольн|тумб/i], ['wardrobe', /шкаф|гардероб|стеллаж/i], ['kitchen', /кухон/i],
+  ];
+  for (let i = names.length - 1; i >= 0; i--) {
+    for (let r = 0; r < rules.length; r++) if (rules[r][1].test(String(names[i] || ''))) return rules[r][0];
+  }
+  return '';
+}
+
+// Тип модуля: по ТЕКУЩЕМУ месту его карточки в дереве Библиотеки (libOrigin;
+// если карточку перенесли — тип следует за переносом), иначе то, что записано
+// в модуль при добавлении (mod.libKind), иначе — по признаку «навесной».
+function moduleLibKind(mod) {
+  if (!mod) return '';
+  const t = libModOriginTarget(mod);
+  const k = t ? libKindFromNames([libModTopLabel(t.group)].concat(t.categoryPath)) : '';
+  return k || mod.libKind || '';
+}
+
+function moduleIsUpper(mod) {
+  return moduleLibKind(mod) === 'upper' || moduleIsWallHung(mod);
+}
+
+// Записывает тип в добавляемый модуль (переживает удаление карточки). Карточка
+// из «Верхних модулей» без своего признака wallHung становится навесной.
+function stampLibKind(mod) {
+  const k = moduleLibKind(mod);
+  if (k) mod.libKind = k;
+  if (k === 'upper' && mod.wallHung !== true && mod.wallHung !== false) mod.wallHung = true;
+}
+
 function placementIndexFor(list) {
   list.forEach((m) => { delete m.groupStart; delete m.gx; delete m.gz; });
   const n = state.modules.length;
-  const mode = state.addMode || 'right';
+  let mode = state.addMode || 'right';
   if (!n) return 0;
+  // Верхний (навесной) модуль всегда идёт на СТЕНУ основной группы — в конец её
+  // ряда, даже если выделен остров: у острова стены нет, и модуль, попавший в
+  // его группу, повисал бы в воздухе рядом с ним. Сам верхний остров не начинает.
+  if (moduleIsUpper(list[0])) {
+    let firstIsland = -1;
+    for (let i = 1; i < n; i++) if (state.modules[i].groupStart) { firstIsland = i; break; }
+    if (firstIsland > 0 && (mode === 'island' || state.activeModule >= firstIsland)) return firstIsland;
+    if (mode === 'island') mode = 'right';
+  } else if (moduleLibKind(list[0]) === 'island' && mode !== 'island') {
+    // Модуль из категории «Остров» сам встаёт отдельной группой — но только
+    // если выделен модуль основной кухни; к уже стоящему острову он достраивается.
+    const firstIsland = state.modules.findIndex((m, i) => i > 0 && m.groupStart);
+    if (firstIsland < 0 || state.activeModule < firstIsland) mode = 'island';
+  }
   if (mode === 'island') {
     const b = modelBoundsMm();
     const D = Number(list[0].depth) || 600;
@@ -1910,6 +1974,18 @@ function placementIndexFor(list) {
     return at;
   }
   return Math.min(state.activeModule + 1, n);
+}
+
+// Свесы столешницы, заданные карточкой («Остров»: 1400 на корпусе 1376), —
+// подсказка m.countertopOverhang {front,left,right} применяется один раз
+// при создании столешницы по умолчанию и из модуля убирается.
+function applyCountertopOverhangHint(m) {
+  const h = m.countertopOverhang;
+  delete m.countertopOverhang;
+  if (!h || !m.countertop) return;
+  if (h.front !== undefined) m.countertop.overhangFront = h.front;
+  if (h.left !== undefined) m.countertop.overhangLeft = h.left;
+  if (h.right !== undefined) m.countertop.overhangRight = h.right;
 }
 
 function insertModule(m) {
@@ -1941,10 +2017,12 @@ function insertModule(m) {
       overhangLeft: 0,
       overhangRight: 0,
     };
+    applyCountertopOverhangHint(m);
   }
   // Вставленный модуль — всегда НОВЫЙ: клон из пресета/библиотеки/комплекта
   // мог принести uid эталона (или другого модуля проекта), см. newModuleUid.
   m.uid = newModuleUid();
+  stampLibKind(m);
   const at = placementIndexFor([m]);
   state.modules.splice(at, 0, m);
   renumberModules();
@@ -1985,9 +2063,10 @@ function insertModulesBatch(mods) {
         overhangLeft: 0,
         overhangRight: 0,
       };
+      applyCountertopOverhangHint(m);
     }
   });
-  mods.forEach((m) => { m.uid = newModuleUid(); });   // см. insertModule
+  mods.forEach((m) => { m.uid = newModuleUid(); stampLibKind(m); });   // см. insertModule
   const at = placementIndexFor(mods);
   state.modules.splice(at, 0, ...mods);
   renumberModules();
@@ -2095,7 +2174,7 @@ function libModAllPlacements() {
         id: 'default:' + presetId,
         presetId,
         group: (ov && ov.group) || g.id,
-        categoryPath: (ov && Array.isArray(ov.categoryPath)) ? ov.categoryPath.slice() : [],
+        categoryPath: (ov && Array.isArray(ov.categoryPath)) ? ov.categoryPath.slice() : (it.defaultPath || []).slice(),
         name: (ov && ov.name) || null,
       });
     });
