@@ -14,7 +14,7 @@
 (function () {
 // Версия сборки — показывается во вкладке браузера и в шапке.
 // При выпуске новой версии меняется только эта строка.
-const APP_VERSION = 'v426';
+const APP_VERSION = 'v427';
 
 // Номер версии выводим ПЕРВЫМ делом: если дальше что-то упадёт, по нему сразу
 // видно, какая сборка открыта.
@@ -2366,16 +2366,25 @@ function libModCustomThumbDataUrl(p) {
 // «Сохранить как…») data-group/data-preset не пишем вовсе — по их
 // отсутствию левый клик (bindLibraryEvents) отличает такую карточку и берёт
 // параметры из неё самой (см. addLibModCardToProject).
-function libModCardHtml(p) {
+// Подпись карточки (название + короткое примечание) — она же всплывающая
+// подсказка и ТЕКСТ, ПО КОТОРОМУ ИЩЕТ поиск «Библиотеки» (см.
+// applyLibrarySearch). null — карточки нет (пресет удалён из presets.js).
+function libModCardTip(p) {
   const ref = libModPresetOf(p.presetId);
-  if (p.presetId && !ref) return '';   // ссылка на пресет, которого больше нет в presets.js
+  if (p.presetId && !ref) return null;
   const displayName = p.name || (ref ? ref.item.name : '') || '';
   // Полное примечание пресета иногда длиной за сотню символов — для
   // всплывающей подсказки (узкая колонка, перенос по словам) обрезаем его.
   // У своей карточки (без presetId) примечания нет вовсе.
   const note = ref ? ref.item.note : '';
   const noteShort = note && note.length > 70 ? note.slice(0, 68) + '…' : note;
-  const tip = `${displayName}${noteShort ? ` — ${noteShort}` : ''}`;
+  return `${displayName}${noteShort ? ` — ${noteShort}` : ''}`;
+}
+
+function libModCardHtml(p) {
+  const ref = libModPresetOf(p.presetId);
+  const tip = libModCardTip(p);
+  if (tip === null) return '';   // ссылка на пресет, которого больше нет в presets.js
   const dataUrl = ref ? libModThumbDataUrl(ref.group.id, ref.item) : libModCustomThumbDataUrl(p);
   return `<button type="button" class="lib-item tip tip-down" data-placement="${esc(p.key)}"
       ${ref ? `data-group="${esc(ref.group.id)}" data-preset="${esc(ref.item.id)}"` : ''} data-tip="${esc(tip)}">
@@ -10536,18 +10545,69 @@ function libDragApplyDrop(d) {
 // (ui-shell.js: applySearch/class dim-out), адаптирована под содержимое
 // активной вкладки: карточки базы модулей (.lib-item, по data-tip) и строки
 // таблиц материалов/фурнитуры (tr[data-search], по атрибуту).
-function applyLibrarySearch() {
+// Нормализация для сравнения: регистр и «ё» = «е» («чёрный» находит «черный»).
+function libSearchNorm(s) {
+  return String(s || '').toLowerCase().replace(/ё/g, 'е');
+}
+
+// Только прячет несовпавшие карточки/строки в УЖЕ отрисованной панели.
+// Её же зовёт renderLibraryPanel после перерисовки.
+function applyLibrarySearchDom() {
   const input = document.getElementById('librarySearch');
   const panel = document.getElementById('libraryPanel');
   if (!input || !panel) return;
-  const q = (input.value || '').trim().toLowerCase();
+  const q = libSearchNorm((input.value || '').trim());
   panel.querySelectorAll('tr[data-search]').forEach((tr) => {
-    tr.classList.toggle('dim-out', !!q && tr.getAttribute('data-search').indexOf(q) < 0);
+    tr.classList.toggle('dim-out', !!q && libSearchNorm(tr.getAttribute('data-search')).indexOf(q) < 0);
   });
   panel.querySelectorAll('.lib-item').forEach((el) => {
-    const text = (el.getAttribute('data-tip') || '').toLowerCase();
+    const text = libSearchNorm(el.getAttribute('data-tip'));
     el.classList.toggle('dim-out', !!q && text.indexOf(q) < 0);
   });
+}
+
+// Снимок раскрытых категорий «Базы модулей» на момент начала поиска — чтобы
+// после очистки строки вернуть дерево как было до поиска.
+let libSearchSnapshot = null;
+
+// Карточки свёрнутых категорий «Базы модулей» в DOM вообще не рисуются (см.
+// libNodeHtml), поэтому одной фильтрацией DOM их не найти: при непустом
+// запросе раскрываем по данным все категории, где есть совпавшая карточка
+// (остальные не трогаем и не прячем), и перерисовываем панель. Строка
+// запроса (#librarySearch) лежит ВНЕ #libraryPanel — фокус не теряется.
+function applyLibrarySearch() {
+  const input = document.getElementById('librarySearch');
+  if (!input) return;
+  const q = libSearchNorm((input.value || '').trim());
+  if (state.libraryTab !== 'modules') {
+    applyLibrarySearchDom();
+    return;
+  }
+  const stateKey = () => JSON.stringify([state.libCatOpen, state.libCollapsed]);
+  const before = stateKey();
+  if (q) {
+    if (!libSearchSnapshot) {
+      libSearchSnapshot = {
+        catOpen: JSON.parse(JSON.stringify(state.libCatOpen)),
+        collapsed: JSON.parse(JSON.stringify(state.libCollapsed)),
+      };
+    }
+    libTabTopCodes('modules').forEach((topCode) => {
+      libTopEntries(topCode).forEach((e) => {
+        const tip = libModCardTip(e.item);
+        if (tip === null || libSearchNorm(tip).indexOf(q) < 0) return;
+        const path = (e.item && e.item.categoryPath) || [];
+        state.libCatOpen[topCode] = true;
+        for (let i = 1; i <= path.length; i += 1) state.libCollapsed[libNodeKey(topCode, path.slice(0, i))] = false;
+      });
+    });
+  } else if (libSearchSnapshot) {
+    state.libCatOpen = libSearchSnapshot.catOpen;
+    state.libCollapsed = libSearchSnapshot.collapsed;
+    libSearchSnapshot = null;
+  }
+  if (stateKey() !== before) renderLibraryPanel();   // внутри зовёт applyLibrarySearchDom
+  else applyLibrarySearchDom();
 }
 
 function renderLibraryPanel() {
@@ -10627,7 +10687,7 @@ function renderLibraryPanel() {
   else if (state.libraryTab === 'facades') panel.innerHTML = libraryFacadesBlock();
   else panel.innerHTML = libraryBlock();   // 'modules' — «База модулей», дерево категорий (см. libraryBlock)
   bindLibraryEvents();
-  applyLibrarySearch();
+  applyLibrarySearchDom();
   // Применяет уже сохранённое состояние поповера сортировки/фильтра (см.
   // openColumnFilterMenu/columnFilterStates) к каждой заново отрисованной
   // таблице листа отдельно (ключ — data-chars-key, тот же, что и у кнопки
