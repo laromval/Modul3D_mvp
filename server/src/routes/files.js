@@ -1,12 +1,13 @@
-// «Файлы» проекта клиента (миграция 010). Сейчас — ссылки из интернета
-// (kind='link'); файлы на Google Диске пользователя (kind='drive') — следующий
-// этап. Данные личные: каждый запрос фильтруется по user_id из JWT, чужое
+// «Файлы» проекта клиента (миграция 010): ссылки из интернета (kind='link') и
+// карточки файлов на Google Диске пользователя (kind='drive': сам файл лежит на
+// Диске пользователя, у нас — только название, ссылка и id файла). Данные личные: каждый запрос фильтруется по user_id из JWT, чужое
 // неотличимо от несуществующего (404).
 //
 // Контракт (Authorization: Bearer <JWT>, подтверждённый email):
 //   GET    /files?client=<uuid>&project=<uuid|none>  -> { files: [...] }
 //   POST   /files { clientId, projectId?, kind?:'link', title?, url }  -> { file }
-//   PATCH  /files/:id { title?, url? }
+//   POST   /files { clientId, projectId?, kind:'drive', title, url, driveFileId, mime, sizeBytes } -> { file }
+//   PATCH  /files/:id { title?, url? }   (у kind='drive' меняется только title)
 //   DELETE /files/:id
 // Адрес — только http/https (без схемы дописывается https://); название по
 // умолчанию — домен. Название и адрес хранятся зашифрованными, без
@@ -30,6 +31,9 @@ const MAX_FILES_PER_CLIENT = 500;
 const MAX_TITLE = 200;
 const MAX_URL = 2000;
 const LIST_LIMIT = 500;
+const MAX_DRIVE_SIZE = 50 * 1024 * 1024; // 50 МБ — с запасом для картинки с телефона
+const DRIVE_ID_RE = /^[A-Za-z0-9_-]{10,200}$/;
+const DRIVE_HOSTS = ['drive.google.com', 'docs.google.com'];
 
 // Приводит введённое к нормальному http(s)-адресу или возвращает { error }.
 function cleanUrl(raw) {
@@ -44,6 +48,18 @@ function cleanUrl(raw) {
   return { value: u.href, host: u.hostname.replace(/^www\./, '') };
 }
 
+// Карточка Диска: адрес — только https на сервисы Google (ссылка на файл на Диске).
+function cleanDriveUrl(raw) {
+  const u = cleanUrl(raw);
+  if (u.error) return u;
+  let parsed;
+  try { parsed = new URL(u.value); } catch (e) { return { error: 'Адрес файла: неверный формат.' }; }
+  if (parsed.protocol !== 'https:' || !DRIVE_HOSTS.includes(parsed.hostname)) {
+    return { error: 'Адрес файла: допустима только ссылка Google Диска.' };
+  }
+  return u;
+}
+
 function fileDto(row) {
   const title = safeDecrypt(row.title);
   const url = safeDecrypt(row.url);
@@ -54,6 +70,9 @@ function fileDto(row) {
     kind: row.kind,
     title: title.value,
     url: url.value,
+    driveFileId: row.drive_file_id || null,
+    mime: row.mime || null,
+    sizeBytes: row.size_bytes === null || row.size_bytes === undefined ? null : Number(row.size_bytes),
     unreadable: !!(title.unreadable || url.unreadable),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -105,24 +124,58 @@ router.get('/', async (req, res) => {
 
 router.post('/', async (req, res) => {
   const body = req.body || {};
-  if (body.kind !== undefined && body.kind !== 'link') {
-    return res.status(400).json({ error: 'Пока можно добавлять только ссылки.' });
+  const kind = body.kind === undefined ? 'link' : body.kind;
+  if (kind !== 'link' && kind !== 'drive') {
+    return res.status(400).json({ error: 'Неизвестный тип файла.' });
   }
-  const url = cleanUrl(body.url);
+  const isDrive = kind === 'drive';
+  const url = isDrive ? cleanDriveUrl(body.url) : cleanUrl(body.url);
   if (url.error) return res.status(400).json({ error: url.error });
-  const title = cleanText(body.title, MAX_TITLE, 'название', { required: false });
+  const title = cleanText(body.title, MAX_TITLE, 'название', { required: isDrive });
   if (title.error) return res.status(400).json({ error: title.error });
+  let driveFileId = null;
+  let mime = null;
+  let sizeBytes = null;
+  if (isDrive) {
+    if (typeof body.driveFileId !== 'string' || !DRIVE_ID_RE.test(body.driveFileId)) {
+      return res.status(400).json({ error: 'Не указан файл на Google Диске.' });
+    }
+    driveFileId = body.driveFileId;
+    if (body.mime !== undefined && body.mime !== null) {
+      if (typeof body.mime !== 'string' || !/^[a-z0-9.+-]+\/[a-z0-9.+-]+$/i.test(body.mime) || body.mime.length > 100) {
+        return res.status(400).json({ error: 'Неверный тип файла.' });
+      }
+      mime = body.mime.toLowerCase();
+    }
+    if (body.sizeBytes !== undefined && body.sizeBytes !== null) {
+      const n = body.sizeBytes;
+      if (typeof n !== 'number' || !Number.isInteger(n) || n < 0 || n > MAX_DRIVE_SIZE) {
+        return res.status(400).json({ error: 'Неверный размер файла.' });
+      }
+      sizeBytes = n;
+    }
+  }
   const projectId = body.projectId === undefined ? null : body.projectId;
   try {
     if (!(await checkOwnership(req, res, body.clientId, projectId))) return undefined;
+    if (isDrive) {
+      // Повтор после потерянного ответа не должен плодить вторую карточку на тот же файл.
+      const dup = await db.query(
+        `SELECT * FROM client_files WHERE user_id = $1 AND client_id = $2 AND kind = 'drive'
+            AND drive_file_id = $3 AND project_id IS NOT DISTINCT FROM $4 LIMIT 1`,
+        [req.user.id, body.clientId, driveFileId, projectId]
+      );
+      if (dup.rows.length) return res.status(200).json({ file: fileDto(dup.rows[0]) });
+    }
     const cnt = await db.query('SELECT COUNT(*)::int AS n FROM client_files WHERE client_id = $1 AND user_id = $2', [body.clientId, req.user.id]);
     if (cnt.rows[0].n >= MAX_FILES_PER_CLIENT) {
       return res.status(409).json({ error: `Достигнут предел: не более ${MAX_FILES_PER_CLIENT} файлов и ссылок на клиента.` });
     }
     const { rows } = await db.query(
-      `INSERT INTO client_files (user_id, client_id, project_id, kind, title, url)
-       VALUES ($1,$2,$3,'link',$4,$5) RETURNING *`,
-      [req.user.id, body.clientId, projectId, encryptJson(title.value || url.host), encryptJson(url.value)]
+      `INSERT INTO client_files (user_id, client_id, project_id, kind, title, url, drive_file_id, mime, size_bytes)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *`,
+      [req.user.id, body.clientId, projectId, kind, encryptJson(title.value || url.host), encryptJson(url.value),
+        driveFileId, mime, sizeBytes]
     );
     return res.status(201).json({ file: fileDto(rows[0]) });
   } catch (err) {
@@ -139,6 +192,7 @@ router.patch('/:id', async (req, res) => {
     const params = [];
     const add = (col, val) => { params.push(val); sets.push(`${col} = $${params.length}`); };
     if (body.url !== undefined) {
+      if (file.kind === 'drive') return res.status(400).json({ error: 'У файла на Google Диске можно менять только название.' });
       const u = cleanUrl(body.url);
       if (u.error) return res.status(400).json({ error: u.error });
       add('url', encryptJson(u.value));

@@ -676,7 +676,7 @@ function viewProject() {
     wrap.appendChild(notesBlock('Заметки по проекту'));
   } else if (S.tab === 'files') {
     wrap.appendChild(EXT.filesBlock
-      ? EXT.filesBlock({ clientId: S.client.id, projectId: p.id })
+      ? EXT.filesBlock({ clientId: S.client.id, projectId: p.id, clientName: S.client.name, projectName: p.name })
       : h('div', { class: 'cl-empty', text: 'Файлы недоступны.' }));
   } else if (EXT.tasksBlock) {
     wrap.appendChild(EXT.tasksBlock({ clientId: S.client.id, projectId: p.id, title: 'Задачи по проекту' }));

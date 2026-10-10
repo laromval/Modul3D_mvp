@@ -4563,6 +4563,15 @@ class Viewer3D {
     this._notifyCameraFit();
   }
 
+  // Снимок того, что сейчас на экране, в PNG (data URL) — для «Снимок 3D-вида
+  // в проект клиента» (src/clientSnap.js). Кадр дорисовывается и читается в
+  // том же вызове: у основной канвы нет preserveDrawingBuffer, а сразу после
+  // render() содержимое ещё доступно.
+  captureImage() {
+    this.renderer.render(this.scene, this.camera);
+    return this.renderer.domElement.toDataURL('image/png');
+  }
+
   _animate() {
     if (this._broken) return;
     requestAnimationFrame(() => this._animate());

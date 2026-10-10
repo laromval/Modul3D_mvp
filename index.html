@@ -7,7 +7,7 @@
 <title>Modul3D — параметрический конструктор корпусной мебели</title>
 
 <link rel="icon" type="image/svg+xml" href="favicon.svg" />
-<link rel="stylesheet" href="style.css?v433" />
+<link rel="stylesheet" href="style.css?v434" />
 
 <!-- Положение панели режимов 3D-вида (#viewToolbar; data-vt-pos на <html>:
      bottom-center — по умолчанию | bottom-left | header-start (в шапке после
@@ -31,7 +31,7 @@
 })();
 </script>
 
-<script src="src/errorBanner.js?v433"></script>
+<script src="src/errorBanner.js?v434"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <!-- Paddle.js — оверлей оплаты подписки (см. app.js: requestCheckout/initPaddle).
      Обычный скрипт без defer, как остальные CDN-подключения выше. -->
@@ -677,6 +677,16 @@
         <path d="M4 12h16"/><path d="M7 9.5L4 12l3 2.5M17 9.5l3 2.5-3 2.5"/>
       </svg>
     </button>
+    <span class="vt-sep" aria-hidden="true"></span>
+    <!-- Снимок 3D-вида в проект клиента (src/clientSnap.js): картинка уходит на
+         Google Диск пользователя, карточка — в «Файлы» выбранного проекта. -->
+    <button type="button" class="vt-btn" id="vtSnapBtn"
+            title="Снимок 3D-вида в проект клиента" aria-label="Снимок 3D-вида в проект клиента">
+      <!-- фотоаппарат -->
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M4 8h3l1.6-2.4h6.8L17 8h3v11H4z"/><circle cx="12" cy="13" r="3.4"/>
+      </svg>
+    </button>
   </div>
   <!-- «В шапке» — переносим сразу, до первой отрисовки. Та же логика —
        ui-shell.js: placeVtDom (менять вместе). header-start — после логотипа,
@@ -785,16 +795,16 @@
 
 </main>
 
-<script src="src/catalog.js?v433"></script>
-<script src="src/presets.js?v433"></script>
-<script src="src/engine.js?v433"></script>
-<script src="src/specification.js?v433"></script>
-<script src="src/legMeshes.js?v433"></script>
-<script src="src/csg.js?v433"></script>
-<script src="src/decorTiles.js?v433"></script>
-<script src="src/userTextures.js?v433"></script>
-<script src="src/viewer.js?v433"></script>
-<script src="src/ui-shell.js?v433"></script>
+<script src="src/catalog.js?v434"></script>
+<script src="src/presets.js?v434"></script>
+<script src="src/engine.js?v434"></script>
+<script src="src/specification.js?v434"></script>
+<script src="src/legMeshes.js?v434"></script>
+<script src="src/csg.js?v434"></script>
+<script src="src/decorTiles.js?v434"></script>
+<script src="src/userTextures.js?v434"></script>
+<script src="src/viewer.js?v434"></script>
+<script src="src/ui-shell.js?v434"></script>
 <!-- markup.js ДОЛЖЕН грузиться раньше app.js: он вешает свой document
      keydown-обработчик (Delete/Escape по ручной разметке) СРАЗУ при загрузке
      файла, и stopImmediatePropagation() там останавливает только слушатели,
@@ -802,18 +812,20 @@
      тегов. Переставишь эту строку после app.js — Delete по выделенному
      ручному размеру снова начнёт заодно удалять активный 3D-модуль
      (см. app.js: обработчик Delete рядом с deleteModule). -->
-<script src="src/markup.js?v433"></script>
-<script src="src/drawings.js?v433"></script>
-<script src="src/export.js?v433"></script>
-<script src="src/cnc.js?v433"></script>
-<script src="src/sketchAI.js?v433"></script>
-<script src="src/clients.js?v433"></script>
-<script src="src/clientTasks.js?v433"></script>
-<script src="src/clientFiles.js?v433"></script>
+<script src="src/markup.js?v434"></script>
+<script src="src/drawings.js?v434"></script>
+<script src="src/export.js?v434"></script>
+<script src="src/cnc.js?v434"></script>
+<script src="src/sketchAI.js?v434"></script>
+<script src="src/cloudDrive.js?v434"></script>
+<script src="src/clients.js?v434"></script>
+<script src="src/clientTasks.js?v434"></script>
+<script src="src/clientFiles.js?v434"></script>
+<script src="src/clientSnap.js?v434"></script>
 <!-- app.js — ПОСЛЕ markup.js (см. пометку у markup.js выше): его глобальный
      keydown на Delete (удаление активного модуля) не должен получить событие
      раньше markup.js — иначе перехват Delete ручной разметкой не работает. -->
-<script src="src/app.js?v433"></script>
+<script src="src/app.js?v434"></script>
 <script>if (window.Modul3D && window.Modul3D.uiShell) window.Modul3D.uiShell.start();</script>
 </body>
 </html>
