@@ -14,7 +14,7 @@
 (function () {
 // Версия сборки — показывается во вкладке браузера и в шапке.
 // При выпуске новой версии меняется только эта строка.
-const APP_VERSION = 'v455';
+const APP_VERSION = 'v456';
 
 // Номер версии выводим ПЕРВЫМ делом: если дальше что-то упадёт, по нему сразу
 // видно, какая сборка открыта.
@@ -17446,9 +17446,14 @@ function buildOverlayDims() {
   }
 
   if (state.view === 'front') {
+    // Раскладка размеров фасадов считается ДО габаритов: от неё зависит,
+    // сколько колонок высот встанет слева (общая высота выносится за них),
+    // и поднимать ли надпись модуля над рядом ширин фасадов.
+    const fl = state.hideFacades ? null : facadeLayout(P, zf);
+    const nL = fl ? fl.leftLevels : 0;
     // габарит по ширине и высоте
     g += hDim(P(-d.W / 2, 0, zf), P(d.W / 2, 0, zf), 46, `${Math.round(d.W)}`);
-    g += vDim(P(-d.W / 2, 0, zf), P(-d.W / 2, d.H, zf), -46, `${Math.round(d.H)}`);
+    g += vDim(P(-d.W / 2, 0, zf), P(-d.W / 2, d.H, zf), nL ? -(20 * nL + 26) : -46, `${Math.round(d.H)}`);
     // Ширины модулей — только если модулей больше одного. При единственном
     // модуле его ширина совпадает с габаритом, и размер дублировался.
     // Навесной модуль поднят на свою отметку (mod.offsetY — низ от пола):
@@ -17461,12 +17466,14 @@ function buildOverlayDims() {
       }
       // Подпись — над верхом САМОГО модуля (низ + его высота). Раньше у
       // напольных бралась высота всего проекта d.H, и при верхнем ряде
-      // подписи нижних модулей налезали на подписи верхних.
+      // подписи нижних модулей налезали на подписи верхних. Если над
+      // модулем стоит ряд ширин фасадов, надпись поднимается выше него.
       const yTopMod = y0 + (Number(mod.dims.H) || 0);
-      g += txtEl(P(mod.offsetX, yTopMod, zf), mod.name, -12);
+      const lift = fl && fl.topRowMods[mod.name] ? 26 : 0;
+      g += txtEl(P(mod.offsetX, yTopMod, zf), mod.name, -12 - lift);
     }
     // фасады видны — размечаем сами фасады; скрыты — внутреннюю начинку
-    g += state.hideFacades ? innerHeightDims(P, zf) : facadeDims(P, zf);
+    g += fl ? fl.svg : (state.hideFacades ? innerHeightDims(P, zf) : '');
   } else if (state.view === 'side') {
     const xEdge = -d.W / 2;                            // ближняя боковина
     g += hDim(P(xEdge, 0, -d.D / 2), P(xEdge, 0, d.D / 2), 46, `${Math.round(d.D)}`);
@@ -17510,31 +17517,51 @@ function buildOverlayDims() {
   return `<svg width="${size.w}" height="${size.h}" viewBox="0 0 ${size.w} ${size.h}" class="ov-svg" xmlns="http://www.w3.org/2000/svg">${g}</svg>`;
 }
 
-// Разметка фасадов: ширина и высота каждого фасада прямо на нём.
-function facadeDims(P, zf) {
-  const m = currentModel;
-  let g = '';
-  const lineEl = (a, b, cls) => `<line x1="${a.x.toFixed(1)}" y1="${a.y.toFixed(1)}" x2="${b.x.toFixed(1)}" y2="${b.y.toFixed(1)}" class="${cls}"/>`;
+// Разметка фасадов в 3D. Что и где ставить (ширины над модулем, высоты
+// колонками сбоку, без дублей) решает общая функция drawings.facadeDimSpec —
+// ту же раскладку использует чертёж общего вида; здесь только рисуем её
+// поверх сцены через проекцию P. Возвращает { svg, leftLevels, topRowMods }
+// или null, если фасадов нет.
+function facadeLayout(P, zf) {
+  const m = currentModel, d = m.dims;
+  const spec = window.Modul3D.drawings.facadeDimSpec(m);
+  if (!spec) return null;
   const zFace = zf + 20;   // фасад стоит перед корпусом
-
-  for (const p of m.partsRaw) {
-    if (p.kind !== 'door' && p.kind !== 'drawerFront') continue;
-    const b = p.boxes[0];
-    const x0 = b.x - b.w / 2, x1 = b.x + b.w / 2;
-    const y0 = b.y - b.h / 2, y1 = b.y + b.h / 2;
-
-    // ширина — по нижней кромке фасада
-    const a1 = P(x0, y0 + 30, zFace), a2 = P(x1, y0 + 30, zFace);
-    g += lineEl(a1, a2, 'ov-dim');
-    g += `<text x="${((a1.x + a2.x) / 2).toFixed(1)}" y="${((a1.y + a2.y) / 2 - 3).toFixed(1)}" class="ov-t ov-inner">${Math.round(p.length)}</text>`;
-
-    // высота — по левой кромке фасада
-    const c1 = P(x0 + 30, y0, zFace), c2 = P(x0 + 30, y1, zFace);
-    g += lineEl(c1, c2, 'ov-dim');
-    const mid = { x: (c1.x + c2.x) / 2, y: (c1.y + c2.y) / 2 };
-    g += `<text x="${mid.x.toFixed(1)}" y="${mid.y.toFixed(1)}" class="ov-t ov-inner" transform="rotate(-90 ${mid.x.toFixed(1)} ${mid.y.toFixed(1)})">${Math.round(p.width)}</text>`;
+  const lineEl = (a, b, cls) => `<line x1="${a.x.toFixed(1)}" y1="${a.y.toFixed(1)}" x2="${b.x.toFixed(1)}" y2="${b.y.toFixed(1)}" class="${cls}"/>`;
+  let g = '';
+  for (const t of spec.tops) {
+    const t1 = P(t.x0, t.y1, zFace), t2 = P(t.x1, t.y1, zFace);
+    const r1 = P(t.x0, t.yTopMod, zFace);
+    const ly = Math.min(r1.y, t1.y) - 20;
+    g += lineEl(t1, { x: t1.x, y: ly }, 'ov-ext') + lineEl(t2, { x: t2.x, y: ly }, 'ov-ext');
+    g += lineEl({ x: t1.x, y: ly }, { x: t2.x, y: ly }, 'ov-dim');
+    g += `<text x="${((t1.x + t2.x) / 2).toFixed(1)}" y="${(ly - 4).toFixed(1)}" class="ov-t ov-inner">${t.w}</text>`;
   }
-  return g;
+  for (const t of spec.inners) {
+    const a1 = P(t.x0, t.y1 - 40, zFace), a2 = P(t.x1, t.y1 - 40, zFace);
+    g += lineEl(a1, a2, 'ov-dim');
+    g += `<text x="${((a1.x + a2.x) / 2).toFixed(1)}" y="${(a1.y - 3).toFixed(1)}" class="ov-t ov-inner">${t.w}</text>`;
+  }
+  for (const h of spec.heights) {
+    const L = h.side === 'L';
+    const xe = L ? h.xl : h.xr;
+    const base = P(L ? -d.W / 2 : d.W / 2, (h.y0 + h.y1) / 2, zFace).x;
+    const colX = base + (L ? -1 : 1) * (14 + 20 * h.level);
+    const a = P(xe, h.y0, zFace), b = P(xe, h.y1, zFace);
+    const A = { x: colX, y: a.y }, B = { x: colX, y: b.y };
+    g += lineEl(a, A, 'ov-ext') + lineEl(b, B, 'ov-ext') + lineEl(A, B, 'ov-dim');
+    const mx = colX.toFixed(1), my = ((A.y + B.y) / 2).toFixed(1);
+    g += `<text x="${mx}" y="${my}" class="ov-t ov-inner" transform="rotate(-90 ${mx} ${my})">${Math.round(h.y1 - h.y0)}</text>`;
+  }
+  // Высоты на самом фасаде (средние модули ряда и то, что не влезло в 2 колонки).
+  for (const f of spec.onFacade || []) {
+    const a = P(f.x0, f.y1, zFace), b = P(f.x0, f.y0, zFace);
+    const x = a.x + 7, hpx = b.y - a.y, my = (a.y + b.y) / 2;
+    const label = Math.round(f.y1 - f.y0);
+    if (hpx >= 18) g += lineEl({ x, y: a.y + 1 }, { x, y: b.y - 1 }, 'ov-dim');
+    g += `<text x="${(x + 3).toFixed(1)}" y="${(my + 3).toFixed(1)}" class="ov-t ov-inner" text-anchor="start"${hpx < 18 ? ' font-size="8"' : ''}>${label}</text>`;
+  }
+  return { svg: g, leftLevels: spec.leftLevels, topRowMods: spec.topMods };
 }
 
 // Разметка по высоте внутри секций: просветы между полками и высоты ящиков.
@@ -18637,6 +18664,29 @@ onClick('exportDrillDxf', async () => {
   }
 });
 
+// Обложка чертежей: переключатель ракурса (кнопки внутри листа обложки,
+// не печатаются). Перестраиваем только сам лист обложки, а не все чертежи.
+function rebuildCoverSheet() {
+  const cur = document.querySelector('.dw-cover');
+  if (!cur || !currentModel || !currentModel.modules.length) return;
+  const tmp = document.createElement('div');
+  tmp.innerHTML = window.Modul3D.drawings.buildCoverSheet(currentModel);
+  if (tmp.firstElementChild) cur.replaceWith(tmp.firstElementChild);
+}
+// Текстуры декора догрузились — обложка, снятая без них, перестраивается.
+window.addEventListener('modul3d:textures-loaded', () => { setTimeout(rebuildCoverSheet, 50); });
+document.addEventListener('click', (e) => {
+  const btn = e.target && e.target.closest ? e.target.closest('[data-cover-angle]') : null;
+  if (!btn || !currentModel || !currentModel.modules.length) return;
+  const dr = window.Modul3D.drawings;
+  dr.setCoverAngle(btn.getAttribute('data-cover-angle'));
+  const cur = btn.closest('.dw-cover');
+  if (!cur) return;
+  const tmp = document.createElement('div');
+  tmp.innerHTML = dr.buildCoverSheet(currentModel);
+  if (tmp.firstElementChild) cur.replaceWith(tmp.firstElementChild);
+});
+
 document.getElementById('printDrawings').addEventListener('click', () => {
   // Печать читает готовую разметку вкладки, а вкладка может быть свёрнутой
   // и потому устаревшей (см. docsTabsDirty) — собираем принудительно, иначе
@@ -18668,14 +18718,15 @@ document.getElementById('printDrawings').addEventListener('click', () => {
       body{width:287mm}
       .dw-legend.dw-wide{width:100%;max-width:287mm;table-layout:auto}
       .dw-legend.dw-wide th,.dw-legend.dw-wide td{white-space:normal}
-      .dw-grid:has(.dw-modsheet),.dw-grid:has(.dw-overview){display:block}
-      .dw-modsheet,.dw-overview{position:relative;box-sizing:border-box;width:287mm;height:199mm;
+      .dw-grid:has(.dw-modsheet),.dw-grid:has(.dw-overview),.dw-grid:has(.dw-cover){display:block}
+      .dw-cover-ctl{display:none!important}
+      .dw-modsheet,.dw-overview,.dw-cover{position:relative;box-sizing:border-box;width:287mm;height:199mm;
         margin:0;padding:0;border:0;border-radius:0;overflow:hidden;background:#fff;
         break-before:page;break-after:page;break-inside:avoid}
-      .dw-modsheet::before,.dw-overview::before{content:"";position:absolute;left:0;top:0;right:15mm;
+      .dw-modsheet::before,.dw-overview::before,.dw-cover::before{content:"";position:absolute;left:0;top:0;right:15mm;
         bottom:0;border:.8mm solid #000;pointer-events:none}
       .dw-modsheet .dw-title,.dw-overview .dw-title{position:absolute;left:2mm;top:1.5mm;margin:0}
-      .dw-modsheet>svg,.dw-overview>svg{position:absolute;left:1.5mm;top:7mm;width:269mm!important;
+      .dw-modsheet>svg,.dw-overview>svg,.dw-cover>svg{position:absolute;left:1.5mm;top:7mm;width:269mm!important;
         height:190mm!important}
     </style></head><body>${html}</body></html>`);
   w.document.close();

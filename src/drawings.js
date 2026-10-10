@@ -413,9 +413,9 @@ function resolveHoleScreen(row, hAxis, vAxis, sx, sy, holeIndex) {
 // ---------------------------------------------------------------------------
 // Размеры вида спереди (используются и в чертеже, и в 3D-оверлее)
 // ---------------------------------------------------------------------------
-// На общем виде проставляются ТОЛЬКО габаритные размеры по корпусу:
-// ширины модулей и общий габарит. Размеры фасадов на общий вид не выносятся —
-// они есть в разделе «Фасады» и в спецификации, иначе чертёж перегружается.
+// На общем виде проставляются габариты по корпусу (ширины модулей, общий
+// габарит) И размеры фасадов (с 2026-10-10: чертежи печатают, фасады должны
+// читаться по общему виду) — см. facadeDimSpec() и drawFacadeDims() ниже.
 // На ОБЩЕМ ВИДЕ ставим только габариты изделия — цепочки ярусов и модулей
 // идут на чертежах модулей, где они и нужны сборщику.
 // Размеры на виде СБОКУ. Ставятся так же, как спереди: сначала цепочка
@@ -454,7 +454,168 @@ function sideDims(model, S, bottomY, zMin, zMax) {
   return s;
 }
 
-function overallDims(model, F, bottomY, leftX) {
+// ---------------------------------------------------------------------------
+// РАЗМЕЩЕНИЕ РАЗМЕРОВ ФАСАДОВ (общее для чертежа общего вида и 3D-оверлея в
+// app.js — тут только числа в мм, рисует каждый вид сам).
+//  - ширины: одна на колонку фасадов (стопка ящиков — одна ширина), строкой
+//    над модулем; вкладной фасад (целиком между боковинами секции) — внутри
+//    секции, накладной — только сверху;
+//  - высоты: колонками сбоку, у каждого интервала по вертикали ОДИН размер
+//    (ряд одной высоты — один, у каждого ящика стопки — свой). Один модуль:
+//    левая половина слева, правая справа. Несколько модулей в ряд: слева —
+//    фасады крайнего левого модуля, справа — крайнего правого, середина ряда
+//    только ширинами сверху (выносные линии не пересекают соседей);
+//  - остров (группы 1,2…) и повёрнутые модули пропускаются, как в overallDims.
+// Числа берутся из боксов деталей door/drawerFront.
+// Возвращает null, если фасадов нет.
+// ---------------------------------------------------------------------------
+function facadeDimSpec(model) {
+  const rd = Math.round;
+  const mods = mainGroupMods(model).filter((m) => !(m.rotation === 90 || m.rotation === 270));
+  if (!mods.length) return null;
+  const byName = {};
+  mods.forEach((m) => { byName[m.name] = m; });
+  const fs = [];
+  for (const p of model.partsRaw) {
+    if (p.kind !== 'door' && p.kind !== 'drawerFront') continue;
+    const mod = byName[p.module];
+    if (!mod || !p.boxes || !p.boxes[0]) continue;
+    const b = p.boxes[0];
+    fs.push({ x0: b.x - b.w / 2, x1: b.x + b.w / 2, y0: b.y - b.h / 2, y1: b.y + b.h / 2, mod });
+  }
+  if (!fs.length) return null;
+
+  // --- ширины ---
+  const cols = {};
+  for (const f of fs) {
+    const key = f.mod.name + '|' + rd(f.x0) + '|' + rd(f.x1);
+    if (!cols[key] || f.y1 > cols[key].y1) cols[key] = f;   // самый верхний в стопке
+  }
+  const tops = [], inners = [], topMods = {};
+  for (const key of Object.keys(cols)) {
+    const f = cols[key], cxm = (f.x0 + f.x1) / 2, md = f.mod.dims;
+    let sec = null;
+    for (let i = 0; i < (md.n || 0); i++) {
+      const sc = md.sections[i];
+      if (cxm >= f.mod.offsetX + sc.x0 && cxm <= f.mod.offsetX + sc.x1) { sec = sc; break; }
+    }
+    const inset = !!sec && f.x0 >= f.mod.offsetX + sec.x0 - 0.5 && f.x1 <= f.mod.offsetX + sec.x1 + 0.5;
+    const it = { x0: f.x0, x1: f.x1, y1: f.y1, w: rd(f.x1 - f.x0), mod: f.mod,
+      yTopMod: (Number(f.mod.offsetY) || 0) + (Number(f.mod.dims.H) || 0) };
+    if (inset) inners.push(it);
+    else { tops.push(it); topMods[f.mod.name] = true; }
+  }
+
+  // --- высоты ---
+  const side = { L: [], R: [] };
+  const addSpans = (list, sd) => {
+    const spans = {};
+    for (const f of list) {
+      const key = rd(f.y0) + '|' + rd(f.y1);
+      const s = spans[key] || (spans[key] = { y0: f.y0, y1: f.y1, xl: Infinity, xr: -Infinity });
+      s.xl = Math.min(s.xl, f.x0); s.xr = Math.max(s.xr, f.x1);
+    }
+    Object.keys(spans).sort().forEach((k) => { spans[k].side = sd; side[sd].push(spans[k]); });
+  };
+  if (mods.length > 1) {
+    const sorted = mods.slice().sort((a, b) => a.offsetX - b.offsetX);
+    addSpans(fs.filter((f) => f.mod === sorted[0]), 'L');
+    addSpans(fs.filter((f) => f.mod === sorted[sorted.length - 1]), 'R');
+  } else {
+    const spans = {};
+    for (const f of fs) {
+      const key = rd(f.y0) + '|' + rd(f.y1);
+      const s = spans[key] || (spans[key] = { y0: f.y0, y1: f.y1, xl: Infinity, xr: -Infinity, csum: 0, n: 0 });
+      s.xl = Math.min(s.xl, f.x0); s.xr = Math.max(s.xr, f.x1);
+      s.csum += (f.x0 + f.x1) / 2; s.n++;
+    }
+    const c0 = mods[0].offsetX;
+    Object.keys(spans).sort().forEach((k) => {
+      const s = spans[k], c = s.csum / s.n - c0;
+      // по центру — туда, где свободнее
+      const sd = c < -1 ? 'L' : c > 1 ? 'R' : (side.L.length < side.R.length ? 'L' : 'R');
+      s.side = sd; side[sd].push(s);
+    });
+  }
+  const pack = (list) => {
+    const rows = [];
+    list.sort((a, b) => (a.y1 - a.y0) - (b.y1 - b.y0));
+    for (const s of list) {
+      for (let lv = 0;; lv++) {
+        if (!rows[lv]) rows[lv] = [];
+        if (!rows[lv].some((o) => Math.min(o.y1, s.y1) - Math.max(o.y0, s.y0) > 1)) { rows[lv].push(s); s.level = lv; break; }
+      }
+    }
+    return rows.length;
+  };
+  // Снаружи — не больше MAX_OUT_LV колонок на сторону; что не влезло, и фасады
+  // СРЕДНИХ модулей ряда — высотой прямо на фасаде (onFacade: по одному размеру
+  // на ряд фасадов одной высоты в модуле, ставится у левого фасада ряда).
+  const MAX_OUT_LV = 2;
+  const onFacade = [];
+  const outer = (list) => {
+    const n = pack(list);
+    const keep = [];
+    for (const sp of list) {
+      if (sp.level >= MAX_OUT_LV) onFacade.push({ x0: sp.xl, y0: sp.y0, y1: sp.y1 });
+      else keep.push(sp);
+    }
+    return { keep, levels: Math.min(n, MAX_OUT_LV) };
+  };
+  const oL = outer(side.L), oR = outer(side.R);
+  if (mods.length > 1) {
+    const sorted = mods.slice().sort((a, b) => a.offsetX - b.offsetX);
+    const first = sorted[0], last = sorted[sorted.length - 1];
+    const mid = {};
+    for (const f of fs) {
+      if (f.mod === first || f.mod === last) continue;
+      const key = f.mod.name + '|' + rd(f.y0) + '|' + rd(f.y1);
+      if (!mid[key]) mid[key] = { x0: f.x0, y0: f.y0, y1: f.y1 };
+      else mid[key].x0 = Math.min(mid[key].x0, f.x0);
+    }
+    Object.keys(mid).forEach((k) => onFacade.push(mid[k]));
+  }
+  return { tops, inners, topMods, heights: oL.keep.concat(oR.keep), onFacade,
+    leftLevels: oL.levels, rightLevels: oR.levels };
+}
+
+// Рисует размеры фасадов на общем виде (стрелки, выносные линии).
+// edgeL/edgeR — экранные X левого/правого краёв вида.
+function drawFacadeDims(spec, F, edgeL, edgeR) {
+  let s = '';
+  for (const t of spec.tops) {
+    s += dimH(F.x(t.x0), F.x(t.x1), F.y(t.yTopMod), 0, String(t.w), -1);
+  }
+  for (const t of spec.inners) {
+    const y = F.y(t.y1 - 40), a = F.x(t.x0), b = F.x(t.x1);
+    s += line(a, y, b, y, 'dw-dim') + arrowH(a, y, -1) + arrowH(b, y, 1)
+      + text((a + b) / 2, y - 2.5, String(t.w), 'dw-dt', 'middle');
+  }
+  for (const h of spec.heights) {
+    const L = h.side === 'L', base = L ? edgeL : edgeR, xe = F.x(L ? h.xl : h.xr);
+    s += dimV(F.y(h.y1), F.y(h.y0), base, h.level, String(Math.round(h.y1 - h.y0)), L ? -1 : 1);
+    // фасад не у края вида — дотягиваем выносные линии от него до края
+    if (Math.abs(xe - base) > 1) {
+      s += line(xe, F.y(h.y1), base, F.y(h.y1), 'dw-ext') + line(xe, F.y(h.y0), base, F.y(h.y0), 'dw-ext');
+    }
+  }
+  // Высоты на самом фасаде: короткая размерная линия у левого края фасада и число.
+  // Узкие по высоте — только число, мельче; не пропускаем ни один.
+  for (const f of spec.onFacade || []) {
+    const ya = F.y(f.y1), yb = F.y(f.y0), hpx = yb - ya, my = (ya + yb) / 2;
+    const x = F.x(f.x0) + 7, label = String(Math.round(f.y1 - f.y0));
+    if (hpx >= 18) {
+      s += line(x, ya + 1, x, yb - 1, 'dw-dim') + arrowV(x, ya + 1, -1) + arrowV(x, yb - 1, 1);
+      s += `<text x="${r(x + 3)}" y="${r(my + 3)}" class="dw-dt" text-anchor="start">${esc(label)}</text>`;
+    } else {
+      s += `<text x="${r(x)}" y="${r(my + 2.5)}" class="dw-dt" font-size="${hpx >= 10 ? 8 : 6.5}" text-anchor="start">${esc(label)}</text>`;
+    }
+  }
+  return s;
+}
+
+function overallDims(model, F, bottomY, leftX, lvOff) {
+  lvOff = lvOff || 0;   // сколько колонок высот фасадов уже стоит слева
   const d = model.dims, mods = mainGroupMods(model), allMods = model.modules;
   let s = '';
   // Ширина каждого модуля — цепочкой в одну линию, общий габарит за ней.
@@ -506,12 +667,12 @@ function overallDims(model, F, bottomY, leftX) {
     }
     if (chain.length > 1) {
       for (const it of packDims(chain, 0)) {
-        s += dimV(it.a, it.b, leftX, it.level, it.label, -1);
+        s += dimV(it.a, it.b, leftX, it.level + lvOff, it.label, -1);
         lvH = Math.max(lvH, it.level + 1);
       }
     }
   }
-  s += dimV(F.y(0), F.y(d.H), leftX, lvH, String(Math.round(d.H)), -1);
+  s += dimV(F.y(0), F.y(d.H), leftX, lvH + lvOff, String(Math.round(d.H)), -1);
   return s;
 }
 
@@ -660,13 +821,25 @@ function buildOverview(model, scale, headText) {
   const exW = xMax - xMin, exH = yMax - yMin, exD = zMax - zMin;
 
   const fw = exW * scale, fh = exH * scale, dd = exD * scale;
-  const PAD_L = DIM_FIRST + 5 * DIM_STEP + 16;
-  const PAD_T = 24, PAD_R = 16, PAD_B = DIM_FIRST + 3 * DIM_STEP + 12;
-  const totalW = PAD_L + fw + GAP + dd + PAD_R;
+  // Над видом спереди — строка ширин фасадов: поднимаем поле и заголовки.
+  const fSpec = facadeDimSpec(model);
+  // Поле слева и зазор до вида сбоку растут вместе с числом колонок размеров
+  // высот фасадов (разных высот может быть и 4-5, и больше), иначе колонки
+  // вылезут за лист или упрутся в вид сбоку. Слева: колонки фасадов + цепочка
+  // отметок навесных (до 3 звеньев) + общая высота; минимум - 5 уровней, как раньше.
+  const hasHung = model.modules.some((m) => Number(m.offsetY) > 0);
+  const leftNeed = (fSpec ? fSpec.leftLevels : 0) + 1 + (hasHung ? 3 : 0);
+  const PAD_L = DIM_FIRST + Math.max(5, leftNeed) * DIM_STEP + 16;
+  // Справа: самая дальняя колонка (уровень rightLevels-1) + место под число.
+  const GAP_X = Math.max(GAP, DIM_FIRST + (fSpec ? fSpec.rightLevels : 0) * DIM_STEP + 24);
+  const topRow = !!(fSpec && fSpec.tops.length);
+  const PAD_T = topRow ? 24 + DIM_FIRST + 12 : 24, PAD_R = 16, PAD_B = DIM_FIRST + 3 * DIM_STEP + 12;
+  const vnameDy = topRow ? DIM_FIRST + 22 : 10;
+  const totalW = PAD_L + fw + GAP_X + dd + PAD_R;
   const totalH = PAD_T + fh + GAP + dd + PAD_B;
 
   const fx0 = PAD_L, fy0 = PAD_T;
-  const sx0 = PAD_L + fw + GAP;
+  const sx0 = PAD_L + fw + GAP_X;
   const ty0 = PAD_T + fh + GAP;
 
   const F = { x: (v) => fx0 + (v - xMin) * scale, y: (v) => fy0 + (yMax - v) * scale };
@@ -699,15 +872,16 @@ function buildOverview(model, scale, headText) {
   // она есть на чертежах каркаса, фасадов и в файлах для ЧПУ.
   const frontVisible = visibleParts(outer, 'front');
   body += drawParts(frontVisible, F.x, F.y, 'x', 'y', null, false, true);
-  body += text(fx0 + fw / 2, fy0 - 10, 'ВИД СПЕРЕДИ', 'dw-vname', 'middle');
+  body += text(fx0 + fw / 2, fy0 - vnameDy, 'ВИД СПЕРЕДИ', 'dw-vname', 'middle');
   for (const m of mods) body += moduleLabel(m, F);
-  body += overallDims(model, F, fy0 + fh, fx0);
+  body += overallDims(model, F, fy0 + fh, fx0, fSpec ? fSpec.leftLevels : 0);
+  if (fSpec) body += drawFacadeDims(fSpec, F, fx0, fx0 + fw);
   mkViews.push({ name: 'front', noHoles: true, hAxis: 'x', vAxis: 'y', sx: F.x, sy: F.y, rows: frontVisible, depthOf: depthFront,
     region: { x0: fx0, y0: fy0, x1: fx0 + fw, y1: fy0 + fh } });
 
   const sideVisible = visibleParts(outer, 'side');
   body += drawParts(sideVisible, S.x, S.y, 'z', 'y', null, false, true);
-  body += text(sx0 + dd / 2, fy0 - 10, 'ВИД СБОКУ', 'dw-vname', 'middle');
+  body += text(sx0 + dd / 2, fy0 - vnameDy, 'ВИД СБОКУ', 'dw-vname', 'middle');
   body += sideDims(model, S, fy0 + fh, zMin, zMax);
   mkViews.push({ name: 'side', noHoles: true, hAxis: 'z', vAxis: 'y', sx: S.x, sy: S.y, rows: sideVisible, depthOf: depthSide,
     region: { x0: sx0, y0: fy0, x1: sx0 + dd, y1: fy0 + fh } });
@@ -2133,6 +2307,96 @@ function edgeLabel(p) {
   return parts.length ? parts.join(', ') : '—';
 }
 
+// ---------------------------------------------------------------------------
+// ОБЛОЖКА ПРОЕКТА — первый лист набора: цветная аксонометрия всего проекта
+// (снимок 3D-сцены с текстурами декоров), без размеров и разметки, с табличкой
+// (проект, клиент, дата печати). Снимок делает viewer.captureCover(); здесь —
+// только лист: рамка листа задаётся тем же CSS, что у общего вида и листов
+// модулей, а внутри SVG лежит <image> с кадром и табличка.
+// ---------------------------------------------------------------------------
+const COVER_ANGLES = [
+  ['auto', 'Авто'], ['fr', 'Спереди-справа'], ['fl', 'Спереди-слева'],
+  ['br', 'Сзади-справа'], ['bl', 'Сзади-слева'], ['screen', 'Как на экране'],
+];
+let coverAngle = 'auto';
+let coverCache = null;            // { key, url } — последний снимок (чтобы не снимать зря)
+function setCoverAngle(a) {
+  coverCache = null;                // нажатие кнопки ракурса — снимаем заново
+  if (COVER_ANGLES.some((x) => x[0] === a)) coverAngle = a;
+}
+function getCoverAngle() { return coverAngle; }
+
+// Клиент и проект из раздела «Клиенты» (открытая карточка), если они есть.
+// Нет клиента — табличка просто без этих строк.
+function coverClientInfo() {
+  const kit = window.Modul3D && window.Modul3D.clientsKit;
+  const S = kit && kit.S;
+  if (!S || !S.client) return null;
+  const c = S.client;
+  const phones = (c.phones && c.phones.length ? c.phones : (c.phone ? [c.phone] : [])).slice(0, 3);
+  return { name: c.name || '', phones, email: c.email || '', project: S.project && S.project.name ? S.project.name : '' };
+}
+
+function coverText(x, y, size, weight, str) {
+  return `<text x="${x}" y="${y}" font-family="sans-serif" font-size="${size}" font-weight="${weight}" fill="#000">${esc(str)}</text>`;
+}
+
+function buildCoverSheet(model) {
+  const W = 1076, H = 760;            // поле листа 269x190 мм в масштабе 4:1
+  const viewer = window.Modul3D && window.Modul3D.viewer && window.Modul3D.viewer.current;
+  let url = null;
+  if (viewer && typeof viewer.captureCover === 'function') {
+    // Ключ кэша: перестройка сцены + ракурс + догрузка текстур; для «как на экране» —
+    // ещё положение камеры. Пока текстуры грузятся, снимок не кэшируем (мог выйти без них).
+    const cs = (window.Modul3D.viewer.coverState && window.Modul3D.viewer.coverState()) || { pending: 0, ver: 0 };
+    let cam = '';
+    if (coverAngle === 'screen') {
+      const c = viewer.camera.position, t = viewer.controls.target;
+      cam = [c.x, c.y, c.z, t.x, t.y, t.z].map((v) => v.toFixed(3)).join(',');
+    }
+    const key = `${viewer._sceneVer || 0}|${coverAngle}|${cs.ver}|${cam}`;
+    if (coverCache && coverCache.key === key && !cs.pending) url = coverCache.url;
+    else {
+      try { url = viewer.captureCover({ angle: coverAngle, model }); } catch (e) { url = null; }
+      coverCache = (url && !cs.pending) ? { key, url } : null;
+    }
+  }
+  const ci = coverClientInfo();
+  const first = model.modules[0];
+  const title = (ci && ci.project) || (first && first.name) || 'Проект';
+  const short = (t, n) => { t = String(t || ''); return t.length > n ? t.slice(0, n - 1) + '…' : t; };
+  const d = new Date();
+  const p2 = (n) => String(n).padStart(2, '0');
+  const date = `${p2(d.getDate())}.${p2(d.getMonth() + 1)}.${d.getFullYear()}`;
+
+  // Табличка в правом нижнем углу: строки сверху вниз.
+  const rows = [['Проект', short(title, 30), true]];
+  if (ci && ci.name) rows.push(['Клиент', short(ci.name, 30)]);
+  if (ci) {
+    ci.phones.forEach((ph, i) => rows.push([i === 0 ? 'Контакты' : '', short(ph, 30)]));
+    if (ci.email) rows.push([ci.phones.length ? '' : 'Контакты', short(ci.email, 30)]);
+  }
+  rows.push(['Дата печати', date]);
+  const RH = 30, BW = 400, BH = rows.length * RH + 10;
+  const bx = W - BW - 14, by = H - BH - 14;
+  let st = `<rect x="${bx}" y="${by}" width="${BW}" height="${BH}" fill="#fff" fill-opacity=".94" stroke="#000" stroke-width="1.5"/>`;
+  rows.forEach((r, i) => {
+    const y = by + 5 + (i + 1) * RH - 9;
+    if (i > 0) st += `<line x1="${bx}" y1="${by + 5 + i * RH}" x2="${bx + BW}" y2="${by + 5 + i * RH}" stroke="#000" stroke-width=".6"/>`;
+    st += coverText(bx + 12, y, 15, 400, r[0]);
+    st += coverText(bx + 130, y, r[2] ? 18 : 16, r[2] ? 700 : 400, r[1]);
+  });
+  st += `<line x1="${bx + 122}" y1="${by}" x2="${bx + 122}" y2="${by + BH}" stroke="#000" stroke-width=".6"/>`;
+
+  const img = url
+    ? `<image x="0" y="0" width="${W}" height="${H}" preserveAspectRatio="xMidYMid slice" href="${url}"/>`
+    : `<rect x="0" y="0" width="${W}" height="${H}" fill="#f4f5f7"/>` + coverText(40, 60, 20, 400, '3D-вид недоступен: обложка не построена');
+  const svg = `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" class="dw-svg">${img}${st}</svg>`;
+  const ctl = `<div class="dw-cover-ctl">Ракурс обложки: ${COVER_ANGLES.map((x) =>
+    `<button type="button" data-cover-angle="${x[0]}"${x[0] === coverAngle ? ' class="active"' : ''}>${x[1]}</button>`).join('')}</div>`;
+  return `<div class="dw-block dw-cover">${ctl}${svg}</div>`;
+}
+
 function buildDrawings(model, showFacades) {
   // Ручная разметка: реестр листов собирается заново на каждую сборку —
   // лист удалённого модуля/детали пропадает, его размеры не рисуются. До
@@ -2205,6 +2469,8 @@ function buildDrawings(model, showFacades) {
   let sheetW = Math.max(so.w, sm.w), sheetH = Math.max(so.h, sm.h);
   if (sheetW / sheetH < SHEET_RATIO) sheetW = sheetH * SHEET_RATIO; else sheetH = sheetW / SHEET_RATIO;
   if (so.w) { ovHtml = padSvgTo(ovHtml, sheetW, sheetH); modHtml = padSvgTo(modHtml, sheetW, sheetH); }
+  // Обложка — первым листом (и на экране, и в печати).
+  html += `<h4 class="dw-h dw-h-ov">Обложка</h4><div class="dw-grid">${buildCoverSheet(model)}</div>`;
   html += `<h4 class="dw-h dw-h-ov">Общий вид</h4><div class="dw-grid">${ovHtml}</div>`;
   html += `<h4 class="dw-h dw-h-mod">Чертежи модулей (каркас)</h4><div class="dw-grid">${modHtml}</div>`;
 
@@ -2267,11 +2533,14 @@ const DRAWINGS_CSS = `
 .dw-partsheet.dw-partwide{width:auto;min-width:530px}
 .dw-wide{width:100%}
 .dw-empty{font:11px sans-serif;color:#333}
+.dw-cover-ctl{display:flex;flex-wrap:wrap;gap:6px;align-items:center;font:12px sans-serif;margin-bottom:6px}
+.dw-cover-ctl button{font:12px sans-serif;padding:3px 9px;border:1px solid #888;background:#fff;border-radius:4px;cursor:pointer}
+.dw-cover-ctl button.active{background:#222;color:#fff;border-color:#222}
 `;
 
 window.Modul3D = window.Modul3D || {};
 window.Modul3D.drawings = {
-  buildDrawings, buildViewSVG, DRAWINGS_CSS, visibleParts, buildPartEditorView,
+  buildDrawings, buildCoverSheet, setCoverAngle, getCoverAngle, buildViewSVG, DRAWINGS_CSS, facadeDimSpec, visibleParts, buildPartEditorView,
   // Переиспользуются модулем ручной разметки (markup.js): тот же визуальный
   // язык размеров (dimH/dimV, сетка уровней DIM_FIRST/DIM_STEP) и проекция
   // присадки на плоскость детали (resolveHoleScreen) — см. комментарий там.

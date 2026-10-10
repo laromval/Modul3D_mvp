@@ -1613,8 +1613,11 @@ h4.spec-title { margin: var(--sp-5) 0 var(--sp-2); font-size: var(--fs-md); font
 .dw-printonly { display: none; }
 /* Общий вид и листы модулей — одной ширины, равной двум листам деталей в ряд
    (2×530 + зазор): раньше каждый блок был шириной по своему чертежу. */
-.dw-modsheet, .dw-overview { box-sizing: border-box; width: 1074px; }
-.dw-modsheet > svg, .dw-overview > svg { width: 100% !important; height: auto !important; }
+.dw-modsheet, .dw-overview, .dw-cover { box-sizing: border-box; width: 1074px; }
+.dw-modsheet > svg, .dw-overview > svg, .dw-cover > svg { width: 100% !important; height: auto !important; }
+.dw-cover-ctl { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; font-size: var(--fs-sm); color: var(--muted); margin-bottom: var(--sp-2); }
+.dw-cover-ctl button { font: inherit; padding: 3px 10px; border: 1px solid var(--border); background: var(--surface-solid); color: var(--text); border-radius: var(--r-md); cursor: pointer; }
+.dw-cover-ctl button.active { background: var(--accent); color: #fff; border-color: var(--accent); }
 .dw-empty { font-size: var(--fs-sm); color: var(--muted); }
 .dw-wide { width: 100%; }
 .dw-wire { fill: none; stroke: var(--text); stroke-width: 1; }

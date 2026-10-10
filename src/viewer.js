@@ -30,6 +30,9 @@ const WOOD_TILE_M = 0.6;
 // и uvSwap работают ровно так же. Картинка грузится асинхронно (data:-URI), текстура
 // обновляется по готовности — сцена перерисовывается сама (_animate).
 const _tileTexCache = {};
+// Сколько картинок-плиток ещё грузится и сколько раз что-то догружалось: по ним
+// обложка чертежей понимает, что снимок сделан без текстур и его нельзя кэшировать.
+let _tilesPending = 0, _tilesLoadedVer = 0;
 function decorTileSpec(code) {
   const dt = window.Modul3D && window.Modul3D.decorTiles;
   return (dt && code && dt.byCode[code]) || null;
@@ -55,7 +58,14 @@ function tileTexture(spec) {
     };
   };
   track(t);
-  img.onload = () => { const list = pending; pending = null; list.forEach((x) => { x.needsUpdate = true; }); };
+  _tilesPending++;
+  const done = () => {
+    _tilesPending = Math.max(0, _tilesPending - 1); _tilesLoadedVer++;
+    // Все плитки догрузились — обложка чертежей перестроит свой снимок (app.js слушает событие).
+    if (_tilesPending === 0) { try { window.dispatchEvent(new Event('modul3d:textures-loaded')); } catch (e) { /* не критично */ } }
+  };
+  img.onload = () => { const list = pending; pending = null; list.forEach((x) => { x.needsUpdate = true; }); done(); };
+  img.onerror = () => { done(); };
   img.src = spec.src;
   t.wrapS = t.wrapT = THREE.RepeatWrapping;
   t.anisotropy = 8;
@@ -3074,6 +3084,36 @@ function ensureMkOverlayStyle() {
   document.head.appendChild(st);
 }
 
+// Обложка чертежей: куда «смотрят» лицевые фасады проекта. Складываем
+// нормали модулей (нормаль фасада при повороте rot — (sin, 0, cos)), вес —
+// площадь лицевой стороны. Результат — азимут от оси +Z (радианы): камера,
+// поставленная в эту сторону, видит фасады «в лоб». Нет модулей — 0.
+function coverFacingAzimuth(model) {
+  let nx = 0, nz = 0;
+  const mods = (model && model.modules) || [];
+  for (const m of mods) {
+    const a = ((Number(m.rotation) || 0) * Math.PI) / 180;
+    const w = ((m.dims && m.dims.W) || 600) * ((m.dims && m.dims.H) || 720);
+    nx += Math.sin(a) * w; nz += Math.cos(a) * w;
+  }
+  return Math.hypot(nx, nz) > 1e-6 ? Math.atan2(nx, nz) : 0;
+}
+
+// Авто-ракурс: если все фасады смотрят почти в одну сторону — берём
+// диагональ в ту сторону, где видна и «меньшая» часть фасадов (для прямой
+// линии — «спереди-справа»); если проект угловой (сумма нормалей сама идёт
+// по диагонали) — смотрим прямо вдоль неё.
+function coverAutoAzimuth(model, base) {
+  const q = Math.PI / 2;
+  const off = ((base % q) + q) % q;
+  const signed = off < q / 2 ? off : off - q;              // отступ от ближайшей оси, -45..+45 градусов
+  if (Math.abs(signed) < 0.35) {                           // 0.35 рад ~ 20 градусов
+    const axis = base - signed;
+    return axis + (signed < -0.03 ? -1 : 1) * Math.PI / 4;
+  }
+  return base;
+}
+
 class Viewer3D {
   constructor(container) {
     if (!THREE) {
@@ -4572,6 +4612,164 @@ class Viewer3D {
     return this.renderer.domElement.toDataURL('image/png');
   }
 
+  // ОБЛОЖКА ПРОЕКТА для набора чертежей: цветная аксонометрия всего проекта
+  // с текстурами декоров, на светлом фоне, с тёмным полом, без сетки,
+  // подсветки выделения и служебных объектов.
+  //   opts.angle — 'auto' | 'fr' | 'fl' | 'br' | 'bl' | 'screen'
+  //     (авто / спереди-справа / спереди-слева / сзади-справа / сзади-слева /
+  //     как сейчас на экране);
+  //   opts.model — модель (для угла 'auto': в какую сторону смотрят фасады);
+  //   opts.width — ширина кадра в px (по умолчанию 1600).
+  // Возвращает JPEG data URL либо null. Снимок делается основным рендерером
+  // (тот же контекст, текстуры уже загружены), но СВОЕЙ камерой — камера
+  // пользователя не двигается. Всё, что временно меняем (фон, пол, сетка,
+  // свечение выбранного модуля, размер холста), возвращается в finally.
+  captureCover(opts) {
+    if (this._broken) return null;
+    // Обложка — всегда «весь проект, фасады закрыты, всё непрозрачное», что бы ни
+    // стояло на экране (прозрачный режим, Focus/изоляция, проверка присадки,
+    // «скрыть фасады», подсветки, экран «Деталь»). Если сцена сейчас нарисована с
+    // такими режимами — на время снимка ПЕРЕСТРАИВАЕМ её с чистыми параметрами, а в
+    // finally перестраиваем обратно с прежними (вид пользователя не меняется).
+    const lr = this._lastRender, o = (lr && lr.opts) || {};
+    const dirty = lr && lr.model && (o.hideFacades || o.drillCheck || o.xray || o.isolateModule
+      || o.highlightModule || o.highlightSection || o.axisHintRow || o.drillFilter);
+    if (!dirty) return this._captureCoverScene(opts);
+    this._inCover = true;
+    try {
+      this.render(lr.model, {});
+      return this._captureCoverScene(opts);
+    } finally {
+      try { this.render(lr.model, lr.opts); } finally { this._inCover = false; }
+    }
+  }
+
+  _captureCoverScene(opts) {
+    opts = opts || {};
+    const box = this._compositionBox();
+    if (!box) return null;
+    const angle = opts.angle || 'auto';
+    const width = opts.width || 1600;
+    const height = Math.round(width * 760 / 1076);     // пропорция поля листа обложки
+
+    // 1) Направление взгляда (азимут theta от оси +Z, возвышение elev).
+    let dir;
+    if (angle === 'screen') {
+      dir = this.camera.position.clone().sub(this.controls.target);
+      if (!(dir.length() > 1e-6)) dir.set(1, 0.6, 1);
+      dir.normalize();
+    } else {
+      const elev = 28 * Math.PI / 180;                 // ~аксонометрия: взгляд сверху под 28°
+      const base = coverFacingAzimuth(opts.model);     // азимут «лицом к фасадам»
+      let theta;
+      if (angle === 'fr') theta = base + Math.PI / 4;
+      else if (angle === 'fl') theta = base - Math.PI / 4;
+      else if (angle === 'br') theta = base + Math.PI * 3 / 4;
+      else if (angle === 'bl') theta = base - Math.PI * 3 / 4;
+      else theta = coverAutoAzimuth(opts.model, base); // 'auto'
+      dir = new THREE.Vector3(Math.sin(theta) * Math.cos(elev), Math.sin(elev), Math.cos(theta) * Math.cos(elev));
+    }
+
+    // 2) Своя камера, подогнанная под габарит всего проекта.
+    const cam = new THREE.PerspectiveCamera(30, width / height, 0.05, 300);
+    cam.up.set(0, 1, 0);
+    const corners = [];
+    for (const x of [box.min.x, box.max.x]) for (const y of [box.min.y, box.max.y]) for (const z of [box.min.z, box.max.z]) corners.push(new THREE.Vector3(x, y, z));
+    // Пол обложки — квадратная «подложка» чуть шире проекта (а не бесконечная
+    // плоскость): на светлом фоне она читается как тёмный пол. Углы подложки
+    // тоже входят в подгонку кадра, чтобы пол не обрезался.
+    const bsz = box.getSize(new THREE.Vector3()), bc = box.getCenter(new THREE.Vector3());
+    const floorHX = bsz.x / 2 + 0.4, floorHZ = bsz.z / 2 + 0.4;   // подложка = след проекта + поля
+    for (const sx of [-1, 1]) for (const sz of [-1, 1]) corners.push(new THREE.Vector3(bc.x + sx * floorHX, 0, bc.z + sz * floorHZ));
+    const tgt = bc.clone();
+    let R = bsz.length() * 1.8;
+    const FILL = 0.92;                                  // доля кадра под проект, остальное — поля
+    const tanV = Math.tan(cam.fov * Math.PI / 360), tanH = tanV * cam.aspect;
+    const p = new THREE.Vector3();
+    for (let it = 0; it < 14; it++) {
+      cam.position.copy(tgt).addScaledVector(dir, R);
+      cam.lookAt(tgt);
+      cam.updateMatrixWorld(true);
+      cam.updateProjectionMatrix();
+      let u0 = Infinity, u1 = -Infinity, v0 = Infinity, v1 = -Infinity;
+      for (const c of corners) {
+        p.copy(c).project(cam);                         // нормированные координаты кадра -1..1
+        u0 = Math.min(u0, p.x); u1 = Math.max(u1, p.x);
+        v0 = Math.min(v0, p.y); v1 = Math.max(v1, p.y);
+      }
+      if (![u0, u1, v0, v1].every(Number.isFinite)) return null;
+      // Центруем проекцию: сдвигаем цель на середину занятой области.
+      const right = new THREE.Vector3().setFromMatrixColumn(cam.matrixWorld, 0);
+      const up = new THREE.Vector3().setFromMatrixColumn(cam.matrixWorld, 1);
+      tgt.addScaledVector(right, (u0 + u1) / 2 * tanH * R).addScaledVector(up, (v0 + v1) / 2 * tanV * R);
+      // Масштаб: приближаем/отдаляем, пока проект не займёт FILL кадра.
+      const ext = Math.max((u1 - u0) / 2, (v1 - v0) / 2);
+      if (ext > 1e-6) R = Math.min(120, Math.max(0.3, R * ext / FILL));
+    }
+    cam.position.copy(tgt).addScaledVector(dir, R);
+    cam.lookAt(tgt);
+    cam.updateMatrixWorld(true);
+    cam.updateProjectionMatrix();
+    if (![cam.position.x, cam.position.y, cam.position.z].every(Number.isFinite)) return null;
+
+    // 3) Временные правки сцены — всё запоминаем и возвращаем в finally.
+    const r = this.renderer;
+    const undo = [];
+    const prevPR = r.getPixelRatio();
+    const prevSize = r.getSize(new THREE.Vector2());
+    const prevBg = this.scene.background;
+    try {
+      this.scene.background = new THREE.Color(0xf4f5f7);          // светлый фон
+      // Пол: темнее фона, непрозрачный, пошире (до горизонта не доходит).
+      const fl = this._floor;
+      if (fl && fl.material) {
+        const m = fl.material, s0 = fl.scale.clone(), p0 = fl.position.clone(), c0 = m.color.getHex();
+        const t0 = m.transparent, o0 = m.opacity, d0 = m.depthWrite;
+        // базовый пол — 14 x 14 м, повёрнут на -90 градусов вокруг X: локальный y = мировой -z
+        fl.scale.set(floorHX * 2 / 14, floorHZ * 2 / 14, 1);
+        fl.position.set(bc.x, p0.y, bc.z);
+        m.color.setHex(0x7a7a7a);   // при освещении сцены (~x1.4) даёт тёмно-серый пол, темнее фона
+        m.transparent = false; m.opacity = 1; m.depthWrite = true;
+        if (t0) m.needsUpdate = true;
+        undo.push(() => {
+          fl.scale.copy(s0); fl.position.copy(p0); m.color.setHex(c0);
+          m.transparent = t0; m.opacity = o0; m.depthWrite = d0;
+          if (t0) m.needsUpdate = true;
+        });
+      }
+      // Служебные объекты сцены (сетка, направляющие, подсказки) — прячем.
+      for (const ch of this.scene.children) {
+        if (ch === this.group || ch === this._floor || ch.isLight || !ch.visible) continue;
+        ch.visible = false;
+        undo.push(() => { ch.visible = true; });
+      }
+      // Внутри группы: метки-спрайты проверки присадки; свечение активного модуля.
+      const seenMat = new Set();
+      this.group.traverse((o) => {
+        if (o.isSprite && o.visible) { o.visible = false; undo.push(() => { o.visible = true; }); return; }
+        const mats = o.material ? (Array.isArray(o.material) ? o.material : [o.material]) : [];
+        for (const m of mats) {
+          if (!m || seenMat.has(m) || !m.emissive) continue;
+          seenMat.add(m);
+          const e0 = m.emissive.getHex();
+          if (e0 !== 0) { m.emissive.setHex(0); undo.push(() => { m.emissive.setHex(e0); }); }
+        }
+      });
+      // Рендер в кадр нужного размера (CSS-размер холста не трогаем).
+      r.setPixelRatio(1);
+      r.setSize(width, height, false);
+      r.render(this.scene, cam);
+      return r.domElement.toDataURL('image/jpeg', 0.92);
+    } catch (e) {
+      return null;
+    } finally {
+      for (let i = undo.length - 1; i >= 0; i--) { try { undo[i](); } catch (e2) { /* возврат остальных важнее */ } }
+      this.scene.background = prevBg;
+      r.setPixelRatio(prevPR);
+      r.setSize(prevSize.x, prevSize.y, false);
+    }
+  }
+
   _animate() {
     if (this._broken) return;
     requestAnimationFrame(() => this._animate());
@@ -5141,6 +5339,10 @@ class Viewer3D {
     // координаты наружу — сбрасываем перед пересчётом, иначе после того как
     // деталь убрали с экрана «Деталь», здесь остались бы устаревшие данные.
     this._axisHint = null;
+    // Номер перестройки сцены (кэш обложки чертежей). Служебная перестройка на время
+    // снимка обложки (_inCover) номер не меняет — иначе кэш бы никогда не совпадал.
+    if (!this._inCover) this._sceneVer = (this._sceneVer || 0) + 1;
+    this._lastRender = { model, opts };           // с какими параметрами сцена рисуется сейчас
     this._updateFloorVisibility();
     const highlight = opts && opts.highlightModule;
     // Подсветка секции (клик по фасаду в Focus Mode → «Редактировать
@@ -6807,7 +7009,9 @@ function renderThumbnail(model, opts) {
 
 window.Modul3D = window.Modul3D || {};
 window.Modul3D.viewer = {
-  Viewer3D, lengthAlongU, edgeDrill, DRILL_COLOR, DRILL_TITLE,
+  Viewer3D, lengthAlongU,
+  // Состояние загрузки текстур декора (для обложки чертежей): pending > 0 — снимок мог выйти без текстур.
+  coverState: () => ({ pending: _tilesPending, ver: _tilesLoadedVer }), edgeDrill, DRILL_COLOR, DRILL_TITLE,
   renderThumbnail,
   // Рабочий экземпляр Viewer3D (выставляет его конструктор) — для отладки
   // из консоли: Modul3D.viewer.current.memoryInfo().
