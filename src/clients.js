@@ -138,6 +138,7 @@ function loadList() {
 
 function openClient(id) {
   if (EXT.reset) EXT.reset();
+  S.clientMenu = false;
   S.view = 'client'; S.adding = null; S.editingNote = null; S.editingName = false; S.draft = null;
   S.client = (S.clients || []).filter(function (c) { return c.id === id; })[0] || null;
   S.projects = []; S.notes = []; S.project = null;
@@ -451,17 +452,40 @@ function contactForm(opts) {
       h('button', { type: 'button', class: 'btn', onclick: opts.onCancel, text: 'Отмена' })));
 }
 
+// Меню «⋮» у имени клиента: «Изменить» и «Сохранить в контакты».
+function clientMenu(c) {
+  var open = !!S.clientMenu;
+  var btn = h('button', { type: 'button', class: 'cl-kebab', 'data-role': 'client-menu', 'aria-label': 'Действия с клиентом',
+    'aria-haspopup': 'true', 'aria-expanded': open ? 'true' : 'false',
+    onclick: function () { S.clientMenu = !S.clientMenu; render(); } });
+  btn.innerHTML = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="12" cy="5" r="1.9"/><circle cx="12" cy="12" r="1.9"/><circle cx="12" cy="19" r="1.9"/></svg>';
+  var box = h('div', { class: 'cl-menu-wrap' }, btn);
+  if (open) {
+    box.appendChild(h('div', { class: 'popover cl-menu-pop', role: 'menu' },
+      h('button', { type: 'button', class: 'ctx-item', role: 'menuitem', 'data-role': 'client-edit', text: '✎ Изменить',
+        onclick: function () { S.clientMenu = false; S.adding = 'edit'; S.draft = null; render(); } }),
+      h('button', { type: 'button', class: 'ctx-item', role: 'menuitem', 'data-role': 'client-vcard', text: '☎ Сохранить в контакты',
+        onclick: function () { S.clientMenu = false; render(); downloadVcard(c); } })));
+  }
+  return box;
+}
+
+// Клик мимо меню закрывает его.
+document.addEventListener('click', function (e) {
+  if (S.clientMenu && !(e.target.closest && e.target.closest('.cl-menu-wrap'))) { S.clientMenu = false; render(); }
+});
+
 // Показ контакта: номера с кнопками «позвонить/написать», почта, сохранение
-// в контакты. Менять данные — кнопкой «Изменить» у имени клиента.
+// в контакты. Менять данные — через меню «⋮» у имени клиента.
 function contactView(c) {
   var wrap = h('div', { class: 'cl-contact-box' });
   if (c.contactUnreadable) {
-    wrap.appendChild(h('div', { class: 'cl-contact' }, h('span', { class: 'cl-muted', text: 'Контакт не расшифровался — нажмите «Изменить» и введите заново' })));
+    wrap.appendChild(h('div', { class: 'cl-contact' }, h('span', { class: 'cl-muted', text: 'Контакт не расшифровался — откройте меню «⋮» → «Изменить» и введите заново' })));
     return wrap;
   }
   var phones = phonesOf(c);
   if (!phones.length && !c.email) {
-    wrap.appendChild(h('div', { class: 'cl-contact' }, h('span', { class: 'cl-muted', text: 'Телефон и почта не указаны — добавьте кнопкой «Изменить»' })));
+    wrap.appendChild(h('div', { class: 'cl-contact' }, h('span', { class: 'cl-muted', text: 'Телефон и почта не указаны — добавьте через меню «⋮» → «Изменить»' })));
     return wrap;
   }
   phones.forEach(function (ph) {
@@ -480,8 +504,6 @@ function contactView(c) {
     wrap.appendChild(h('div', { class: 'cl-contact-row' }, h('span', { class: 'cl-contact-val', text: c.email }),
       h('div', { class: 'cl-acts' }, h('a', { class: 'cl-act cl-act-main', href: 'mailto:' + encodeURI(c.email), text: '✉ Написать' }))));
   }
-  wrap.appendChild(h('div', { class: 'cl-contact-foot' },
-    h('button', { type: 'button', class: 'cl-link', text: 'Сохранить в контакты', onclick: function () { downloadVcard(c); } })));
   return wrap;
 }
 
@@ -508,6 +530,26 @@ function noteForm(opts) {
       h('span', { class: 'cl-hint', text: 'Ctrl+Enter — сохранить' })));
 }
 
+// Текст заметки со ссылками: http(s)://… и www.… становятся активными.
+// Всё строится через DOM-узлы и textContent — HTML из текста не выполняется.
+function linkified(text) {
+  var box = h('div', { class: 'cl-note-body' });
+  var re = /(https?:\/\/[^\s<>"']+|www\.[^\s<>"']+)/gi;
+  var last = 0, m;
+  while ((m = re.exec(text)) !== null) {
+    var url = m[0], tail = '';
+    var t = /[.,;:!?)\]»”]+$/.exec(url);   // знаки в конце — не часть ссылки
+    if (t) { tail = t[0]; url = url.slice(0, -tail.length); }
+    if (m.index > last) box.appendChild(document.createTextNode(text.slice(last, m.index)));
+    box.appendChild(h('a', { class: 'cl-note-link', href: /^www\./i.test(url) ? 'https://' + url : url,
+      target: '_blank', rel: 'noopener noreferrer', text: url }));
+    if (tail) box.appendChild(document.createTextNode(tail));
+    last = m.index + m[0].length;
+  }
+  if (last < text.length) box.appendChild(document.createTextNode(text.slice(last)));
+  return box;
+}
+
 function noteCard(note) {
   if (S.editingNote === note.id) {
     return noteForm({ kind: 'note-edit-' + note.id, value: note.body || '', submitLabel: 'Сохранить',
@@ -517,7 +559,7 @@ function noteCard(note) {
   return h('div', { class: 'cl-note' },
     note.unreadable
       ? h('div', { class: 'cl-note-body cl-muted', text: 'Не удалось расшифровать заметку (изменился ключ шифрования на сервере).' })
-      : h('div', { class: 'cl-note-body', text: note.body }),
+      : linkified(note.body),
     h('div', { class: 'cl-note-foot' },
       h('span', { class: 'cl-muted', text: fmtDate(note.updatedAt || note.createdAt) }),
       h('span', { class: 'cl-note-actions' },
@@ -624,8 +666,7 @@ function viewClient() {
   } else {
     wrap.appendChild(h('div', { class: 'cl-title-row' },
       h('h3', { class: 'cl-title', text: c.name }),
-      h('button', { type: 'button', class: 'cl-link', 'data-role': 'client-edit', text: 'Изменить',
-        onclick: function () { S.adding = 'edit'; S.draft = null; render(); } })));
+      clientMenu(c)));
     wrap.appendChild(contactView(c));
   }
 

@@ -36,7 +36,7 @@ function currencySymbol() {
 // (401/402/400/др.) или строкой 'network' при сетевой ошибке — по этому коду
 // UI-слой (app.js/ui-shell.js) показывает понятный призыв к действию
 // (войти в аккаунт / оформить подписку), а не голый код ошибки (см. ТЗ 4.4).
-async function fetchExportFile(path, body, fallbackFilename) {
+async function fetchExportFile(path, body, fallbackFilename, asBlob) {
   const sketchAI = window.Modul3D && window.Modul3D.sketchAI;
   const API_BASE = sketchAI ? sketchAI.API_BASE : 'http://localhost:4000';
   const AUTH_TOKEN_KEY = sketchAI ? sketchAI.AUTH_TOKEN_KEY : 'modul3dAuthToken';
@@ -76,6 +76,8 @@ async function fetchExportFile(path, body, fallbackFilename) {
   }
 
   const blob = await res.blob();
+  // asBlob — вернуть файл, не скачивая (для «＋» во вкладке «Файлы» клиента).
+  if (asBlob) return { blob, name: fallbackFilename };
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
   a.download = fallbackFilename;
@@ -100,6 +102,17 @@ async function exportSpecification(spec, projectName) {
     `${projectName || 'proekt'}_specifikaciya.xlsx`);
 }
 
+// Те же файлы, но не скачиваются, а возвращаются: { blob, name }.
+function buildDetailing(model, projectName) {
+  return fetchExportFile('/export/detailing', { model, projectName },
+    `${projectName || 'proekt'}_detalirovka.xlsx`, true);
+}
+function buildSpecification(spec, projectName) {
+  const specWithCurrency = Object.assign({}, spec, { currencySymbol: currencySymbol() });
+  return fetchExportFile('/export/specification', { spec: specWithCurrency, projectName },
+    `${projectName || 'proekt'}_specifikaciya.xlsx`, true);
+}
+
 window.Modul3D = window.Modul3D || {};
-window.Modul3D.exportModule = { exportDetailing, exportSpecification };
+window.Modul3D.exportModule = { exportDetailing, exportSpecification, buildDetailing, buildSpecification };
 })();

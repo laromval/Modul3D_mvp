@@ -51,6 +51,7 @@ async function processDueReminders({ send, now } = {}) {
       WHERE t.id IN (
         SELECT id FROM client_tasks
          WHERE reminded_at IS NULL AND remind_at IS NOT NULL AND remind_at <= $1 AND status <> 'done'
+           AND NOT EXISTS (SELECT 1 FROM client_projects pp WHERE pp.id = client_tasks.project_id AND pp.user_id = client_tasks.user_id AND pp.status = 'done')
          ORDER BY remind_at LIMIT ${BATCH}
          FOR UPDATE SKIP LOCKED)
       RETURNING t.id, t.user_id, t.client_id, t.project_id, t.title, t.remind_at, t.remind_before_min`,

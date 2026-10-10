@@ -69,7 +69,9 @@ function taskDto(row) {
     title: title.value,
     details: details.value,
     unreadable: !!(title.unreadable || details.unreadable),
-    status: row.status,
+    // Задачи завершённого проекта считаются выполненными (сами данные не меняем:
+    // «Вернуть в работу» у проекта возвращает их как были).
+    status: row.project_status === 'done' ? 'done' : row.status,
     dueAt: row.due_at,
     remindBeforeMin: row.remind_before_min,
     reminded: row.reminded_at !== null,
@@ -82,7 +84,7 @@ function taskDto(row) {
 }
 
 const SELECT_TASK = `
-  SELECT t.*, c.name AS client_name, p.name AS project_name
+  SELECT t.*, c.name AS client_name, p.name AS project_name, p.status AS project_status
     FROM client_tasks t
     JOIN clients c ON c.id = t.client_id AND c.user_id = t.user_id
     LEFT JOIN client_projects p ON p.id = t.project_id AND p.user_id = t.user_id`;
@@ -124,8 +126,9 @@ router.get('/summary', async (req, res) => {
   try {
     const { rows } = await db.query(
       `SELECT COUNT(*)::int AS open,
-              COUNT(*) FILTER (WHERE due_at IS NOT NULL AND due_at < now())::int AS overdue
-         FROM client_tasks WHERE user_id = $1 AND status <> 'done'`,
+              COUNT(*) FILTER (WHERE t.due_at IS NOT NULL AND t.due_at < now())::int AS overdue
+         FROM client_tasks t WHERE t.user_id = $1 AND t.status <> 'done'
+          AND NOT EXISTS (SELECT 1 FROM client_projects pp WHERE pp.id = t.project_id AND pp.user_id = t.user_id AND pp.status = 'done')`,
       [req.user.id]
     );
     return res.json(rows[0]);
@@ -138,8 +141,9 @@ router.get('/', async (req, res) => {
   const status = req.query.status === 'done' || req.query.status === 'all' ? req.query.status : 'open';
   const where = ['t.user_id = $1'];
   const params = [req.user.id];
-  if (status === 'open') where.push("t.status <> 'done'");
-  else if (status === 'done') where.push("t.status = 'done'");
+  // Задачи завершённого проекта — всегда «выполненные».
+  if (status === 'open') where.push("t.status <> 'done' AND COALESCE(p.status, '') <> 'done'");
+  else if (status === 'done') where.push("(t.status = 'done' OR p.status = 'done')");
   if (req.query.client !== undefined) {
     if (!isUuid(req.query.client)) return res.json({ tasks: [] });
     params.push(req.query.client); where.push(`t.client_id = $${params.length}`);

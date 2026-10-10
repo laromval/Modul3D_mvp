@@ -51,7 +51,7 @@ function drilledParts(model) {
 // (401/402/400/др.) или строкой 'network' при сетевой ошибке — по этому коду
 // UI-слой (app.js/ui-shell.js) показывает понятный призыв к действию
 // (войти в аккаунт / оформить подписку), а не голый код ошибки (см. ТЗ 4.4).
-async function fetchExportFile(path, body, fallbackFilename) {
+async function fetchExportFile(path, body, fallbackFilename, asBlob) {
   const sketchAI = window.Modul3D && window.Modul3D.sketchAI;
   const API_BASE = sketchAI ? sketchAI.API_BASE : 'http://localhost:4000';
   const AUTH_TOKEN_KEY = sketchAI ? sketchAI.AUTH_TOKEN_KEY : 'modul3dAuthToken';
@@ -91,6 +91,8 @@ async function fetchExportFile(path, body, fallbackFilename) {
   }
 
   const blob = await res.blob();
+  // asBlob — вернуть файл, не скачивая (для «＋» во вкладке «Файлы» клиента).
+  if (asBlob) return { blob, name: fallbackFilename };
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
   a.download = fallbackFilename;
@@ -106,6 +108,10 @@ async function exportDrillDxf(model) {
   await fetchExportFile('/export/cnc/dxf', { model }, 'присадка.dxf');
 }
 
+// Те же файлы, но не скачиваются, а возвращаются: { blob, name }.
+function buildDrillCsv(model) { return fetchExportFile('/export/cnc/csv', { model }, 'присадка.csv', true); }
+function buildDrillDxf(model) { return fetchExportFile('/export/cnc/dxf', { model }, 'присадка.dxf', true); }
+
 window.Modul3D = window.Modul3D || {};
-window.Modul3D.cnc = { exportDrillCsv, exportDrillDxf, drilledParts };
+window.Modul3D.cnc = { exportDrillCsv, exportDrillDxf, drilledParts, buildDrillCsv, buildDrillDxf };
 })();

@@ -3051,6 +3051,14 @@ input.calc-error { outline: 2px solid #d33; outline-offset: -1px; }
 }
 .cl-back:hover, .cl-back:active { background: var(--accent-soft); }
 
+.cl-menu-wrap { position: relative; flex: none; align-self: center; }
+.cl-link.cl-plus { font-size: 24px; font-weight: 500; line-height: 1; padding: 2px 10px; }
+.cl-section-head .cl-menu-wrap { align-self: center; }
+.cl-kebab { display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; padding: 0;
+  border: none; border-radius: var(--r-sm); background: transparent; color: var(--text-2); cursor: pointer; }
+.cl-kebab svg { width: 18px; height: 18px; }
+.cl-kebab:hover, .cl-kebab[aria-expanded='true'] { background: var(--surface-2); color: var(--text); }
+.drawer .cl-menu-pop { position: absolute; right: 0; top: calc(100% + 4px); width: 230px; margin-top: 0; z-index: 60; padding: var(--sp-2); }
 .cl-title-row { display: flex; align-items: baseline; justify-content: space-between; gap: var(--sp-2); }
 .panel .cl-title { margin: 0; font-size: var(--fs-lg); font-weight: 700; color: var(--text); overflow-wrap: anywhere;
   text-transform: none; letter-spacing: normal; }
@@ -3108,6 +3116,7 @@ input.calc-error { outline: 2px solid #d33; outline-offset: -1px; }
 .cl-hint { font-size: var(--fs-xs); color: var(--muted); }
 
 .cl-note { padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--r-md); background: var(--surface-solid); }
+.cl-note-link { color: var(--accent); text-decoration: underline; word-break: break-all; }
 .cl-note-body { font-size: var(--fs-md); line-height: 1.5; color: var(--text); white-space: pre-wrap; overflow-wrap: anywhere; }
 .cl-note-foot { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-2);
   margin-top: 6px; font-size: var(--fs-xs); }
@@ -3233,3 +3242,17 @@ a.cl-file-title:hover { text-decoration: underline; }
 .m3d-sel-item.selected { color: var(--accent); font-weight: 600; }
 .m3d-sel-item.disabled { opacity: .45; cursor: not-allowed; }
 .m3d-sel-group { padding: 6px 10px 2px; font-size: .85em; font-weight: 600; color: var(--muted); }
+
+/* --- «Файлы»: поделиться (v442) --- */
+.cl-share { display: inline-flex; align-items: center; padding: 2px 8px; }
+.cl-share-wrap { margin-top: 6px; display: flex; flex-direction: column; gap: 6px; }
+.cl-share-menu { display: flex; flex-wrap: wrap; gap: 6px; }
+.cl-menu-pop .ctx-item { white-space: nowrap; }
+
+.cl-file-menu { margin-left: auto; align-self: flex-start; }
+.cl-menu-cap { padding: 4px 10px 6px; font-size: 11px; color: var(--text-muted, #6b7280); }
+.cl-menu-pop .ctx-item.cl-danger { color: #c62828; }
+.cl-file-menu .cl-share-wrap { padding: 4px; }
+.cl-file-menu .cl-share-menu { flex-direction: column; flex-wrap: nowrap; }
+.cl-file-menu .cl-share-menu .cl-act { text-align: left; }
+.cl-file-menu .cl-hint { white-space: normal; max-width: 210px; }

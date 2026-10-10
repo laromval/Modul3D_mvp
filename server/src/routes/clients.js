@@ -204,9 +204,9 @@ router.get('/', async (req, res) => {
       `SELECT c.*,
               (SELECT COUNT(*)::int FROM client_projects p WHERE p.client_id = c.id AND p.user_id = c.user_id) AS projects_count,
               (SELECT COUNT(*)::int FROM client_notes n WHERE n.client_id = c.id AND n.user_id = c.user_id) AS notes_count,
-              (SELECT COUNT(*)::int FROM client_tasks t WHERE t.client_id = c.id AND t.user_id = c.user_id AND t.status <> 'done') AS open_tasks,
+              (SELECT COUNT(*)::int FROM client_tasks t WHERE t.client_id = c.id AND t.user_id = c.user_id AND t.status <> 'done' AND NOT EXISTS (SELECT 1 FROM client_projects pp WHERE pp.id = t.project_id AND pp.user_id = t.user_id AND pp.status = 'done')) AS open_tasks,
               (SELECT COUNT(*)::int FROM client_tasks t WHERE t.client_id = c.id AND t.user_id = c.user_id AND t.status <> 'done'
-                  AND t.due_at IS NOT NULL AND t.due_at < now()) AS overdue_tasks
+                  AND t.due_at IS NOT NULL AND t.due_at < now() AND NOT EXISTS (SELECT 1 FROM client_projects pp WHERE pp.id = t.project_id AND pp.user_id = t.user_id AND pp.status = 'done')) AS overdue_tasks
          FROM clients c
         WHERE c.user_id = $1
         ORDER BY (c.archived_at IS NOT NULL), lower(c.name), c.created_at`,

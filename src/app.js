@@ -14,7 +14,7 @@
 (function () {
 // Версия сборки — показывается во вкладке браузера и в шапке.
 // При выпуске новой версии меняется только эта строка.
-const APP_VERSION = 'v437';
+const APP_VERSION = 'v443';
 
 // Номер версии выводим ПЕРВЫМ делом: если дальше что-то упадёт, по нему сразу
 // видно, какая сборка открыта.
@@ -19928,6 +19928,13 @@ function refreshCurrency() {
 // разделение секции по высоте прямо из HUD, без захода в контекстное меню
 // или Focus Mode (см. renderHud/initHud в ui-shell.js).
 window.Modul3D.app = {
+  // Файл проекта «как при сохранении» — для «＋ → Сохранить проект» во вкладке
+  // «Файлы» клиента (src/clientFiles.js): { blob, name }.
+  getProjectFile: function () {
+    return { blob: new Blob([JSON.stringify(serializeProject(), null, 2)], { type: 'application/json' }), name: projectFileName() };
+  },
+  // Текущая модель и спецификация — для выгрузки в «Файлы» клиента (clientFiles.js).
+  getExportInputs: function () { return { model: currentModel, spec: currentSpec }; },
   setPanelView: setPanelView,
   // Переключить вид камеры (горячие клавиши 1–4 в ui-shell.js) — см. applyView.
   setView: applyView,
