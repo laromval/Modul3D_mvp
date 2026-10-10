@@ -3013,7 +3013,7 @@ input.calc-error { outline: 2px solid #d33; outline-offset: -1px; }
   .brand .ver { display: none; }
 }
 
-/* ---------- Меню «⋮» (сохранить / открыть / обновить) на планшете и телефоне ----------
+/* ---------- Меню «⋮» (сохранить / открыть / обновить) на планшете и телефоне (≤820 px и любой сенсорный экран) ----------
    Стоит последним в шапке, в правом углу; вертикальные точки без рамки и фона. */
 .more-wrap { position: relative; display: none; }
 .more-wrap .icon-btn svg { width: 18px; height: 18px; }
@@ -3025,6 +3025,13 @@ input.calc-error { outline: 2px solid #d33; outline-offset: -1px; }
 .more-popover .ctx-item { width: 100%; text-align: left; padding: 12px 12px; font-size: var(--fs-md); }
 @media (max-width: 820px) {
   .more-wrap { display: inline-flex; }
+}
+/* Планшет на весь экран шире 820 px, но управление пальцем: «⋮» остаётся
+   (в нём «Обновить страницу»), а дублирующие кнопки «Сохранить»/«Открыть» из
+   шапки убираем — те же действия лежат в меню. С мышью шапка прежняя. */
+@media (pointer: coarse) {
+  .more-wrap { display: inline-flex; }
+  .header-actions #projectBtns { display: none; }
 }
 
 /* ---------- Панель «Клиенты» (src/clients.js) ---------------------------- */
