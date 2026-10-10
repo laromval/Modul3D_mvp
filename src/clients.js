@@ -23,6 +23,14 @@ var EXT = {};
 
 var STATUS_LABEL = { active: 'В работе', done: 'Готов' };
 
+var PROJ_FILTER_KEY = 'modul3dClientsProjFilter';
+function loadProjFilter() {
+  try { return localStorage.getItem(PROJ_FILTER_KEY) === 'done' ? 'done' : 'active'; } catch (e) { return 'active'; }
+}
+function saveProjFilter(v) {
+  try { localStorage.setItem(PROJ_FILTER_KEY, v); } catch (e) { /* не страшно: просто не запомнится */ }
+}
+
 var S = {
   view: 'list',          // 'list' | 'client' | 'project' | 'tasks' (все задачи)
   tab: 'tasks',          // вкладка проекта: tasks | files | notes
@@ -38,7 +46,8 @@ var S = {
   editingNote: null,     // id заметки в режиме правки
   editingName: false,    // переименование клиента/проекта
   draft: null,           // введённый, но не отправленный текст формы { kind, a, b }
-  lastToken: undefined
+  lastToken: undefined,
+  projFilter: loadProjFilter() // какие проекты показывать: 'active' (в работе) | 'done' (готовые)
 };
 
 function api() { return (window.Modul3D && window.Modul3D.sketchAI) || {}; }
@@ -263,7 +272,7 @@ function deleteProject() {
 // ------------------------------------------------------------------- виджеты
 
 function backBtn(label, fn) {
-  return h('button', { type: 'button', class: 'cl-back', onclick: fn },
+  return h('button', { type: 'button', class: 'cl-back', 'data-role': 'back', onclick: fn },
     h('span', { 'aria-hidden': 'true', text: '←' }), ' ', label);
 }
 
@@ -621,7 +630,14 @@ function viewClient() {
   }
 
   // проекты
-  var phead = h('div', { class: 'cl-section-head' }, h('h3', { class: 'drawer-section', text: 'Проекты' }),
+  var nActive = S.projects.filter(function (p) { return p.status !== 'done'; }).length;
+  var nDone = S.projects.length - nActive;
+  var projSel = h('select', { class: 'cl-filter', 'data-role': 'project-filter', 'aria-label': 'Какие проекты показывать',
+    onchange: function (e) { S.projFilter = e.target.value === 'done' ? 'done' : 'active'; saveProjFilter(S.projFilter); render(); } });
+  projSel.appendChild(h('option', { value: 'active', text: 'Проекты · в работе (' + nActive + ')' }));
+  projSel.appendChild(h('option', { value: 'done', text: 'Проекты · готовые (' + nDone + ')' }));
+  projSel.value = S.projFilter;
+  var phead = h('div', { class: 'cl-section-head' }, projSel,
     S.adding === 'project' ? null : h('button', { type: 'button', class: 'cl-link', text: '＋ Проект',
       onclick: function () { S.adding = 'project'; render(); } }));
   wrap.appendChild(phead);
@@ -629,11 +645,15 @@ function viewClient() {
     wrap.appendChild(inlineForm({ kind: 'project-new', placeholder: 'Название проекта (например, «Кухня»)',
       onSubmit: addProject, onCancel: function () { S.adding = null; S.draft = null; render(); } }));
   }
+  var shown = S.projects.filter(function (p) { return (p.status === 'done') === (S.projFilter === 'done'); });
   if (!S.projects.length && S.adding !== 'project') {
     wrap.appendChild(h('div', { class: 'cl-empty', text: 'У клиента пока нет проектов. У одного клиента их может быть сколько угодно.' }));
+  } else if (!shown.length && S.adding !== 'project') {
+    wrap.appendChild(h('div', { class: 'cl-empty', text: S.projFilter === 'done'
+      ? 'Пока нет готовых проектов.' : 'Нет проектов в работе. Готовые — в меню «Проекты» выше.' }));
   }
   var plist = h('div', { class: 'cl-list' });
-  S.projects.forEach(function (p) {
+  shown.forEach(function (p) {
     plist.appendChild(h('button', { type: 'button', class: 'cl-card', onclick: function () { openProject(p); } },
       h('span', { class: 'cl-card-name', text: p.name }),
       h('span', { class: 'cl-card-meta' },

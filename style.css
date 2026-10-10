@@ -3044,13 +3044,12 @@ input.calc-error { outline: 2px solid #d33; outline-offset: -1px; }
 .cl-add { width: 100%; }
 
 .cl-back {
-  align-self: flex-start;
-  padding: 4px 8px 4px 4px; margin-left: -4px;
-  border: none; border-radius: var(--r-sm); background: transparent;
-  font: inherit; font-size: var(--fs-sm); font-weight: 600; color: var(--muted); cursor: pointer;
-  transition: background var(--dur) var(--ease), color var(--dur) var(--ease);
+  align-self: flex-start; display: inline-flex; align-items: center; gap: 5px;
+  padding: 7px 10px; margin-left: -10px;
+  border: none; border-bottom: 2px solid var(--accent); background: transparent;
+  font: inherit; font-size: 14px; font-weight: 600; color: var(--accent); cursor: pointer;
 }
-.cl-back:hover { background: var(--surface-2); color: var(--text); }
+.cl-back:hover, .cl-back:active { background: var(--accent-soft); }
 
 .cl-title-row { display: flex; align-items: baseline; justify-content: space-between; gap: var(--sp-2); }
 .panel .cl-title { margin: 0; font-size: var(--fs-lg); font-weight: 700; color: var(--text); overflow-wrap: anywhere;
