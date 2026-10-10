@@ -14,7 +14,7 @@
 (function () {
 // Версия сборки — показывается во вкладке браузера и в шапке.
 // При выпуске новой версии меняется только эта строка.
-const APP_VERSION = 'v443';
+const APP_VERSION = 'v447';
 
 // Номер версии выводим ПЕРВЫМ делом: если дальше что-то упадёт, по нему сразу
 // видно, какая сборка открыта.
@@ -19934,6 +19934,42 @@ window.Modul3D.app = {
     return { blob: new Blob([JSON.stringify(serializeProject(), null, 2)], { type: 'application/json' }), name: projectFileName() };
   },
   // Текущая модель и спецификация — для выгрузки в «Файлы» клиента (clientFiles.js).
+  // То же, но с миниатюрой 3D-вида (поле thumbnail — JPEG data URL ~240 px):
+  // по ней в «Файлах» клиента видно, что сохранено. Кадр берём сразу (холст свежий).
+  getProjectFileWithThumb: async function () {
+    let shot = null;
+    try {
+      const v = window.Modul3D.viewer && window.Modul3D.viewer.current;
+      shot = v && v.captureImage ? v.captureImage() : null;
+    } catch (e) { shot = null; }
+    const data = serializeProject();
+    if (shot) {
+      try {
+        data.thumbnail = await new Promise((resolve, reject) => {
+          const img = new Image();
+          img.onload = () => {
+            const k = Math.min(1, 240 / Math.max(img.width, img.height));
+            const cv = document.createElement('canvas');
+            cv.width = Math.max(1, Math.round(img.width * k)); cv.height = Math.max(1, Math.round(img.height * k));
+            const cx = cv.getContext('2d');
+            cx.fillStyle = '#ffffff'; cx.fillRect(0, 0, cv.width, cv.height);
+            cx.drawImage(img, 0, 0, cv.width, cv.height);
+            resolve(cv.toDataURL('image/jpeg', 0.8));
+          };
+          img.onerror = () => reject(new Error('thumb'));
+          img.src = shot;
+        });
+      } catch (e) { /* без миниатюры — проект всё равно сохранится */ }
+    }
+    return { blob: new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }), name: projectFileName() };
+  },
+  // Открыть проект из Blob (JSON-файл проекта из «Файлов» клиента). Если в
+  // сцене уже есть модули — сперва спрашиваем, как и при обычном «Открыть».
+  openProjectBlob: function (blob) {
+    if (state.modules.length && !window.confirm('Текущий проект в сцене будет заменён проектом из файла. Открыть?')) return false;
+    openProjectFromFile(blob);
+    return true;
+  },
   getExportInputs: function () { return { model: currentModel, spec: currentSpec }; },
   setPanelView: setPanelView,
   // Переключить вид камеры (горячие клавиши 1–4 в ui-shell.js) — см. applyView.

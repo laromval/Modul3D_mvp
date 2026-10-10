@@ -269,10 +269,11 @@ async function saveProjectFile(scope) {
   var d = drive(), app = window.Modul3D && window.Modul3D.app;
   if (!d || !app || !app.getProjectFile) { F.error = 'Сохранение проекта недоступно.'; kit.render(); return; }
   var ready = d.connect();          // вход в Google — сразу, из нажатия (иначе окно заблокируют)
-  var f = app.getProjectFile();
-  var title = f.name.replace(/\.json$/i, '');
+  var pending = app.getProjectFileWithThumb ? withPanelHidden(function () { return app.getProjectFileWithThumb(); }) : Promise.resolve(app.getProjectFile());
   F.error = ''; F.notice = 'Сохраняю проект…'; kit.render();
   try {
+    var f = await pending;
+    var title = f.name.replace(/\.json$/i, '');
     await ready;
     await saveFile(scope, f.blob, title, f.name, 'application/json', null);
     F.notice = 'Проект сохранён на ваш Google Диск и добавлен в «Файлы».';
@@ -284,9 +285,30 @@ async function saveProjectFile(scope) {
 }
 
 // «Снимок 3D-вида»: кадр берём СРАЗУ, пока холст свежий, и кладём в панель загрузки.
+// Панель «Клиенты» на время снимка уезжает: вьюер сам вписывает все модули по
+// центру всего экрана (ui-shell → 'modul3d:drawer-inset'), снимок берём после
+// этой подгонки, затем панель возвращается на место (и вьюер снова сдвигает кадр).
+function reopen() {
+  S.holdSync = true;                                   // clients.js sync(): не перечитывать и не сбрасывать вкладку
+  kit.open();
+  setTimeout(function () { S.holdSync = false; }, 0);
+}
+
+function withPanelHidden(fn) {
+  var v = window.Modul3D.viewer && window.Modul3D.viewer.current;
+  var panel = document.getElementById('clientsPanel');
+  var drawer = panel && panel.closest ? panel.closest('.drawer') : null;
+  var close = drawer && drawer.querySelector('.drawer-close');
+  if (!v || !drawer || !close || !drawer.classList.contains('open')) return Promise.resolve().then(fn);
+  close.click();
+  return new Promise(function (resolve) { setTimeout(resolve, 450); })   // подгонка кадра ~240 мс + запас
+    .then(fn)
+    .then(function (r) { reopen(); return r; }, function (e) { reopen(); throw e; });
+}
+
 async function addSnapshot(scope) {
   var v = window.Modul3D.viewer && window.Modul3D.viewer.current, c = cloud(), shot = null;
-  try { shot = v && v.captureImage ? v.captureImage() : null; } catch (e) { shot = null; }
+  try { shot = await withPanelHidden(function () { return v && v.captureImage ? v.captureImage() : null; }); } catch (e) { shot = null; }
   openAdd(scope);
   var A = F.add;
   if (!shot || !c) { A.error = 'Не удалось сделать снимок 3D-вида.'; kit.render(); return; }
@@ -468,7 +490,7 @@ function loadThumbs() {
   if (!d || !d.hasToken()) return;
   var now = Date.now();
   var todo = F.items.filter(function (f) {
-    return f.kind === 'drive' && f.driveFileId && (!f.mime || /^image\//i.test(f.mime)) && !(f.id in F.thumbs) && !F.thumbBusy[f.id] &&
+    return f.kind === 'drive' && f.driveFileId && (!f.mime || /^image\//i.test(f.mime) || f.mime === 'application/json') && !(f.id in F.thumbs) && !F.thumbBusy[f.id] &&
       !(F.thumbFail[f.id] && now - F.thumbFail[f.id] < 30000);
   });
   if (!todo.length) return;
@@ -479,7 +501,13 @@ function loadThumbs() {
       (function (f) {
         active++; F.thumbBusy[f.id] = true;
         d.fetchBlob(f.driveFileId).then(function (b) {
-          if (F.key === key) F.thumbs[f.id] = URL.createObjectURL(b);
+          if (f.mime !== 'application/json') { if (F.key === key) F.thumbs[f.id] = URL.createObjectURL(b); return; }
+          // Файл проекта: миниатюра лежит внутри (поле thumbnail), старые файлы — без неё.
+          return b.text().then(function (txt) {
+            var th = '';
+            try { var j = JSON.parse(txt); if (j && typeof j.thumbnail === 'string' && /^data:image\/jpeg;base64,/.test(j.thumbnail)) th = j.thumbnail; } catch (e) { /* не JSON */ }
+            if (F.key === key) F.thumbs[f.id] = th ? URL.createObjectURL(cloud().dataUrlToBlob(th)) : '';
+          });
         }).catch(function (e) {
           if (F.key !== key) return;
           if (e && (e.code === 'notfound' || e.code === 'forbidden')) F.thumbs[f.id] = '';   // файла нет — значок насовсем
@@ -505,16 +533,45 @@ function showPreviews() {
 
 // --------------------------------------------------------------------- список
 
+// Файл проекта (JSON) открываем прямо в 3D-сцене, а не ссылкой на Диск (там виден
+// только текст файла). Вход в Google — сразу, из нажатия.
+async function openIn3D(f) {
+  var d = drive(), app = window.Modul3D && window.Modul3D.app;
+  if (!d || !app || !app.openProjectBlob) { F.error = 'Открыть проект сейчас нельзя.'; kit.render(); return; }
+  var ready = d.connect();
+  F.error = ''; F.notice = 'Открываю проект…'; kit.render();
+  try {
+    await ready;
+    var blob = await d.fetchBlob(f.driveFileId);
+    F.notice = '';
+    if (app.openProjectBlob(blob)) {
+      var x = document.querySelector('#clientsPanel') && document.querySelector('#clientsPanel').closest('.drawer');
+      var close = x && x.querySelector('.drawer-close');
+      if (close) close.click();
+    } else kit.render();
+  } catch (e) {
+    F.notice = '';
+    F.error = e && e.code === 'notfound' ? 'Файл не найден на вашем Google Диске.' : ((e && e.message) || 'Не удалось открыть проект.');
+    kit.render();
+  }
+}
+
 function fileRow(scope, f) {
   var isDrive = f.kind === 'drive';
   var href = f.unreadable ? null : safeHref(f.url);
-  var titleEl = href
+  var isProject = isDrive && !f.unreadable && f.driveFileId && fileType(f) === 'project';
+  var titleEl = isProject
+    ? h('button', { type: 'button', class: 'cl-file-title cl-file-open', 'data-role': 'open-in-3d', title: 'Открыть проект в 3D', text: f.title,
+        onclick: function () { openIn3D(f); } })
+    : href
     ? h('a', { class: 'cl-file-title', href: href, target: '_blank', rel: 'noopener noreferrer', text: f.title })
     : h('span', { class: 'cl-file-title', text: f.unreadable ? 'Не удалось расшифровать ссылку' : f.title });
   var lead;
   if (isDrive && F.thumbs[f.id]) {
     var img = h('img', { class: 'cl-file-thumb', alt: f.title, src: F.thumbs[f.id] });
-    lead = href ? h('a', { href: href, target: '_blank', rel: 'noopener noreferrer', class: 'cl-file-thumb-link', 'data-role': 'file-thumb' }, img) : img;
+    lead = isProject
+      ? h('button', { type: 'button', class: 'cl-file-thumb-link cl-file-open', 'data-role': 'file-thumb', title: 'Открыть проект в 3D', onclick: function () { openIn3D(f); } }, img)
+      : href ? h('a', { href: href, target: '_blank', rel: 'noopener noreferrer', class: 'cl-file-thumb-link', 'data-role': 'file-thumb' }, img) : img;
   } else {
     lead = h('span', { class: 'cl-file-ico', 'aria-hidden': 'true', text: isDrive ? TYPE_ICON[fileType(f)] : '🔗' });
   }

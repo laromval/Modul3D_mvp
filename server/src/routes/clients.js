@@ -154,6 +154,8 @@ function clientDto(row, contact) {
     phones: c.phones,
     email: c.email,
     contactUnreadable: !!contact.unreadable,
+    avatarId: row.avatar_id || null,
+    avatarFileId: row.avatar_file_id || null,
     archived: row.archived_at !== null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -189,7 +191,10 @@ async function loadOwnClient(req, res) {
   const id = req.params.id;
   if (!isUuid(id)) { res.status(404).json({ error: 'Клиент не найден.' }); return null; }
   const { rows } = await db.query(
-    'SELECT * FROM clients WHERE id = $1 AND user_id = $2',
+    `SELECT c.*,
+            (SELECT f.id FROM client_files f WHERE f.client_id = c.id AND f.user_id = c.user_id AND f.is_avatar LIMIT 1) AS avatar_id,
+            (SELECT f.drive_file_id FROM client_files f WHERE f.client_id = c.id AND f.user_id = c.user_id AND f.is_avatar LIMIT 1) AS avatar_file_id
+       FROM clients c WHERE c.id = $1 AND c.user_id = $2`,
     [id, req.user.id]
   );
   if (rows.length === 0) { res.status(404).json({ error: 'Клиент не найден.' }); return null; }
@@ -202,6 +207,8 @@ router.get('/', async (req, res) => {
   try {
     const { rows } = await db.query(
       `SELECT c.*,
+              (SELECT f.id FROM client_files f WHERE f.client_id = c.id AND f.user_id = c.user_id AND f.is_avatar LIMIT 1) AS avatar_id,
+              (SELECT f.drive_file_id FROM client_files f WHERE f.client_id = c.id AND f.user_id = c.user_id AND f.is_avatar LIMIT 1) AS avatar_file_id,
               (SELECT COUNT(*)::int FROM client_projects p WHERE p.client_id = c.id AND p.user_id = c.user_id) AS projects_count,
               (SELECT COUNT(*)::int FROM client_notes n WHERE n.client_id = c.id AND n.user_id = c.user_id) AS notes_count,
               (SELECT COUNT(*)::int FROM client_tasks t WHERE t.client_id = c.id AND t.user_id = c.user_id AND t.status <> 'done' AND NOT EXISTS (SELECT 1 FROM client_projects pp WHERE pp.id = t.project_id AND pp.user_id = t.user_id AND pp.status = 'done')) AS open_tasks,
@@ -308,7 +315,7 @@ router.patch('/:id', async (req, res) => {
         WHERE id = $${params.length - 1} AND user_id = $${params.length} RETURNING *`,
       params
     );
-    return res.json({ client: clientDto(rows[0], safeDecrypt(rows[0].contact)) });
+    return res.json({ client: clientDto({ ...rows[0], avatar_id: client.avatar_id, avatar_file_id: client.avatar_file_id }, safeDecrypt(rows[0].contact)) });
   } catch (err) {
     return handleError(err, res, 'update');
   }

@@ -340,10 +340,17 @@ function vcfFileName(name) {
 
 // Карточка контакта (vCard 3.0): телефон открывает системное «Сохранить в
 // контакты». Напрямую писать в книгу контактов из браузера нельзя.
-function downloadVcard(c) {
+async function downloadVcard(c) {
   var lines = ['BEGIN:VCARD', 'VERSION:3.0', 'FN:' + vcardEscape(c.name), 'N:' + vcardEscape(c.name) + ';;;;'];
   phonesOf(c).forEach(function (ph) { lines.push('TEL;TYPE=CELL:' + vcardEscape(ph)); });
   if (c.email) lines.push('EMAIL:' + vcardEscape(c.email));
+  var photo = window.Modul3D.clientsKit.avatar ? await window.Modul3D.clientsKit.avatar.photoBase64(c) : null;
+  if (photo) {
+    var l = 'PHOTO;ENCODING=b;TYPE=JPEG:' + photo, folded = [];
+    while (l.length > 75) { folded.push(l.slice(0, 75)); l = ' ' + l.slice(75); }
+    folded.push(l);
+    lines.push(folded.join('\r\n'));
+  }
   lines.push('END:VCARD');
   var blob = new Blob([lines.join('\r\n') + '\r\n'], { type: 'text/vcard;charset=utf-8' });
   var url = URL.createObjectURL(blob);
@@ -637,6 +644,7 @@ function fillList(list, clients) {
     list.appendChild(h('button', { type: 'button', class: 'cl-card' + (c.archived ? ' is-archived' : '') + (c.overdueTasks ? ' has-overdue' : ''),
       onclick: function () { openClient(c.id); } },
       h('span', { class: 'cl-card-top' },
+        window.Modul3D.clientsKit.avatar ? window.Modul3D.clientsKit.avatar.node(c, 'sm') : null,
         h('span', { class: 'cl-card-name', text: c.name }),
         c.openTasks ? h('span', { class: 'cl-badge' + (c.overdueTasks ? ' is-overdue' : ''), 'data-role': 'client-badge', text: String(c.openTasks),
           title: c.overdueTasks ? 'Текущих задач: ' + c.openTasks + ', просрочено: ' + c.overdueTasks : 'Текущих задач: ' + c.openTasks }) : null),
@@ -664,9 +672,12 @@ function viewClient() {
       submitLabel: 'Сохранить', onSubmit: saveClient,
       onCancel: function () { S.adding = null; S.draft = null; render(); } }));
   } else {
+    var avKit = window.Modul3D.clientsKit.avatar;
     wrap.appendChild(h('div', { class: 'cl-title-row' },
+      avKit ? avKit.node(c, 'lg') : null,
       h('h3', { class: 'cl-title', text: c.name }),
       clientMenu(c)));
+    if (avKit && avKit.status()) wrap.appendChild(avKit.status());
     wrap.appendChild(contactView(c));
   }
 
@@ -792,6 +803,8 @@ function render() {
 // сбрасываем состояние, когда токен поменялся, и подгружаем свежие данные
 // при каждом открытии панели.
 function sync() {
+  // Панель на секунду уезжала ради снимка 3D (clientFiles.js) — вернулась то же самое, ничего не перечитываем.
+  if (S.holdSync) { S.holdSync = false; render(); return; }
   var token = getToken();
   if (token !== S.lastToken) {
     S.lastToken = token;

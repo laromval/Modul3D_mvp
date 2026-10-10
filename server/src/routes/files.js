@@ -70,6 +70,7 @@ function fileDto(row) {
     kind: row.kind,
     title: title.value,
     url: url.value,
+    isAvatar: !!row.is_avatar,
     driveFileId: row.drive_file_id || null,
     mime: row.mime || null,
     sizeBytes: row.size_bytes === null || row.size_bytes === undefined ? null : Number(row.size_bytes),
@@ -103,6 +104,7 @@ async function loadOwnFile(req, res) {
 
 router.get('/', async (req, res) => {
   const where = ['user_id = $1'];
+  if (req.query.avatar !== '1') where.push('NOT is_avatar'); // аватар клиента — не в списке файлов
   const params = [req.user.id];
   if (req.query.client !== undefined) {
     if (!isUuid(req.query.client)) return res.json({ files: [] });
@@ -156,9 +158,13 @@ router.post('/', async (req, res) => {
     }
   }
   const projectId = body.projectId === undefined ? null : body.projectId;
+  const isAvatar = body.avatar === true;
+  if (isAvatar && (!isDrive || projectId !== null || !/^image\//.test(mime || ''))) {
+    return res.status(400).json({ error: 'Аватар — это картинка с Google Диска на весь клиент.' });
+  }
   try {
     if (!(await checkOwnership(req, res, body.clientId, projectId))) return undefined;
-    if (isDrive) {
+    if (isDrive && !isAvatar) {
       // Повтор после потерянного ответа не должен плодить вторую карточку на тот же файл.
       const dup = await db.query(
         `SELECT * FROM client_files WHERE user_id = $1 AND client_id = $2 AND kind = 'drive'
@@ -171,11 +177,15 @@ router.post('/', async (req, res) => {
     if (cnt.rows[0].n >= MAX_FILES_PER_CLIENT) {
       return res.status(409).json({ error: `Достигнут предел: не более ${MAX_FILES_PER_CLIENT} файлов и ссылок на клиента.` });
     }
+    if (isAvatar) {
+      // Новый аватар заменяет прежний (сам файл на Диске пользователя не трогаем).
+      await db.query('DELETE FROM client_files WHERE client_id = $1 AND user_id = $2 AND is_avatar', [body.clientId, req.user.id]);
+    }
     const { rows } = await db.query(
-      `INSERT INTO client_files (user_id, client_id, project_id, kind, title, url, drive_file_id, mime, size_bytes)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *`,
+      `INSERT INTO client_files (user_id, client_id, project_id, kind, title, url, drive_file_id, mime, size_bytes, is_avatar)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *`,
       [req.user.id, body.clientId, projectId, kind, encryptJson(title.value || url.host), encryptJson(url.value),
-        driveFileId, mime, sizeBytes]
+        driveFileId, mime, sizeBytes, isAvatar]
     );
     return res.status(201).json({ file: fileDto(rows[0]) });
   } catch (err) {
