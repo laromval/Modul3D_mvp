@@ -178,6 +178,7 @@ function addClient(name, phones, email) {
     S.adding = null;
     S.clients = (await call('GET', '/clients')).clients;
     S.view = 'client'; S.client = r.client; S.projects = []; S.notes = [];
+    if (window.Modul3D.clientsKit.avatar) window.Modul3D.clientsKit.avatar.flushIcon(r.client);
   });
 }
 
@@ -221,6 +222,7 @@ function saveClient(name, phones, email) {
   return guarded(async function () {
     S.client = (await call('PATCH', '/clients/' + S.client.id, { name: name, phones: phones, email: email })).client;
     S.adding = null;
+    if (window.Modul3D.clientsKit.avatar) window.Modul3D.clientsKit.avatar.flushIcon(S.client);
   });
 }
 
@@ -366,8 +368,20 @@ function pickerSupported() {
   return !!(window.isSecureContext && navigator.contacts && typeof navigator.contacts.select === 'function');
 }
 
+// Фото контакта ('icon') отдаёт не каждая версия браузера — спрашиваем, поддерживается ли.
+async function pickProps() {
+  var props = ['name', 'tel', 'email'];
+  try {
+    var sup = navigator.contacts.getProperties ? await navigator.contacts.getProperties() : [];
+    if (sup && sup.indexOf('icon') !== -1) props.push('icon');
+  } catch (e) { /* без фото */ }
+  return props;
+}
+
+var pickedIcon = null;   // фото выбранного контакта (Blob), уйдёт в аватар при сохранении клиента
+
 async function pickContact() {
-  var res = await navigator.contacts.select(['name', 'tel', 'email'], { multiple: false });
+  var res = await navigator.contacts.select(await pickProps(), { multiple: false });
   var r = res && res[0];
   if (!r) return null;
   function first(a) { return a && a.length ? String(a[0]) : ''; }
@@ -376,7 +390,9 @@ async function pickContact() {
     var v = String(t).replace(/[^+\d\s()\-.]/g, '').trim().slice(0, 40);
     if (v && phones.indexOf(v) === -1) phones.push(v);
   });
+  var icon = r.icon && r.icon.length && r.icon[0] && /^image\//.test(r.icon[0].type || '') ? r.icon[0] : null;
   return {
+    icon: icon,
     name: first(r.name).trim(),
     phones: phones.slice(0, MAX_PHONES),
     email: first(r.email).trim().slice(0, 120)
@@ -430,6 +446,10 @@ function contactForm(opts) {
     if (name && !n) { name.focus(); return; }
     var phones = collect();
     S.draft = { kind: opts.kind, a: n, b: phones.length ? phones : [''], c: email.value.trim() };
+    // Фото контакта: вход в Google (если нужен) запускаем прямо из этого нажатия.
+    var av = window.Modul3D.clientsKit.avatar;
+    if (pickedIcon && av && av.queueIcon) av.queueIcon(pickedIcon, opts.kind === 'client-new' ? 'always' : 'ifnone');
+    pickedIcon = null;
     opts.onSubmit(n, phones, email.value.trim());
   }
   function onKey(e) {
@@ -439,6 +459,8 @@ function contactForm(opts) {
   [name, email].forEach(function (el) { if (el) el.addEventListener('keydown', onKey); });
   drawPhones();
 
+  pickedIcon = null;
+  var picNote = h('div', { class: 'cl-hint', 'data-role': 'pick-note' });
   var pickRow = null;
   if (pickerSupported()) {
     pickRow = h('button', { type: 'button', class: 'btn cl-pick', text: '📇 Выбрать из контактов телефона',
@@ -448,11 +470,13 @@ function contactForm(opts) {
           if (name && !name.value.trim() && c.name) name.value = c.name;
           if (c.phones.length) { values = c.phones.slice(); drawPhones(); }
           if (c.email) email.value = c.email;
+          pickedIcon = c.icon || null;
+          if (picNote) picNote.textContent = c.icon ? 'Фото контакта подхвачено — сохранится как аватар клиента.' : '';
         }).catch(function () { /* закрыл окно выбора — ничего не делаем */ });
       } });
   }
   setTimeout(function () { (name || phoneBox.querySelector('input')).focus(); }, 0);
-  return h('div', { class: 'cl-form' }, name, pickRow, phoneBox, addBtn, email,
+  return h('div', { class: 'cl-form' }, name, pickRow, picNote, phoneBox, addBtn, email,
     pickRow ? null : h('div', { class: 'cl-hint', text: 'Выбор из контактов телефона доступен в Chrome на Android.' }),
     h('div', { class: 'cl-form-actions' },
       h('button', { type: 'button', class: 'btn btn-primary', onclick: submit, text: opts.submitLabel || 'Сохранить' }),

@@ -19,6 +19,7 @@ var AV = {
   fail: {},    // driveFileId -> когда не загрузилось из-за сбоя сети
   menu: false,
   busyUpload: false,
+  pend: null,   // выбранное фото, ждущее нажатия «Сохранить»: { c, blob, url }
   notice: '',
   error: ''
 };
@@ -67,15 +68,8 @@ function patchClient(id, fields) {
   (S.clients || []).forEach(function (x) { if (x.id === id) Object.assign(x, fields); });
 }
 
+// Шаг 1: выбор фото (окно выбора открывается сразу — вход в Google не нужен).
 function pick(c, camera) {
-  var d = drive();
-  if (!d) { AV.error = 'Google Диск недоступен.'; kit.render(); return; }
-  if (!d.hasToken()) {
-    // Окно входа Google открываем отдельным нажатием, фото выбираем следующим.
-    d.connect().then(function () { AV.notice = 'Google Диск подключён — выберите фото ещё раз.'; AV.error = ''; kit.render(); },
-      function (e) { AV.error = (e && e.message) || 'Не удалось войти в Google.'; kit.render(); });
-    return;
-  }
   var inp = document.createElement('input');
   inp.type = 'file'; inp.accept = 'image/*';
   if (camera) inp.setAttribute('capture', 'user');
@@ -83,35 +77,66 @@ function pick(c, camera) {
   inp.addEventListener('change', function () {
     var f = inp.files && inp.files[0];
     if (inp.parentNode) inp.parentNode.removeChild(inp);
-    if (f) upload(c, f);
+    if (f) prepare(c, f);
   });
   document.body.appendChild(inp);
   inp.click();
 }
 
-async function upload(c, file) {
-  var cl = cloud(), d = drive();
+// Шаг 2: готовим превью и показываем кнопку «Сохранить» — вход в Google
+// (если нужен) делается из этого нажатия, иначе окно входа заблокируют.
+async function prepare(c, file) {
+  var cl = cloud();
   if (!/^image\//i.test(file.type || '')) { AV.error = 'Нужна картинка (JPG, PNG…).'; kit.render(); return; }
-  AV.error = ''; AV.notice = 'Загружаю фото…'; AV.busyUpload = true; kit.render();
+  AV.error = ''; AV.notice = 'Готовлю фото…'; kit.render();
   try {
     var jpeg = await cl.prepareImage(file, 512, 0.85);
-    var rec = await d.upload([c.name || 'Клиент', 'Общее'], jpeg, cl.cleanName('Фото клиента', 'Фото') + '.jpg', 'image/jpeg');
-    var r;
-    try {
-      r = await call('POST', '/files', { clientId: c.id, kind: 'drive', title: 'Фото клиента', url: rec.url,
-        driveFileId: rec.fileId, mime: rec.mime || 'image/jpeg', sizeBytes: rec.size, avatar: true });
-    } catch (e) {
-      e.message = 'Фото сохранено на Google Диске, но не привязано к клиенту: ' + e.message;
-      throw e;
-    }
-    AV.blobs[rec.fileId] = jpeg; AV.urls[rec.fileId] = URL.createObjectURL(jpeg);
-    patchClient(c.id, { avatarId: r.file.id, avatarFileId: rec.fileId });
-    AV.notice = 'Фото сохранено на ваш Google Диск.';
+    if (AV.pend && AV.pend.url) { try { URL.revokeObjectURL(AV.pend.url); } catch (e) { /* ничего */ } }
+    AV.pend = { c: c, blob: jpeg, url: URL.createObjectURL(jpeg) };
+    AV.notice = '';
+  } catch (e) {
+    AV.notice = ''; AV.error = (e && e.message) || 'Не удалось подготовить фото.';
+  }
+  kit.render();
+}
+
+function cancelPend() {
+  if (AV.pend && AV.pend.url) { try { URL.revokeObjectURL(AV.pend.url); } catch (e) { /* ничего */ } }
+  AV.pend = null; AV.error = ''; kit.render();
+}
+
+// Шаг 3: нажали «Сохранить» — входим в Google (из нажатия) и грузим на Диск.
+async function savePend() {
+  var P = AV.pend, d = drive();
+  if (!P || AV.busyUpload) return;
+  if (!d) { AV.error = 'Google Диск недоступен.'; kit.render(); return; }
+  var ready = d.connect();
+  AV.error = ''; AV.notice = 'Загружаю фото…'; AV.busyUpload = true; kit.render();
+  try {
+    await ready;
+    await upload(P.c, P.blob);
+    AV.pend = null; try { URL.revokeObjectURL(P.url); } catch (e) { /* ничего */ }
   } catch (e) {
     AV.notice = ''; AV.error = (e && e.message) || 'Не удалось загрузить фото.';
   }
   AV.busyUpload = false;
   kit.render();
+}
+
+async function upload(c, jpeg) {
+  var cl = cloud(), d = drive();
+  var rec = await d.upload([c.name || 'Клиент', 'Общее'], jpeg, cl.cleanName('Фото клиента', 'Фото') + '.jpg', 'image/jpeg');
+  var r;
+  try {
+    r = await call('POST', '/files', { clientId: c.id, kind: 'drive', title: 'Фото клиента', url: rec.url,
+      driveFileId: rec.fileId, mime: rec.mime || 'image/jpeg', sizeBytes: rec.size, avatar: true });
+  } catch (e) {
+    e.message = 'Фото сохранено на Google Диске, но не привязано к клиенту: ' + e.message;
+    throw e;
+  }
+  AV.blobs[rec.fileId] = jpeg; AV.urls[rec.fileId] = URL.createObjectURL(jpeg);
+  patchClient(c.id, { avatarId: r.file.id, avatarFileId: rec.fileId });
+  AV.notice = 'Фото сохранено на ваш Google Диск.';
 }
 
 async function removeAvatar(c) {
@@ -147,9 +172,20 @@ function node(c, size) {
 
 // Сообщение под именем (загрузка / ошибка).
 function status() {
-  if (AV.error) return h('div', { class: 'cl-error', role: 'alert', text: AV.error });
-  if (AV.notice) return h('div', { class: 'cl-hint', role: 'status', text: AV.notice });
-  return null;
+  var kids = [];
+  if (AV.pend) {
+    var d = drive();
+    kids.push(h('div', { class: 'cl-avatar-pend', 'data-role': 'avatar-pending' },
+      h('span', { class: 'cl-avatar cl-avatar-lg' }, h('img', { src: AV.pend.url, alt: '' })),
+      h('div', { class: 'cl-avatar-pend-actions' },
+        h('button', { type: 'button', class: 'btn', 'data-role': 'avatar-save', disabled: AV.busyUpload ? true : null, onclick: savePend,
+          text: AV.busyUpload ? 'Загружаю…' : ((d && d.hasToken() ? 'Сохранить фото на Google Диск' : 'Войти в Google и сохранить фото')) }),
+        AV.busyUpload ? null : h('button', { type: 'button', class: 'cl-link', 'data-role': 'avatar-cancel', text: 'Отмена', onclick: cancelPend }))));
+  }
+  if (AV.error) kids.push(h('div', { class: 'cl-error', role: 'alert', text: AV.error }));
+  else if (AV.notice) kids.push(h('div', { class: 'cl-hint', role: 'status', text: AV.notice }));
+  if (!kids.length) return null;
+  return h.apply(null, ['div', { class: 'cl-avatar-status' }].concat(kids));
 }
 
 function blobToBase64(blob) {
@@ -172,9 +208,38 @@ async function photoBase64(c) {
   } catch (e) { return null; }
 }
 
+// Фото контакта из телефона: queueIcon — при нажатии «Добавить/Сохранить» (из
+// нажатия стартует вход в Google, если он нужен), flushIcon — когда клиент уже
+// записан на сервере: готовим картинку и кладём на Диск как аватар.
+var queued = null;   // { blob, mode: 'always'|'ifnone', ready: Promise }
+
+function queueIcon(blob, mode) {
+  var d = drive(), ready = Promise.resolve();
+  if (d && !d.hasToken()) { ready = d.connect(); ready.catch(function () { /* скажем в flushIcon */ }); }
+  queued = { blob: blob, mode: mode, ready: ready };
+}
+
+async function flushIcon(c) {
+  var q = queued; queued = null;
+  if (!q || !c) return;
+  if (q.mode === 'ifnone' && c.avatarFileId) return;
+  var cl = cloud(), d = drive();
+  if (!d) return;
+  AV.error = ''; AV.notice = 'Сохраняю фото контакта…'; kit.render();
+  try {
+    await q.ready;
+    var jpeg = await cl.prepareImage(q.blob, 512, 0.85);
+    await upload(c, jpeg);
+  } catch (e) {
+    AV.notice = '';
+    AV.error = 'Фото контакта не сохранено (' + ((e && e.message) || 'нет входа в Google') + '). Добавьте его вручную: нажмите на круг рядом с именем.';
+  }
+  kit.render();
+}
+
 document.addEventListener('click', function (e) {
   if (AV.menu && !(e.target.closest && e.target.closest('.cl-avatar-wrap'))) { AV.menu = false; kit.render(); }
 });
 
-kit.avatar = { node: node, status: status, photoBase64: photoBase64 };
+kit.avatar = { node: node, status: status, photoBase64: photoBase64, queueIcon: queueIcon, flushIcon: flushIcon };
 })();
