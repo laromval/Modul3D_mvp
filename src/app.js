@@ -14,7 +14,7 @@
 (function () {
 // Версия сборки — показывается во вкладке браузера и в шапке.
 // При выпуске новой версии меняется только эта строка.
-const APP_VERSION = 'v427';
+const APP_VERSION = 'v428';
 
 // Номер версии выводим ПЕРВЫМ делом: если дальше что-то упадёт, по нему сразу
 // видно, какая сборка открыта.
@@ -10598,6 +10598,11 @@ function applyLibrarySearch() {
         if (tip === null || libSearchNorm(tip).indexOf(q) < 0) return;
         const path = (e.item && e.item.categoryPath) || [];
         state.libCatOpen[topCode] = true;
+        // Категория может быть вложена в другую (см. libTopParentOf) — тогда
+        // закрытый родитель прячет её целиком, раскрываем всю цепочку вверх.
+        for (let up = libTopParentOf('modules', topCode), guard = 0; up && guard < 20; up = libTopParentOf('modules', up), guard += 1) {
+          state.libCatOpen[up] = true;
+        }
         for (let i = 1; i <= path.length; i += 1) state.libCollapsed[libNodeKey(topCode, path.slice(0, i))] = false;
       });
     });
