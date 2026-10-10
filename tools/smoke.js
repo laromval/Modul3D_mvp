@@ -1835,7 +1835,7 @@ for (const el of document.querySelectorAll('.tab-btn')) {
   }
 }
 
-// Кухонный пресет должен ставить белый корпус, ящики 0110 SM, а декор
+// Кухонный пресет должен ставить белый корпус 18, ящики из белого 16, а декор
 // пользователя переносить на фасад.
 {
   const kitchen = modGroupRow('kitchen');
@@ -1859,7 +1859,7 @@ for (const el of document.querySelectorAll('.tab-btn')) {
       // H3450ST22 «Флитвуд белый»). Берём ту же логику, что и app.js
       // (см. «Первый кухонный модуль...» — DECORS.filter(/бел/i.test(name))[0]),
       // чтобы тест не рассыпался при следующей смене каталога.
-      const whiteDecor = sandbox.Modul3D.catalog.defaultKitchenDrawerDecor();
+      const whiteDecor = sandbox.Modul3D.catalog.defaultKitchenCarcassDecor();
       const isWhite = (v) => !!whiteDecor && String(v || '') === whiteDecor.code;
       // Материалы корпуса/фасада — экран «Материалы» (см. #materialsLinkBtn).
       const mb = document.getElementById('materialsLinkBtn');
@@ -1878,19 +1878,62 @@ for (const el of document.querySelectorAll('.tab-btn')) {
       const openBtn = document.getElementById('sectionsList').querySelectorAll('[data-drawers-open]')[0];
       if (openBtn) {
         openBtn.click();
-        // Материал ящиков кухни (2026-09-29) — по умолчанию «0110 SM Белый»
-        // (catalog.DEFAULT_KITCHEN_DRAWER_DECOR_CODE): в панели
-        // выбран пункт «По умолчанию», в модели ящики именно из 0110 SM.
+        // Материал ящиков кухни — по умолчанию из каталога
+        // (catalog.defaultKitchenDrawerDecor, с 2026-10-10 «8681 SM Белый
+        // бриллиант» 16): в панели пункт «По умолчанию», в модели ящики из него.
+        // Название листа в тесте не зашито — каталог пользователь правит.
         const drawer = document.getElementById('drawersDecor');
         if (!drawer || drawer.value) fails.push('кухня: материал ящиков не «По умолчанию»');
         const kd = sandbox.Modul3D.catalog.defaultKitchenDrawerDecor();
-        if (!kd || !/0110 SM/.test(kd.name)) fails.push('кухня: в каталоге нет 0110 SM для ящиков');
+        if (!kd) fails.push('кухня: нет материала ящиков по умолчанию');
         const lm = sandbox.__lastModel;
         const dm = ((lm && (lm.partsRaw || lm.parts)) || []).filter((q) => /ящика/.test(q.name || '') && /Боковина|Задняя/.test(q.name || ''));
-        if (!dm.length || !kd || !dm.every((q) => q.material === kd.code)) fails.push('кухня: ящики не из 0110 SM');
+        if (!dm.length || !kd || !dm.every((q) => q.material === kd.code)) fails.push('кухня: ящики не из материала по умолчанию');
       }
     }
     toggleModGroup(kitchen);
+  }
+}
+
+// Кухня и шкаф в ОДНОМ проекте: корпус кухни — белый, шкафа — дуб (каждый модуль
+// со своим корпусом, решение владельца 2026-10-10). Названия листов не зашиты —
+// берём умолчания каталога.
+{
+  const kitchen = modGroupRow('kitchen');
+  const wardrobe = modGroupRow('wardrobe');
+  if (kitchen && wardrobe) {
+    let guard = 60;
+    while (document.querySelectorAll('.mod-tab').length && guard-- > 0) {
+      const d = document.getElementById('delModule');
+      if (!d) break;
+      d.click();
+    }
+    const cat = sandbox.Modul3D.catalog;
+    toggleModGroup(kitchen);
+    const k = modGridItems('kitchen').filter((b) => b.dataset.preset === 'lower600drawers')[0];
+    if (k) k.click();
+    toggleModGroup(kitchen);
+    toggleModGroup(wardrobe);
+    const w = modGridItems('wardrobe').filter((b) => b.dataset.preset === 'hallway')[0];
+    if (!k || !w) fails.push('кухня+шкаф: нет карточек для проверки');
+    else {
+      w.click();
+      const sides = ((sandbox.__lastModel && (sandbox.__lastModel.partsRaw || sandbox.__lastModel.parts)) || [])
+        .filter((q) => q.kind === 'side' && q.moduleUid);
+      const uids = [];
+      sides.forEach((q) => { if (uids.indexOf(q.moduleUid) < 0) uids.push(q.moduleUid); });
+      const matOf = (uid) => sides.filter((q) => q.moduleUid === uid).map((q) => q.material);
+      const white = cat.defaultKitchenCarcassDecor().code, wood = cat.defaultDecor().code;
+      if (uids.length !== 2) fails.push(`кухня+шкаф: ожидалось 2 модуля с боковинами, найдено ${uids.length}`);
+      else {
+        // у кухни видимая боковина — дуб, поэтому смотрим на ВНУТРЕННИЕ детали: дно
+        const bottoms = ((sandbox.__lastModel.partsRaw || sandbox.__lastModel.parts) || []).filter((q) => q.kind === 'bottom' && q.moduleUid);
+        const bm = (uid) => (bottoms.filter((q) => q.moduleUid === uid)[0] || {}).material;
+        if (bm(uids[0]) !== white) fails.push('кухня+шкаф: корпус кухни не белый');
+        if (bm(uids[1]) !== wood) fails.push('кухня+шкаф: корпус шкафа не из дуба по умолчанию');
+      }
+    }
+    toggleModGroup(wardrobe);
   }
 }
 

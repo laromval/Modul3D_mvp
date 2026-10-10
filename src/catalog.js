@@ -2912,10 +2912,21 @@
   // пользователь не выбрал материал ящиков вручную (sec.drawerDecorCode
   // пуст). Если позицию удалили из каталога — ищем тот же декор по названию,
   // затем — декор по умолчанию.
-  const DEFAULT_KITCHEN_DRAWER_DECOR_CODE = 'LINK-1790623797766';
+  // С 2026-10-10 (решение владельца) — «8681 SM Белый бриллиант» 16 мм.
+  const DEFAULT_KITCHEN_DRAWER_DECOR_CODE = 'LINK-1790200284959';
   function defaultKitchenDrawerDecor() {
     return DECORS.find((d) => d.code === DEFAULT_KITCHEN_DRAWER_DECOR_CODE)
-      || DECORS.find((d) => /0110/.test(d.name || ''))
+      || DECORS.find((d) => /8681/.test(d.name || ''))
+      || defaultDecor();
+  }
+  // Корпус КУХОННЫХ модулей (нижних и верхних) по умолчанию — «W1000 ST9 Белый»
+  // 18 мм (решение владельца 2026-10-10); видимые части и фасады кухни — дуб
+  // Бардолино (defaultDecor), ящики — defaultKitchenDrawerDecor. У шкафов и
+  // тумб всё из дуба Бардолино 18 (defaultDecor).
+  const DEFAULT_KITCHEN_CARCASS_CODE = 'FAC-LDSP';
+  function defaultKitchenCarcassDecor() {
+    return DECORS.find((d) => d.code === DEFAULT_KITCHEN_CARCASS_CODE)
+      || DECORS.find((d) => /W1000/.test(d.name || ''))
       || defaultDecor();
   }
 
@@ -2984,5 +2995,6 @@
     findMaterialByCode, findCountertopMaterialByCode, decorHasPattern,
     DEFAULT_DECOR_CODE, defaultDecor,
     DEFAULT_KITCHEN_DRAWER_DECOR_CODE, defaultKitchenDrawerDecor,
+    DEFAULT_KITCHEN_CARCASS_CODE, defaultKitchenCarcassDecor,
   };
 })();

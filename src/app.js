@@ -14,7 +14,7 @@
 (function () {
 // Версия сборки — показывается во вкладке браузера и в шапке.
 // При выпуске новой версии меняется только эта строка.
-const APP_VERSION = 'v452';
+const APP_VERSION = 'v455';
 
 // Номер версии выводим ПЕРВЫМ делом: если дальше что-то упадёт, по нему сразу
 // видно, какая сборка открыта.
@@ -96,6 +96,11 @@ function isQuadroDrawerSystem(sec) {
 function kitchenDrawerDecorObj() {
   const cat = window.Modul3D.catalog;
   return (typeof cat.defaultKitchenDrawerDecor === 'function' && cat.defaultKitchenDrawerDecor()) || defaultDecorObj();
+}
+// Корпус кухонных модулей по умолчанию — «W1000 ST9 Белый» 18 мм.
+function kitchenCarcassDecorObj() {
+  const cat = window.Modul3D.catalog;
+  return (typeof cat.defaultKitchenCarcassDecor === 'function' && cat.defaultKitchenCarcassDecor()) || defaultDecorObj();
 }
 // Тот же декор, что и kitchenDrawerDecorObj() (сейчас оба — «0110 SM
 // Белый») — отдельная функция, а не переиспользование «кухонной» напрямую,
@@ -1720,6 +1725,23 @@ function offerAutosaveRestore() {
 // первая кухня его не заменяет белым (addPresetToProject). Не сохраняется в
 // файл: после перезагрузки в пустой проект белый корпус ставится снова.
 let carcassPickedByUser = false;
+// Индивидуальные корпуса модулей (m.carcassDecor) не должны расходиться с
+// «общим» корпусом проекта без нужды: совпадающие с проектным снимаем, а если
+// ВСЕ модули несут один и тот же свой корпус (например, кухню удалили, остался
+// шкаф из дуба) — он становится корпусом проекта, иначе панель «Материалы»
+// показывала бы старый белый, а в 3D был бы дуб.
+function normalizeCarcassOverrides() {
+  state.modules.forEach((x) => { if (x.carcassDecor && x.carcassDecor === state.decorCode) delete x.carcassDecor; });
+  if (!state.modules.length) return;
+  const first = state.modules[0].carcassDecor;
+  if (first && state.modules.every((x) => x.carcassDecor === first)) {
+    state.decorCode = first;
+    const item = findAnyMaterialByCode(first);
+    if (item && item.thickness) state.bodyThickness = item.thickness;
+    state.modules.forEach((x) => { delete x.carcassDecor; });
+  }
+}
+
 function deleteModule(idx) {
   if (!state.modules[idx]) return;
   // Удаляется любой модуль — не только изолированный: проще и надёжнее
@@ -1736,6 +1758,7 @@ function deleteModule(idx) {
     }
   }
   state.modules.splice(idx, 1);
+  normalizeCarcassOverrides();
   // Удалили последний модуль — проект начат заново, прежний ручной выбор
   // корпуса больше не защищает его от белого корпуса первой кухни.
   if (!state.modules.length) carcassPickedByUser = false;
@@ -2289,7 +2312,7 @@ function libModThumbDataUrl(groupId, it) {
   try {
     const m = it.make();
     const isKitchen = (m.family || 'custom') === 'kitchen';
-    const kitchenThumbDecor = isKitchen ? kitchenDrawerDecorObj() : null;
+    const kitchenThumbDecor = isKitchen ? kitchenCarcassDecorObj() : null;
     // Столешница нижнего яруса кухни на миниатюре — тоже только для наглядности
     // превью (owner: «почему модули кухни без столешницы»). Задаётся ОТДЕЛЬНЫМ
     // полем модуля p.countertop (см. engine.js countertopMat()/ctEnabled) —
@@ -9295,6 +9318,10 @@ function libPickMaterial(rowGroup, code) {
   if (target.role === 'decor') {
     state.decorCode = finalCode;
     carcassPickedByUser = true;
+    // Выбор корпуса для проекта целиком снимает индивидуальный корпус модулей
+    // (кухня белая / шкаф дуб, см. applyDefaultCarcass) — иначе часть модулей
+    // молча осталась бы в старом материале.
+    state.modules.forEach((x) => { delete x.carcassDecor; });
     // Поле «Толщина ЛДСП» убрано (2026-09-28) — толщина корпуса всегда
     // берётся из самого выбранного материала, как и у толщины задней
     // стенки ниже.
@@ -13073,8 +13100,9 @@ function materialsBlock(mod) {
   return `
     <h3>Материалы (общие на проект)</h3>
     <div class="field">
-      <label>Материал корпуса</label>
-      ${matPickPlashkaHtml('decor', 'p-decor', state.decorCode)}
+      <label>Материал корпуса${mod.carcassDecor ? ' (этого модуля)' : ''}</label>
+      ${matPickPlashkaHtml('decor', 'p-decor', mod.carcassDecor || state.decorCode)}
+      ${mod.carcassDecor ? '<div class="hint">У этого модуля свой корпус (кухня — белый, шкаф и тумба — дуб). Выбор в Библиотеке сменит корпус всего проекта.</div>' : ''}
     </div>
     <div class="field">
       <label>Видимая боковина</label>
@@ -16400,6 +16428,16 @@ function renderSectionsList() {
 // сразу (см. libModCopyCard). Пишем его на модуль как mod.libOrigin — по
 // нему «Сохранить» контекстного меню модуля (см. showModuleMenu/
 // libModSaveModule) находит, какую карточку заменить.
+// Корпус по умолчанию на КАЖДЫЙ модуль (решение владельца 2026-10-10): кухня
+// (верхние и нижние) — W1000 ST9 Белый, шкафы и тумбы — дуб Бардолино, причём
+// в одном проекте вместе. Если материал корпуса проекта (state.decorCode)
+// отличается от нужного модулю, ставим ему индивидуальный (m.carcassDecor).
+// Ручной выбор корпуса проекта и уже заданный у модуля корпус не трогаем.
+function applyDefaultCarcass(m) {
+  if (!state.modules.length || carcassPickedByUser || m.carcassDecor) return;
+  const want = m.family === 'kitchen' ? kitchenCarcassDecorObj() : defaultDecorObj();
+  if (want && want.code !== state.decorCode) m.carcassDecor = want.code;
+}
 function addPresetToProject(catId, presetId, placementId) {
   const group = PRESETS.filter((g) => g.id === catId)[0];
   const item = group && group.items.filter((i) => i.id === presetId)[0];
@@ -16427,20 +16465,25 @@ function addPresetToProject(catId, presetId, placementId) {
   // (kitchenDrawerDecorObj), фасад и видимая боковина остаются в декоре.
   // Если пользователь уже выбрал корпус сам — не перезаписываем. Дальше он
   // меняет вручную.
-  if (m.family === 'kitchen' && !state.modules.length && !carcassPickedByUser) {
-    const white = kitchenDrawerDecorObj();
-    if (white && white.code !== state.decorCode) {
-      // «Видимая боковина» и «Материал фасада» в новом проекте уже равны
-      // декору корпуса (дерево) и такими остаются — меняется только корпус.
-      // Если пользователь успел выбрать их сам, они и подавно не трогаются.
-      // Толщина фасада остаётся толщиной прежнего декора корпуса — та же
-      // синхронизация, что и при ручном выборе материала в Библиотеке.
-      state.decorCode = white.code;
-      if (white.thickness) state.bodyThickness = white.thickness;
+  // Решение владельца 2026-10-10: кухня (верхние и нижние) — корпус W1000 ST9
+  // Белый 18, видимые части и фасады — дуб Бардолино 18, ящики — 8681 SM (16);
+  // шкафы и тумбы — всё из дуба Бардолино 18. Правило действует на ПЕРВЫЙ
+  // модуль пустого проекта (материалы общие на проект), ручной выбор корпуса
+  // не перезаписывается.
+  if (!state.modules.length && !carcassPickedByUser) {
+    const wood = defaultDecorObj();
+    const carcass = m.family === 'kitchen' ? kitchenCarcassDecorObj() : wood;
+    if (carcass) {
+      state.decorCode = carcass.code;
+      if (carcass.thickness) state.bodyThickness = carcass.thickness;
+      state.facadeDecorCode = wood.code;
+      state.facadeMatCode = wood.code;
+      if (wood.thickness) state.facadeThickness = wood.thickness;
       // Материал ящиков кухни сюда не пишем: пустой sec.drawerDecorCode у
-      // кухонного модуля = «0110 SM Белый» (effectiveDrawerDecorCode).
+      // кухонного модуля = «8681 SM Белый бриллиант» (effectiveDrawerDecorCode).
     }
   }
+  applyDefaultCarcass(m);
   insertModule(m);
 }
 
@@ -16464,6 +16507,7 @@ function addLibModCardToProject(placementId) {
   } else if (p.params) {
     const m = JSON.parse(JSON.stringify(p.params));
     m.libOrigin = placementId;
+    applyDefaultCarcass(m);
     insertModule(m);
   }
 }
@@ -17218,6 +17262,7 @@ function bindPanelEvents() {
 function recompute(isRetry) {
   // uid модулей — до снимка истории, чтобы он попал и в историю, и в файл.
   ensureModuleUids();
+  normalizeCarcassOverrides();
   // Любое изменение проходит через пересчёт — здесь и снимаем состояние
   // для истории. Повтор (undo/redo) историю не пишет: стоит замок.
   if (!isRetry) pushHistory();
@@ -17259,6 +17304,8 @@ function recompute(isRetry) {
       groupStart: !!m.groupStart, gx: Number(m.gx) || 0, gz: Number(m.gz) || 0,
       topType: m.topType, railWidth: m.railWidth, noBack: !!m.noBack,
       backMount: m.backMount, backMaterialCode: m.backMaterialCode, backGroove: m.backGroove, wallHung: m.wallHung,
+      // Индивидуальный корпус модуля (engine.js: decor: m.carcassDecor || proj.decor).
+      carcassDecor: m.carcassDecor ? (DECORS.find((d) => d.code === m.carcassDecor) || undefined) : undefined,
       // Отметка верха навесного модуля от пола (engine.js, mountBottom).
       mountTop: m.mountTop,
       blindPanel: !!m.blindPanel, blindStrip: m.blindStrip,
