@@ -14,7 +14,7 @@
 (function () {
 // Версия сборки — показывается во вкладке браузера и в шапке.
 // При выпуске новой версии меняется только эта строка.
-const APP_VERSION = 'v457';
+const APP_VERSION = 'v458';
 
 // Номер версии выводим ПЕРВЫМ делом: если дальше что-то упадёт, по нему сразу
 // видно, какая сборка открыта.
@@ -9253,17 +9253,27 @@ function libPickMaterial(rowGroup, code) {
       // вид ещё не задан (ящики повторяют секцию) — закрепляем его, иначе
       // ядро материал ящиков не прочтёт.
       const dId = drawerPickTypeId(info.sec);
-      if (!dId || !facadeMaterialOptionsOf(dId).some((o) => o.code === code)) return;
-      if (!info.sec.drawerFacadeType) info.sec.drawerFacadeType = dId;
+      if (!dId || !facadeMaterialPickOk(dId, code)) return;
+      // Щит другого вида (МДФ/шпон при ЛДСП и наоборот) — вид ящиков меняем сами.
+      const dNew = (dId === 'ldsp' || dId === 'mdf') ? facadeSlabTypeOf(code) : dId;
+      if (!info.sec.drawerFacadeType || info.sec.drawerFacadeType !== dNew) info.sec.drawerFacadeType = dNew;
       info.sec.drawerFacadeMaterial = code;
       libPickReturnToParams(target, info);
       return;
     }
-    if (!facadeMaterialOptionsOf(info.ftId).some((o) => o.code === code)) return;
+    if (!facadeMaterialPickOk(info.ftId, code)) return;
     const store = info.zi == null ? info.sec : ensureDoorZone(info.sec, info.zi);
     if (!store) { state.libPickTarget = null; renderLibraryPanel(); return; }
     // Запись на уровень секции с экрана «Деталь» — ящики остаются как были.
     if (target.pinDrawers && info.zi == null) pinDrawerFacade(info.sec);
+    // Щит другого вида (МДФ/шпон при ЛДСП и наоборот) — вид фасада ставим сами.
+    if (info.ftId === 'ldsp' || info.ftId === 'mdf') {
+      const slab = facadeSlabTypeOf(code);
+      if (slab && slab !== info.ftId) {
+        if (info.zi == null) { pinDrawerFacade(info.sec); delete store.glass; }
+        store.facadeType = slab;
+      }
+    }
     store.facadeMaterial = code;
     if (info.zi == null) clearZoneFacadeOverrides(info.sec);
     libPickReturnToParams(target, info);
@@ -13300,6 +13310,21 @@ function facadeTargetLabel(info) {
   if (!info) return '';
   return `${info.mod.name} · Секция ${info.sec ? info.mod.sections.indexOf(info.sec) + 1 : ''}${info.zi != null ? ` · Отсек ${info.zi + 1}` : ''}`;
 }
+// Вид «щита» (ldsp/mdf) по самому материалу: ЛДСП-лист → 'ldsp', МДФ/шпон →
+// 'mdf'; '' — не щитовой лист (стекло, алюминий и т.п.). Нужен, чтобы «Выбрать»
+// у любого листа (ЛДСП/МДФ/шпон) сам ставил подходящий вид фасада, а не
+// заставлял пользователя сначала переключать его вручную.
+function facadeSlabTypeOf(code) {
+  const ids = ['ldsp', 'mdf'];
+  for (let i = 0; i < ids.length; i++) {
+    if (facadeMaterialOptionsOf(ids[i]).some((o) => o.code === code)) return ids[i];
+  }
+  return '';
+}
+function facadeMaterialPickOk(ftId, code) {
+  if (ftId === 'ldsp' || ftId === 'mdf') return !!facadeSlabTypeOf(code);
+  return facadeMaterialOptionsOf(ftId).some((o) => o.code === code);
+}
 function facadeMaterialOptionsOf(ftId) {
   const engine = window.Modul3D.engine;
   return engine && typeof engine.facadeMaterialOptions === 'function' ? engine.facadeMaterialOptions(ftId) : [];
@@ -13956,9 +13981,9 @@ function libPickRowAllowed(topCode, entry) {
     const info = facadeTargetInfo(t);
     if (info && t.drawers) {
       const dId = drawerPickTypeId(info.sec);
-      return !!dId && facadeMaterialOptionsOf(dId).some((o) => o.code === code);
+      return !!dId && facadeMaterialPickOk(dId, code);
     }
-    return !!info && facadeMaterialOptionsOf(info.ftId).some((o) => o.code === code);
+    return !!info && facadeMaterialPickOk(info.ftId, code);
   }
   return false;
 }
