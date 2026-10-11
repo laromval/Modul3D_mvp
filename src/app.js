@@ -14,7 +14,7 @@
 (function () {
 // Версия сборки — показывается во вкладке браузера и в шапке.
 // При выпуске новой версии меняется только эта строка.
-const APP_VERSION = 'v463';
+const APP_VERSION = 'v464';
 
 // Номер версии выводим ПЕРВЫМ делом: если дальше что-то упадёт, по нему сразу
 // видно, какая сборка открыта.
@@ -1674,10 +1674,16 @@ async function shareProjectFile() {
   const name = projectFileName();
   const text = JSON.stringify(serializeProject(), null, 2);
   if (navigator.share && navigator.canShare) {
-    for (const type of ['application/json', 'text/plain']) {
-      const file = new File([text], name, { type });
+    // Chrome на Android в «Поделиться» пропускает только текстовые типы, .json отвергает —
+    // тогда отдаём тот же JSON как .txt (программа открывает проект по содержимому, не по расширению).
+    const variants = [
+      { type: 'application/json', fileName: name },
+      { type: 'text/plain', fileName: name.replace(/\.json$/i, '') + '.txt' },
+    ];
+    for (const v of variants) {
+      const file = new File([text], v.fileName, { type: v.type });
       if (!navigator.canShare({ files: [file] })) continue;
-      try { await navigator.share({ files: [file], title: name }); return; }
+      try { await navigator.share({ files: [file], title: v.fileName }); return; }
       catch (e) { if (e && e.name === 'AbortError') return; break; }
     }
   }
