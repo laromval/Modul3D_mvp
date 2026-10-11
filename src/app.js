@@ -14,7 +14,7 @@
 (function () {
 // Версия сборки — показывается во вкладке браузера и в шапке.
 // При выпуске новой версии меняется только эта строка.
-const APP_VERSION = 'v456';
+const APP_VERSION = 'v457';
 
 // Номер версии выводим ПЕРВЫМ делом: если дальше что-то упадёт, по нему сразу
 // видно, какая сборка открыта.
@@ -1216,6 +1216,15 @@ function mergeCatalogItem(savedItem, freshItem) {
   CATALOG_REFRESH_FIELDS.forEach((f) => {
     if (freshItem[f] !== undefined) merged[f] = freshItem[f]; else delete merged[f];
   });
+  // Ссылка на страницу декора с текстурой (textureUrl/textureSiteId) — заводская
+  // для встроенных позиций (catalog.js): подтягиваем в сохранённый каталог,
+  // иначе новые ссылки не дошли бы до тех, у кого каталог уже сохранён. Если у
+  // заводской позиции ссылки нет, свою (добавленную по ссылке) не трогаем.
+  if (freshItem.textureUrl !== undefined && freshItem.textureSiteId !== undefined) {
+    merged.textureUrl = freshItem.textureUrl;
+    merged.textureSiteId = freshItem.textureSiteId;
+    if (freshItem.textureFragmentMM !== undefined) merged.textureFragmentMM = freshItem.textureFragmentMM;
+  }
   const savedIsUpload = typeof savedItem.image === 'string' && savedItem.image.indexOf('data:') === 0;
   merged.image = savedIsUpload ? savedItem.image : freshItem.image;
   // Чертёж (колонка «Чертёж» под «Характеристики», см. libDrawingSwatchHtml) —
@@ -8283,7 +8292,12 @@ function libTexAfterSave(form, group, code, values) {
   libTexRelease(form);
   ut.convertSheet(blob, dims)
     // Материал могли удалить, пока шла конвертация — тогда плитку не сохраняем.
-    .then((tile) => (libFindItem(group, code) ? ut.save(code, tile) : null))
+    .then((tile) => {
+      const it = libFindItem(group, code);
+      if (!it) return null;
+      libTexRememberColor(it, tile);
+      return ut.save(code, tile);
+    })
     .then(() => renderLibraryPanel())
     .catch((err) => {
       console.warn('Текстура не сохранена:', err);
@@ -8335,17 +8349,114 @@ async function libTexReload(group, key) {
   state.texBusy[code] = true;
   renderLibraryPanel();
   try {
-    const sheet = await libTexFetchSheet(it.textureSiteId, it.textureUrl);
-    const own = group === 'countertop' ? { sheetW: it.maxLength, sheetH: it.depth } : { sheetW: it.sheetW, sheetH: it.sheetH };
-    const dims = Object.assign(sheet.w && sheet.h ? { sheetW: sheet.w, sheetH: sheet.h } : own,
-      { kind: sheet.kind, fragmentMM: it.textureFragmentMM });
-    const tile = await ut.convertSheet(sheet.blob, dims);
-    await ut.save(code, tile);
+    await libTexLoadTile(group, it, code);
   } catch (err) {
     window.alert('Не удалось загрузить текстуру: ' + err.message);
   } finally {
     delete state.texBusy[code];
     renderLibraryPanel();
+  }
+}
+
+// Общее ядро: лист по textureUrl -> плитка -> IndexedDB этого устройства.
+// Бросает Error с русским текстом; вызывающий решает, как показать ошибку.
+async function libTexLoadTile(group, it, code) {
+  const ut = window.Modul3D.userTextures;
+  const sheet = await libTexFetchSheet(it.textureSiteId, it.textureUrl);
+  const own = group === 'countertop' ? { sheetW: it.maxLength, sheetH: it.depth } : { sheetW: it.sheetW, sheetH: it.sheetH };
+  const dims = Object.assign(sheet.w && sheet.h ? { sheetW: sheet.w, sheetH: sheet.h } : own,
+    { kind: sheet.kind, fragmentMM: it.textureFragmentMM });
+  const tile = await ut.convertSheet(sheet.blob, dims);
+  libTexRememberColor(it, tile);
+  await ut.save(code, tile);
+}
+// Средний цвет листа — в сам материал (уезжает на сервер вместе с каталогом): на
+// устройстве без картинки фасад рисуется этим цветом, а не бежевым «по названию».
+function libTexRememberColor(it, tile) {
+  if (!it || !tile || !/^#[0-9a-f]{6}$/i.test(tile.avg || '') || it.texColor === tile.avg) return;
+  it.texColor = tile.avg;
+  try { scheduleCatalogSave(); } catch (err) { /* не критично */ }
+}
+
+// ---------------------------------------------------------------------------
+// Автозагрузка текстур (2026-10-11). Материал хранит только textureUrl, а
+// картинка листа живёт в IndexedDB устройства. Если материал используется в
+// проекте, а плитки на этом устройстве нет — подтягиваем её сами, в фоне, по
+// одной (сервер ограничивает 12 запросов в минуту). Нужен вход в аккаунт; без
+// него остаётся прежняя пометка с кнопкой «Загрузить» в Библиотеке.
+// ---------------------------------------------------------------------------
+const TEX_CODE_RE = /(?:FAC-|CTOP-)?LINK-\d+/g;
+const texAuto = { timer: null, running: false, again: false, failedAt: {}, notified: {} };
+const TEX_AUTO_RETRY_MS = 60000;   // после ошибки этот материал не трогаем минуту
+
+function texAutoFind(code) {
+  const groups = /^FAC-LINK-/.test(code) ? ['facade'] : /^CTOP-LINK-/.test(code) ? ['countertop'] : ['decors', 'back'];
+  for (const g of groups) {
+    const it = libFindItem(g, code);
+    if (it) return { group: g, it };
+  }
+  return null;
+}
+// Все коды LINK-… из проекта: общие материалы и всё, что лежит в модулях
+// (фасады секций, декор корпуса, ящиков, столешницы, ручные правки деталей).
+function texAutoCodes() {
+  const found = new Set();
+  const scan = (s) => { String(s).replace(TEX_CODE_RE, (m) => { found.add(m); return m; }); };
+  [state.decorCode, state.facadeDecorCode, state.facadeMatCode, state.backCode].forEach((c) => { if (c) scan(c); });
+  try { scan(JSON.stringify(state.modules)); } catch (err) { /* не критично */ }
+  return found;
+}
+function texAutoNotify(msg) {
+  try {
+    let box = document.getElementById('texAutoNote');
+    if (!box) {
+      box = document.createElement('div');
+      box.id = 'texAutoNote';
+      box.style.cssText = 'position:fixed;left:50%;bottom:72px;transform:translateX(-50%);z-index:9999;max-width:88vw;'
+        + 'padding:10px 14px;border-radius:10px;background:rgba(30,35,40,.92);color:#fff;font:13px/1.35 system-ui,sans-serif;'
+        + 'box-shadow:0 4px 16px rgba(0,0,0,.25);pointer-events:none;transition:opacity .3s';
+      document.body.appendChild(box);
+    }
+    box.textContent = msg;
+    box.style.opacity = '1';
+    clearTimeout(box._t);
+    box._t = setTimeout(() => { box.style.opacity = '0'; }, 6000);
+  } catch (err) { console.warn(msg); }
+}
+function texAutoSchedule() {
+  if (texAuto.timer) return;
+  texAuto.timer = setTimeout(() => { texAuto.timer = null; texAutoRun(); }, 400);
+}
+async function texAutoRun() {
+  const ut = window.Modul3D.userTextures;
+  if (!ut || !getAuthToken()) return;
+  if (texAuto.running) { texAuto.again = true; return; }
+  texAuto.running = true;
+  try {
+    for (const code of texAutoCodes()) {
+      if (ut.has(code) || state.texBusy[code]) continue;
+      if (texAuto.failedAt[code] && Date.now() - texAuto.failedAt[code] < TEX_AUTO_RETRY_MS) continue;
+      const hit = texAutoFind(code);
+      if (!hit || !hit.it.textureUrl || !hit.it.textureSiteId) continue;
+      state.texBusy[code] = true;
+      renderLibraryPanel();
+      try {
+        await libTexLoadTile(hit.group, hit.it, code);   // save() сам перерисует сцену
+        delete texAuto.failedAt[code];
+      } catch (err) {
+        texAuto.failedAt[code] = Date.now();
+        if (!texAuto.notified[code]) {
+          texAuto.notified[code] = true;
+          texAutoNotify('Не удалось загрузить текстуру «' + (hit.it.name || code) + '»: ' + err.message);
+        }
+      } finally {
+        delete state.texBusy[code];
+        renderLibraryPanel();
+      }
+    }
+  } finally {
+    texAuto.running = false;
+    if (texAuto.again) { texAuto.again = false; texAutoSchedule(); }
   }
 }
 
@@ -17263,6 +17374,8 @@ function recompute(isRetry) {
   // uid модулей — до снимка истории, чтобы он попал и в историю, и в файл.
   ensureModuleUids();
   normalizeCarcassOverrides();
+  // Выбрали материал / открыли проект — недостающие текстуры подтянутся в фоне.
+  texAutoSchedule();
   // Любое изменение проходит через пересчёт — здесь и снимаем состояние
   // для истории. Повтор (undo/redo) историю не пишет: стоит замок.
   if (!isRetry) pushHistory();
@@ -20213,7 +20326,8 @@ try {
   // асинхронно — по готовности сцена перерисовывается; без IndexedDB молча
   // остаёмся с плоскими цветами.
   if (window.Modul3D.userTextures) {
-    window.Modul3D.userTextures.init(() => { recompute(); renderLibraryPanel(); });
+    window.Modul3D.userTextures.init(() => { recompute(); renderLibraryPanel(); })
+      .then(() => texAutoSchedule());   // IndexedDB прочитана — докачиваем то, чего на устройстве нет
   }
   offerAutosaveRestore();
   initAccountPanel();

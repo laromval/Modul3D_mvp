@@ -173,12 +173,20 @@
       const pctx = probe.getContext('2d');
       pctx.drawImage(canvas, 0, 0, probe.width, probe.height);
       const px = pctx.getImageData(0, 0, probe.width, probe.height).data;
-      let sum = 0;
-      for (let i = 0; i < px.length; i += 4) sum += 0.299 * px[i] + 0.587 * px[i + 1] + 0.114 * px[i + 2];
-      const L = sum / (px.length / 4) || 170;
+      let sum = 0, sr = 0, sg = 0, sb = 0;
+      for (let i = 0; i < px.length; i += 4) {
+        sr += px[i]; sg += px[i + 1]; sb += px[i + 2];
+        sum += 0.299 * px[i] + 0.587 * px[i + 1] + 0.114 * px[i + 2];
+      }
+      const n = px.length / 4 || 1;
+      const L = sum / n || 170;
       const k = Math.round(Math.min(1, 0.88 * 170 / L) * 100) / 100;
+      // Средний цвет листа (#rrggbb): материал хранит его как запасной цвет для
+      // устройств, где картинки листа ещё нет (viewer.js, decorLookBase).
+      const hex2 = (v) => ('0' + Math.max(0, Math.min(255, Math.round(v / n))).toString(16)).slice(-2);
+      const avg = '#' + hex2(sr) + hex2(sg) + hex2(sb);
       // Фрагмент: tileMM — размер длинной стороны, короткая по пропорциям картинки.
-      if (fragment) return { tileMM: w, tileMM2: Math.round(w * lh / lw), sheet: false, k, src };
+      if (fragment) return { tileMM: w, tileMM2: Math.round(w * lh / lw), sheet: false, k, src, avg };
       // Соотношение сторон картинки главнее заявленного размера листа: при
       // расхождении больше 5% подгоняем tileMM2, иначе рисунок растянется.
       const tileMM = Math.max(w, h);
@@ -186,7 +194,7 @@
       const real = lh / lw;
       const mismatch = Math.abs(real / (tileMM2 / tileMM) - 1) > 0.05;
       if (mismatch) tileMM2 = Math.round(tileMM * real);
-      return { tileMM, tileMM2, sheet: true, k, src, mismatch };
+      return { tileMM, tileMM2, sheet: true, k, src, mismatch, avg };
     });
   }
 
