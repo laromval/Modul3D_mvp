@@ -14,7 +14,7 @@
 (function () {
 // Версия сборки — показывается во вкладке браузера и в шапке.
 // При выпуске новой версии меняется только эта строка.
-const APP_VERSION = 'v459';
+const APP_VERSION = 'v460';
 
 // Номер версии выводим ПЕРВЫМ делом: если дальше что-то упадёт, по нему сразу
 // видно, какая сборка открыта.
@@ -67,6 +67,13 @@ const { DECORS, BACK_MATERIALS, DRAWER_SYSTEMS, DRAWER_SYSTEM_ORDER,
 // Декор по умолчанию нового проекта (H1145 ST10, catalog.DEFAULT_DECOR_CODE,
 // решение 2026-09-26) — объект/код. Не «DECORS[0]»: порядок каталога меняют
 // в Библиотеке. Позицию удалили — запасной первый декор (см. defaultDecor).
+// Декор корпуса по коду: сначала DECORS, затем фасадные листы (МДФ/шпон из
+// «Дверей»). Так лист из любого раздела можно выбрать корпусом БЕЗ копии в
+// DECORS (копия плодила дубль в Библиотеке).
+function decorObjByCode(code) {
+  if (!code) return null;
+  return DECORS.find((d) => d.code === code) || findAnyMaterialByCode(code) || null;
+}
 function defaultDecorObj() {
   const cat = window.Modul3D.catalog;
   return (typeof cat.defaultDecor === 'function' && cat.defaultDecor()) || DECORS[0];
@@ -109,7 +116,7 @@ function kitchenCarcassDecorObj() {
 function quadroDrawerDecorObj() { return kitchenDrawerDecorObj(); }
 function carcassDecorCodeOf(mod) {
   const code = (mod && mod.carcassDecor) || state.decorCode;
-  return (DECORS.find((d) => d.code === code) || defaultDecorObj()).code;
+  return (decorObjByCode(code) || defaultDecorObj()).code;
 }
 function effectiveDrawerDecorCode(mod, sec) {
   if (sec && sec.drawerDecorCode) return sec.drawerDecorCode;
@@ -2279,13 +2286,13 @@ function libModThumbBase() {
     // отдельно от app.js, коды могут переименовать или убрать — так уже было
     // 2026-09-03). Без отката buildModel() падает на undefined.code и рвёт
     // всю инициализацию приложения (пустая библиотека, неработающие кнопки).
-    decor: DECORS.find((d) => d.code === state.decorCode) || defaultDecorObj(),
+    decor: decorObjByCode(state.decorCode) || defaultDecorObj(),
     // «Видимая боковина» может ссылаться и на МДФ-панель из FACADE_MATERIALS.
     facadeDecor: findAnyMaterialByCode(state.facadeDecorCode)
-      || DECORS.find((d) => d.code === state.decorCode) || defaultDecorObj(),
+      || decorObjByCode(state.decorCode) || defaultDecorObj(),
     // «Материал фасада» — декор ЛДСП-фасадов по умолчанию.
     facadeMat: findAnyMaterialByCode(state.facadeMatCode)
-      || DECORS.find((d) => d.code === state.decorCode) || defaultDecorObj(),
+      || decorObjByCode(state.decorCode) || defaultDecorObj(),
     backMaterial: BACK_MATERIALS.find((d) => d.code === state.backCode) || BACK_MATERIALS[0],
     worktopDepth: state.worktopDepth,
     jointType: state.jointType,
@@ -2429,11 +2436,11 @@ function libModCustomThumbDataUrl(p) {
   // это просто thumbBase, поведение не меняется.
   const snap = p.materialSnapshot;
   const thumbMats = snap ? {
-    decor: DECORS.find((d) => d.code === snap.decorCode) || defaultDecorObj(),
+    decor: decorObjByCode(snap.decorCode) || defaultDecorObj(),
     facadeDecor: findAnyMaterialByCode(snap.facadeDecorCode)
-      || DECORS.find((d) => d.code === snap.decorCode) || defaultDecorObj(),
+      || decorObjByCode(snap.decorCode) || defaultDecorObj(),
     facadeMat: findAnyMaterialByCode(snap.facadeMatCode)
-      || DECORS.find((d) => d.code === snap.decorCode) || defaultDecorObj(),
+      || decorObjByCode(snap.decorCode) || defaultDecorObj(),
     backMaterial: BACK_MATERIALS.find((d) => d.code === snap.backCode) || BACK_MATERIALS[0],
   } : thumbBase;
   const thumbKeyBase = [
@@ -9396,7 +9403,9 @@ function libPickMaterial(rowGroup, code) {
   const targetGroup = LIB_PICK_ROLE_GROUP[target.role];
   if (!targetGroup) return;
   let finalCode = code;
-  if (rowGroup !== targetGroup) {
+  // «Материал корпуса» берёт лист по коду из любого раздела (decorObjByCode) —
+  // копия в DECORS не нужна. Копируем только для задней стенки.
+  if (rowGroup !== targetGroup && target.role !== 'decor') {
     const src = libFindItem(rowGroup, code);
     if (!src) return;
     const targetArr = targetGroup === 'back' ? BACK_MATERIALS : DECORS;
@@ -14150,7 +14159,7 @@ function drawersPanelBlock(mod, secIndex, zi) {
             ? `По умолчанию для Quadro V6 (${esc(quadroDrawerDecorObj().name)})`
             : (isKitchenModule(mod)
               ? `По умолчанию (${esc(kitchenDrawerDecorObj().name)})`
-              : `Как корпус (${esc((DECORS.find((d) => d.code === carcassDecorCodeOf(mod)) || {}).name || '')})`)}</option>
+              : `Как корпус (${esc((decorObjByCode(carcassDecorCodeOf(mod)) || {}).name || '')})`)}</option>
           ${DECORS.map(d => `<option value="${d.code}" ${sec.drawerDecorCode && d.code === sec.drawerDecorCode ? 'selected' : ''}>${esc(d.name)}</option>`).join('')}
         </select>
         <div class="hint">${isQuadroDrawerSystem(sec)
@@ -17413,14 +17422,14 @@ function recompute(isRetry) {
     // отдельно от app.js, коды могут переименовать или убрать — так уже было
     // 2026-09-03). Без отката buildModel() падает на undefined.code и рвёт
     // всю инициализацию приложения (пустая библиотека, неработающие кнопки).
-    decor: DECORS.find(d => d.code === state.decorCode) || defaultDecorObj(),
+    decor: decorObjByCode(state.decorCode) || defaultDecorObj(),
     // «Видимая боковина» может ссылаться и на МДФ-панель из FACADE_MATERIALS.
     facadeDecor: findAnyMaterialByCode(state.facadeDecorCode)
-      || DECORS.find(d => d.code === state.decorCode) || defaultDecorObj(),
+      || decorObjByCode(state.decorCode) || defaultDecorObj(),
     // «Материал фасада» (2026-09-26) — декор ЛДСП-фасадов по умолчанию,
     // независимый от «Видимой боковины». Читает engine.js как proj.facadeMat.
     facadeMat: findAnyMaterialByCode(state.facadeMatCode)
-      || DECORS.find(d => d.code === state.decorCode) || defaultDecorObj(),
+      || decorObjByCode(state.decorCode) || defaultDecorObj(),
     backMaterial: BACK_MATERIALS.find(d => d.code === state.backCode) || BACK_MATERIALS[0],
     worktopDepth: state.worktopDepth,
     jointType: state.jointType,
@@ -17443,7 +17452,7 @@ function recompute(isRetry) {
       topType: m.topType, railWidth: m.railWidth, noBack: !!m.noBack,
       backMount: m.backMount, backMaterialCode: m.backMaterialCode, backGroove: m.backGroove, wallHung: m.wallHung,
       // Индивидуальный корпус модуля (engine.js: decor: m.carcassDecor || proj.decor).
-      carcassDecor: m.carcassDecor ? (DECORS.find((d) => d.code === m.carcassDecor) || undefined) : undefined,
+      carcassDecor: m.carcassDecor ? (decorObjByCode(m.carcassDecor) || undefined) : undefined,
       // Отметка верха навесного модуля от пола (engine.js, mountBottom).
       mountTop: m.mountTop,
       blindPanel: !!m.blindPanel, blindStrip: m.blindStrip,
