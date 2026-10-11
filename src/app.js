@@ -14,7 +14,7 @@
 (function () {
 // Версия сборки — показывается во вкладке браузера и в шапке.
 // При выпуске новой версии меняется только эта строка.
-const APP_VERSION = 'v460';
+const APP_VERSION = 'v461';
 
 // Номер версии выводим ПЕРВЫМ делом: если дальше что-то упадёт, по нему сразу
 // видно, какая сборка открыта.
@@ -2541,7 +2541,6 @@ function libraryBlock() {
   return `
     ${addModeRowHtml()}
     <div class="lib-link-refresh-bar">
-      <button type="button" class="btn" data-lib-save-project="1" title="Сохранить текущий проект в «Базу модулей»">Сохранить в базу</button>
       ${libAddCatTileHtml('modules')}
     </div>
     ${catsHtml}
@@ -20252,6 +20251,8 @@ function refreshCurrency() {
 // разделение секции по высоте прямо из HUD, без захода в контекстное меню
 // или Focus Mode (см. renderHud/initHud в ui-shell.js).
 window.Modul3D.app = {
+  // «Сохранить в базу» из меню «⋮» в шапке (ui-shell.js): текущий проект → «База модулей».
+  saveProjectToBase: function () { libModSaveProjectAsKit(); },
   // Файл проекта «как при сохранении» — для «＋ → Сохранить проект» во вкладке
   // «Файлы» клиента (src/clientFiles.js): { blob, name }.
   getProjectFile: function () {

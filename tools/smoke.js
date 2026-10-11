@@ -444,8 +444,8 @@ check('стартует без модулей', () => document.querySelectorAll(
 // «База модулей» теперь в отдельной панели «Библиотека» (#libraryPanel),
 // не в #paramsPanel — см. app.js libraryBlock/renderLibraryPanel.
 // Заголовка <h3>База модулей</h3> под вкладками больше нет (2026-09-26, v314) —
-// о том, что вкладка отрисована, говорит кнопка «Сохранить в базу».
-check('на старте видна база модулей', () => /data-lib-save-project/.test($('libraryPanel').innerHTML));
+// о том, что вкладка отрисована, говорит строка «Добавлять: слева/справа/отдельно» (addModeRow).
+check('на старте видна база модулей', () => /id="addModeRow"/.test($('libraryPanel').innerHTML));
 check('на старте есть подсказка о пустом проекте', () => /Проект пуст/.test(panel.innerHTML));
 check('на чертежах написано, что проект пуст', () => /Проект пуст/.test(docsTab('drawings').innerHTML));
 check('пустой проект не даёт ошибок', () => panel.innerHTML.indexOf('Ошибка') === -1);
@@ -634,8 +634,8 @@ check('материалы по умолчанию: корпус/боковина
     const modTab = Array.from(document.querySelectorAll('.lib-tab-btn')).filter((b) => b.dataset.libtab === 'modules')[0];
     if (!tabs || !modTab) return false;
     tabs.dispatch('click', { target: modTab });
-    // Заголовка «База модулей» с v314 нет — о вкладке говорит кнопка «Сохранить в базу».
-    return /data-lib-save-project/.test(libHtml());
+    // Заголовка «База модулей» с v314 нет — о вкладке говорит строка «Добавлять: слева/справа/отдельно» (addModeRow).
+    return /id="addModeRow"/.test(libHtml());
   });
 }
 check('кнопка «назад» возвращает на экран модуля', () => {
@@ -851,8 +851,8 @@ check('в списке фасадов есть открывание вверх',
     const modTab = Array.from(document.querySelectorAll('.lib-tab-btn')).filter((b) => b.dataset.libtab === 'modules')[0];
     if (!tabs || !modTab) return false;
     tabs.dispatch('click', { target: modTab });
-    // Заголовка «База модулей» с v314 нет — о вкладке говорит кнопка «Сохранить в базу».
-    return /data-lib-save-project/.test(libHtml());
+    // Заголовка «База модулей» с v314 нет — о вкладке говорит строка «Добавлять: слева/справа/отдельно» (addModeRow).
+    return /id="addModeRow"/.test(libHtml());
   });
   check('алюм. фасад: вернуть ЛДСП', () => aluSet('ldsp') && !/alu-summary/.test(panelHtml()));
   // Назад на «Конструктив модуля» для следующих проверок (#sectionsList и т.п.).

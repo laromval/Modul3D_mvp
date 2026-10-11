@@ -2729,7 +2729,7 @@ function initCalcFields() {
 }
 
 /* ---------------------------------------------------------------------------
-   Меню «⋮» в шапке (планшет/телефон): Сохранить / Открыть / Обновить страницу.
+   Меню «⋮» в шапке (планшет/телефон): Сохранить / Открыть / Сохранить в базу модулей / Обновить страницу.
    Кнопки «Сохранить» и «Открыть» в шапке на ≤820 px и на любом сенсорном
    экране (pointer: coarse — планшет на весь экран) скрыты стилем, поэтому
    пункты меню просто нажимают их же (#saveProjectBtn/#openProjectBtn) —
@@ -2758,6 +2758,9 @@ function initMoreMenu() {
     } else if (act === 'open') {
       var o = document.getElementById('openProjectBtn');
       if (o) o.click();
+    } else if (act === 'savebase') {
+      var app = window.Modul3D && window.Modul3D.app;
+      if (app && typeof app.saveProjectToBase === 'function') app.saveProjectToBase();
     } else if (act === 'reload') {
       if (window.confirm('Обновить страницу? Несохранённые изменения проекта пропадут — сначала сохраните проект.')) {
         window.location.reload();

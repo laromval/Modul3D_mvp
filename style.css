@@ -3018,7 +3018,7 @@ input.calc-error { outline: 2px solid #d33; outline-offset: -1px; }
 
 /* ---------- Меню «⋮» (сохранить / открыть / обновить) на планшете и телефоне (≤820 px и любой сенсорный экран) ----------
    Стоит последним в шапке, в правом углу; вертикальные точки без рамки и фона. */
-.more-wrap { position: relative; display: none; }
+.more-wrap { position: relative; display: inline-flex; }  /* «Сохранить в базу модулей» живёт только здесь — «⋮» нужен и с мышью */
 .more-wrap .icon-btn svg { width: 18px; height: 18px; }
 .more-wrap { margin-left: -6px; }
 .more-wrap .more-btn { width: 20px; padding: 0; border-color: transparent; background: transparent; box-shadow: none; }
