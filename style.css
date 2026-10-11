@@ -1260,6 +1260,20 @@ body.vt-moving .view-toolbar { transition: none !important; }
   border-top: 1px solid var(--border);
 }
 
+/* Окно «Сохранить проект» — поля названий модулей */
+.save-modal-row { display: flex; flex-direction: column; gap: var(--sp-1); margin-bottom: var(--sp-3); }
+.save-modal-row label { font-size: var(--fs-xs); color: var(--text-dim, inherit); opacity: .8; }
+.save-modal-row input {
+  width: 100%; box-sizing: border-box;
+  padding: var(--sp-2) var(--sp-3);
+  font: inherit; color: inherit;
+  background: var(--surface-solid);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+}
+.save-modal-row input:focus { outline: 2px solid var(--accent, #0284c7); outline-offset: 0; }
+.save-modal-file { margin: 0; font-size: var(--fs-xs); opacity: .7; word-break: break-all; }
+
 /* ---------- 8. СОДЕРЖИМОЕ ПАНЕЛИ ПАРАМЕТРОВ ------------------------------ */
 
 .panel h3 {

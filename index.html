@@ -744,6 +744,25 @@
     </div>
   </div>
 
+  <!-- Окно «Сохранить проект»: можно переименовать модули перед сохранением.
+       Название первого модуля идёт в имя файла. См. src/app.js:
+       saveProjectToFile/showSaveProjectModal. -->
+  <div class="confirm-modal-scrim" id="saveProjectModal" aria-hidden="true">
+    <div class="confirm-modal" role="dialog" aria-modal="true" aria-labelledby="saveProjectModalTitle">
+      <div class="confirm-modal-head">
+        <h2 class="confirm-modal-title" id="saveProjectModalTitle">Сохранить проект</h2>
+        <button class="icon-btn confirm-modal-close" type="button" id="saveProjectModalClose" aria-label="Закрыть">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
+        </button>
+      </div>
+      <div class="confirm-modal-body" id="saveProjectModalBody"></div>
+      <div class="confirm-modal-actions">
+        <button type="button" class="btn" id="saveProjectModalCancel">Отмена</button>
+        <button type="button" class="btn btn-primary" id="saveProjectModalOk">Сохранить</button>
+      </div>
+    </div>
+  </div>
+
   <!-- ---------- Мобильная шторка 40 px ---------- -->
   <div class="mobile-sheet-bar" id="mobileBar">
     <button class="rail-btn" type="button" data-panel="clients" aria-label="Клиенты">

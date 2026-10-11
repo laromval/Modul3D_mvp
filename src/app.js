@@ -14,7 +14,7 @@
 (function () {
 // Версия сборки — показывается во вкладке браузера и в шапке.
 // При выпуске новой версии меняется только эта строка.
-const APP_VERSION = 'v461';
+const APP_VERSION = 'v462';
 
 // Номер версии выводим ПЕРВЫМ делом: если дальше что-то упадёт, по нему сразу
 // видно, какая сборка открыта.
@@ -1592,7 +1592,75 @@ function projectFileName() {
   return `${base}-${stamp}.json`;
 }
 
+// Окно «Сохранить проект»: перед скачиванием файла даёт переименовать модули
+// (название первого модуля попадает в имя файла). Разметка — #saveProjectModal
+// в index.html. Отмена/Esc/клик по фону — ничего не сохраняется и не меняется.
+let saveModalOpen = false;
 function saveProjectToFile() {
+  const overlay = document.getElementById('saveProjectModal');
+  const body = document.getElementById('saveProjectModalBody');
+  if (saveModalOpen) return;
+  const mods = state.modules || [];
+  // Нет разметки или в проекте ещё нет модулей — переименовывать нечего, сохраняем сразу.
+  if (!overlay || !body || !mods.length) { downloadProjectFile(); return; }
+  const rows = mods.map((m, i) => `<div class="save-modal-row">
+      <label for="saveModName${i}">${mods.length > 1 ? `Название модуля ${i + 1}` : 'Название модуля'}</label>
+      <input id="saveModName${i}" type="text" maxlength="60" value="${esc(m.name || '')}" data-save-mod="${i}">
+    </div>`).join('');
+  body.innerHTML = `${rows}<p class="save-modal-file">Файл: <b id="saveModFile"></b></p>`;
+  const inputs = Array.from(body.querySelectorAll('[data-save-mod]'));
+  const fileEl = body.querySelector('#saveModFile');
+  const previewName = () => {
+    const first = inputs[0] ? inputs[0].value.trim() : '';
+    const base = (first || (mods[0] && mods[0].name) || 'проект').replace(/[\\/:*?"<>|]+/g, '_');
+    const d = new Date();
+    const pad = (n) => String(n).padStart(2, '0');
+    fileEl.textContent = `${base}-${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}.json`;
+  };
+  inputs.forEach((inp) => inp.addEventListener('input', previewName));
+  previewName();
+
+  const close = () => {
+    saveModalOpen = false;
+    overlay.classList.remove('open');
+    overlay.setAttribute('aria-hidden', 'true');
+    document.removeEventListener('keydown', onKey, true);
+    okBtn.onclick = cancelBtn.onclick = closeBtn.onclick = overlay.onclick = null;
+  };
+  const confirm = () => {
+    let renamed = false;
+    inputs.forEach((inp) => {
+      const m = mods[Number(inp.dataset.saveMod)];
+      const next = inp.value.trim();
+      if (!m || !next || next === m.name) return;
+      if (state.selected === m.name) state.selected = next;
+      m.name = next;
+      renamed = true;
+    });
+    close();
+    if (renamed) { renderParamsPanel(); recompute(); }
+    downloadProjectFile();
+  };
+  const onKey = (e) => {
+    if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); close(); }
+    else if (e.key === 'Enter' && e.target && e.target.tagName === 'INPUT') { e.preventDefault(); confirm(); }
+  };
+  const okBtn = document.getElementById('saveProjectModalOk');
+  const cancelBtn = document.getElementById('saveProjectModalCancel');
+  const closeBtn = document.getElementById('saveProjectModalClose');
+  okBtn.onclick = confirm;
+  cancelBtn.onclick = close;
+  closeBtn.onclick = close;
+  overlay.onclick = (e) => { if (e.target === overlay) close(); };
+  document.addEventListener('keydown', onKey, true);
+
+  saveModalOpen = true;
+  overlay.classList.add('open');
+  overlay.setAttribute('aria-hidden', 'false');
+  if (inputs[0]) { inputs[0].focus(); inputs[0].select(); }
+}
+
+function downloadProjectFile() {
   const blob = new Blob([JSON.stringify(serializeProject(), null, 2)], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
