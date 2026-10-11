@@ -14,7 +14,7 @@
 (function () {
 // Версия сборки — показывается во вкладке браузера и в шапке.
 // При выпуске новой версии меняется только эта строка.
-const APP_VERSION = 'v464';
+const APP_VERSION = 'v465';
 
 // Номер версии выводим ПЕРВЫМ делом: если дальше что-то упадёт, по нему сразу
 // видно, какая сборка открыта.
@@ -1673,6 +1673,7 @@ function saveProjectToFile() {
 async function shareProjectFile() {
   const name = projectFileName();
   const text = JSON.stringify(serializeProject(), null, 2);
+  const why = [];   // что именно не удалось — покажем, если не сработает ничего
   if (navigator.share && navigator.canShare) {
     // Chrome на Android в «Поделиться» пропускает только текстовые типы, .json отвергает —
     // тогда отдаём тот же JSON как .txt (программа открывает проект по содержимому, не по расширению).
@@ -1682,11 +1683,26 @@ async function shareProjectFile() {
     ];
     for (const v of variants) {
       const file = new File([text], v.fileName, { type: v.type });
-      if (!navigator.canShare({ files: [file] })) continue;
+      let can = false;
+      try { can = navigator.canShare({ files: [file] }); } catch (e) { why.push(v.type + ': canShare ' + (e && e.name)); continue; }
+      if (!can) { why.push(v.type + ': браузер не принимает файл'); continue; }
       try { await navigator.share({ files: [file], title: v.fileName }); return; }
-      catch (e) { if (e && e.name === 'AbortError') return; break; }
+      catch (e) {
+        if (e && e.name === 'AbortError') return;
+        why.push(v.type + ': ' + (e && e.name) + ' ' + ((e && e.message) || ''));
+      }
     }
+    // Файл не принят — отправляем проект текстом (его можно сохранить в заметки, мессенджер, почту).
+    try { await navigator.share({ title: name, text }); return; }
+    catch (e) {
+      if (e && e.name === 'AbortError') return;
+      why.push('текст: ' + (e && e.name) + ' ' + ((e && e.message) || ''));
+    }
+  } else {
+    why.push('браузер не поддерживает «Поделиться»');
   }
+  console.warn('Share failed:', why);
+  window.alert('Поделиться не получилось (' + why.join('; ') + '). Файл будет скачан обычным способом.');
   downloadProjectFile();
 }
 
