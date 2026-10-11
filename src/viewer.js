@@ -5646,7 +5646,12 @@ class Viewer3D {
       const isMdf = row.facadeType === 'mdf' || row.facadeType === 'mdfMilled';
       // Текстуру «под древесину» кладём только на древесные декоры: на белом
       // и чёрном ЛДСП её быть не должно.
-      const ldspLike = !glass && !isMdf && (look ? look.wood : true);
+      // МДФ с древесным декором (шпон дуба/ясеня и т.п.) — не крашеный белый
+      // щит: рисуем рисунком дерева и цветом самого декора (раньше любой МДФ-фасад
+      // становился белым глянцем, и выбранный шпон «не применялся»).
+      const mdfWood = isMdf && !glass && !!(look && look.wood);
+      const mdfPaint = isMdf && !mdfWood;   // гладкая эмаль/плёнка
+      const ldspLike = !glass && (!isMdf || mdfWood) && (look ? look.wood : true);
       // Подсветка секции/детали — приоритет НАД декором/isActive/ghost/
       // drillCheck: если эта деталь — фасад выбранной секции ИЛИ конкретная
       // деталь, открытая на экране «Деталь», красим её бирюзовым и никакую
@@ -5667,10 +5672,10 @@ class Viewer3D {
       const grainV = !!tex && grainRunsAlongV(row.grainAxis, planeIsX, planeIsY);
       const mat = new THREE.MeshStandardMaterial({
         color: hiCyan ? SECTION_HI_COLOR
-          : (glassFacade ? GLASS4_COLOR : (glass ? 0xbfe3ea : (xray ? 0x7fb0d8 : ((look && look.tile && tex) ? tileColor(look.tile.k) : (isMdf ? (isActive ? 0x7fb0d8 : 0xf2efe9) : color))))),
+          : (glassFacade ? GLASS4_COLOR : (glass ? 0xbfe3ea : (xray ? 0x7fb0d8 : ((look && look.tile && tex) ? tileColor(look.tile.k) : (mdfPaint ? (isActive ? 0x7fb0d8 : (look ? look.color : 0xf2efe9)) : color))))),
         map: tex || null,
-        roughness: glass ? 0.1 : (isMdf ? 0.12 : 0.75),
-        metalness: isMdf ? 0.05 : 0.02,
+        roughness: glass ? 0.1 : (mdfPaint ? 0.12 : 0.75),
+        metalness: mdfPaint ? 0.05 : 0.02,
         emissive: hiCyan ? SECTION_HI_EMISSIVE : ((isActive || xray) ? 0x14314a : 0x000000),
         // xray — та же прозрачность, что и в drillCheck (стекло остаётся
         // со своей, оно и так прозрачное; подсветка — со своей).
@@ -6812,7 +6817,7 @@ function renderThumbnail(model, opts) {
       // только у двери/ящика) отличает фасад от полки.
       const glassFacade = !!row.glass && asFacade;
       const isMdf = row.facadeType === 'mdf' || row.facadeType === 'mdfMilled';
-      const ldspLike = !row.glass && !isMdf && (look ? look.wood : true);
+      const ldspLike = !row.glass && (!isMdf || !!(look && look.wood)) && (look ? look.wood : true);
       const tex = (realistic && ldspLike) ? woodTexture() : null;
 
       // Разворот детали (row.rot, 0/90/180/270°) — тот же приём, что и в
