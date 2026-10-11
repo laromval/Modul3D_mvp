@@ -14,7 +14,7 @@
 (function () {
 // Версия сборки — показывается во вкладке браузера и в шапке.
 // При выпуске новой версии меняется только эта строка.
-const APP_VERSION = 'v462';
+const APP_VERSION = 'v463';
 
 // Номер версии выводим ПЕРВЫМ делом: если дальше что-то упадёт, по нему сразу
 // видно, какая сборка открыта.
@@ -1626,8 +1626,10 @@ function saveProjectToFile() {
     overlay.setAttribute('aria-hidden', 'true');
     document.removeEventListener('keydown', onKey, true);
     okBtn.onclick = cancelBtn.onclick = closeBtn.onclick = overlay.onclick = null;
+    const sb = document.getElementById('saveProjectModalShare');
+    if (sb) sb.onclick = null;
   };
-  const confirm = () => {
+  const confirm = (mode) => {
     let renamed = false;
     inputs.forEach((inp) => {
       const m = mods[Number(inp.dataset.saveMod)];
@@ -1639,7 +1641,7 @@ function saveProjectToFile() {
     });
     close();
     if (renamed) { renderParamsPanel(); recompute(); }
-    downloadProjectFile();
+    if (mode === 'share') shareProjectFile(); else downloadProjectFile();
   };
   const onKey = (e) => {
     if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); close(); }
@@ -1648,7 +1650,13 @@ function saveProjectToFile() {
   const okBtn = document.getElementById('saveProjectModalOk');
   const cancelBtn = document.getElementById('saveProjectModalCancel');
   const closeBtn = document.getElementById('saveProjectModalClose');
-  okBtn.onclick = confirm;
+  const shareBtn = document.getElementById('saveProjectModalShare');
+  if (shareBtn) {
+    // «Поделиться» есть только там, где браузер умеет отдавать файл системному меню (Android, iOS).
+    shareBtn.style.display = (navigator.share && navigator.canShare) ? '' : 'none';
+    shareBtn.onclick = () => confirm('share');
+  }
+  okBtn.onclick = () => confirm('download');
   cancelBtn.onclick = close;
   closeBtn.onclick = close;
   overlay.onclick = (e) => { if (e.target === overlay) close(); };
@@ -1658,6 +1666,22 @@ function saveProjectToFile() {
   overlay.classList.add('open');
   overlay.setAttribute('aria-hidden', 'false');
   if (inputs[0]) { inputs[0].focus(); inputs[0].select(); }
+}
+
+// «Поделиться»: системное меню планшета/телефона (Диск, «Файлы», Telegram, почта…).
+// Если браузер не принимает такой файл — тихо откатываемся на обычное скачивание.
+async function shareProjectFile() {
+  const name = projectFileName();
+  const text = JSON.stringify(serializeProject(), null, 2);
+  if (navigator.share && navigator.canShare) {
+    for (const type of ['application/json', 'text/plain']) {
+      const file = new File([text], name, { type });
+      if (!navigator.canShare({ files: [file] })) continue;
+      try { await navigator.share({ files: [file], title: name }); return; }
+      catch (e) { if (e && e.name === 'AbortError') return; break; }
+    }
+  }
+  downloadProjectFile();
 }
 
 function downloadProjectFile() {
